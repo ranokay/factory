@@ -41,12 +41,12 @@ steps {
         files = List("{{root}}/profiles/universal/tests/fixtures/commented-code.sh")
         expect { code = 1 }
       }
-      ["rejects a commented-out YAML key"] {
+      ["rejects a commented-out key line"] {
         run = "check"
         write { ["{{tmp}}/comment.sh"] = "# run: mise run check\n" }
         expect { code = 1 }
       }
-      ["rejects a commented-out YAML item"] {
+      ["rejects a commented-out list item"] {
         run = "check"
         write { ["{{tmp}}/comment.sh"] = "# - uses: actions/checkout@v4\n" }
         expect { code = 1 }

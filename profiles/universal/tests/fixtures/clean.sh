@@ -4,6 +4,8 @@
 # typos: prepare
 # yamllint disable-line rule:line-length
 # pinact: ignore
+# Note: profiles/universal/hk.pkl
+# Source: docs/adr
 unused=ok
 count="$#"
 total=$#

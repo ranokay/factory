@@ -19,10 +19,11 @@ https://host/#anchor are not comments.
 
 Banned markers are case-sensitive: TODO, FIXME, HACK, XXX.
 
-A comment is commented-out code when its body is name=value, a key: value,
-a YAML list item, starts with a shell, build or language keyword (if,
-echo, git, mise, const, import, return, SELECT and the like), starts with
-a path or flag (./build.sh, --release), is [table], or ends in ;, { or }.
+A comment is commented-out code when its body is name=value, a known
+workflow key (run:, uses:, jobs: and the like), a YAML list item that
+starts code, starts with a shell, build or language keyword (if, echo,
+git, mise, const, import, return, SELECT and the like), starts with a path
+or flag (./build.sh, --release), is [table], or ends in ;, { or }.
 
 Exempt tool directives: shellcheck, zizmor:, typos:, yamllint, pinact,
 oxlint-, biome-, eslint-, prettier-ignore, shfmt, tombi, editorconfig.
@@ -94,7 +95,8 @@ for file in "$@"; do
 			v = s
 			sub(/^[A-Za-z0-9_.-]+:[ \t]+/, "", v)
 			if (is_code(v)) return 1
-			if (v ~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.\/-]+(@[^ \t]+)?$/) return 1
+			if (v ~ /^(\.\/|\/|~\/|\$|\{\{)/) return 1
+			if (v ~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.\/-]+@[^ \t]+$/) return 1
 			return 0
 		}
 
