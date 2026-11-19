@@ -4,4 +4,4 @@ Every third-party skill lives under `skills/<name>` byte-for-byte at the commit 
 
 Git submodules were rejected because a harness must see one flat `skills/` folder, and hand-copying was rejected because it cannot detect drift or show updates. The trade-off is a small sync CLI and its fixture tests inside the Factory.
 
-Content Gates that judge prose or formatting skip the vendored trees, because their bytes cannot be edited; `gitleaks` still scans them.
+Typos and editorconfig-checker skip vendored trees, and shellcheck and shfmt skip the individual vendored files that fail them, because those bytes cannot be edited; `gitleaks` still scans them.

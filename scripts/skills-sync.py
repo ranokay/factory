@@ -231,7 +231,7 @@ def compare_trees(expected, actual, label, suffix=""):
     for relative in sorted(set(expected) - set(actual)):
         problems.append(f"{label}/{relative}: missing{suffix}")
     for relative in sorted(set(actual) - set(expected)):
-        problems.append(f"{label}/{relative}: unexpected file")
+        problems.append(f"{label}/{relative}: unexpected file{suffix}")
     for relative in sorted(set(expected) & set(actual)):
         if expected[relative] != actual[relative]:
             problems.append(f"{label}/{relative}: modified{suffix}")
@@ -259,8 +259,7 @@ def check_patches(root, entries, problems):
                 continue
             label = f"patches/{child.name}"
             actual = tree_hashes(child)
-            for message in compare_trees(known[child.name], actual, label):
-                problems.append(message)
+            problems.extend(compare_trees(known[child.name], actual, label))
     for entry in entries:
         directory = patch_directory(root, entry["name"])
         for name in sorted(entry["patches"]):

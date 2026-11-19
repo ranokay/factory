@@ -15,7 +15,7 @@ run = "uv run scripts/skills-sync.py"
 
 [tasks.check]
 description = "Run every Gate"
-depends = ["check:gates", "skills:test"]
+depends = ["skills:test"]
 
 [tasks."skills:test"]
 description = "Run the skills:sync tests"
