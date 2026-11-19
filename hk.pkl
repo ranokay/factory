@@ -200,6 +200,11 @@ steps {
         env { ["RUN_SLOT_CASE"] = "orphan" }
         expect { code = 0 }
       }
+      ["an owner directory failure names the path"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "owner_permission" }
+        expect { code = 0 }
+      }
     }
   }
 }

@@ -49,7 +49,7 @@ case_traversal() {
 case_permission() {
 	mkdir -p "$work/a"
 	chmod 500 "$work/a"
-	refused "cannot create" "$run_slot" acquire a/one 1
+	refused "cannot create $work/a/one" "$run_slot" acquire a/one 1
 	chmod 700 "$work/a"
 	check_count 0
 	printf 'ok: a permission failure is not a duplicate slot\n'
@@ -84,12 +84,30 @@ case_concurrent() {
 case_orphan() {
 	"$run_slot" acquire a/one 1 >/dev/null
 	mkdir "$work/.machine/2"
+	touch -t 200001010000 "$work/.machine/2"
 	refused "2 Runs already active on this machine" "$run_slot" acquire a/two 2
 	"$run_slot" release a/one
+	if [ -d "$work/.machine/2" ]; then
+		printf 'expected the crashed machine slot to be pruned\n' >&2
+		return 1
+	fi
+	if [ -d "$work/a" ]; then
+		printf 'expected the owner directory to be released\n' >&2
+		return 1
+	fi
 	"$run_slot" acquire a/two 2 >/dev/null
 	check_count 1
 	expect_slot a/two 2 -
 	printf 'ok: a crashed machine slot is pruned\n'
+}
+
+case_owner_permission() {
+	mkdir "$work/.machine"
+	chmod 500 "$work"
+	refused "cannot create $work/a" "$run_slot" acquire a/one 1
+	chmod 700 "$work"
+	check_count 0
+	printf 'ok: an owner directory failure names the path\n'
 }
 
 check_count() {
@@ -103,12 +121,12 @@ check_count() {
 refused() {
 	expected=$1
 	shift
-	if "$@" >/dev/null 2>"$work/stderr"; then
+	if "$@" >/dev/null 2>"$stderr_file"; then
 		printf 'expected a refusal: %s\n' "$*" >&2
 		return 1
 	fi
-	if ! grep -Fq "$expected" "$work/stderr"; then
-		printf 'expected stderr to contain %s, got: %s\n' "$expected" "$(cat "$work/stderr")" >&2
+	if ! grep -Fq "$expected" "$stderr_file"; then
+		printf 'expected stderr to contain %s, got: %s\n' "$expected" "$(cat "$stderr_file")" >&2
 		return 1
 	fi
 	return 0
@@ -131,6 +149,7 @@ run_case() {
 }
 
 test_root=$(mktemp -d)
+stderr_file=$test_root/stderr
 trap 'rm -rf "$test_root"' EXIT
 case ${RUN_SLOT_CASE:-all} in
 two) run_case case_two ;;
@@ -141,6 +160,7 @@ traversal) run_case case_traversal ;;
 permission) run_case case_permission ;;
 concurrent) run_case case_concurrent ;;
 orphan) run_case case_orphan ;;
+owner_permission) run_case case_owner_permission ;;
 all)
 	run_case case_two
 	run_case case_third
@@ -150,6 +170,7 @@ all)
 	run_case case_permission
 	run_case case_concurrent
 	run_case case_orphan
+	run_case case_owner_permission
 	;;
 *)
 	printf 'unknown case: %s\n' "$RUN_SLOT_CASE" >&2

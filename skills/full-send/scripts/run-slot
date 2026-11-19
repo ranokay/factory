@@ -97,15 +97,15 @@ prune_machine() {
     [ -d "$candidate" ] || continue
     index=${candidate##*/}
     referenced=
-    while IFS= read -r slot; do
-      if [ -f "$slot/machine" ] && [ "$(cat "$slot/machine")" = "$index" ]; then
+    while IFS= read -r repo_slot; do
+      if [ -f "$repo_slot/machine" ] && [ "$(cat "$repo_slot/machine")" = "$index" ]; then
         referenced=1
         break
       fi
     done <<EOF
 $(find "$root" -mindepth 2 -maxdepth 2 -type d ! -path "$machine_root/*")
 EOF
-    if [ -z "$referenced" ]; then
+    if [ -z "$referenced" ] && [ -n "$(find "$candidate" -maxdepth 0 -mmin +1 -print)" ]; then
       rm -f "$candidate/repo" "$candidate"/*.tmp
       rmdir "$candidate" || fail "cannot release machine slot $index"
     fi
