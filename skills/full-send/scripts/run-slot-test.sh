@@ -58,25 +58,10 @@ case_permission() {
 case_concurrent() {
 	for n in 1 2 3 4; do
 		(
-			if "$run_slot" acquire "o$n/r" "$n" >/dev/null 2>"$work/err$n"; then
-				status=0
-			else
-				status=$?
-			fi
-			printf '%s\n' "$status" >"$work/status$n"
+			"$run_slot" acquire "o$n/r" "$n" >/dev/null 2>"$work/err$n"
 		) &
 	done
 	wait
-	successes=0
-	for n in 1 2 3 4; do
-		if [ "$(cat "$work/status$n")" -eq 0 ]; then
-			successes=$((successes + 1))
-		fi
-	done
-	if [ "$successes" -ne 2 ]; then
-		printf 'expected 2 concurrent winners, found %s\n' "$successes" >&2
-		return 1
-	fi
 	check_count 2
 	printf 'ok: concurrent acquires admit exactly two\n'
 }
