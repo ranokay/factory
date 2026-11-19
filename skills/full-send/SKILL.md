@@ -87,7 +87,7 @@ Done when the issue is claimed, its slot is held and its thread is running.
 Notices, thread-wait completions and the user all wake you, and the same state can wake you twice. Act on the current state, not on the wake:
 
 - `handed-off <fork>`: the fork is now the issue's live thread. Record it with `run-slot set-thread` and end your turn.
-- `merged <PR URL> <SHA>`: confirm with `gh pr view` that the PR is merged and the issue is closed. Close an issue the PR left open, with a comment linking the PR. Release the slot and go to step 2.
+- `merged <PR URL> <SHA>`: confirm with `gh pr view <PR URL>` that the PR is merged and the issue is closed. Close an issue the PR left open, with a comment linking the PR. Release the slot and go to step 2.
 - `stopped <thread> · <reason>` or `done <branch>`: go to step 4.
 - A thread-wait completion with no notice since launch: read the Supervisor's last message (`t3_thread_read`, `limit: 1`, `maxCharsPerItem: 2000`). Act on a handoff or escalation it reports. A thread that failed or ended without either goes to step 4.
 - Anything else: end your turn.
@@ -104,7 +104,7 @@ Done when the issue carries the comment and the label.
 
 ### 5. Ask and report
 
-When the run stops with parked issues or a refused slot, send a one-line push notification if the harness has a tool for it: `full-send <repo>: <m> merged, <p> parked, needs you`, or `full-send <repo>: stopped, <reason>` for a refusal. Then ask through the harness's question tool (`AskUserQuestion` in Claude Code, `request_user_input` in Codex), one question per parked issue, four per call. Each carries the issue, the reason, the stopped thread's link, and the options from its brief with your recommendation first. Every question also offers "Leave it parked".
+When the run stops with parked issues or a refused slot, send a one-line push notification if the harness has a tool for it: `full-send <repo>: <m> merged, <p> parked, needs you`. When a refusal is why the run stopped, send `full-send <repo>: stopped, <reason>` instead. Then ask through the harness's question tool (`AskUserQuestion` in Claude Code, `request_user_input` in Codex), one question per parked issue, four per call. Each carries the issue, the reason, the stopped thread's link, and the options from its brief with your recommendation first. Every question also offers "Leave it parked".
 
 Resume the answered issues one at a time. Remove the needs-info label, send the answer and the retarget line to the stopped thread with `t3_thread_send` (`mode: "queue"`), and go to step 3. When the last answered issue merges or parks again, go to step 2.
 
