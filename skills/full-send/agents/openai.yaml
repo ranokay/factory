@@ -1,0 +1,5 @@
+interface:
+  display_name: "Full Send"
+  short_description: "Take every ready issue to a merged PR, one at a time"
+policy:
+  allow_implicit_invocation: false

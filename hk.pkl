@@ -156,4 +156,35 @@ steps {
       }
     }
   }
+
+  ["run-slot"] = new Step {
+    check = "sh {{root}}/skills/full-send/scripts/run-slot-test.sh"
+    tests {
+      ["two slots succeed"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "two" }
+        expect { code = 0 }
+      }
+      ["a third repo is refused"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "third" }
+        expect { code = 0 }
+      }
+      ["a second slot for the same repo is refused"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "same" }
+        expect { code = 0 }
+      }
+      ["release frees a slot"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "release" }
+        expect { code = 0 }
+      }
+      ["a traversal is refused"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "traversal" }
+        expect { code = 0 }
+      }
+    }
+  }
 }

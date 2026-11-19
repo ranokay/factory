@@ -1,0 +1,3 @@
+interface:
+  display_name: "Merge PR"
+  short_description: "Merge a ready PR and clean up its branches"

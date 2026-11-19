@@ -1,0 +1,129 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: run-slot <command> [arguments]
+
+Commands:
+  acquire <owner>/<repo> <issue>   Take the repo's run slot and print its path
+  set-thread <owner>/<repo> <id>   Record the Run's live thread
+  release <owner>/<repo>           Release the repo's run slot
+  list                             Print owner/repo, issue and thread per slot
+
+Slots live under $RUN_SLOT_DIR, defaulting to
+$HOME/.local/state/agent-tools/runs. The Factory allows 2 Runs per machine
+and 1 per repo.
+EOF
+}
+
+root=${RUN_SLOT_DIR:-"$HOME/.local/state/agent-tools/runs"}
+
+fail() {
+  printf 'run-slot: %s\n' "$1" >&2
+  exit 1
+}
+
+valid_repo() {
+  [ -n "$1" ] || return 1
+  case $1 in
+  */*/* | /* | */ | *[!A-Za-z0-9_./-]*) return 1 ;;
+  esac
+  case $1 in
+  *..* | .* | */.*) return 1 ;;
+  esac
+  case ${1#*/} in
+  */* | "") return 1 ;;
+  esac
+  return 0
+}
+
+slot_for() {
+  printf '%s/%s\n' "$root" "$1"
+}
+
+require_repo() {
+  [ -n "${1:-}" ] || fail "missing <owner>/<repo>"
+  valid_repo "$1" || fail "invalid repository $1"
+}
+
+acquire() {
+  [ "$#" -eq 2 ] || fail "acquire takes <owner>/<repo> and <issue>"
+  require_repo "$1"
+  case $2 in
+  '' | *[!0-9]*) fail "issue must be a number" ;;
+  esac
+  slot=$(slot_for "$1")
+  mkdir -p "$(dirname "$slot")" || fail "cannot create $root"
+  mkdir "$slot" 2>/dev/null || fail "$1 already has a Run"
+  count=$(find "$root" -mindepth 2 -maxdepth 2 -type d | wc -l | tr -d ' ')
+  if [ "$count" -gt 2 ]; then
+    rmdir "$slot"
+    fail "2 Runs already active on this machine"
+  fi
+  printf '%s\n' "$2" >"$slot/issue"
+  printf '%s\n' "$slot"
+}
+
+set_thread() {
+  [ "$#" -eq 2 ] || fail "set-thread takes <owner>/<repo> and <thread>"
+  require_repo "$1"
+  slot=$(slot_for "$1")
+  if [ ! -d "$slot" ]; then
+    fail "$1 has no Run slot"
+  fi
+  printf '%s\n' "$2" >"$slot/thread"
+}
+
+release() {
+  [ "$#" -eq 1 ] || fail "release takes <owner>/<repo>"
+  require_repo "$1"
+  slot=$(slot_for "$1")
+  if [ ! -d "$slot" ]; then
+    return 0
+  fi
+  rm -f "$slot/issue" "$slot/thread"
+  rmdir "$slot" || fail "cannot release $1"
+  rmdir "$(dirname "$slot")" 2>/dev/null || true
+}
+
+list() {
+  [ "$#" -eq 0 ] || fail "list takes no arguments"
+  if [ ! -d "$root" ]; then
+    return 0
+  fi
+  find "$root" -mindepth 2 -maxdepth 2 -type d | sort | while IFS= read -r slot; do
+    relative=${slot#"$root"/}
+    issue=-
+    thread=-
+    if [ -f "$slot/issue" ]; then
+      issue=$(cat "$slot/issue")
+    fi
+    if [ -f "$slot/thread" ]; then
+      thread=$(cat "$slot/thread")
+    fi
+    printf '%s\t%s\t%s\n' "$relative" "$issue" "$thread"
+  done
+}
+
+main() {
+  [ "$#" -ge 1 ] || {
+    usage >&2
+    exit 2
+  }
+  cmd=$1
+  shift
+  case $cmd in
+  acquire) acquire "$@" ;;
+  set-thread) set_thread "$@" ;;
+  release) release "$@" ;;
+  list) list "$@" ;;
+  -h | --help) usage ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+  esac
+}
+
+main "$@"

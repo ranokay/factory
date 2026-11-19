@@ -1,0 +1,3 @@
+interface:
+  display_name: "Babysit PR"
+  short_description: "Fix reviews, verify gates, merge, and clean up a PR"
