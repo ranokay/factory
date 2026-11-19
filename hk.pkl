@@ -34,6 +34,13 @@ steps {
         before = "\(fixture) clean"
         expect { code = 0 }
       }
+      ["the mise task runs the check"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) clean && mise --cd {{root}} run skills:sync --check --root {{tmp}} > task.log"
+        after = "grep -q 'check passed for 3 vendored skills' task.log"
+        expect { code = 0 }
+      }
       ["check rejects a hand-edited file"] {
         run = "check"
         tmpdir = true
