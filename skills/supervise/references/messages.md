@@ -66,7 +66,7 @@ The comment it posts, with the marker that `blocker-notify.yml` looks for:
 
 A budget Blocker always passes `--evidence` for the last evidence and `--finding` for every open finding; `none` is only for a Blocker that has neither, such as a quota failure before any work.
 
-The script posts the comment first and adds `blocked` second, so the label event always sees the comment. Where the repository has the caller, `blocker-notify.yml` then comments the issue link and this comment's URL as `github-actions[bot]`, which is what produces the GitHub Mobile push: GitHub sends no notification for an @mention from ranokay's own account. The project template installs the caller; `ranokay/factory` has it. If the issue already carries `blocked` and a Blocker comment, the script prints that URL and changes nothing. Add or remove `blocked` only through this shape, and remove it when the Run resumes.
+The script posts the comment first and adds `blocked` second, so the label event always sees the comment. Where the repository has the caller, `blocker-notify.yml` then comments the issue link and this comment's URL as `github-actions[bot]`, which is what produces the GitHub Mobile push: GitHub sends no notification for an @mention from ranokay's own account. The Project Template installs the caller; `ranokay/factory` has it. If the issue already carries `blocked` and a Blocker comment, the script prints that URL and changes nothing. Add or remove `blocked` only through this shape, and remove it when the Run resumes.
 
 ## Launch brief
 

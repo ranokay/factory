@@ -109,8 +109,8 @@ Repository merge rules still win over these defaults.
 ## Blockers
 
 A Blocker, as `GLOSSARY.md` defines it, is a condition this thread cannot clear
-with its own access. The ones specific to this thread are a protection that
-refuses the merge and an exhausted CI retry budget. Never mock around it, narrow
+with its own access. Beyond the glossary's conditions, this thread adds a
+protection that refuses the merge and an exhausted CI retry budget. Never mock around it, narrow
 scope or weaken a check to finish.
 
 Inside a Run, post the shape in `supervise`'s `references/messages.md` with the

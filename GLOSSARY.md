@@ -11,7 +11,7 @@ The public repository that holds the global instructions, skills, shared configs
 _Avoid_: wiki, dotfiles, agent-workflows
 
 **Project Template**:
-The instructions, Profiles and workflows under `project/` that `new` and `adopt` copy into a repository.
+The starting files under `project/` that seed a repository.
 _Avoid_: repo template, boilerplate
 
 **System of Record**:
