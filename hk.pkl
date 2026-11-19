@@ -1,1 +1,134 @@
 amends "profiles/universal/hk.pkl"
+
+import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+import "pkl:json"
+
+local lock = new json.Parser {}.parse(read("skills.lock"))
+local vendored = lock.skills.fold(List(), (acc, skill) -> acc.add("skills/\(skill.name)/**"))
+
+steps {
+  ["typos"] {
+    exclude = vendored
+  }
+  ["editorconfig-checker"] {
+    exclude = vendored
+  }
+  ["shellcheck"] {
+    exclude = List("skills/wizard/template.sh")
+  }
+  ["shfmt"] {
+    exclude = List(
+      "skills/wizard/template.sh",
+      "skills/diagnosing-bugs/scripts/hitl-loop.template.sh",
+      "skills/statechart/scripts/statechart",
+    )
+  }
+  ["skills-sync"] = new Step {
+    check = "{{root}}/scripts/skills-sync --check --root ."
+    fix = "{{root}}/scripts/skills-sync --root ."
+    tests {
+      local const fixture = "python3 {{root}}/scripts/skills-sync-fixture.py"
+      ["check accepts a clean fixture"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) clean"
+        expect { code = 0 }
+      }
+      ["check rejects a hand-edited file"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) edit"
+        expect {
+          code = 1
+          stderr = "skills/alpha/SKILL.md"
+        }
+      }
+      ["check rejects an added file"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) add"
+        expect {
+          code = 1
+          stderr = "skills/alpha/extra.md"
+        }
+      }
+      ["check rejects a deleted file"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) delete"
+        expect {
+          code = 1
+          stderr = "skills/alpha/reference.md"
+        }
+      }
+      ["sync re-applies a patch"] {
+        run = "fix"
+        tmpdir = true
+        before = "\(fixture) patch"
+        expect {
+          code = 0
+          files {
+            ["skills/alpha/SKILL.md"] = "patched alpha\n"
+          }
+        }
+      }
+      ["sync names a conflicting patch"] {
+        run = "fix"
+        tmpdir = true
+        before = "\(fixture) patch-conflict"
+        expect {
+          code = 1
+          stderr = "patches/alpha/0001-alpha.patch"
+        }
+      }
+      ["update prints the upstream diff"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) update && {{root}}/scripts/skills-sync --update --root . > update.log"
+        after = "grep -q '^-alpha$' update.log && grep -q '^+alpha v2$' update.log"
+        expect {
+          code = 0
+          files {
+            ["skills/alpha/SKILL.md"] = "alpha v2\n"
+          }
+        }
+      }
+      ["fetch check rejects a tampered file and lock"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) tamper"
+        after = "if {{root}}/scripts/skills-sync --check --fetch --root . > fetch.log 2>&1; then cat fetch.log; exit 1; fi; grep -q 'differs from upstream' fetch.log"
+        expect { code = 0 }
+      }
+      ["check rejects a patch directory with no lock entry"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) orphan-patch"
+        expect {
+          code = 1
+          stderr = "patches/orphan: no lock entry"
+        }
+      }
+      ["check rejects a tampered patch file"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) patch-tamper"
+        expect {
+          code = 1
+          stderr = "patches/alpha/0001-alpha.patch"
+        }
+      }
+      ["sync leaves a directory with no lock entry alone"] {
+        run = "fix"
+        tmpdir = true
+        before = "\(fixture) own-skill"
+        expect {
+          code = 0
+          files {
+            ["skills/own-skill/SKILL.md"] = "own\n"
+          }
+        }
+      }
+    }
+  }
+}

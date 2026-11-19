@@ -2,5 +2,12 @@ min_version = "2026.11.10"
 
 include = ["./profiles/universal/mise.toml"]
 
+[tools]
+python = "3.13.18"
+
 [task_config]
 includes = ["profiles/universal/tasks.toml"]
+
+[tasks."skills:sync"]
+description = "Sync Vendored Skills at their pins; --check, --check --fetch or --update"
+run = "scripts/skills-sync"
