@@ -122,6 +122,23 @@
       ]
     },
     {
+      "name": "choreograph",
+      "source": "https://github.com/emilkowalski/skills.git",
+      "path": "skills/choreograph",
+      "commit": "64eb3deb9a5fbfa041faf783e0bc3fd635872e9c",
+      "patches": [],
+      "files": [
+        {
+          "path": "RECIPES.md",
+          "sha256": "c256ff760f42d905b19f97becd2c0caaf40a95b41b49770c973281374c9600cf"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "0a6802bb2fd5a3993842d48332b8ab56ae5bab369ffa8700f85f6fcff56b8478"
+        }
+      ]
+    },
+    {
       "name": "codacy-analysis-cli",
       "source": "https://github.com/codacy/codacy-skills.git",
       "path": "skills/codacy-analysis-cli",

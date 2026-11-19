@@ -33,7 +33,7 @@ def make_upstream(base):
     git(repo, "init", "--quiet")
     write(repo / "skills/alpha/SKILL.md", "alpha\n")
     write(repo / "skills/alpha/reference.md", "reference\n")
-    write(repo / "skills/beta/SKILL.md", "beta\n")
+    write(repo / "skills/beta/SKILL.md", "beta\n\nRead ../alpha/SKILL.md.\n")
     write(
         repo / "skills/untangle-codebase/SKILL.md",
         "---\nname: untangle-codebase\ndisable-model-invocation: true\n---\n\nuntangle\n",
@@ -139,6 +139,15 @@ def main():
         for item in alpha["files"]:
             if item["path"] == "SKILL.md":
                 item["sha256"] = sha256(base / "skills/alpha/SKILL.md")
+        save_lock(base, lock)
+    elif scenario == "dangling-reference":
+        path = base / "skills/alpha/SKILL.md"
+        write(path, "alpha\n\nRead ../missing/SKILL.md.\n")
+        lock = load_lock(base)
+        alpha = next(entry for entry in lock["skills"] if entry["name"] == "alpha")
+        for item in alpha["files"]:
+            if item["path"] == "SKILL.md":
+                item["sha256"] = sha256(path)
         save_lock(base, lock)
     elif scenario == "human-only":
         path = base / "skills/untangle-codebase/SKILL.md"

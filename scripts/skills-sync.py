@@ -15,6 +15,7 @@ LOCK_VERSION = 1
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 HASH = re.compile(r"^[0-9a-f]{64}$")
 HUMAN_ONLY = {"untangle-codebase": "disable-model-invocation: true"}
+REFERENCE = re.compile(rb"\.\./([a-z0-9-]+)/SKILL\.md")
 ENTRY_FIELDS = ("name", "source", "path", "commit", "patches", "files")
 
 
@@ -181,6 +182,27 @@ def ensure_commit(clone, commit):
         shell(["git", "-C", str(clone), "fetch", "--quiet", "origin", commit])
 
 
+def references(directory):
+    found = set()
+    for path in sorted(p for p in directory.rglob("*") if p.is_file()):
+        for match in REFERENCE.finditer(path.read_bytes()):
+            found.add((path.relative_to(directory).as_posix(), match.group(1).decode()))
+    return sorted(found)
+
+
+def staged_reference_problems(root, staged):
+    problems = []
+    for name, directory in sorted(staged.items()):
+        for relative, reference in references(directory):
+            if reference in staged or (root / "skills" / reference).is_dir():
+                continue
+            problems.append(
+                f"skills/{name}/{relative}: references ../{reference}/SKILL.md "
+                f"but skills/{reference} does not exist"
+            )
+    return problems
+
+
 def materialize(root, entry, clone, staging):
     commit = entry["commit"]
     path = entry["path"]
@@ -223,6 +245,9 @@ def stage_all(root, lock, new_commits, workspace, clones=None):
         clone = clone_source(entry["source"], workspace, clones)
         ensure_commit(clone, commit)
         staged[entry["name"]] = materialize(root, entry, clone, staging)
+    problems = staged_reference_problems(root, staged)
+    if problems:
+        raise SyncError("; ".join(problems))
     return staged
 
 
@@ -285,6 +310,12 @@ def check(root, lock):
             require_human_only(directory, name)
         except SyncError as error:
             problems.append(str(error))
+        for relative, reference in references(directory):
+            if not (skills / reference).is_dir():
+                problems.append(
+                    f"{label}/{relative}: references ../{reference}/SKILL.md "
+                    f"but skills/{reference} does not exist"
+                )
     check_patches(root, entries, problems)
     if problems:
         return report(problems, "check")

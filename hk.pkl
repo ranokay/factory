@@ -107,6 +107,15 @@ steps {
         after = "if uv run {{root}}/scripts/skills-sync.py --check --fetch --root . > fetch.log 2>&1; then cat fetch.log; exit 1; fi; grep -q 'differs from upstream' fetch.log"
         expect { code = 0 }
       }
+      ["check rejects a dangling skill reference"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) dangling-reference"
+        expect {
+          code = 1
+          stderr = "references ../missing/SKILL.md but skills/missing does not exist"
+        }
+      }
       ["check rejects a dropped model-invocation flag"] {
         run = "check"
         tmpdir = true
