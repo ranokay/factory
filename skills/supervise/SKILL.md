@@ -29,9 +29,9 @@ This skill needs T3 Code's orchestration tools (`delegate_task`, `t3_thread_send
 
 ## Blockers
 
-A Blocker, as `GLOSSARY.md` defines it, is a condition the Run cannot clear with its own access. In a Run that means the attempt budget, an exhausted Orchestrator quota, a missing credential or permission, Reviewers that cannot run, or a product decision that is ranokay's. Never work around one by mocking it, narrowing scope or weakening the Definition of Done, and never downgrade the model or the effort to keep going. An exhausted Orchestrator quota is a Blocker that parks the Run; the Dispatcher stops launching.
+A Blocker, as `GLOSSARY.md` defines it, is a condition the Run cannot clear with its own access; in a Run the common ones are the attempt budget and an exhausted Orchestrator quota. Never work around one by mocking it, narrowing scope or weakening the Definition of Done, and never downgrade the model or the effort to keep going. An exhausted Orchestrator quota is a Blocker that parks the Run; the Dispatcher stops launching.
 
-With an issue, post the shape from [messages](references/messages.md) with `<this skill's directory>/scripts/block-issue`: it posts the one comment that mentions @ranokay, states the exact unblock step, and carries the last evidence and open findings, then adds `blocked`. The comment comes first, so `blocker-notify.yml` always finds it and delivers the GitHub Mobile push. A budget Blocker always passes the last evidence and the open findings; another Blocker passes what it has and `none` where it has neither. Then end your turn with the brief. Remove `blocked` when the Run resumes.
+With an issue, post the shape from [messages](references/messages.md) with `<this skill's directory>/scripts/block-issue`: it posts the one comment that mentions @ranokay, states the exact unblock step, and carries the last evidence and open findings, then adds `blocked`. The comment comes first, so `blocker-notify.yml` finds it, and where the repository has the caller, delivers the GitHub Mobile push. A budget Blocker always passes the last evidence and the open findings; another Blocker passes what it has and `none` where it has neither. Then end your turn with the brief. Remove `blocked` when the Run resumes.
 
 A task that names no issue escalates in its thread only: no label, no comment, no `block-issue`.
 

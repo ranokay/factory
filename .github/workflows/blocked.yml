@@ -10,7 +10,6 @@ jobs:
   notify:
     name: Notify
     permissions:
-      contents: read
       issues: write
     if: github.event.label.name == 'blocked'
     uses: $/.github/workflows/blocker-notify.yml

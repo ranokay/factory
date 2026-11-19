@@ -11,7 +11,6 @@ jobs:
   notify:
     name: Notify
     permissions:
-      contents: read
       issues: write
     runs-on: ubuntu-latest
     timeout-minutes: 5

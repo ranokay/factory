@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+# shellcheck source=skills/supervise/scripts/valid-repo.sh
+# shellcheck disable=SC1091
+. "$script_dir/../../supervise/scripts/valid-repo.sh"
+
 usage() {
   cat <<'EOF'
 Usage: run-slot <command> [arguments]
@@ -24,20 +29,6 @@ machine_root=$root/.machine
 fail() {
   printf 'run-slot: %s\n' "$1" >&2
   exit 1
-}
-
-valid_repo() {
-  [ -n "$1" ] || return 1
-  case $1 in
-  */*/* | /* | */ | *[!A-Za-z0-9_./-]*) return 1 ;;
-  esac
-  case $1 in
-  *..* | .* | */.*) return 1 ;;
-  esac
-  case ${1#*/} in
-  */* | "") return 1 ;;
-  esac
-  return 0
 }
 
 normalize_repo() {

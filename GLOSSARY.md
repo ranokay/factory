@@ -10,6 +10,10 @@ The machinery that takes ranokay's work from idea to merged, verified change acr
 The public repository that holds the global instructions, skills, shared configs and reusable CI workflows. It holds machinery only, never project knowledge or secrets.
 _Avoid_: wiki, dotfiles, agent-workflows
 
+**Project Template**:
+The instructions, Profiles and workflows under `project/` that `new` and `adopt` copy into a repository.
+_Avoid_: repo template, boilerplate
+
 **System of Record**:
 GitHub issues, labels, pull requests and their comments: the only durable home of work state.
 _Avoid_: plan file, todo list, progress file

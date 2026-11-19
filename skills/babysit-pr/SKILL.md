@@ -109,10 +109,9 @@ Repository merge rules still win over these defaults.
 ## Blockers
 
 A Blocker, as `GLOSSARY.md` defines it, is a condition this thread cannot clear
-with its own access: a missing permission, a protection that refuses the merge,
-a required reviewer that cannot run, an exhausted CI retry budget, or a decision
-only ranokay can make. Never mock around it, narrow scope or weaken a check to
-finish.
+with its own access. The ones specific to this thread are a protection that
+refuses the merge and an exhausted CI retry budget. Never mock around it, narrow
+scope or weaken a check to finish.
 
 Inside a Run, post the shape in `supervise`'s `references/messages.md` with the
 `scripts/block-issue` in the Supervisor skill directory the handoff names, for
