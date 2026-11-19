@@ -23,6 +23,11 @@ fail() {
   exit 2
 }
 
+script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+# shellcheck source=skills/supervise/scripts/valid-repo.sh
+# shellcheck disable=SC1091
+. "$script_dir/valid-repo.sh"
+
 [ "$#" -ge 2 ] || {
   usage >&2
   exit 2
@@ -30,12 +35,7 @@ fail() {
 repo=$1
 issue=$2
 shift 2
-case $repo in
-*/*/* | /* | */ | *[!A-Za-z0-9_./-]*) fail "invalid repository $repo" ;;
-esac
-case $repo in
-*..* | .* | */.*) fail "invalid repository $repo" ;;
-esac
+valid_repo "$repo" || fail "invalid repository $repo"
 case $issue in
 '' | *[!0-9]*) fail "issue must be a number" ;;
 esac

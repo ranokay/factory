@@ -12,9 +12,10 @@ baseline, so harness processes and LSP servers recorded before the Run do
 not fail it, while every dev server, watcher or simulator the Run started
 does.
 
-State lives under the agent state directory (`$XDG_STATE_HOME` or
-`~/.local/state`) in `agent-tools/process-receipt`, keyed by the worktree path.
-The script never reports itself or its parent chain.
+State lives in the worktree's git directory, so removing the worktree removes
+it; outside a git worktree it falls back to the agent state directory
+($XDG_STATE_HOME or ~/.local/state). The script never reports itself or its
+parent chain.
 EOF
 }
 
@@ -45,10 +46,15 @@ esac
 root=$(cd "$worktree" 2>/dev/null && pwd -P) || fail "no such worktree: $worktree"
 given=$(cd "$worktree" 2>/dev/null && pwd) || fail "no such worktree: $worktree"
 cd /
-state_root=${XDG_STATE_HOME:-"$HOME/.local/state"}/agent-tools/process-receipt
-state_file=$state_root/$(printf '%s' "$root" | cksum | awk '{print $1}')
 
 command -v lsof >/dev/null 2>&1 || fail "lsof is required"
+
+if git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+  state_file=$(git -C "$root" rev-parse --path-format=absolute --git-path process-receipt)
+else
+  state_root=${XDG_STATE_HOME:-"$HOME/.local/state"}/agent-tools/process-receipt
+  state_file=$state_root/$(printf '%s' "$root" | cksum | awk '{print $1}')
+fi
 
 excluded=' '
 pid=$$
@@ -61,7 +67,8 @@ while :; do
 done
 
 cwd_pids() {
-  ROOT=$root lsof -a -d cwd -Fpn 2>/dev/null | ROOT=$root awk '
+  listing=$(lsof -u "$(id -u)" -a -d cwd -Fpn) || return 1
+  printf '%s\n' "$listing" | ROOT=$root awk '
     BEGIN { root = ENVIRON["ROOT"] }
     /^p/ { pid = substr($0, 2); next }
     /^n/ {
@@ -72,12 +79,13 @@ cwd_pids() {
 }
 
 argv_pids() {
-  ROOT=$root GIVEN=$given ps -Ao pid=,command= | ROOT=$root GIVEN=$given awk '
+  listing=$(ps -Ao pid=,command=) || return 1
+  printf '%s\n' "$listing" | ROOT=$root GIVEN=$given awk '
     BEGIN {
       root = ENVIRON["ROOT"]
       given = ENVIRON["GIVEN"]
     }
-    function one(s, needle,   p, c) {
+    function mentions_path(s, needle,   p, c) {
       while ((p = index(s, needle)) > 0) {
         c = substr(s, p + length(needle), 1)
         if (c == "" || c !~ /[A-Za-z0-9._-]/) return 1
@@ -86,8 +94,8 @@ argv_pids() {
       return 0
     }
     function mentions(s) {
-      if (one(s, root)) return 1
-      if (given != root && one(s, given)) return 1
+      if (mentions_path(s, root)) return 1
+      if (given != root && mentions_path(s, given)) return 1
       return 0
     }
     $1 ~ /^[0-9]+$/ && mentions($0) { print $1 }
@@ -95,10 +103,9 @@ argv_pids() {
 }
 
 current_pids() {
-  {
-    cwd_pids
-    argv_pids
-  } | sort -u | while IFS= read -r pid; do
+  cwd=$(cwd_pids) || return 1
+  argv=$(argv_pids) || return 1
+  printf '%s\n%s\n' "$cwd" "$argv" | sort -u | while IFS= read -r pid; do
     [ -n "$pid" ] || continue
     case " $excluded " in
     *" $pid "*) continue ;;
@@ -114,7 +121,8 @@ current_pids() {
 
 booted_sims() {
   command -v xcrun >/dev/null 2>&1 || return 0
-  xcrun simctl list devices booted 2>/dev/null | awk '
+  listing=$(xcrun simctl list devices booted) || return 1
+  printf '%s\n' "$listing" | awk '
     /\(Booted\)/ {
       line = $0
       if (match(line, /\([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\)/)) {
@@ -125,9 +133,9 @@ booted_sims() {
 }
 
 baseline() {
-  mkdir -p "$state_root"
-  pids=$(current_pids)
-  sims=$(booted_sims)
+  pids=$(current_pids) || fail "cannot list processes under $root"
+  sims=$(booted_sims) || fail "cannot list booted simulators"
+  mkdir -p "$(dirname "$state_file")"
   {
     printf '%s\n' "$pids" | sed '/^$/d; s/^/p /'
     printf '%s\n' "$sims" | sed '/^$/d; s/^/s /'
@@ -139,8 +147,9 @@ baseline() {
 
 check() {
   [ -f "$state_file" ] || fail "no baseline for $root; run process-receipt baseline $root before starting processes"
+  current=$(current_pids) || fail "cannot list processes under $root"
   status=0
-  new=$(current_pids | while IFS= read -r pid; do
+  new=$(printf '%s\n' "$current" | while IFS= read -r pid; do
     [ -n "$pid" ] || continue
     if ! grep -qx "p $pid" "$state_file"; then
       printf '%s\n' "$pid"
@@ -155,22 +164,24 @@ check() {
   else
     printf 'processes: none\n'
   fi
-  sims=$(booted_sims)
-  if [ -z "$sims" ]; then
-    if command -v xcrun >/dev/null 2>&1; then
+  if command -v xcrun >/dev/null 2>&1; then
+    if ! sims=$(booted_sims); then
+      printf 'simulators: unknown (xcrun failed)\n'
+      status=1
+    elif [ -z "$sims" ]; then
       printf 'simulators: none\n'
     else
-      printf 'simulators: not checked (no xcrun)\n'
+      for sim in $sims; do
+        if grep -qx "s $sim" "$state_file"; then
+          printf 'simulator %s: pre-existing\n' "$sim"
+        else
+          printf 'simulator %s: new\n' "$sim"
+          status=1
+        fi
+      done
     fi
   else
-    for sim in $sims; do
-      if grep -qx "s $sim" "$state_file"; then
-        printf 'simulator %s: pre-existing\n' "$sim"
-      else
-        printf 'simulator %s: new\n' "$sim"
-        status=1
-      fi
-    done
+    printf 'simulators: not checked (no xcrun)\n'
   fi
   exit "$status"
 }

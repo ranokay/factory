@@ -7,72 +7,13 @@ block=$script_dir/block-issue
 test_root=$(mktemp -d)
 trap 'rm -rf "$test_root"' EXIT
 
-export GH_LOG="$test_root/log"
-export GH_BODY="$test_root/body"
-export GH_LABELS="$test_root/labels"
-export GH_COMMENTS="$test_root/comments"
-: >"$GH_LOG"
-: >"$GH_LABELS"
-: >"$GH_COMMENTS"
-
-mkdir -p "$test_root/bin"
-cat >"$test_root/bin/gh" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$*" >>"$GH_LOG"
-case "$1 $2" in
-"issue view")
-	cat "$GH_LABELS"
-	;;
-"api "*)
-	cat "$GH_COMMENTS"
-	;;
-"issue comment")
-	[ -z "${GH_FAIL_COMMENT:-}" ] || exit 1
-	body=
-	previous=
-	for argument in "$@"; do
-		[ "$previous" = "--body-file" ] && body=$argument
-		previous=$argument
-	done
-	cp "$body" "$GH_BODY"
-	printf 'https://example.test/issue/6#issuecomment-1\n'
-	;;
-"issue edit")
-	exit 0
-	;;
-*)
-	exit 1
-	;;
-esac
-EOF
-chmod +x "$test_root/bin/gh"
-PATH=$test_root/bin:$PATH
-export PATH
-
-expect_contains() {
-	haystack=$1
-	needle=$2
-	if ! printf '%s\n' "$haystack" | grep -Fq "$needle"; then
-		printf 'expected output to contain %s, got:\n%s\n' "$needle" "$haystack" >&2
-		return 1
-	fi
-}
-
-expect_body() {
-	if ! grep -Fq "$1" "$GH_BODY"; then
-		printf 'expected the comment body to contain %s, got:\n%s\n' "$1" "$(cat "$GH_BODY")" >&2
-		return 1
-	fi
-}
-
-reset_fixtures() {
-	: >"$GH_LOG"
-	: >"$GH_LABELS"
-	: >"$GH_COMMENTS"
-}
+# shellcheck source=skills/supervise/scripts/test-lib.sh
+# shellcheck disable=SC1091
+. "$script_dir/test-lib.sh"
+init_gh_stub "$test_root"
 
 case_post() {
-	reset_fixtures
+	reset_gh_fixtures
 	output=$("$block" o/one 6 --reason 'Worker failed the Gate three times' --unblock 'Raise the timeout in mise.toml' --evidence 'https://example.test/evidence' --finding 'F1: the Gate still fails')
 	expect_contains "$output" 'https://example.test/issue/6#issuecomment-1'
 	expect_body '@ranokay Worker failed the Gate three times'
@@ -96,7 +37,7 @@ case_post() {
 }
 
 case_idempotent() {
-	reset_fixtures
+	reset_gh_fixtures
 	printf 'blocked\n' >"$GH_LABELS"
 	printf '%s\n' 'https://example.test/issue/6#issuecomment-0' >"$GH_COMMENTS"
 	output=$("$block" o/one 6 --reason 'again' --unblock 'again')
@@ -109,7 +50,7 @@ case_idempotent() {
 }
 
 case_missing() {
-	reset_fixtures
+	reset_gh_fixtures
 	if "$block" o/one 6 --reason 'only a reason' >/dev/null 2>"$test_root/err"; then
 		printf 'expected a refusal without --unblock\n' >&2
 		return 1
@@ -122,8 +63,22 @@ case_missing() {
 	printf 'ok: refuses a Blocker without an unblock step\n'
 }
 
+case_invalid_repo() {
+	reset_gh_fixtures
+	if "$block" ../evil 6 --reason 'reason' --unblock 'step' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for a traversal\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'invalid repository'
+	if [ -s "$GH_LOG" ]; then
+		printf 'expected no gh calls, got:\n%s\n' "$(cat "$GH_LOG")" >&2
+		return 1
+	fi
+	printf 'ok: refuses a repository traversal\n'
+}
+
 case_failure() {
-	reset_fixtures
+	reset_gh_fixtures
 	if GH_FAIL_COMMENT=1 "$block" o/one 6 --reason 'reason' --unblock 'step' >/dev/null 2>&1; then
 		printf 'expected a failed comment to fail the script\n' >&2
 		return 1
@@ -139,11 +94,13 @@ case ${BLOCK_ISSUE_CASE:-all} in
 post) case_post ;;
 idempotent) case_idempotent ;;
 missing) case_missing ;;
+invalid_repo) case_invalid_repo ;;
 failure) case_failure ;;
 all)
 	case_post
 	case_idempotent
 	case_missing
+	case_invalid_repo
 	case_failure
 	;;
 *)

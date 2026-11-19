@@ -226,6 +226,11 @@ steps {
         env { ["BLOCK_ISSUE_CASE"] = "missing" }
         expect { code = 0 }
       }
+      ["refuses a repository traversal"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "invalid_repo" }
+        expect { code = 0 }
+      }
       ["stops before the label when the comment fails"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "failure" }
@@ -286,6 +291,16 @@ steps {
       ["reports a simulator booted after the baseline"] {
         run = "check"
         env { ["PROCESS_RECEIPT_CASE"] = "simulator" }
+        expect { code = 0 }
+      }
+      ["reports a failed xcrun instead of none"] {
+        run = "check"
+        env { ["PROCESS_RECEIPT_CASE"] = "simulator_unknown" }
+        expect { code = 0 }
+      }
+      ["keeps the baseline in the git directory"] {
+        run = "check"
+        env { ["PROCESS_RECEIPT_CASE"] = "git_state" }
         expect { code = 0 }
       }
     }

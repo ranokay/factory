@@ -12,7 +12,7 @@ The first line of every message:
 - answers on their own: `supervise · answers · after <head SHA>`
 - PR handoff: `supervise · approved <head SHA>`
 
-Rounds count failed attempts. A delivery that fails the Gate or ends a review round with a blocking finding is one failed attempt; a Run allows three, and a failure in round 4 makes it a Blocker. Plan rounds (`plan <n>/2`) are not attempts.
+Rounds count failed attempts. A delivery that fails the Gate or ends a review round with a blocking finding is one failed attempt. A Run gets up to four attempts: the first three failures may be followed by another, and a failure in round 4 makes it a Blocker. No fifth round runs. Plan rounds (`plan <n>/2`) are not attempts.
 
 The fork wakes the Supervisor with these headers, and the Supervisor replies to the fork:
 
@@ -64,7 +64,9 @@ The comment it posts, with the marker that `blocker-notify.yml` looks for:
 **Open findings:** <findings, or none>
 ```
 
-The script posts the comment first and adds `blocked` second, so the label event always sees the comment. `blocker-notify.yml` then comments the issue link and this comment's URL as `github-actions[bot]`, which is what produces the GitHub Mobile push: GitHub sends no notification for an @mention from ranokay's own account. If the issue already carries `blocked` and a Blocker comment, the script prints that URL and changes nothing. Add or remove `blocked` only through this shape, and remove it when the Run resumes.
+A budget Blocker always passes `--evidence` for the last evidence and `--finding` for every open finding; `none` is only for a Blocker that has neither, such as a quota failure before any work.
+
+The script posts the comment first and adds `blocked` second, so the label event always sees the comment. Where the repository has the caller, `blocker-notify.yml` then comments the issue link and this comment's URL as `github-actions[bot]`, which is what produces the GitHub Mobile push: GitHub sends no notification for an @mention from ranokay's own account. The project template installs the caller; `ranokay/factory` has it. If the issue already carries `blocked` and a Blocker comment, the script prints that URL and changes nothing. Add or remove `blocked` only through this shape, and remove it when the Run resumes.
 
 ## Launch brief
 

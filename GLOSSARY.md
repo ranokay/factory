@@ -61,7 +61,7 @@ One issue taken from ready to merged by an Orchestrator and its Worker.
 _Avoid_: thread, session, job
 
 **Run budget**:
-The three failed Worker attempts a Run allows before a fourth failure makes it a Blocker; only the Supervisor decides whether another attempt runs.
+The four Worker attempts a Run gets; the first three failures may be followed by another attempt, and a fourth failure makes it a Blocker.
 _Avoid_: retry limit, attempt counter
 
 **Sync PR**:
@@ -69,7 +69,7 @@ A pull request that merges upstream's default branch into a Personal Fork's `mai
 _Avoid_: mirror sync, upstream merge, develop branch
 
 **Blocker**:
-A condition a Run cannot resolve with its own access, such as missing credentials, an OS permission prompt, an exhausted quota or a decision only ranokay can make.
+A condition a Run cannot resolve with its own access, such as missing credentials or permissions, an OS permission prompt, an exhausted Orchestrator quota or attempt budget, a required reviewer that cannot run, or a decision only ranokay can make.
 _Avoid_: issue, problem, error
 
 **Gate**:

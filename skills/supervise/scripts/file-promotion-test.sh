@@ -7,52 +7,13 @@ file_promotion=$script_dir/file-promotion
 test_root=$(mktemp -d)
 trap 'rm -rf "$test_root"' EXIT
 
-export GH_LOG="$test_root/log"
-export GH_BODY="$test_root/body"
-: >"$GH_LOG"
-
-mkdir -p "$test_root/bin"
-cat >"$test_root/bin/gh" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$*" >>"$GH_LOG"
-case "$1 $2" in
-"issue create")
-	body=
-	previous=
-	for argument in "$@"; do
-		[ "$previous" = "--body-file" ] && body=$argument
-		previous=$argument
-	done
-	cp "$body" "$GH_BODY"
-	printf 'https://example.test/issue/7\n'
-	;;
-*)
-	exit 1
-	;;
-esac
-EOF
-chmod +x "$test_root/bin/gh"
-PATH=$test_root/bin:$PATH
-export PATH
-
-expect_contains() {
-	haystack=$1
-	needle=$2
-	if ! printf '%s\n' "$haystack" | grep -Fq "$needle"; then
-		printf 'expected output to contain %s, got:\n%s\n' "$needle" "$haystack" >&2
-		return 1
-	fi
-}
-
-expect_body() {
-	if ! grep -Fq "$1" "$GH_BODY"; then
-		printf 'expected the issue body to contain %s, got:\n%s\n' "$1" "$(cat "$GH_BODY")" >&2
-		return 1
-	fi
-}
+# shellcheck source=skills/supervise/scripts/test-lib.sh
+# shellcheck disable=SC1091
+. "$script_dir/test-lib.sh"
+init_gh_stub "$test_root"
 
 case_gate_check() {
-	: >"$GH_LOG"
+	reset_gh_fixtures
 	output=$("$file_promotion" o/one --title 'Gate skipped tests' --correction 'Skipped tests escape Gates.' --gate-check 'A universal-Profile hk step fails on skip markers.' --label needs-triage)
 	expect_contains "$output" 'https://example.test/issue/7'
 	expect_body '### Correction'
@@ -71,14 +32,14 @@ case_gate_check() {
 }
 
 case_no_check() {
-	: >"$GH_LOG"
+	reset_gh_fixtures
 	"$file_promotion" o/one --title 'Explicit exception' --correction 'A person must decide.' --no-check 'No deterministic check exists for this decision.' >/dev/null
 	expect_body 'No check possible: No deterministic check exists for this decision.'
 	printf 'ok: states why no check is possible\n'
 }
 
 case_neither() {
-	: >"$GH_LOG"
+	reset_gh_fixtures
 	if "$file_promotion" o/one --title 'No check' --correction 'Missing the field.' >/dev/null 2>"$test_root/err"; then
 		printf 'expected a refusal without a Gate check\n' >&2
 		return 1
@@ -92,7 +53,7 @@ case_neither() {
 }
 
 case_both() {
-	: >"$GH_LOG"
+	reset_gh_fixtures
 	if "$file_promotion" o/one --title 'Both' --correction 'Both fields.' --gate-check 'a check' --no-check 'a reason' >/dev/null 2>"$test_root/err"; then
 		printf 'expected a refusal with both fields\n' >&2
 		return 1
