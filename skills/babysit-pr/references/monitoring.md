@@ -2,8 +2,8 @@
 
 Use this reference when checks, reviews, or a merge queue still need external
 progress. Select capabilities from the running harness, not from the model name.
-Codex, Claude, or DeepSeek may run inside T3 Code or in another host with different
-tools and lifecycle rules.
+The Worker may run inside T3 Code or another harness with different tools and
+lifecycle rules.
 
 ## Event-driven hosts
 

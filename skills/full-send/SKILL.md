@@ -71,12 +71,12 @@ Claim the first issue by taking its slot with `run-slot acquire <owner>/<repo> <
 
 ```
 Read <absolute path to supervise>/SKILL.md and follow it as the Supervisor, with these arguments:
---notify <this thread's ID> [--worker <model>] /implement #<n> in <owner>/<repo>
+--notify <this thread's ID> /implement #<n> in <owner>/<repo>
 
 <testing permission paragraph>
 ```
 
-Include `--worker <model>` only when ranokay passed one. Omit the project and the modes. Never omit `modelSelection`.
+When ranokay passed `--worker <model>`, insert `--worker <model>` between `--notify` and `/implement`.
 
 Then call `t3_thread_wait` on the new thread with `untilDelegatedWorkSettled: true` and `timeoutMs: 5000`, record the thread with `run-slot set-thread`, and with `next`, end your turn. If the launch fails, release the slot and remove the assignee.
 
@@ -98,7 +98,7 @@ Done when the issue in flight has merged or is parked.
 
 Comment on the issue with the reason, what the run needs from the user and the stopped thread's link. Add the needs-info label, keep the assignee and release the slot.
 
-Go to step 5 when two issues park in a row, or when the reason names the worker's provider, a rate limit or quota: every later issue would stop the same way. Otherwise go to step 2.
+Go to step 5 when two issues park in a row, or when the reason names the Worker's provider, a rate limit or quota: every later issue would stop the same way. Otherwise go to step 2.
 
 Done when the issue carries the comment and the label.
 

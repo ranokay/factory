@@ -33,7 +33,7 @@ Write none, except:
 ## Repo contents
 
 - Use the terms in the repo's `GLOSSARY.md` in code, issues and PRs.
-- The only Markdown the repo authors is `README.md`, `AGENTS.md`, `GLOSSARY.md`, `docs/adr/`, and the `verify-<app>` skill. Markdown under directories recorded in `skills.lock` is vendored verbatim and excluded from that rule.
+- The only Markdown the repo authors is `README.md`, `AGENTS.md`, `GLOSSARY.md`, `docs/adr/`, the `verify-<app>` skill, and `skills/<name>/` for an Own Skill. Markdown under directories recorded in `skills.lock` is vendored verbatim and excluded from that rule.
 - Write an ADR only for a decision that is hard to reverse, surprising without context, and the result of a real trade-off.
 - Never commit scratch, generated reports, evidence or temporary files.
 - `mise run check` is the only Gate command. Never bypass hooks.

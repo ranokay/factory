@@ -18,6 +18,7 @@ EOF
 }
 
 root=${RUN_SLOT_DIR:-"$HOME/.local/state/agent-tools/runs"}
+machine_root=$root/.machine
 
 fail() {
   printf 'run-slot: %s\n' "$1" >&2
@@ -38,8 +39,53 @@ valid_repo() {
   return 0
 }
 
+normalize_repo() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 slot_for() {
-  printf '%s/%s\n' "$root" "$1"
+  printf '%s/%s\n' "$root" "$(normalize_repo "$1")"
+}
+
+write_value() {
+  printf '%s\n' "$2" >"$1.tmp"
+  mv "$1.tmp" "$1"
+}
+
+claim_machine() {
+  for candidate in 1 2; do
+    if mkdir "$machine_root/$candidate" 2>/dev/null; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  if [ -d "$machine_root/1" ] && [ -d "$machine_root/2" ]; then
+    printf 'run-slot: 2 Runs already active on this machine\n' >&2
+  else
+    printf 'run-slot: cannot claim a machine slot under %s\n' "$machine_root" >&2
+  fi
+  return 1
+}
+
+release_machine() {
+  repo=$(normalize_repo "$1")
+  slot=$2
+  if [ -f "$slot/machine" ]; then
+    candidate=$(cat "$slot/machine")
+    if [ -d "$machine_root/$candidate" ]; then
+      rm -f "$machine_root/$candidate/repo"
+      rmdir "$machine_root/$candidate" || fail "cannot release machine slot $candidate"
+    fi
+    return 0
+  fi
+  for candidate in "$machine_root"/*; do
+    [ -f "$candidate/repo" ] || continue
+    if [ "$(cat "$candidate/repo")" = "$repo" ]; then
+      rm -f "$candidate/repo"
+      rmdir "$candidate" || fail "cannot release machine slot ${candidate##*/}"
+      return 0
+    fi
+  done
 }
 
 require_repo() {
@@ -54,14 +100,20 @@ acquire() {
   '' | *[!0-9]*) fail "issue must be a number" ;;
   esac
   slot=$(slot_for "$1")
-  mkdir -p "$(dirname "$slot")" || fail "cannot create $root"
-  mkdir "$slot" 2>/dev/null || fail "$1 already has a Run"
-  count=$(find "$root" -mindepth 2 -maxdepth 2 -type d | wc -l | tr -d ' ')
-  if [ "$count" -gt 2 ]; then
-    rmdir "$slot"
-    fail "2 Runs already active on this machine"
+  mkdir -p "$root" "$machine_root" "$(dirname "$slot")" || fail "cannot create $root"
+  if ! mkdir "$slot"; then
+    if [ -d "$slot" ]; then
+      fail "$1 already has a Run"
+    fi
+    fail "cannot create $slot"
   fi
-  printf '%s\n' "$2" >"$slot/issue"
+  if ! machine=$(claim_machine); then
+    rmdir "$slot"
+    exit 1
+  fi
+  write_value "$slot/issue" "$2"
+  write_value "$slot/machine" "$machine"
+  write_value "$machine_root/$machine/repo" "$(normalize_repo "$1")"
   printf '%s\n' "$slot"
 }
 
@@ -72,7 +124,7 @@ set_thread() {
   if [ ! -d "$slot" ]; then
     fail "$1 has no Run slot"
   fi
-  printf '%s\n' "$2" >"$slot/thread"
+  write_value "$slot/thread" "$2"
 }
 
 release() {
@@ -82,9 +134,11 @@ release() {
   if [ ! -d "$slot" ]; then
     return 0
   fi
-  rm -f "$slot/issue" "$slot/thread"
+  release_machine "$1" "$slot"
+  rm -f "$slot/issue" "$slot/thread" "$slot/machine"
   rmdir "$slot" || fail "cannot release $1"
   rmdir "$(dirname "$slot")" 2>/dev/null || true
+  rmdir "$machine_root" 2>/dev/null || true
 }
 
 list() {
@@ -92,7 +146,7 @@ list() {
   if [ ! -d "$root" ]; then
     return 0
   fi
-  find "$root" -mindepth 2 -maxdepth 2 -type d | sort | while IFS= read -r slot; do
+  find "$root" -mindepth 2 -maxdepth 2 -type d ! -path "$machine_root/*" | sort | while IFS= read -r slot; do
     relative=${slot#"$root"/}
     issue=-
     thread=-

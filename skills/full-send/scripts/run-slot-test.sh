@@ -14,14 +14,15 @@ case_two() {
 case_third() {
 	"$run_slot" acquire a/one 1 >/dev/null
 	"$run_slot" acquire a/two 2 >/dev/null
-	refused "$run_slot" acquire a/three 3
+	refused "2 Runs already active on this machine" "$run_slot" acquire a/three 3
 	check_count 2
 	printf 'ok: a third repo is refused\n'
 }
 
 case_same() {
 	"$run_slot" acquire a/one 1 >/dev/null
-	refused "$run_slot" acquire a/one 2
+	refused "a/one already has a Run" "$run_slot" acquire a/one 2
+	refused "A/ONE already has a Run" "$run_slot" acquire A/ONE 3
 	check_count 1
 	printf 'ok: a second slot for the same repo is refused\n'
 }
@@ -29,14 +30,17 @@ case_same() {
 case_release() {
 	"$run_slot" acquire a/one 1 >/dev/null
 	"$run_slot" acquire a/two 2 >/dev/null
+	"$run_slot" set-thread a/one thread-1
+	expect_slot a/one 1 thread-1
 	"$run_slot" release a/one
 	"$run_slot" acquire a/three 3 >/dev/null
+	expect_slot a/three 3 -
 	check_count 2
 	printf 'ok: release frees a slot\n'
 }
 
 case_traversal() {
-	refused "$run_slot" acquire ../evil 1
+	refused "invalid repository" "$run_slot" acquire ../evil 1
 	check_count 0
 	printf 'ok: a traversal is refused\n'
 }
@@ -50,26 +54,37 @@ check_count() {
 }
 
 refused() {
-	if "$@" >/dev/null 2>&1; then
+	expected=$1
+	shift
+	if "$@" >/dev/null 2>"$work/stderr"; then
 		printf 'expected a refusal: %s\n' "$*" >&2
+		return 1
+	fi
+	if ! grep -Fq "$expected" "$work/stderr"; then
+		printf 'expected stderr to contain %s, got: %s\n' "$expected" "$(cat "$work/stderr")" >&2
 		return 1
 	fi
 	return 0
 }
 
-run_case() {
-	work=$(mktemp -d)
-	RUN_SLOT_DIR=$work
-	export RUN_SLOT_DIR
-	if "$1"; then
-		status=0
-	else
-		status=$?
+expect_slot() {
+	line=$(printf '%s\t%s\t%s' "$1" "$2" "$3")
+	if ! "$run_slot" list | grep -Fq "$line"; then
+		printf 'expected a list line for %s\n' "$line" >&2
+		return 1
 	fi
-	rm -rf "$work"
-	return "$status"
 }
 
+run_case() {
+	work=$test_root/$1
+	mkdir "$work"
+	RUN_SLOT_DIR=$work
+	export RUN_SLOT_DIR
+	"$1"
+}
+
+test_root=$(mktemp -d)
+trap 'rm -rf "$test_root"' EXIT
 case ${RUN_SLOT_CASE:-all} in
 two) run_case case_two ;;
 third) run_case case_third ;;
