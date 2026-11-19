@@ -1,0 +1,15 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+concurrency:
+  group: ${{ github.workflow }}-caller-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  release:
+    name: Release
+    uses: $/.github/workflows/release.yml
+    permissions:
+      contents: write
