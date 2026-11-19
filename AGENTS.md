@@ -48,7 +48,7 @@ Install tools declared in `mise.toml` without asking. For a new dev tool availab
 
 ## Release
 
-After a merge, the Supervisor proposes a release tag for ranokay to approve, and never pushes a tag without that approval. A `v*` tag runs Gates, then a build when the repo has one, then a GitHub release with generated notes. No CHANGELOG.
+Tags are a Protected Surface: after a merge, the Supervisor proposes a release tag for ranokay to approve, and never pushes one without that approval. A `v*` tag runs Gates, then a build when the repo has one, then a GitHub release with generated notes. No CHANGELOG.
 
 ## Corrections
 
