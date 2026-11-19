@@ -1,0 +1,73 @@
+amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtins.pkl"
+
+steps {
+  ["editorconfig-checker"] = Builtins.editorconfig_checker
+  ["typos"] = Builtins.typos
+  ["gitleaks"] = Builtins.gitleaks
+  ["comment-ban"] = new Step {
+    types = List("text")
+    exclude = List("profiles/universal/tests/fixtures/**")
+    check = new Command {
+      argv = List("{{root}}/profiles/universal/scripts/comment-ban.sh", "{{files}}")
+    }
+    tests {
+      ["rejects a TODO comment"] {
+        run = "check"
+        files = List("{{root}}/profiles/universal/tests/fixtures/todo.sh")
+        expect { code = 1 }
+      }
+      ["rejects a semicolon TODO comment"] {
+        run = "check"
+        files = List("{{root}}/profiles/universal/tests/fixtures/todo.ini")
+        expect { code = 1 }
+      }
+      ["rejects a block TODO comment"] {
+        run = "check"
+        files = List("{{root}}/profiles/universal/tests/fixtures/todo.css")
+        expect { code = 1 }
+      }
+      ["accepts a clean file"] {
+        run = "check"
+        files = List(
+          "{{root}}/profiles/universal/tests/fixtures/clean.sh",
+          "{{root}}/profiles/universal/tests/fixtures/clean.pkl",
+          "{{root}}/profiles/universal/tests/fixtures/clean.ini",
+        )
+        expect { code = 0 }
+      }
+      ["rejects commented-out code"] {
+        run = "check"
+        files = List("{{root}}/profiles/universal/tests/fixtures/commented-code.sh")
+        expect { code = 1 }
+      }
+      ["rejects a commented-out key line"] {
+        run = "check"
+        write { ["{{tmp}}/comment.sh"] = "# run: mise run check\n" }
+        expect { code = 1 }
+      }
+      ["rejects a commented-out list item"] {
+        run = "check"
+        write { ["{{tmp}}/comment.sh"] = "# - uses: actions/checkout@v4\n" }
+        expect { code = 1 }
+      }
+      ["rejects a commented-out path command"] {
+        run = "check"
+        write { ["{{tmp}}/comment.sh"] = "# ./build.sh --release\n" }
+        expect { code = 1 }
+      }
+      ["rejects a nested gitignore TODO"] {
+        run = "check"
+        write { ["{{tmp}}/sub/.gitignore"] = "# TODO: nested\n" }
+        expect { code = 1 }
+      }
+    }
+  }
+  ["shellcheck"] = Builtins.shellcheck
+  ["shfmt"] = Builtins.shfmt
+  ["jactionlint"] = Builtins.jactionlint
+  ["zizmor"] = Builtins.zizmor
+  ["pinact"] = Builtins.pinact
+  ["tombi"] = Builtins.tombi
+  ["yamlfmt"] = Builtins.yamlfmt
+}
