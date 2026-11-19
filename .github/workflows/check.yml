@@ -1,0 +1,11 @@
+name: Gates
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  gates:
+    name: Gates
+    uses: $/.github/workflows/gates.yml

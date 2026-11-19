@@ -1,0 +1,86 @@
+amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtins.pkl"
+
+exclude = List("profiles/universal/tests/fixtures/**")
+
+steps {
+  ["editorconfig-checker"] = Builtins.editorconfig_checker
+  ["typos"] = Builtins.typos
+  ["gitleaks"] = Builtins.gitleaks
+  ["comment-ban"] = new Step {
+    glob = List(
+      "**/*.sh",
+      "**/*.bash",
+      "**/*.zsh",
+      "**/*.bats",
+      "**/*.py",
+      "**/*.rb",
+      "**/*.pkl",
+      "**/*.js",
+      "**/*.jsx",
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.mjs",
+      "**/*.cjs",
+      "**/*.go",
+      "**/*.rs",
+      "**/*.swift",
+      "**/*.c",
+      "**/*.h",
+      "**/*.cc",
+      "**/*.cpp",
+      "**/*.hpp",
+      "**/*.java",
+      "**/*.kt",
+      "**/*.kts",
+      "**/*.scala",
+      "**/*.lua",
+      "**/*.sql",
+      "**/*.css",
+      "**/*.scss",
+      "**/*.html",
+      "**/*.xml",
+      "**/*.svg",
+      "**/*.toml",
+      "**/*.yml",
+      "**/*.yaml",
+      "**/*.ini",
+      "**/*.conf",
+      "**/*.properties",
+      "**/*.mk",
+      "**/Makefile",
+      "**/.gitignore",
+      "**/.editorconfig",
+    )
+    check = new Command {
+      argv = List("{{root}}/profiles/universal/scripts/comment-ban.sh", "{{files}}")
+    }
+    tests {
+      ["rejects a TODO comment"] {
+        run = "check"
+        files = List("{{root}}/profiles/universal/tests/fixtures/todo.sh")
+        expect { code = 1 }
+      }
+      ["accepts a clean file"] {
+        run = "check"
+        files = List(
+          "{{root}}/profiles/universal/tests/fixtures/clean.sh",
+          "{{root}}/profiles/universal/tests/fixtures/clean.pkl",
+        )
+        expect { code = 0 }
+      }
+      ["rejects commented-out code"] {
+        run = "check"
+        files = List("{{root}}/profiles/universal/tests/fixtures/commented-code.sh")
+        expect { code = 1 }
+      }
+    }
+  }
+  ["shellcheck"] = Builtins.shellcheck
+  ["shfmt"] = Builtins.shfmt
+  ["jactionlint"] = Builtins.jactionlint
+  ["zizmor"] = Builtins.zizmor
+  ["pinact"] = Builtins.pinact
+  ["tombi"] = Builtins.tombi
+  ["yamlfmt"] = Builtins.yamlfmt
+}

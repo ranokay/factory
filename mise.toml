@@ -1,0 +1,6 @@
+min_version = "2026.11.10"
+
+include = ["./profiles/universal/mise.toml"]
+
+[task_config]
+includes = ["profiles/universal/tasks.toml"]

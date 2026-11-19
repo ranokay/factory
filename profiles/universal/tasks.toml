@@ -1,0 +1,3 @@
+[check]
+description = "Run every Gate"
+run = ["hk check --all", "hk test --step comment-ban"]
