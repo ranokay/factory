@@ -15,4 +15,4 @@ elements="${#count}"
 url="https://example.com/#section"
 endpoint=https://example.com/#anchor
 literal='a # not a comment'
-printf '%s %s %s %s %s %s %s %s %s %s\n' "$unused" "$count" "$total" "$first" "$last" "$prefix" "$all" "$elements" "$url" "$endpoint" "$literal"
+printf '%s %s %s %s %s %s %s %s %s %s %s\n' "$unused" "$count" "$total" "$first" "$last" "$prefix" "$all" "$elements" "$url" "$endpoint" "$literal"

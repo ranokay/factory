@@ -7,15 +7,15 @@ Usage: comment-ban.sh FILE...
 
 Fails on banned markers and commented-out code in source comments.
 
-Scanned file types: sh, bash, zsh, bats, py, rb, pkl, js, jsx, ts, tsx,
-mjs, cjs, go, rs, swift, c, h, cc, cpp, hpp, java, kt, kts, scala, lua,
-sql, css, scss, html, xml, svg, toml, yml, yaml, ini, conf, properties,
-mk, Makefile, .gitignore, .editorconfig. Markdown is never scanned.
+Scanned file types: shell, Python, Ruby, Pkl, JavaScript/TypeScript, Go,
+Rust, Swift, C-family, Java/Kotlin/Scala, Lua/SQL, CSS/SCSS, HTML/XML/SVG,
+TOML, YAML, INI/properties, Make, .gitignore and .editorconfig. Markdown
+is never scanned.
 
-A comment is a marker that starts a word: #, //, --, or ;, plus the
-block forms /* ... */ and <!-- ... -->. Quoted strings, shebangs, $#,
-${x#prefix}, ${#array[@]} and URLs such as https://host/#anchor are not
-comments.
+A comment is a marker that starts a word: #, // or --, ; in INI-style
+files, plus the block forms /* ... */ and <!-- ... -->. Quoted strings,
+shebangs, $#, ${x#prefix}, ${#array[@]} and URLs such as
+https://host/#anchor are not comments.
 
 Banned markers are case-sensitive: TODO, FIXME, HACK, XXX.
 
@@ -40,8 +40,13 @@ status=0
 for file in "$@"; do
 	case "$file" in
 	*.md | *.markdown) continue ;;
-	*.sh | *.bash | *.zsh | *.bats | *.py | *.rb | *.toml | *.yml | *.yaml | *.ini | *.conf | *.properties | *.mk | Makefile | .gitignore | .editorconfig)
+	*.sh | *.bash | *.zsh | *.bats | *.py | *.rb | *.toml | *.yml | *.yaml | *.conf | *.mk | Makefile | .gitignore)
 		markers='#'
+		block_start=''
+		block_end=''
+		;;
+	*.ini | *.properties | .editorconfig)
+		markers='# ;'
 		block_start=''
 		block_end=''
 		;;
@@ -108,19 +113,13 @@ for file in "$@"; do
 			}
 		}
 
-		function marker_at(line, i,    k, m, prev) {
+		function marker_length(line, i,    k, m, prev) {
 			for (k = 1; k <= count; k++) {
 				m = marker[k]
 				if (substr(line, i, length(m)) != m) continue
-				if (i == 1) {
-					hit = length(m)
-					return 1
-				}
+				if (i == 1) return length(m)
 				prev = substr(line, i - 1, 1)
-				if (prev ~ /[ \t;&|=,]/) {
-					hit = length(m)
-					return 1
-				}
+				if (prev ~ /[ \t;&|=,]/) return length(m)
 			}
 			return 0
 		}
@@ -163,8 +162,9 @@ for file in "$@"; do
 					i += length(block_start)
 					continue
 				}
-				if (marker_at(line, i)) {
-					inspect(substr(line, i + hit))
+				mlen = marker_length(line, i)
+				if (mlen > 0) {
+					inspect(substr(line, i + mlen))
 					i = n + 1
 					continue
 				}

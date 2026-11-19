@@ -8,50 +8,7 @@ steps {
   ["typos"] = Builtins.typos
   ["gitleaks"] = Builtins.gitleaks
   ["comment-ban"] = new Step {
-    glob = List(
-      "**/*.sh",
-      "**/*.bash",
-      "**/*.zsh",
-      "**/*.bats",
-      "**/*.py",
-      "**/*.rb",
-      "**/*.pkl",
-      "**/*.js",
-      "**/*.jsx",
-      "**/*.ts",
-      "**/*.tsx",
-      "**/*.mjs",
-      "**/*.cjs",
-      "**/*.go",
-      "**/*.rs",
-      "**/*.swift",
-      "**/*.c",
-      "**/*.h",
-      "**/*.cc",
-      "**/*.cpp",
-      "**/*.hpp",
-      "**/*.java",
-      "**/*.kt",
-      "**/*.kts",
-      "**/*.scala",
-      "**/*.lua",
-      "**/*.sql",
-      "**/*.css",
-      "**/*.scss",
-      "**/*.html",
-      "**/*.xml",
-      "**/*.svg",
-      "**/*.toml",
-      "**/*.yml",
-      "**/*.yaml",
-      "**/*.ini",
-      "**/*.conf",
-      "**/*.properties",
-      "**/*.mk",
-      "**/Makefile",
-      "**/.gitignore",
-      "**/.editorconfig",
-    )
+    types = List("text")
     check = new Command {
       argv = List("{{root}}/profiles/universal/scripts/comment-ban.sh", "{{files}}")
     }
@@ -61,11 +18,22 @@ steps {
         files = List("{{root}}/profiles/universal/tests/fixtures/todo.sh")
         expect { code = 1 }
       }
+      ["rejects a semicolon TODO comment"] {
+        run = "check"
+        files = List("{{root}}/profiles/universal/tests/fixtures/todo.ini")
+        expect { code = 1 }
+      }
+      ["rejects a block TODO comment"] {
+        run = "check"
+        files = List("{{root}}/profiles/universal/tests/fixtures/todo.css")
+        expect { code = 1 }
+      }
       ["accepts a clean file"] {
         run = "check"
         files = List(
           "{{root}}/profiles/universal/tests/fixtures/clean.sh",
           "{{root}}/profiles/universal/tests/fixtures/clean.pkl",
+          "{{root}}/profiles/universal/tests/fixtures/clean.ini",
         )
         expect { code = 0 }
       }
