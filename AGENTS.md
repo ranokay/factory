@@ -46,6 +46,10 @@ Install tools declared in `mise.toml` without asking. For a new dev tool availab
 - Upstream Fork: upstream maintainers merge.
 - Outside Contributor PRs: never auto-merge, and never run workflows that hold secrets on them.
 
+## Release
+
+After a merge, the Supervisor proposes a release tag for ranokay to approve, and never pushes a tag without that approval. A `v*` tag runs Gates, then a build when the repo has one, then a GitHub release with generated notes. No CHANGELOG.
+
 ## Corrections
 
 When you correct a Worker, file a `promotion` issue for the lint rule, check, type or API change that makes the mistake impossible: in the project repo if it is project-specific, in `ranokay/factory` otherwise. Do not add prose rules.

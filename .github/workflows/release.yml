@@ -1,0 +1,52 @@
+name: Release
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  gates:
+    name: Gates
+    uses: $/.github/workflows/gates.yml
+  publish:
+    name: Publish
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Require a v tag
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/tags/v*) ;;
+            *)
+              echo "Release publishes v* tags, not $REF." >&2
+              exit 1
+              ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+        with:
+          version: 2026.11.10
+          cache: false
+      - name: Detect build task
+        id: build
+        run: |
+          tasks=$(mise tasks --json)
+          if printf '%s' "$tasks" | jq -e 'any(.[]; .name == "build")' > /dev/null; then
+            echo "defined=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "defined=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build
+        if: steps.build.outputs.defined == 'true'
+        run: mise run build
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --generate-notes
