@@ -138,8 +138,8 @@ acquire() {
     rmdir "$slot" || fail "cannot remove $slot after a failed launch"
     exit 1
   fi
-  write_value "$slot/issue" "$2"
   write_value "$slot/machine" "$machine"
+  write_value "$slot/issue" "$2"
   write_value "$machine_root/$machine/repo" "$(normalize_repo "$1")"
   printf '%s\n' "$slot"
 }

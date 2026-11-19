@@ -81,6 +81,9 @@ The Supervisor inspects Verification Evidence, so inside a Run this skill never
 declares the final Definition of Done alone. A direct user request with no
 Supervisor thread stands in for the Supervisor's confirmation.
 
+- An Upstream Fork PR is merged by upstream maintainers. Never merge it; the Run
+  ends at a green open PR.
+- An Outside Contributor PR never auto-merges.
 - A Done PR without the `protected` label auto-merges after the Supervisor's
   final confirmation. Do not ask again for permission already given.
 - A PR carrying the `protected` label waits for ranokay. Send
@@ -93,12 +96,10 @@ Supervisor thread stands in for the Supervisor's confirmation.
 - Squash-merge, except a Sync PR, which merges with a merge commit. Identify a
   Sync PR by what it is, never by a branch-name convention: it merges upstream's
   default branch into a Personal Fork's `main` and its body carries a verdict for
-  every upstream change. If you cannot tell whether the PR is a Sync PR, send the
-  `stopped` notice to the notice thread with the question so the Dispatcher parks
-  the issue; do not wake the Supervisor and do not guess.
-- An Upstream Fork PR is merged by upstream maintainers. Never merge it; the Run
-  ends at a green open PR.
-- An Outside Contributor PR never auto-merges.
+  every upstream change. If you cannot tell whether the PR is a Sync PR, inside a
+  Run send the `stopped` notice to the notice thread with the question so the
+  Dispatcher parks the issue; otherwise report the question to the user. Do not
+  wake the Supervisor and do not guess.
 
 Repository merge rules still win over these defaults.
 
