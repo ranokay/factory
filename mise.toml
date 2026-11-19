@@ -15,8 +15,12 @@ run = "uv run scripts/skills-sync.py"
 
 [tasks.check]
 description = "Run every Gate"
-depends = ["skills:test"]
+depends = ["skills:test", "run-slot:test"]
 
 [tasks."skills:test"]
 description = "Run the skills:sync tests"
 run = "hk test --step skills-sync"
+
+[tasks."run-slot:test"]
+description = "Run the full-send run-slot tests"
+run = "hk test --step run-slot"

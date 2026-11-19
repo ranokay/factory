@@ -1,0 +1,5 @@
+interface:
+  display_name: "Supervise"
+  short_description: "Review a cheaper Worker's plan and code until it can ship"
+policy:
+  allow_implicit_invocation: false
