@@ -6,6 +6,8 @@
 # pinact: ignore
 # Note: profiles/universal/hk.pkl
 # Source: docs/adr
+# Cost: $5 per run
+# src/main.go is the entry
 unused=ok
 count="$#"
 total=$#
