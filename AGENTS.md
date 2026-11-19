@@ -34,7 +34,7 @@ Deferred work becomes an issue: never a TODO, a follow-up note in the PR body, o
 
 ## Blockers
 
-If your own access can't resolve something, first try remediation you are already allowed to do. Otherwise label the issue `blocked`, comment the exact unblock step mentioning @ranokay, and move to the next independent issue or stop. Never work around a Blocker by mocking it or narrowing scope. An exhausted Orchestrator quota is a Blocker; never downgrade the Supervisor model.
+If your own access can't resolve something, first try remediation you are already allowed to do. Otherwise apply the Blocker shape in `skills/supervise/references/messages.md` with `skills/supervise/scripts/block-issue`: the `blocked` label plus one comment with the exact unblock step mentioning @ranokay, the last evidence and the open findings. The comment is posted before the label, so `.github/workflows/blocker-notify.yml` sends the GitHub Mobile push. Remove `blocked` when the Run resumes. Never work around a Blocker by mocking it or narrowing scope. An exhausted Orchestrator quota is a Blocker; never downgrade the Supervisor model.
 
 ## Tools
 
@@ -52,7 +52,7 @@ Tags are a Protected Surface: after a merge, the Supervisor proposes a release t
 
 ## Corrections
 
-When you correct a Worker, file a `promotion` issue for the lint rule, check, type or API change that makes the mistake impossible: in the project repo if it is project-specific, in `ranokay/factory` otherwise. Do not add prose rules.
+When you correct a Worker, file a `promotion` issue for the lint rule, check, type or API change that makes the mistake impossible: in the project repo if it is project-specific, in `ranokay/factory` otherwise. Use `skills/supervise/scripts/file-promotion` or `.github/ISSUE_TEMPLATE/promotion.yml`; the Gate check field is required, and `No check possible: <reason>` is the only alternative. Do not add prose rules.
 
 ## Cleanup
 

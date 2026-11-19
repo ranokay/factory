@@ -207,4 +207,87 @@ steps {
       }
     }
   }
+
+  ["block-issue"] = new Step {
+    check = "sh {{root}}/skills/supervise/scripts/block-issue-test.sh"
+    tests {
+      ["posts one comment then the label"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "post" }
+        expect { code = 0 }
+      }
+      ["keeps one comment on an already blocked issue"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "idempotent" }
+        expect { code = 0 }
+      }
+      ["refuses a Blocker without an unblock step"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "missing" }
+        expect { code = 0 }
+      }
+      ["stops before the label when the comment fails"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "failure" }
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["file-promotion"] = new Step {
+    check = "sh {{root}}/skills/supervise/scripts/file-promotion-test.sh"
+    tests {
+      ["names a Gate check"] {
+        run = "check"
+        env { ["FILE_PROMOTION_CASE"] = "gate_check" }
+        expect { code = 0 }
+      }
+      ["states why no check is possible"] {
+        run = "check"
+        env { ["FILE_PROMOTION_CASE"] = "no_check" }
+        expect { code = 0 }
+      }
+      ["refuses no check and no reason"] {
+        run = "check"
+        env { ["FILE_PROMOTION_CASE"] = "neither" }
+        expect { code = 0 }
+      }
+      ["refuses both at once"] {
+        run = "check"
+        env { ["FILE_PROMOTION_CASE"] = "both" }
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["process-receipt"] = new Step {
+    check = "sh {{root}}/skills/supervise/scripts/process-receipt-test.sh"
+    tests {
+      ["a clean worktree prints none"] {
+        run = "check"
+        env { ["PROCESS_RECEIPT_CASE"] = "clean" }
+        expect { code = 0 }
+      }
+      ["reports a process whose cwd is in the worktree"] {
+        run = "check"
+        env { ["PROCESS_RECEIPT_CASE"] = "cwd" }
+        expect { code = 0 }
+      }
+      ["reports a process whose command line names the worktree"] {
+        run = "check"
+        env { ["PROCESS_RECEIPT_CASE"] = "argv" }
+        expect { code = 0 }
+      }
+      ["refuses without a baseline"] {
+        run = "check"
+        env { ["PROCESS_RECEIPT_CASE"] = "no_baseline" }
+        expect { code = 0 }
+      }
+      ["reports a simulator booted after the baseline"] {
+        run = "check"
+        env { ["PROCESS_RECEIPT_CASE"] = "simulator" }
+        expect { code = 0 }
+      }
+    }
+  }
 }

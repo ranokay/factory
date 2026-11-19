@@ -60,6 +60,10 @@ _Avoid_: judge, critic
 One issue taken from ready to merged by an Orchestrator and its Worker.
 _Avoid_: thread, session, job
 
+**Run budget**:
+The three failed Worker attempts a Run allows before a fourth failure makes it a Blocker; only the Supervisor decides whether another attempt runs.
+_Avoid_: retry limit, attempt counter
+
 **Sync PR**:
 A pull request that merges upstream's default branch into a Personal Fork's `main`, carrying a verdict for every upstream change.
 _Avoid_: mirror sync, upstream merge, develop branch

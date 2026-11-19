@@ -12,6 +12,8 @@ The first line of every message:
 - answers on their own: `supervise · answers · after <head SHA>`
 - PR handoff: `supervise · approved <head SHA>`
 
+Rounds count failed attempts. A delivery that fails the Gate or ends a review round with a blocking finding is one failed attempt; a Run allows three, and a failure in round 4 makes it a Blocker. Plan rounds (`plan <n>/2`) are not attempts.
+
 The fork wakes the Supervisor with these headers, and the Supervisor replies to the fork:
 
 - fork wakes:
@@ -28,13 +30,41 @@ A finding keeps its ID (`F1`, `F2`, ...) across rounds.
 
 ## Notices
 
-Only with `--notify <thread>`. One line each. `<task>` is the issue reference, or the task's short title when there is none.
+Only with `--notify <thread>`. One header line each; the merged and stopped notices add their receipt lines under it. `<task>` is the issue reference, or the task's short title when there is none.
 
 - escalation: `supervise · notice · <task> · stopped <Supervisor thread ID> · <one-line reason>`
 - PR handoff, after sending it: `supervise · notice · <task> · handed-off <fork thread ID>`
 - no PR to open: `supervise · notice · <task> · done <branch>`
-- the fork, after the merge: `supervise · notice · <task> · merged <PR URL> <merge SHA>`
-- the fork, stopping before the merge: `supervise · notice · <task> · stopped <fork thread ID> · <one-line reason>`
+- the fork, after the merge: `supervise · notice · <task> · merged <PR URL> <merge SHA>` plus `processes: <receipt>`
+- the fork, stopping before the merge: `supervise · notice · <task> · stopped <fork thread ID> · <one-line reason>` plus `blocker: <Blocker comment URL, or none>` and `processes: <receipt>`
+
+## Blocker
+
+One shape, three senders: the Supervisor before the PR exists, the PR fork after it, and the Dispatcher when it parks. Post it with the script beside `supervise`'s `SKILL.md`; never hand-write the comment.
+
+```
+<absolute path>/scripts/block-issue <owner>/<repo> <issue> \
+  --reason '<what is stuck>' \
+  --unblock '<the exact step ranokay must take>' \
+  [--evidence '<comment URL, cache path or report line>']... \
+  [--finding '<F1: one line>']...
+```
+
+The comment it posts, with the marker that `blocker-notify.yml` looks for:
+
+```
+<!-- factory:blocker -->
+
+## Blocker
+
+@ranokay <reason>
+
+**Unblock step:** <the step>
+**Last evidence:** <evidence, or none>
+**Open findings:** <findings, or none>
+```
+
+The script posts the comment first and adds `blocked` second, so the label event always sees the comment. `blocker-notify.yml` then comments the issue link and this comment's URL as `github-actions[bot]`, which is what produces the GitHub Mobile push: GitHub sends no notification for an @mention from ranokay's own account. If the issue already carries `blocked` and a Blocker comment, the script prints that URL and changes nothing. Add or remove `blocked` only through this shape, and remove it when the Run resumes.
 
 ## Launch brief
 
@@ -53,8 +83,10 @@ Read the repository's agent entry point (AGENTS.md or CLAUDE.md) and follow it. 
 - You run on `opencode-go/deepseek-v4.1-flash` at variant `max`. On a fallback launch the Supervisor replaces this line with `opencode-go/glm-5.3` at variant `max`. Run every subagent you start, including both `code-review` Reviewers, on the model named in this line and its provider, and name it in each subagent task. Start no Claude models.
 - Commit locally and stop before pushing or opening a PR. The Supervisor tells you when.
 - Before your first commit, rename the branch after the change, following the repository's branch conventions.
+- Follow the repository's `## Tools` policy: mise-declared tools need no permission; anything needing sudo, a GUI app, a system extension, money or a new runtime dependency asks first.
 - When you need a decision the spec and the repository don't answer, list it under `questions` in your report and end your turn.
 - Your first reply is a plan, written before you edit any file: the files you will change and why, where the seams and tests go, how you will meet each acceptance condition, and open questions. Put the plan above the report, leave `checks` empty, and end your turn.
+- Before you start anything, record what is already running: `<absolute path>/scripts/process-receipt baseline <worktree>`. Before you report, stop every process you started (dev servers, simulators, watchers) and run `<absolute path>/scripts/process-receipt check <worktree>`. Paste its output in the report's `processes:` line.
 
 For `/implement`, record each repository's base, commit the implementation, then run `code-review` against that base and the committed head, using the skill tool or by reading its `SKILL.md`. Run it after the implementation and again on every fix delta, so your final report carries the last review. Start its two Reviewers as parallel subagents on `opencode-go/deepseek-v4.1-flash` at variant `max`, or on `opencode-go/glm-5.3` at variant `max` when the fallback line applies. Return the two-axis receipt with the reviewed base and head, every finding and its disposition, and any fix commits with their delta reviews. If you cannot run it, report why rather than silently omitting it.
 
@@ -68,6 +100,7 @@ head: <full SHA>, all work committed, clean tree
 checks:
 - `<command>` exit <code> on <short SHA>
 - <manual or GUI check>: <evidence: command output, log lines, file paths>
+processes: <process-receipt output: processes: none, simulators: none>
 answers:
 - F<n> fixed in <short SHA>
 - F<n> disputed: <evidence>
@@ -114,17 +147,21 @@ Send this to the fork, with the absolute path to `babysit-pr`'s `SKILL.md`, foun
 ```
 supervise · approved <head SHA>
 The Supervisor approved this work at <head SHA>. You own it through merge and wake the Supervisor only for an unsettled finding, Protected Surface approval and the final Definition of Done. You run on the Worker model: `opencode-go/deepseek-v4.1-flash` at variant `max`, or `opencode-go/glm-5.3` at variant `max` when the fallback ran.
+Issue: <owner>/<repo>#<n>, or none.
+
 1. If the base branch moved, rebase onto it and rerun the checks.
 2. Push the branch and open the PR following the repository's conventions.
 3. Read <absolute path>/babysit-pr/SKILL.md and follow it through merge. Inside this Run, do not merge until the Supervisor confirms the final Definition of Done. If the repository is an Upstream Fork or the PR is from an Outside Contributor, do not merge at all: stop at the green open PR and send the stopped notice; the responsible maintainers own the merge.
-4. When the Gates are green, the Verification Evidence is attached, every finding is settled and the PR is mergeable, send `supervise · wake · done <PR URL> · <head SHA>` to thread <Supervisor thread ID> with `t3_thread_send` (`mode: "queue"`). Start the body with `Reply to thread <this thread's ID>.` Merge only after `supervise · merge <PR URL> · <head SHA>`. A `supervise · block <PR URL> · <reason>` stops the run with that reason.
+4. When the Gates are green, the Verification Evidence is attached, every finding is settled and the PR is mergeable, send `supervise · wake · done <PR URL> · <head SHA>` to thread <Supervisor thread ID> with `t3_thread_send` (`mode: "queue"`). Start the body with `Reply to thread <this thread's ID>.` Merge only after `supervise · merge <PR URL> · <head SHA>`. A `supervise · block <PR URL> · <reason>` reply stops the run: post the Blocker shape first, then stop.
 5. If the change touches a Protected Surface, add the `protected` label when you open the PR. If the PR carries `protected`, send `supervise · wake · protected <PR URL>` instead of the done wake, and wait. Merge only after ranokay approves and the Supervisor replies `supervise · merge`.
-6. Merge as the reply authorises: squash, or a merge commit for a Sync PR.
-7. After the merge, remove this worktree, because T3's sweep keeps any worktree a PR fork shares. Set `<main>` to the parent of `git rev-parse --path-format=absolute --git-common-dir`, run `git -C <main> worktree remove <this worktree>`, then apply babysit-pr's local-branch cleanup with `git -C <main>`. If git refuses because the tree has changes, leave the worktree in place and report the changes.
-8. Send notices to thread <notice thread ID> with `t3_thread_send` (`mode: "queue"`). After step 7: `supervise · notice · <task> · merged <PR URL> <merge SHA>`. When you stop before the merge for a human decision or a blocker: `supervise · notice · <task> · stopped <this fork's thread ID> · <one-line reason>`. A later message that names a new notice thread replaces this one.
+6. If a Blocker stops you, such as a missing permission, a protection that refuses the merge, a required reviewer that cannot run, an exhausted CI retry budget, or a decision only ranokay can make, post the shape in <absolute path>/references/messages.md with <absolute path>/scripts/block-issue for the issue named above, or keep it in this thread when that line says none. Send the stopped notice with the comment URL, stop monitoring, and never report the work as done.
+7. Merge as the reply authorises: squash, or a merge commit for a Sync PR.
+8. After the merge, and while the worktree still exists, stop every process this thread started (dev servers, simulators, watchers) and run <absolute path>/scripts/process-receipt check <worktree>; the notice carries its output.
+9. Remove this worktree, because T3's sweep keeps any worktree a PR fork shares. Set `<main>` to the parent of `git rev-parse --path-format=absolute --git-common-dir`, run `git -C <main> worktree remove <this worktree>`, then apply babysit-pr's local-branch cleanup with `git -C <main>`. If git refuses because the tree has changes, leave the worktree in place and report the changes.
+10. Send notices to thread <notice thread ID> with `t3_thread_send` (`mode: "queue"`). After step 9: `supervise · notice · <task> · merged <PR URL> <merge SHA>` and a `processes:` line. When you stop before the merge for a human decision or a Blocker: `supervise · notice · <task> · stopped <this fork's thread ID> · <one-line reason>`, a `blocker:` line with the Blocker comment URL or none, and a `processes:` line. A later message that names a new notice thread replaces this one.
 ```
 
-Include step 8 only with `--notify`, with the IDs filled in.
+Include step 10 only with `--notify`, with the IDs filled in.
 
 ## Wakes to the Supervisor
 

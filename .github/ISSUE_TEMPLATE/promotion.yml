@@ -1,0 +1,23 @@
+name: Promotion
+description: Turn a Supervisor correction into a deterministic check
+title: "promotion: "
+labels: ["promotion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A promotion makes a repeated mistake impossible: a lint rule, an hk step, a workflow assertion or a type. File one for every Supervisor correction.
+  - type: textarea
+    id: correction
+    attributes:
+      label: Correction
+      description: What the agent got wrong, and where it happened.
+    validations:
+      required: true
+  - type: textarea
+    id: gate-check
+    attributes:
+      label: Gate check
+      description: "The hk step, lint rule or workflow assertion that makes this mistake impossible, or `No check possible: <reason>`."
+    validations:
+      required: true

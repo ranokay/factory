@@ -33,6 +33,9 @@ authorize writes in response to an exploratory or read-only request.
 - Preserve restrictions separately for each PR. For example, permission to merge
   one PR does not override a "do not push until I test it" restriction on another.
   Keep the task on the requested PRs and their necessary corrections.
+- Follow the repository's `## Tools` policy for any install: mise-declared tools
+  need no permission, while anything needing sudo, a GUI app, a system extension,
+  money or a new runtime dependency asks first.
 
 This step is complete when the target, action scope, and required gates are known.
 Discover available facts before asking the user to supply them.
@@ -103,6 +106,20 @@ Supervisor thread stands in for the Supervisor's confirmation.
 
 Repository merge rules still win over these defaults.
 
+## Blockers
+
+A Blocker is a condition this thread cannot clear with its own access: a missing
+permission, a protection that refuses the merge, a required reviewer that cannot
+run, an exhausted CI retry budget, or a decision only ranokay can make. Never
+mock around it, narrow scope or weaken a check to finish.
+
+Inside a Run, post the shape in `supervise`'s `references/messages.md` with its
+`scripts/block-issue` for the issue the handoff names, or keep it in this thread
+when the handoff says `none`. Send the `stopped` notice with the comment URL and
+the process receipt, stop this task's monitoring, and never report the work as
+done. Outside a Run, report the smallest external action or user decision needed
+to resume.
+
 ## Wake the Supervisor
 
 Inside a Factory Run, the PR handoff gives the Supervisor's thread ID. Wake the
@@ -112,14 +129,15 @@ and a body that starts with `Reply to thread <this thread's ID>.`:
 - **Unsettled finding.** Send `supervise · wake · finding <ID> · <head SHA>` with
   the finding and the evidence already gathered. Act on `supervise · ruling`:
   `fix` applies the correction, `drop` closes the finding with the reason, and
-  `escalate` waits for ranokay.
+  `escalate` posts the Blocker shape and waits for ranokay.
 - **Protected Surface approval.** Send `supervise · wake · protected <PR URL>` with
   the protected paths. Do not merge. Wait for `supervise · merge`, which follows
   ranokay's approval.
 - **Final Definition of Done.** When the Gates are green, the Verification Evidence
   is attached, every thread is resolved and the PR is mergeable on the candidate
   head, send `supervise · wake · done <PR URL> · <head SHA>`. Merge only after
-  `supervise · merge`. A `supervise · block` stops the run with that reason.
+  `supervise · merge`. A `supervise · block` means post the Blocker shape, send the
+  stopped notice, and stop without merging.
 
 Do not wake the Supervisor for CI, review replies or routine pushes. Those stay
 in this thread.
@@ -161,6 +179,12 @@ verified readiness state without claiming completion of the merge.
 
 ## Clean up and finish
 
+Before the merged or stopped notice, stop every process this thread started (a
+dev server, a watcher, a simulator) and run `supervise`'s
+`scripts/process-receipt check <worktree>`. The notice carries a `processes:`
+line with its output; a receipt that lists a live process or a newly booted
+simulator blocks the hand-off until it is stopped.
+
 After verifying the merge:
 
 - Perform branch deletion through these cleanup checks. A merge command's
@@ -188,10 +212,10 @@ Finish after merge and safe cleanup. If the user restricted the request to
 readiness or observation, finish at that requested milestone. On an explicit
 stop request, disable this task's monitoring immediately and stop further work.
 Missing permissions, unavailable required reviewers, and an exhausted CI retry
-budget end autonomous babysitting as blocked. Preserve progress, stop this
-task's monitoring, and report the smallest external action or user decision
-needed to resume. Required reviews that are still running remain pending, not
-unavailable.
+budget end autonomous babysitting as Blockers: inside a Run, post the shape and
+send the stopped notice as the Blockers section says; outside a Run, report the
+smallest external action or user decision needed to resume. Required reviews that
+are still running remain pending, not unavailable.
 
 Give a concise final receipt with the PR link, verified head, checks and review
 coverage, merge result, cleanup performed or skipped, and remaining blockers.

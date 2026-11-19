@@ -1,0 +1,18 @@
+name: Blocked
+on:
+  issues:
+    types: [labeled]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: false
+permissions: {}
+jobs:
+  notify:
+    name: Notify
+    permissions:
+      contents: read
+      issues: write
+    if: github.event.label.name == 'blocked'
+    uses: $/.github/workflows/blocker-notify.yml
+    with:
+      issue: ${{ github.event.issue.number }}
