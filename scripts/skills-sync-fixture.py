@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-CLI = Path(__file__).resolve().parent / "skills-sync"
+CLI = Path(__file__).resolve().parent / "skills-sync.py"
 
 
 def git(repo, *args):
@@ -34,6 +34,10 @@ def make_upstream(base):
     write(repo / "skills/alpha/SKILL.md", "alpha\n")
     write(repo / "skills/alpha/reference.md", "reference\n")
     write(repo / "skills/beta/SKILL.md", "beta\n")
+    write(
+        repo / "skills/untangle-codebase/SKILL.md",
+        "---\nname: untangle-codebase\ndisable-model-invocation: true\n---\n\nuntangle\n",
+    )
     git(repo, "add", "--all")
     git(repo, "commit", "--quiet", "--message", "first")
     return repo, git(repo, "rev-parse", "HEAD").stdout.strip()
@@ -51,14 +55,14 @@ def write_lock(base, source, commit):
                 "patches": [],
                 "files": [],
             }
-            for name in ("alpha", "beta")
+            for name in ("alpha", "beta", "untangle-codebase")
         ],
     }
     write(base / "skills.lock", json.dumps(payload, indent=2) + "\n")
 
 
 def run_cli(base, *args):
-    subprocess.run([str(CLI), "--root", str(base), *args], check=True, capture_output=True, text=True)
+    subprocess.run([sys.executable, str(CLI), "--root", str(base), *args], check=True, capture_output=True, text=True)
 
 
 def load_lock(base):
@@ -135,6 +139,15 @@ def main():
         for item in alpha["files"]:
             if item["path"] == "SKILL.md":
                 item["sha256"] = sha256(base / "skills/alpha/SKILL.md")
+        save_lock(base, lock)
+    elif scenario == "human-only":
+        path = base / "skills/untangle-codebase/SKILL.md"
+        write(path, "---\nname: untangle-codebase\n---\n\nuntangle\n")
+        lock = load_lock(base)
+        entry = next(item for item in lock["skills"] if item["name"] == "untangle-codebase")
+        for item in entry["files"]:
+            if item["path"] == "SKILL.md":
+                item["sha256"] = sha256(path)
         save_lock(base, lock)
     elif scenario == "orphan-patch":
         write(base / "patches/orphan/0001-orphan.patch", "--- a/x\n+++ b/x\n")

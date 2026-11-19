@@ -24,10 +24,10 @@ steps {
     )
   }
   ["skills-sync"] = new Step {
-    check = "{{root}}/scripts/skills-sync --check --root ."
-    fix = "{{root}}/scripts/skills-sync --root ."
+    check = "uv run {{root}}/scripts/skills-sync.py --check --root ."
+    fix = "uv run {{root}}/scripts/skills-sync.py --root ."
     tests {
-      local const fixture = "python3 {{root}}/scripts/skills-sync-fixture.py"
+      local const fixture = "uv run {{root}}/scripts/skills-sync-fixture.py"
       ["check accepts a clean fixture"] {
         run = "check"
         tmpdir = true
@@ -84,7 +84,7 @@ steps {
       ["update prints the upstream diff"] {
         run = "check"
         tmpdir = true
-        before = "\(fixture) update && {{root}}/scripts/skills-sync --update --root . > update.log"
+        before = "\(fixture) update && uv run {{root}}/scripts/skills-sync.py --update --root . > update.log"
         after = "grep -q '^-alpha$' update.log && grep -q '^+alpha v2$' update.log"
         expect {
           code = 0
@@ -97,8 +97,17 @@ steps {
         run = "check"
         tmpdir = true
         before = "\(fixture) tamper"
-        after = "if {{root}}/scripts/skills-sync --check --fetch --root . > fetch.log 2>&1; then cat fetch.log; exit 1; fi; grep -q 'differs from upstream' fetch.log"
+        after = "if uv run {{root}}/scripts/skills-sync.py --check --fetch --root . > fetch.log 2>&1; then cat fetch.log; exit 1; fi; grep -q 'differs from upstream' fetch.log"
         expect { code = 0 }
+      }
+      ["check rejects a dropped model-invocation flag"] {
+        run = "check"
+        tmpdir = true
+        before = "\(fixture) human-only"
+        expect {
+          code = 1
+          stderr = "must keep disable-model-invocation: true"
+        }
       }
       ["check rejects a patch directory with no lock entry"] {
         run = "check"

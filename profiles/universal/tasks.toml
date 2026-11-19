@@ -1,3 +1,6 @@
 [check]
 description = "Run every Gate"
-run = ["hk check --all", "hk test"]
+depends = ["check:gates"]
+
+["check:gates"]
+run = ["hk check --all", "hk test --step comment-ban"]

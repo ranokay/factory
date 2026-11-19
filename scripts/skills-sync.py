@@ -22,11 +22,14 @@ class SyncError(Exception):
     pass
 
 
+def detail(result):
+    return (result.stderr or result.stdout).strip()
+
+
 def shell(command):
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip()
-        raise SyncError(f"{' '.join(command)}: {detail}")
+        raise SyncError(f"{' '.join(command)}: {detail(result)}")
     return result.stdout
 
 
@@ -136,8 +139,7 @@ def apply_patches(root, name, skill_dir):
             text=True,
         )
         if result.returncode != 0:
-            detail = result.stderr.strip() or result.stdout.strip()
-            raise SyncError(f"patches/{name}/{patch.name} failed to apply: {detail}")
+            raise SyncError(f"patches/{name}/{patch.name} failed to apply: {detail(result)}")
 
 
 def frontmatter(text):
@@ -208,14 +210,14 @@ def materialize(root, entry, clone, staging):
     return destination
 
 
-def stage_all(root, lock, commits, workspace, clones=None):
+def stage_all(root, lock, new_commits, workspace, clones=None):
     staging = workspace / "staged"
     if not staging.is_dir():
         staging.mkdir()
     clones = {} if clones is None else clones
     staged = {}
     for entry in sorted_entries(lock):
-        commit = commits.get(entry["source"], entry["commit"])
+        commit = new_commits.get(entry["source"], entry["commit"])
         if commit != entry["commit"]:
             entry["commit"] = commit
         clone = clone_source(entry["source"], workspace, clones)
@@ -224,16 +226,25 @@ def stage_all(root, lock, commits, workspace, clones=None):
     return staged
 
 
-def compare_trees(expected, actual, label):
+def compare_trees(expected, actual, label, suffix=""):
     problems = []
     for relative in sorted(set(expected) - set(actual)):
-        problems.append(f"{label}/{relative}: missing")
+        problems.append(f"{label}/{relative}: missing{suffix}")
     for relative in sorted(set(actual) - set(expected)):
         problems.append(f"{label}/{relative}: unexpected file")
     for relative in sorted(set(expected) & set(actual)):
         if expected[relative] != actual[relative]:
-            problems.append(f"{label}/{relative}: modified")
+            problems.append(f"{label}/{relative}: modified{suffix}")
     return problems
+
+
+def report(problems, mode):
+    if not problems:
+        return 0
+    for problem in problems:
+        print(f"skills-sync: {problem}", file=sys.stderr)
+    print(f"skills-sync: {mode} failed with {len(problems)} problem(s)", file=sys.stderr)
+    return 1
 
 
 def check_patches(root, entries, problems):
@@ -268,25 +279,16 @@ def check(root, lock):
         if not directory.is_dir():
             problems.append(f"{label}: missing vendored skill directory")
             continue
-        expected = entry["files"]
-        actual = tree_hashes(directory)
-        for relative in sorted(set(expected) - set(actual)):
-            problems.append(f"{label}/{relative}: missing since the pinned commit")
-        for relative in sorted(set(actual) - set(expected)):
-            problems.append(f"{label}/{relative}: unexpected file")
-        for relative in sorted(set(expected) & set(actual)):
-            if expected[relative] != actual[relative]:
-                problems.append(f"{label}/{relative}: modified since the pinned commit")
+        problems.extend(
+            compare_trees(entry["files"], tree_hashes(directory), label, " since the pinned commit")
+        )
         try:
             require_human_only(directory, name)
         except SyncError as error:
             problems.append(str(error))
     check_patches(root, entries, problems)
     if problems:
-        for problem in problems:
-            print(f"skills-sync: {problem}", file=sys.stderr)
-        print(f"skills-sync: check failed with {len(problems)} problem(s)", file=sys.stderr)
-        return 1
+        return report(problems, "check")
     print(f"skills-sync: check passed for {len(entries)} vendored skills")
     return 0
 
@@ -312,14 +314,9 @@ def fetch_check(root, lock):
                     problems.append(
                         f"{label}/{relative}: lock hash does not match upstream at {entry['commit']}"
                     )
-    patch_problems = []
-    check_patches(root, entries, patch_problems)
-    problems.extend(patch_problems)
+    check_patches(root, entries, problems)
     if problems:
-        for problem in problems:
-            print(f"skills-sync: {problem}", file=sys.stderr)
-        print(f"skills-sync: fetch check failed with {len(problems)} problem(s)", file=sys.stderr)
-        return 1
+        return report(problems, "fetch check")
     print(f"skills-sync: fetch check passed for {len(entries)} vendored skills at their pins")
     return 0
 
