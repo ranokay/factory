@@ -22,8 +22,8 @@ class SyncError(Exception):
     pass
 
 
-def shell(command, cwd=None):
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+def shell(command):
+    result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         raise SyncError(f"{' '.join(command)}: {detail}")
