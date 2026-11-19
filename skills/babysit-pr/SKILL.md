@@ -85,11 +85,17 @@ Supervisor thread stands in for the Supervisor's confirmation.
   final confirmation. Do not ask again for permission already given.
 - A PR carrying the `protected` label waits for ranokay. Send
   `supervise · wake · protected <PR URL>` and stop before merging.
+- Before merging, check the diffstat for a Protected Surface path:
+  `.github/workflows/**`, auth or secrets handling, data migrations, a release tag
+  or workflow, or a dependency manifest in a major bump. If the PR touches one
+  and lacks the `protected` label, add the label, send
+  `supervise · wake · protected <PR URL>`, and do not merge.
 - Squash-merge, except a Sync PR, which merges with a merge commit. Identify a
   Sync PR by what it is, never by a branch-name convention: it merges upstream's
   default branch into a Personal Fork's `main` and its body carries a verdict for
-  every upstream change. If you cannot tell whether the PR is a Sync PR, stop and
-  report it to ranokay; do not guess.
+  every upstream change. If you cannot tell whether the PR is a Sync PR, send the
+  `stopped` notice to the notice thread with the question so the Dispatcher parks
+  the issue; do not wake the Supervisor and do not guess.
 - An Upstream Fork PR is merged by upstream maintainers. Never merge it; the Run
   ends at a green open PR.
 - An Outside Contributor PR never auto-merges.

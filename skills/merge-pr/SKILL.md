@@ -48,9 +48,11 @@ restriction on merging are known.
 Apply the policy in `AGENTS.md` and `babysit-pr`: a Done PR without `protected`
 auto-merges, a PR carrying `protected` waits for ranokay, a Sync PR merges with a
 merge commit, an Upstream Fork PR is merged by upstream maintainers, and an
-Outside Contributor PR never auto-merges. Inside a Run, readiness includes the
-Supervisor's `supervise · merge` for this head; without it, send the PR back to
-`babysit-pr`.
+Outside Contributor PR never auto-merges. If you cannot tell whether the PR is a
+Sync PR, report the question to the user and stop. A PR that touches a Protected
+Surface but lacks the `protected` label is not ready: report it and stop. Inside
+a Run, readiness includes the Supervisor's `supervise · merge` for this head;
+without it, report that the PR needs `babysit-pr` and stop.
 
 ## Verify readiness
 

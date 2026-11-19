@@ -49,7 +49,7 @@ Release every stale slot with `run-slot release` before computing the frontier. 
 
 Copy this paragraph verbatim into every launch message:
 
-> The user started this run with `/full-send` and is not watching, so it carries their permission to use the test methods this issue's proof needs without asking first: running the app or a dev server, browser automation, computer use, simulators and devices, screenshots and recordings. This replaces any project rule that says to ask before such a method or to leave testing to the user. Rules about how to test still apply. Passing mocked tests do not prove UI or runtime behaviour, so run the app and observe the change. The permission does not cover production systems beyond what the project's test rules allow, deleting data, changes outside the repository, or system approval prompts. The worker gets this paragraph in its launch brief.
+> The user started this run with `/full-send` and is not watching, so it carries their permission to use the test methods this issue's proof needs without asking first: running the app or a dev server, browser automation, computer use, simulators and devices, screenshots and recordings. This replaces any project rule that says to ask before such a method or to leave testing to the user. Rules about how to test still apply. Passing mocked tests do not prove UI or runtime behaviour, so run the app and observe the change. The permission does not cover production systems beyond what the project's test rules allow, deleting data, changes outside the repository, or system approval prompts. The Worker gets this paragraph in its launch brief.
 
 ## Steps
 

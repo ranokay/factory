@@ -12,8 +12,9 @@ Commands:
   list                             Print owner/repo, issue and thread per slot
 
 Slots live under $RUN_SLOT_DIR, defaulting to
-$HOME/.local/state/agent-tools/runs. The Factory allows 2 Runs per machine
-and 1 per repo.
+$HOME/.local/state/agent-tools/runs. The two machine slots live in
+$RUN_SLOT_DIR/.machine. The Factory allows 2 Runs per machine and 1 per
+repo.
 EOF
 }
 
@@ -73,7 +74,7 @@ release_machine() {
   if [ -f "$slot/machine" ]; then
     candidate=$(cat "$slot/machine")
     if [ -d "$machine_root/$candidate" ]; then
-      rm -f "$machine_root/$candidate/repo"
+      rm -f "$machine_root/$candidate/repo" "$machine_root/$candidate"/*.tmp
       rmdir "$machine_root/$candidate" || fail "cannot release machine slot $candidate"
     fi
     return 0
@@ -81,9 +82,32 @@ release_machine() {
   for candidate in "$machine_root"/*; do
     [ -f "$candidate/repo" ] || continue
     if [ "$(cat "$candidate/repo")" = "$repo" ]; then
-      rm -f "$candidate/repo"
+      rm -f "$candidate/repo" "$candidate"/*.tmp
       rmdir "$candidate" || fail "cannot release machine slot ${candidate##*/}"
       return 0
+    fi
+  done
+}
+
+prune_machine() {
+  if [ ! -d "$machine_root" ]; then
+    return 0
+  fi
+  for candidate in "$machine_root"/*; do
+    [ -d "$candidate" ] || continue
+    index=${candidate##*/}
+    referenced=
+    while IFS= read -r slot; do
+      if [ -f "$slot/machine" ] && [ "$(cat "$slot/machine")" = "$index" ]; then
+        referenced=1
+        break
+      fi
+    done <<EOF
+$(find "$root" -mindepth 2 -maxdepth 2 -type d ! -path "$machine_root/*")
+EOF
+    if [ -z "$referenced" ]; then
+      rm -f "$candidate/repo" "$candidate"/*.tmp
+      rmdir "$candidate" || fail "cannot release machine slot $index"
     fi
   done
 }
@@ -100,7 +124,10 @@ acquire() {
   '' | *[!0-9]*) fail "issue must be a number" ;;
   esac
   slot=$(slot_for "$1")
-  mkdir -p "$root" "$machine_root" "$(dirname "$slot")" || fail "cannot create $root"
+  owner_dir=$(dirname "$slot")
+  mkdir -p "$root" || fail "cannot create $root"
+  mkdir -p "$machine_root" || fail "cannot create $machine_root"
+  mkdir -p "$owner_dir" || fail "cannot create $owner_dir"
   if ! mkdir "$slot"; then
     if [ -d "$slot" ]; then
       fail "$1 already has a Run"
@@ -108,7 +135,7 @@ acquire() {
     fail "cannot create $slot"
   fi
   if ! machine=$(claim_machine); then
-    rmdir "$slot"
+    rmdir "$slot" || fail "cannot remove $slot after a failed launch"
     exit 1
   fi
   write_value "$slot/issue" "$2"
@@ -135,8 +162,9 @@ release() {
     return 0
   fi
   release_machine "$1" "$slot"
-  rm -f "$slot/issue" "$slot/thread" "$slot/machine"
+  rm -f "$slot/issue" "$slot/thread" "$slot/machine" "$slot"/*.tmp
   rmdir "$slot" || fail "cannot release $1"
+  prune_machine
   rmdir "$(dirname "$slot")" 2>/dev/null || true
   rmdir "$machine_root" 2>/dev/null || true
 }

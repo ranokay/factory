@@ -185,6 +185,21 @@ steps {
         env { ["RUN_SLOT_CASE"] = "traversal" }
         expect { code = 0 }
       }
+      ["a permission failure is not a duplicate"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "permission" }
+        expect { code = 0 }
+      }
+      ["concurrent acquires admit exactly two"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "concurrent" }
+        expect { code = 0 }
+      }
+      ["a crashed machine slot is pruned"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "orphan" }
+        expect { code = 0 }
+      }
     }
   }
 }
