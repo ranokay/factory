@@ -40,8 +40,8 @@ Take the slot before claiming the issue. Record the Supervisor's thread after th
 
 A slot is stale when either check holds:
 
-- `gh issue view <issue> --json state -q .state` prints `CLOSED`.
-- `t3_thread_read` on the recorded thread with `limit: 1` reports that no such thread exists.
+- `gh issue view <issue> -R <owner>/<repo> --json state -q .state` prints `CLOSED`.
+- `t3_thread_read` on the slot's recorded thread with `limit: 1` reports that no such thread exists.
 
 Release every stale slot with `run-slot release` before computing the frontier. A slot with no thread yet is a launch in progress, except where step 1 proves the issue is unclaimed.
 
@@ -67,7 +67,7 @@ If `~/.local/state/agent-tools/stop-after-current` exists, go to step 5 and give
 
 Compute the frontier from issue metadata: number, title, state, labels, assignees and blockers. Read a `Blocked by` line only to resolve blockers. When the frontier is empty, or `--max` issues have launched in this run, go to step 5.
 
-Claim the first issue by taking its slot with `run-slot acquire <owner>/<repo> <n>`, then run `gh issue edit <n> --add-assignee @me`. A refused slot means another Run holds the repo or the machine is full: end your turn with that reason and leave the issue unclaimed. Find `supervise`'s `SKILL.md`: this repository's `skills/supervise/SKILL.md`, then `~/.claude/skills/supervise/`, then `~/.agents/skills/supervise/`. Call `t3_thread_launch` with title `#<n> <issue title>`, `clientRequestId` `full-send-<owner>-<repo>-<n>`, `modelSelection` `{"instanceId": "claudeAgent", "model": "claude-opus-5-5", "options": [{"id": "effort", "value": "medium"}]}` (or `high` in place of `medium` in the cases above), and this message:
+Claim the first issue by taking its slot with `run-slot acquire <owner>/<repo> <n>`, then run `gh issue edit <n> --add-assignee @me`. A refused slot means another Run holds the repo or the machine is full: leave the issue unclaimed and go to step 5 with the refusal as the reason the run stopped. Find `supervise`'s `SKILL.md`: this repository's `skills/supervise/SKILL.md`, then `~/.claude/skills/supervise/`, then `~/.agents/skills/supervise/`. Call `t3_thread_launch` with title `#<n> <issue title>`, `clientRequestId` `full-send-<owner>-<repo>-<n>`, `modelSelection` `{"instanceId": "claudeAgent", "model": "claude-opus-5-5", "options": [{"id": "effort", "value": "medium"}]}` (or `high` in place of `medium` in the cases above), and this message:
 
 ```
 Read <absolute path to supervise>/SKILL.md and follow it as the Supervisor, with these arguments:
@@ -110,7 +110,7 @@ Resume the answered issues one at a time. Remove the needs-info label, send the 
 
 Without a question tool, or without an answer, leave every parked issue as it is and start the final report with the questions.
 
-The final report lists each merged issue with its PR and merge commit, each parked issue with its reason and thread link, each frontier issue still blocked with its blocker, and why the run stopped.
+The final report lists each merged issue with its PR and merge commit, each parked issue with its reason and thread link, each frontier issue still blocked with its blocker, and why the run stopped, including a refused slot and the repo that holds it.
 
 ## Rules
 
