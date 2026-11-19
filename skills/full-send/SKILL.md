@@ -110,7 +110,7 @@ Resume the answered issues one at a time. Remove the needs-info label, send the 
 
 Without a question tool, or without an answer, leave every parked issue as it is and start the final report with the questions.
 
-The final report lists each merged issue with its PR and merge commit, each parked issue with its reason and thread link, each frontier issue still blocked with its blocker, and why the run stopped, including a refused slot and the repo that holds it.
+The final report lists each merged issue with its PR and merge commit, each parked issue with its reason and thread link, each frontier issue still blocked with its blocker, and why the run stopped, including a refused slot, with the repo and issue it was for.
 
 ## Rules
 

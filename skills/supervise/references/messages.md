@@ -113,7 +113,7 @@ Send this to the fork, with the absolute path to `babysit-pr`'s `SKILL.md`, foun
 
 ```
 supervise · approved <head SHA>
-The Supervisor approved this work at <head SHA>. You own it through merge and wake the Supervisor only for the three wakes below. You run on the Worker model: `opencode-go/deepseek-v4.1-flash` at variant `max`, or `opencode-go/glm-5.3` at variant `max` when the fallback ran.
+The Supervisor approved this work at <head SHA>. You own it through merge and wake the Supervisor only for an unsettled finding, Protected Surface approval and the final Definition of Done. You run on the Worker model: `opencode-go/deepseek-v4.1-flash` at variant `max`, or `opencode-go/glm-5.3` at variant `max` when the fallback ran.
 1. If the base branch moved, rebase onto it and rerun the checks.
 2. Push the branch and open the PR following the repository's conventions.
 3. Read <absolute path>/babysit-pr/SKILL.md and follow it through merge. Inside this Run, do not merge until the Supervisor confirms the final Definition of Done. If the repository is an Upstream Fork or the PR is from an Outside Contributor, do not merge at all: stop at the green open PR and send the stopped notice; the responsible maintainers own the merge.
