@@ -42,12 +42,12 @@ status=0
 for file in "$@"; do
 	case "$file" in
 	*.md | *.markdown) continue ;;
-	*.sh | *.bash | *.zsh | *.bats | *.py | *.rb | *.toml | *.yml | *.yaml | *.conf | *.mk | Makefile | .gitignore)
+	*.sh | *.bash | *.zsh | *.bats | *.py | *.rb | *.toml | *.yml | *.yaml | *.conf | *.mk | Makefile | */Makefile | .gitignore | */.gitignore)
 		markers='#'
 		block_start=''
 		block_end=''
 		;;
-	*.ini | *.properties | .editorconfig)
+	*.ini | *.properties | .editorconfig | */.editorconfig)
 		markers='# ;'
 		block_start=''
 		block_end=''

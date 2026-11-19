@@ -56,6 +56,11 @@ steps {
         write { ["{{tmp}}/comment.sh"] = "# ./build.sh --release\n" }
         expect { code = 1 }
       }
+      ["rejects a nested gitignore TODO"] {
+        run = "check"
+        write { ["{{tmp}}/sub/.gitignore"] = "# TODO: nested\n" }
+        expect { code = 1 }
+      }
     }
   }
   ["shellcheck"] = Builtins.shellcheck
