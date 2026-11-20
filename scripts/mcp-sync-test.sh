@@ -276,6 +276,16 @@ case_literal_header() {
 	printf 'ok: a literal registry header is refused\n'
 }
 
+case_no_references() {
+	setup_case no-references
+	registry=$case_dir/registry.json
+	printf '{"servers":{"local":{"transport":"stdio","command":"cua","targets":["claude-code"]}}}\n' >"$registry"
+	run_sync --env --registry "$registry"
+	[ "$code" -eq 0 ] || fail "the env mode failed without secret references: $output"
+	expect_contains "$output" "nothing to set"
+	printf 'ok: a registry without secret references is a no-op\n'
+}
+
 case_all() {
 	case_fresh
 	case_drift
@@ -287,6 +297,7 @@ case_all() {
 	case_env_fail
 	case_env_check
 	case_literal_header
+	case_no_references
 }
 
 case $case_name in
@@ -300,6 +311,7 @@ env) case_env ;;
 env-fail) case_env_fail ;;
 env-check) case_env_check ;;
 literal-header) case_literal_header ;;
+no-references) case_no_references ;;
 all) case_all ;;
 *)
 	printf 'unknown case: %s\n' "$case_name" >&2

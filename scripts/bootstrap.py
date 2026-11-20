@@ -204,12 +204,12 @@ def secret_agent_path(home: Path) -> Path:
     return home / "Library" / "LaunchAgents" / f"{SECRET_LABEL}.plist"
 
 
-def secret_agent_plist(home: Path) -> bytes:
+def secret_agent_plist(home: Path, interpreter: str | None = None) -> bytes:
     program = home / ".agents" / "scripts" / "mcp-sync.py"
     log = home / SECRET_LOG
     data = {
         "Label": SECRET_LABEL,
-        "ProgramArguments": [launch_interpreter(), str(program), "--env"],
+        "ProgramArguments": [interpreter or launch_interpreter(), str(program), "--env"],
         "RunAtLoad": True,
         "KeepAlive": {"SuccessfulExit": False},
         "ThrottleInterval": SECRET_RETRY_SECONDS,
@@ -289,15 +289,17 @@ def secret_agent_errors(home: Path) -> list[str]:
     if script.name != "mcp-sync.py" or program[2] != "--env":
         return [f"{shown} does not run mcp-sync.py --env; run mise run bootstrap"]
     try:
-        expected = secret_agent_plist(home)
+        interpreter = launch_interpreter()
     except SystemExit as error:
-        return [f"{shown}: {error}"]
-    if path.read_bytes() != expected:
+        return [
+            f"{shown} cannot resolve the secrets agent interpreter ({error}); run mise run bootstrap"
+        ]
+    if path.read_bytes() != secret_agent_plist(home, interpreter):
         return [f"{shown} differs from what bootstrap writes now; run mise run bootstrap"]
     if home == Path.home().resolve() and sys.platform == "darwin":
         applied = mcp_sync(home, "--env", "--check")
         if applied.returncode != 0:
-            return [f"launchd is missing a secret: {(applied.stderr or applied.stdout).strip()}"]
+            return [f"the launchd secret check failed: {(applied.stderr or applied.stdout).strip()}"]
     return []
 
 
@@ -306,6 +308,24 @@ def github_slug(url: str) -> tuple[str, str] | None:
         match = pattern.match(url)
         if match:
             return match.group(1), match.group(2)
+    return None
+
+
+def github_host_block(text: str) -> str | None:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"(?i)^\s*Host\s+([^#]+)", line)
+        if not match:
+            continue
+        hosts = match.group(1).split()
+        if not any(host == "github.com" or host.endswith(".github.com") for host in hosts):
+            continue
+        block = []
+        for following in lines[index + 1 :]:
+            if re.match(r"(?i)^\s*(Host|Match)\s+", following):
+                break
+            block.append(following)
+        return "\n".join(block)
     return None
 
 
@@ -333,17 +353,18 @@ def setup_github_ssh(home: Path) -> bool:
     config.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(config.parent, 0o700)
     text = config.read_text() if config.is_file() else ""
+    block = github_host_block(text)
     if SSH_MARKER in text:
         print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
-    elif re.search(r"(?im)^\s*Host\s+github\.com\s*$", text):
-        if GITHUB_HTTPS.match(origin):
+    elif block is not None:
+        if "IdentityAgent" in block and "2BUA8C4S2C.com.1password" in block:
+            print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
+        else:
             print(
                 f"bootstrap: {display(config, home)} already has a github.com block the Factory "
                 "does not manage; SSH auth through it is unverified",
                 file=sys.stderr,
             )
-        else:
-            print(f"bootstrap: {display(config, home)} already has a github.com block; leaving it")
     else:
         if config.is_file():
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -543,6 +564,9 @@ def discovery(home: Path) -> int:
         print(f"bootstrap: missing {factory_skills}", file=sys.stderr)
         return 1
     errors.extend(secret_agent_errors(home))
+    mcp_check = mcp_sync(home, "--check")
+    if mcp_check.returncode != 0:
+        errors.append(f"MCP configs have drifted: {mcp_check.stdout.strip()}")
     expected_names = factory_skill_names()
     opencode = config_home(home) / "opencode"
     harnesses = {

@@ -34,9 +34,9 @@ steps {
         env { ["GITLEAKS_CHECK_CASE"] = "bare-key" }
         expect { code = 0 }
       }
-      ["a key stored under a Context7 name is detected"] {
+      ["a ctx7 URL host is not a key"] {
         run = "check"
-        env { ["GITLEAKS_CHECK_CASE"] = "named-key" }
+        env { ["GITLEAKS_CHECK_CASE"] = "url-host" }
         expect { code = 0 }
       }
       ["the default rules still fire"] {
@@ -363,6 +363,11 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "ssh-existing" }
         expect { code = 0 }
       }
+      ["bootstrap loads the agent and the check catches an unset launchd secret"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "launchd" }
+        expect { code = 0 }
+      }
     }
   }
 
@@ -417,6 +422,11 @@ steps {
       ["a literal registry header is refused"] {
         run = "check"
         env { ["MCP_SYNC_CASE"] = "literal-header" }
+        expect { code = 0 }
+      }
+      ["a registry without secret references is a no-op"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "no-references" }
         expect { code = 0 }
       }
     }

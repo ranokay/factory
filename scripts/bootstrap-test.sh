@@ -130,7 +130,28 @@ mkdir -p "$dir/gh-stack"
 printf '# gh-stack\n' >"$dir/gh-stack/SKILL.md"
 STUB
 
-	chmod +x "$bin/ardia" "$bin/cua" "$bin/ctx7" "$bin/npx" "$bin/rea" "$bin/gh"
+	cat >"$bin/op" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'op %s\n' "$*" >>"$STUB_LOG"
+printf 'dummy-value'
+STUB
+
+	cat >"$bin/launchctl" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'launchctl %s\n' "$*" >>"$STUB_LOG"
+if [ "$1" = getenv ]; then
+	if [ -n "${LAUNCHCTL_VALUE:-}" ]; then
+		printf '%s\n' "$LAUNCHCTL_VALUE"
+		exit 0
+	fi
+	exit 1
+fi
+exit 0
+STUB
+
+	chmod +x "$bin/ardia" "$bin/cua" "$bin/ctx7" "$bin/npx" "$bin/rea" "$bin/gh" "$bin/op" "$bin/launchctl"
 }
 
 setup_case() {
@@ -573,6 +594,9 @@ case_mcp() {
 	run_mcp_check
 	[ "$code" -ne 0 ] || fail "the MCP check passed with a drifted config"
 	expect_contains "$output" "$home/.claude.json"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "bootstrap:check passed with a drifted MCP config"
+	expect_contains "$output" "MCP configs have drifted"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair the drift: $output"
 	run_mcp_check
@@ -681,7 +705,7 @@ case_ssh_existing() {
 	: >"$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
-	expect_contains "$output" "already has a github.com block"
+	expect_contains "$output" "SSH auth through it is unverified"
 	[ "$(count_lines '^Host github.com$' "$home/.ssh/config")" -eq 1 ] || fail "bootstrap duplicated the user block"
 	grep -q 'IdentityFile ~/.ssh/other' "$home/.ssh/config" || fail "bootstrap edited the user block"
 	git -C "$factory" remote set-url origin https://github.com/example/factory.git
@@ -689,7 +713,34 @@ case_ssh_existing() {
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind an unmanaged block: $output"
 	expect_contains "$output" "SSH auth through it is unverified"
 	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS"
+	printf 'Host github.com *.github.com\n  IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
+	git -C "$factory" remote set-url origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind an agent block: $output"
+	expect_contains "$output" "already routes github.com through 1Password"
+	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS behind an agent block"
 	printf 'ok: an existing github.com block is left alone and an HTTPS origin still moves to SSH\n'
+}
+
+case_launchd() {
+	setup_case launchd
+	write_mcp_configs
+	uv_bin=$(mise which uv)
+	python_bin=$(mise which python)
+	export LAUNCHCTL_VALUE=value
+	run_command env HOME="$home" MISE_DATA_DIR="$HOME/.local/share/mise" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$factory/scripts/bootstrap.py" --home "$home"
+	[ "$code" -eq 0 ] || fail "bootstrap with a temp HOME failed: $output"
+	expect_contains "$output" "MCP configs are in sync"
+	grep -q 'op read --no-newline op://Private/Context7 API/credential' "$log" || fail "the agent did not read the 1Password reference"
+	grep -q 'launchctl setenv CONTEXT7_API_KEY dummy-value' "$log" || fail "the agent did not set the launchd variable"
+	grep -q 'launchctl bootstrap gui/' "$log" || fail "bootstrap did not load the secrets agent"
+	run_command env HOME="$home" MISE_DATA_DIR="$HOME/.local/share/mise" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$factory/scripts/bootstrap.py" --check --home "$home"
+	[ "$code" -eq 0 ] || fail "the check failed with the launchd variable set: $output"
+	run_command env HOME="$home" LAUNCHCTL_VALUE='' MISE_DATA_DIR="$HOME/.local/share/mise" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$factory/scripts/bootstrap.py" --check --home "$home"
+	[ "$code" -ne 0 ] || fail "the check passed with the launchd variable unset"
+	expect_contains "$output" "the launchd secret check failed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	printf 'ok: bootstrap loads the agent and the check catches an unset launchd secret\n'
 }
 
 case_all() {
@@ -714,6 +765,7 @@ case_all() {
 	case_ssh_agent
 	case_ssh_no_agent
 	case_ssh_existing
+	case_launchd
 }
 
 case $case_name in
@@ -738,6 +790,7 @@ plist-drift) case_plist_drift ;;
 ssh-agent) case_ssh_agent ;;
 ssh-no-agent) case_ssh_no_agent ;;
 ssh-existing) case_ssh_existing ;;
+launchd) case_launchd ;;
 all) case_all ;;
 *)
 	printf 'unknown case: %s\n' "$case_name" >&2
