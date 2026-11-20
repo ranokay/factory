@@ -116,7 +116,7 @@ run_discovery() {
 }
 
 run_python() {
-	run_command uv run --offline --no-project --no-config --python 3.13 python "$@"
+	run_command uv run --offline --no-project --no-config --python 3.13.18 python "$@"
 }
 
 run_hook() {
@@ -203,13 +203,20 @@ case_broken() {
 	expect_contains "$output" "codex"
 	expect_contains "$output" "$tilde/.codex/skills/rogue"
 	rm "$home/.codex/skills/rogue"
-	rm "$home/.claude/skills"
+	rm -rf "$home/.claude/skills"
 	mkdir -p "$home/.claude/skills/rogue"
 	printf '# rogue\n' >"$home/.claude/skills/rogue/SKILL.md"
 	run_discovery
 	[ "$code" -ne 0 ] || fail "discovery passed with a real skills directory"
 	expect_contains "$output" "claude-code"
 	expect_contains "$output" "$tilde/.claude/skills"
+	rm -rf "$home/.claude/skills"
+	printf 'not a directory\n' >"$home/.claude/skills"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "discovery passed with a skills file"
+	expect_contains "$output" "claude-code"
+	expect_contains "$output" "$tilde/.claude/skills"
+	expect_not_contains "$output" "Traceback"
 	printf 'ok: a broken link names the harness and the path\n'
 }
 

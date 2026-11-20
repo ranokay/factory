@@ -165,6 +165,8 @@ def main():
             handle.write("\n")
     elif scenario == "own-skill":
         write(base / "skills/own-skill/SKILL.md", "own\n")
+    elif scenario == "tool-skill":
+        write(base / "skills/ardia/SKILL.md", "tool\n")
     elif scenario != "clean":
         print(f"unknown scenario {scenario}", file=sys.stderr)
         return 2

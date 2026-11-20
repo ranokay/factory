@@ -261,6 +261,9 @@ def discovery(home: Path) -> int:
             if not path.exists():
                 errors.append(f"{harness}: {display(path, home)} is missing")
                 continue
+            if not path.is_dir():
+                errors.append(f"{harness}: {display(path, home)} is not a directory")
+                continue
             if not path.samefile(factory_skills):
                 errors.append(
                     f"{harness}: {display(path, home)} does not resolve to "
@@ -293,23 +296,22 @@ def discovery(home: Path) -> int:
     return 0
 
 
-def check_tool_skills(root: Path) -> int:
-    names = read_tool_skills()
-    tracked = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "--", *[f"skills/{name}" for name in names]],
+def git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def check_tool_skills(root: Path) -> int:
+    names = read_tool_skills()
+    tracked = git(root, "ls-files", "--", *[f"skills/{name}" for name in names])
     if tracked.returncode != 0:
         print(f"bootstrap: cannot list tracked files in {root}: {tracked.stderr.strip()}", file=sys.stderr)
         return 1
-    untracked = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard", "--", ":(glob)skills/*/SKILL.md"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    untracked = git(root, "ls-files", "--others", "--exclude-standard", "--", ":(glob)skills/*/SKILL.md")
     if untracked.returncode != 0:
         print(f"bootstrap: cannot list untracked files in {root}: {untracked.stderr.strip()}", file=sys.stderr)
         return 1
@@ -320,6 +322,19 @@ def check_tool_skills(root: Path) -> int:
     for path in [line for line in untracked.stdout.splitlines() if line]:
         print(f"bootstrap: untracked skill is not declared as tool-owned: {path}", file=sys.stderr)
         problems = True
+    ignore_file = root / ".gitignore"
+    if ignore_file.is_file():
+        ignored = {
+            line.strip()[len("skills/") : -1]
+            for line in ignore_file.read_text().splitlines()
+            if line.strip().startswith("skills/") and line.strip().endswith("/")
+        }
+        for name in sorted(ignored - set(names)):
+            print(f"bootstrap: ignored skill is not declared tool-owned: skills/{name}", file=sys.stderr)
+            problems = True
+        for name in sorted(set(names) - ignored):
+            print(f"bootstrap: declared tool-owned skill is not ignored: skills/{name}", file=sys.stderr)
+            problems = True
     if problems:
         return 1
     print("bootstrap: no tool-owned skill is tracked")
@@ -328,20 +343,8 @@ def check_tool_skills(root: Path) -> int:
 
 def run_skills_sync(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [
-            "uv",
-            "run",
-            "--offline",
-            "--no-project",
-            "--no-config",
-            "--python",
-            "3.13",
-            "python",
-            str(ROOT / "scripts" / "skills-sync.py"),
-            "--root",
-            str(ROOT),
-            *args,
-        ],
+        ["mise", "run", "skills:sync", *args],
+        cwd=ROOT,
         capture_output=True,
         text=True,
         check=False,
@@ -394,17 +397,24 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     apply_links(changes, home)
     synced, sync_errors = ensure_vendored_skills()
-    tools_ready = all(skill_present(name) for name in read_tool_skills())
+    tools_present_before = all(skill_present(name) for name in read_tool_skills())
     errors = [*sync_errors, *install_tool_skills(home)]
     discovery_code = discovery(home)
     for error in errors:
         print(f"bootstrap: {error}", file=sys.stderr)
     if errors or discovery_code != 0:
         return 1
-    if not changes and not synced and tools_ready:
+    if not changes and not synced and tools_present_before:
         print("Already bootstrapped: no changes.")
     else:
-        print(f"bootstrap: complete with {len(changes)} link change(s)")
+        work = []
+        if changes:
+            work.append(f"{len(changes)} link change(s)")
+        if synced:
+            work.append("vendored skills synced")
+        if not tools_present_before:
+            work.append("tool skills installed")
+        print("bootstrap: complete with " + ", ".join(work))
     return 0
 
 

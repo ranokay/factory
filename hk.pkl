@@ -154,6 +154,17 @@ steps {
           }
         }
       }
+      ["sync leaves a tool-owned directory alone"] {
+        run = "fix"
+        tmpdir = true
+        before = "\(fixture) tool-skill"
+        expect {
+          code = 0
+          files {
+            ["skills/ardia/SKILL.md"] = "tool\n"
+          }
+        }
+      }
     }
   }
 
