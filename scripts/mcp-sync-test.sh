@@ -71,6 +71,8 @@ setup_case() {
 	log=$case_dir/stub.log
 	mkdir -p "$home/.config/opencode" "$home/.codex" "$bin"
 	home=$(CDPATH='' cd "$home" && pwd -P)
+	export XDG_CONFIG_HOME="$home/.config"
+	export CODEX_HOME="$home/.codex"
 	: >"$log"
 	export STUB_LOG="$log"
 	PATH="$bin:$base_path"
@@ -262,6 +264,30 @@ case_env_check() {
 	printf 'ok: the env check reports a missing launchd variable\n'
 }
 
+case_literal_header() {
+	setup_case literal-header
+	make_stubs
+	write_config claude '{}'
+	registry=$case_dir/registry.json
+	printf '{"servers":{"bad":{"transport":"http","url":"https://example.invalid/mcp","headers":{"Authorization":"Bearer literal-value"},"targets":["claude-code"]}}}\n' >"$registry"
+	run_sync --check --registry "$registry"
+	[ "$code" -ne 0 ] || fail "a literal header was accepted"
+	expect_contains "$output" "must be an object with env and reference"
+	printf 'ok: a literal registry header is refused\n'
+}
+
+case_no_references() {
+	setup_case no-references
+	make_stubs
+	write_config claude '{}'
+	registry=$case_dir/registry.json
+	printf '{"servers":{"local":{"transport":"stdio","command":"cua","targets":["claude-code"]}}}\n' >"$registry"
+	run_sync --env --registry "$registry"
+	[ "$code" -ne 0 ] || fail "the env mode passed without secret references"
+	expect_contains "$output" "no secret references"
+	printf 'ok: the env mode fails loudly without secret references\n'
+}
+
 case_all() {
 	case_fresh
 	case_drift
@@ -272,6 +298,8 @@ case_all() {
 	case_env
 	case_env_fail
 	case_env_check
+	case_literal_header
+	case_no_references
 }
 
 case $case_name in
@@ -284,6 +312,8 @@ backup) case_backup ;;
 env) case_env ;;
 env-fail) case_env_fail ;;
 env-check) case_env_check ;;
+literal-header) case_literal_header ;;
+no-references) case_no_references ;;
 all) case_all ;;
 *)
 	printf 'unknown case: %s\n' "$case_name" >&2

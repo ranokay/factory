@@ -646,6 +646,9 @@ case_ssh_agent() {
 	grep -q 'IdentityAgent .*2BUA8C4S2C.com.1password/t/agent.sock' "$home/.ssh/config" || fail "the ssh config does not use the 1Password agent"
 	grep -q '^Host example$' "$home/.ssh/config" || fail "the ssh config lost an existing block"
 	[ "$(stat -f '%Lp' "$home/.ssh/config" 2>/dev/null || stat -c '%a' "$home/.ssh/config")" = 600 ] || fail "the ssh config is not 600"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the config: $output"
+	expect_contains "$output" "identityagent $home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 	backup=$(find "$home/.ssh" -name 'config.backup-*' | head -n 1)
 	[ -n "$backup" ] || fail "the ssh config was not backed up"
 	grep -q '^Host example$' "$backup" || fail "the ssh config backup lost the original"
@@ -681,7 +684,12 @@ case_ssh_existing() {
 	expect_contains "$output" "already has a github.com block"
 	[ "$(count_lines '^Host github.com$' "$home/.ssh/config")" -eq 1 ] || fail "bootstrap duplicated the user block"
 	grep -q 'IdentityFile ~/.ssh/other' "$home/.ssh/config" || fail "bootstrap edited the user block"
-	printf 'ok: an existing github.com block is left alone\n'
+	git -C "$factory" remote set-url origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap rewrote an HTTPS origin behind an unmanaged github.com block"
+	expect_contains "$output" "$tilde/.ssh/config"
+	[ "$(git -C "$factory" remote get-url origin)" = "https://github.com/example/factory.git" ] || fail "bootstrap changed the origin behind an unmanaged block"
+	printf 'ok: an existing github.com block is left alone and blocks an HTTPS rewrite\n'
 }
 
 case_all() {

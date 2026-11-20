@@ -11,3 +11,17 @@ keywords = [
   "context7",
   "x-api-key",
 ]
+
+[[rules]]
+id = "context7-api-key-value"
+description = "literal Context7 API key value"
+regex = '''(?i)(?:context7(?:[_-]api)?[_-]?key)["']?[ \t]*[:=][ \t]*["']?([A-Za-z0-9._~+/=-]{20,})'''
+secretGroup = 1
+keywords = ["context7"]
+
+[[rules]]
+id = "context7-key-token"
+description = "bare Context7 API key token"
+regex = '''(?i)\bctx7[a-z0-9._~+/=-]{16,}'''
+secretGroup = 0
+keywords = ["ctx7"]

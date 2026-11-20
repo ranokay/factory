@@ -23,7 +23,6 @@ import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL_SKILLS_FILE = ROOT / "scripts" / "tool-skills.txt"
@@ -205,40 +204,27 @@ def secret_agent_path(home: Path) -> Path:
     return home / "Library" / "LaunchAgents" / f"{SECRET_LABEL}.plist"
 
 
-def secret_agent_plist(home: Path) -> str:
+def secret_agent_plist(home: Path) -> bytes:
     program = home / ".agents" / "scripts" / "mcp-sync.py"
     log = home / SECRET_LOG
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-        '<plist version="1.0">\n'
-        "<dict>\n"
-        f"  <key>Label</key>\n  <string>{escape(SECRET_LABEL)}</string>\n"
-        "  <key>ProgramArguments</key>\n"
-        "  <array>\n"
-        f"    <string>{escape(launch_interpreter())}</string>\n"
-        f"    <string>{escape(str(program))}</string>\n"
-        "    <string>--env</string>\n"
-        "  </array>\n"
-        "  <key>RunAtLoad</key>\n  <true/>\n"
-        "  <key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n"
-        f"  <key>ThrottleInterval</key>\n  <integer>{SECRET_RETRY_SECONDS}</integer>\n"
-        "  <key>StandardOutPath</key>\n"
-        f"  <string>{escape(str(log))}</string>\n"
-        "  <key>StandardErrorPath</key>\n"
-        f"  <string>{escape(str(log))}</string>\n"
-        "</dict>\n"
-        "</plist>\n"
-    )
+    data = {
+        "Label": SECRET_LABEL,
+        "ProgramArguments": [launch_interpreter(), str(program), "--env"],
+        "RunAtLoad": True,
+        "KeepAlive": {"SuccessfulExit": False},
+        "ThrottleInterval": SECRET_RETRY_SECONDS,
+        "StandardOutPath": str(log),
+        "StandardErrorPath": str(log),
+    }
+    return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False)
 
 
 def install_secret_agent(home: Path) -> bool:
     path = secret_agent_path(home)
     text = secret_agent_plist(home)
-    if not path.is_file() or path.read_text() != text:
+    if not path.is_file() or path.read_bytes() != text:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        path.write_bytes(text)
         os.chmod(path, 0o600)
         print(f"bootstrap: wrote {display(path, home)}")
     else:
@@ -260,6 +246,11 @@ def install_secret_agent(home: Path) -> bool:
             file=sys.stderr,
         )
         loaded = False
+    else:
+        verified = mcp_sync(home, "--env", "--check")
+        if verified.returncode != 0:
+            print(f"bootstrap: {(verified.stderr or verified.stdout).strip()}", file=sys.stderr)
+            loaded = False
     uid = os.getuid()
     subprocess.run(
         ["launchctl", "bootout", f"gui/{uid}/{SECRET_LABEL}"],
@@ -297,8 +288,12 @@ def secret_agent_errors(home: Path) -> list[str]:
     script = Path(str(program[1]))
     if script.name != "mcp-sync.py" or program[2] != "--env":
         return [f"{shown} does not run mcp-sync.py --env; run mise run bootstrap"]
-    if path.read_text() != secret_agent_plist(home):
+    if path.read_bytes() != secret_agent_plist(home):
         return [f"{shown} differs from what bootstrap writes now; run mise run bootstrap"]
+    if home == Path.home().resolve() and sys.platform == "darwin":
+        applied = mcp_sync(home, "--env", "--check")
+        if applied.returncode != 0:
+            return [f"launchd is missing a secret: {(applied.stderr or applied.stdout).strip()}"]
     return []
 
 
@@ -337,6 +332,13 @@ def setup_github_ssh(home: Path) -> bool:
     if SSH_MARKER in text:
         print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
     elif re.search(r"(?im)^\s*Host\s+github\.com\s*$", text):
+        if GITHUB_HTTPS.match(origin):
+            print(
+                f"bootstrap: {display(config, home)} already has a github.com block the Factory "
+                "does not manage; add the 1Password IdentityAgent or keep pushing over SSH manually",
+                file=sys.stderr,
+            )
+            return False
         print(f"bootstrap: {display(config, home)} already has a github.com block; leaving it")
     else:
         if config.is_file():
@@ -347,7 +349,7 @@ def setup_github_ssh(home: Path) -> bool:
             "Host github.com\n"
             "    HostName github.com\n"
             "    User git\n"
-            f"    IdentityAgent {socket}\n"
+            f'    IdentityAgent "{socket}"\n'
             "    IdentitiesOnly yes\n"
         )
         config.write_text(text + block)

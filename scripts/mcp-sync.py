@@ -89,10 +89,10 @@ def load_registry(path: Path) -> tuple[dict, list[str]]:
         if not isinstance(headers, dict):
             raise SyncError(f"{path}: server {name} headers must be an object")
         for header, value in headers.items():
-            if isinstance(value, str):
-                continue
             if not isinstance(value, dict):
-                raise SyncError(f"{path}: server {name} header {header} is invalid")
+                raise SyncError(
+                    f"{path}: server {name} header {header} must be an object with env and reference"
+                )
             if value.get("scheme") not in (None, "Bearer"):
                 raise SyncError(f"{path}: server {name} header {header} has unsupported scheme")
             if not isinstance(value.get("env"), str) or not value["env"]:
@@ -106,8 +106,6 @@ def secret_references(servers: dict) -> dict[str, str]:
     references: dict[str, str] = {}
     for name, spec in servers.items():
         for header, value in (spec.get("headers") or {}).items():
-            if not isinstance(value, dict):
-                continue
             env = value["env"]
             if env in references and references[env] != value["reference"]:
                 raise SyncError(f"{name} header {header}: {env} has two 1Password references")
@@ -123,10 +121,9 @@ def header_reference(value: dict, target: str) -> str:
 
 
 def headers_for(spec: dict, target: str) -> dict[str, str]:
-    headers = {}
-    for name, value in (spec.get("headers") or {}).items():
-        headers[name] = value if isinstance(value, str) else header_reference(value, target)
-    return headers
+    return {
+        name: header_reference(value, target) for name, value in (spec.get("headers") or {}).items()
+    }
 
 
 def claude_entry(spec: dict, home: Path) -> dict:
@@ -179,19 +176,12 @@ def codex_blocks(servers: dict, home: Path) -> str:
                 lines.extend(f"{key} = {toml_str(value)}" for key, value in env.items())
         else:
             lines.append(f"url = {toml_str(spec['url'])}")
-            inline = {}
             from_env = {}
             for header, value in (spec.get("headers") or {}).items():
-                if isinstance(value, str):
-                    inline[header] = value
-                elif value.get("scheme") == "Bearer" and header.lower() == "authorization":
+                if value.get("scheme") == "Bearer" and header.lower() == "authorization":
                     lines.append(f"bearer_token_env_var = {toml_str(value['env'])}")
                 else:
                     from_env[header] = value["env"]
-            if inline:
-                lines.append("")
-                lines.append(f"[mcp_servers.{name}.http_headers]")
-                lines.extend(f"{key} = {toml_str(value)}" for key, value in inline.items())
             if from_env:
                 lines.append("")
                 lines.append(f"[mcp_servers.{name}.env_http_headers]")
@@ -358,8 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.env:
             references = secret_references(servers)
             if not references:
-                print("mcp-sync: registry has no secret references")
-                return 0
+                raise SyncError("the registry has no secret references; refusing to report success")
             if args.check:
                 check_env(references)
             else:

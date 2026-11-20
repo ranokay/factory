@@ -73,10 +73,22 @@ JSON
 	cat >"$test_root/references/codex.toml" <<'TOML'
 bearer_token_env_var = "CONTEXT7_API_KEY"
 TOML
+	printf '{"reference":"op://Private/Context7 API/credential"}\n' >"$test_root/references/registry.json"
 	run_scan "$test_root/references"
 	[ "$code" -eq 0 ] || fail "the env references were reported as a leak: $output"
 	expect_not_contains "$output" "$fake"
 	printf 'ok: an env reference is not a secret\n'
+}
+
+case_bare_key() {
+	fake="ctx7sk-$(random_hex)"
+	mkdir -p "$test_root/bare"
+	printf '{"value":"%s"}\n' "$fake" >"$test_root/bare/config.json"
+	run_scan "$test_root/bare"
+	[ "$code" -ne 0 ] || fail "a bare Context7 key was not detected"
+	expect_contains "$output" "context7-key-token"
+	expect_not_contains "$output" "$fake"
+	printf 'ok: a bare Context7 key is detected and redacted\n'
 }
 
 case_default_rules() {
@@ -99,6 +111,7 @@ case_repo() {
 case_all() {
 	case_fabricated
 	case_env_reference
+	case_bare_key
 	case_default_rules
 	case_repo
 }
@@ -106,6 +119,7 @@ case_all() {
 case $case_name in
 fabricated) case_fabricated ;;
 env-reference) case_env_reference ;;
+bare-key) case_bare_key ;;
 default-rules) case_default_rules ;;
 repo) case_repo ;;
 all) case_all ;;
