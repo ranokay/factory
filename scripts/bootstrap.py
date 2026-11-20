@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TOOL_SKILLS_FILE = ROOT / "scripts" / "tool-skills.txt"
 REQUIRED_TOOL_GROUPS = ("ardia", "cua", "ctx7", "rea", "gh-stack")
-GH_STACK_PIN = "v0.2.0"
+GH_STACK_PIN = "d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419"
 CODEX_MANAGED_SKILLS = {".system"}
 
 
