@@ -441,10 +441,7 @@ case_repair() {
 case_tracked() {
 	fixture=$test_root/tracked
 	mkdir -p "$fixture/skills/ardia"
-	git -C "$fixture" init -q
-	git -C "$fixture" config user.name "Bootstrap test"
-	git -C "$fixture" config user.email "bootstrap-test@example.invalid"
-	git -C "$fixture" config commit.gpgsign false
+	init_git "$fixture"
 	printf '# ardia\n' >"$fixture/skills/ardia/SKILL.md"
 	git -C "$fixture" add skills/ardia/SKILL.md
 	git -C "$fixture" commit -qm "import ardia"
@@ -486,23 +483,34 @@ case_synced_ignored() {
 	mkdir -p "$factory/skills/synced/bucket-one/alpha" "$factory/skills/synced/bucket-two/beta/references"
 	printf '# alpha\n' >"$factory/skills/synced/bucket-one/alpha/SKILL.md"
 	printf '# beta\n' >"$factory/skills/synced/bucket-two/beta/SKILL.md"
-	: >"$factory/skills/synced/.bucket-one"
+	printf '# cache root\n' >"$factory/skills/synced/SKILL.md"
 	run_command git -C "$factory" status --porcelain
 	[ -z "$output" ] || fail "a populated synced cache is not ignored: $output"
 	run_check_tool_skills "$factory"
 	[ "$code" -eq 0 ] || fail "an ignored synced cache failed the check: $output"
 	expect_contains "$output" "tool-owned skill checks passed"
+	grep -v '^skills/synced/$' "$factory/.gitignore" >"$factory/.gitignore.replaced"
+	mv "$factory/.gitignore.replaced" "$factory/.gitignore"
+	run_check_tool_skills "$factory"
+	[ "$code" -ne 0 ] || fail "a synced cache without its ignore rule passed the check"
+	expect_contains "$output" "synced skill cache is not ignored: skills/synced/bucket-one/alpha/SKILL.md"
 	printf 'ok: an ignored synced cache keeps git status clean and passes the check\n'
 }
 
 case_synced_discovery() {
 	setup_case synced-discovery
+	init_git "$factory"
+	git -C "$factory" add -A
+	git -C "$factory" commit -qm "baseline"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
 	count=$(printf '%s\n' "$output" | sed -n 's/.*(\([0-9][0-9]*\) skills)/\1/p')
 	[ -n "$count" ] || fail "bootstrap did not report a skill count: $output"
 	mkdir -p "$factory/skills/synced/bucket/skill"
 	printf '# synced\n' >"$factory/skills/synced/bucket/skill/SKILL.md"
+	printf '# cache root\n' >"$factory/skills/synced/SKILL.md"
+	run_command git -C "$factory" status --porcelain
+	[ -z "$output" ] || fail "bootstrap plus a populated synced cache is not clean: $output"
 	run_discovery
 	[ "$code" -eq 0 ] || fail "discovery failed with a synced cache present: $output"
 	expect_contains "$output" "discovery check passed for claude-code, opencode and codex ($count skills)"
