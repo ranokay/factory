@@ -99,8 +99,6 @@ def evidence():
             FAILURES.append(message)
             print(f'kept {path}: {message}', flush=True)
             continue
-        if reason == 'recent evidence':
-            continue
         if reason:
             print(f'kept {path}: {reason}', flush=True)
         else:
@@ -134,23 +132,24 @@ def active_tools():
     }
 
 
+def tool_keep_reason(tool, version, path, active, protected):
+    if (tool, version) in active:
+        return 'active tool'
+    if any(program.startswith(str(path) + '/') or program == str(path) for program in protected):
+        return 'used by launch agent'
+    if not path.exists():
+        return 'install path missing'
+    if time.time() - path.stat().st_mtime < AGE:
+        return 'recent install'
+    return None
+
+
 def tool_candidates():
     versions = json.loads(tool_output('ls', '--prunable', '--json'))
-    active = active_tools()
-    protected = protected_programs()
     for tool, entries in versions.items():
         for entry in entries:
             version = entry['version']
             path = Path(entry['install_path'])
-            if (tool, version) in active:
-                print(f'kept {path}: active tool')
-                continue
-            if any(program.startswith(str(path) + '/') or program == str(path) for program in protected):
-                print(f'kept {path}: used by launch agent')
-                continue
-            if time.time() - path.stat().st_mtime < AGE:
-                print(f'kept {path}: recent install')
-                continue
             output = tool_output('prune', '--tools', '--dry-run', f'{tool}@{version}')
             matches = re.findall(r'\[dryrun\]\s+remove (.+)', output)
             if not matches:
@@ -158,7 +157,7 @@ def tool_candidates():
             paths = [Path(item.strip()).expanduser() for line in matches for item in line.split(', ')]
             if path not in paths:
                 raise RuntimeError(f'prune output does not contain {path}')
-            yield tool, version, paths
+            yield tool, version, path, paths
 
 
 def cache_candidates():
@@ -186,16 +185,20 @@ def prune_tools(dry_run):
     total = 0
     candidates = list(tool_candidates())
     active = active_tools()
-    for tool, version, paths in candidates:
-        if (tool, version) in active:
-            print(f'kept {paths[0]}: active tool')
-            continue
-        if time.time() - paths[0].stat().st_mtime < AGE:
-            print(f'kept {paths[0]}: recent install')
+    protected = protected_programs()
+    for tool, version, install, paths in candidates:
+        reason = tool_keep_reason(tool, version, install, active, protected)
+        if reason:
+            print(f'kept {install}: {reason}')
             continue
         if any(contains_git(path) for path in paths):
             print(f'kept {tool}@{version}: contains git data')
             continue
+        if not dry_run:
+            reason = tool_keep_reason(tool, version, install, active_tools(), protected_programs())
+            if reason:
+                print(f'kept {install}: {reason} before pruning')
+                continue
         for path in paths:
             amount = size(path) if path.exists() else 0
             print(f'delete {path} {amount} bytes', flush=True)
@@ -226,43 +229,41 @@ def main():
     args = parser.parse_args()
     total = 0
     for path in worktrees():
+        if not args.dry_run:
+            try:
+                reason = worktree_reason(path)
+            except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as error:
+                message = f'cannot inspect {path}: {error}'
+                FAILURES.append(message)
+                print(f'kept {path}: {message}', flush=True)
+                continue
+            if reason:
+                print(f'kept {path}: {reason}', flush=True)
+                continue
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)
-        if args.dry_run:
-            total += amount
-            continue
-        try:
-            reason = worktree_reason(path)
-        except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as error:
-            message = f'cannot inspect {path}: {error}'
-            FAILURES.append(message)
-            print(f'kept {path}: {message}', flush=True)
-            continue
-        if reason:
-            print(f'kept {path}: {reason}', flush=True)
-            continue
-        run('git', 'worktree', 'remove', str(path), cwd=path)
         total += amount
+        if not args.dry_run:
+            run('git', 'worktree', 'remove', str(path), cwd=path)
     for path in evidence():
+        if not args.dry_run:
+            try:
+                reason = evidence_reason(path)
+            except (OSError, subprocess.SubprocessError) as error:
+                message = f'cannot inspect {path}: {error}'
+                FAILURES.append(message)
+                print(f'kept {path}: {message}', flush=True)
+                continue
+            if reason:
+                print(f'kept {path}: {reason}', flush=True)
+                continue
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)
-        if args.dry_run:
-            total += amount
-            continue
-        try:
-            reason = evidence_reason(path)
-        except (OSError, subprocess.SubprocessError) as error:
-            message = f'cannot inspect {path}: {error}'
-            FAILURES.append(message)
-            print(f'kept {path}: {message}', flush=True)
-            continue
-        if reason:
-            print(f'kept {path}: {reason}', flush=True)
-            continue
-        shutil.rmtree(path)
         total += amount
-    total += prune_tools(args.dry_run)
+        if not args.dry_run:
+            shutil.rmtree(path)
     total += prune_cache(args.dry_run)
+    total += prune_tools(args.dry_run)
     summary = human_size(total)
     print(f'{"would reclaim" if args.dry_run else "reclaimed"} {summary}', flush=True)
     if args.notify and not args.dry_run and sys.platform == 'darwin':

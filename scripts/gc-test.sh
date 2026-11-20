@@ -40,9 +40,9 @@ run_gc --dry-run >"$tmp/dry"
 if grep -E '^delete .*(unpushed|dirty|locked)' "$tmp/dry"; then exit 1; fi
 grep '^delete .*stale' "$tmp/dry"
 grep '^delete .*old-tool' "$tmp/dry"
-grep '^would reclaim' "$tmp/dry"
+grep -E '^would reclaim [1-9][0-9]* bytes' "$tmp/dry"
 run_gc >"$tmp/run"
-grep '^reclaimed' "$tmp/run"
+grep -E '^reclaimed [1-9][0-9]* bytes' "$tmp/run"
 test -d "$HOME/.t3/worktrees/example/unpushed"
 git -C "$HOME/.t3/worktrees/example/unpushed" log -1 --format=%s | grep '^unpushed$'
 test ! -e "$HOME/.t3/worktrees/example/stale"
@@ -98,8 +98,14 @@ case "\$1 \$2" in
 "cache prune")
 	printf 'INFO  cache pruned 0 files, 0 B\n'
 	;;
+"prune --tools")
+	case \$4 in
+	fake@1.0) printf '[dryrun] remove %s\n' "$fake_root/fake/1.0" ;;
+	recent@1.0) printf '[dryrun] remove %s\n' "$fake_root/recent/1.0" ;;
+	esac
+	;;
 *)
-	printf '[dryrun] remove %s\n' "$fake_root/fake/1.0"
+	exit 1
 	;;
 esac
 STUB
@@ -110,3 +116,42 @@ PATH=$base_path
 grep 'kept .*fake/1.0: active tool' "$tmp/tools"
 grep 'kept .*recent/1.0: recent install' "$tmp/tools"
 if grep '^delete .*fake/1.0' "$tmp/tools"; then exit 1; fi
+
+evidence_home="$tmp/evidence-home"
+mkdir -p "$evidence_home/.cache/factory/owner/repo/1" "$tmp/evidence-bin"
+printf 'evidence\n' >"$evidence_home/.cache/factory/owner/repo/1/file"
+touch -t 202001010000 "$evidence_home/.cache/factory/owner/repo/1/file" "$evidence_home/.cache/factory/owner/repo/1"
+cat >"$tmp/evidence-bin/mise" <<STUB
+#!/bin/sh
+case "\$1 \$2" in
+"ls --json" | "ls --prunable")
+	printf '{}\n'
+	;;
+"cache path")
+	printf '%s\n' "$tmp/cache"
+	;;
+"cache prune")
+	printf 'INFO  cache pruned 0 files, 0 B\n'
+	;;
+*)
+	exit 1
+	;;
+esac
+STUB
+cat >"$tmp/evidence-bin/gh" <<'STUB'
+#!/bin/sh
+if [ "$1 $2" = "pr view" ]; then
+	printf 'MERGED\n'
+	exit 0
+fi
+exit 1
+STUB
+chmod +x "$tmp/evidence-bin/mise" "$tmp/evidence-bin/gh"
+PATH="$tmp/evidence-bin:$base_path"
+HOME="$evidence_home" run_gc --dry-run >"$tmp/evidence-dry"
+PATH=$base_path
+grep '^delete .*repo/1' "$tmp/evidence-dry"
+PATH="$tmp/evidence-bin:$base_path"
+HOME="$evidence_home" run_gc >"$tmp/evidence-run"
+PATH=$base_path
+test ! -e "$evidence_home/.cache/factory/owner/repo/1"

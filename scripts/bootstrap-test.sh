@@ -659,6 +659,7 @@ case_gc_agent() {
 	[ "$(plist_value "$plist" StandardErrorPath)" = "$home/Library/Logs/factory-gc-error.log" ] || fail "wrong error log path"
 	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v mise)")"
 	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v gh)")"
+	[ -n "$(env -i PATH="$(plist_value "$plist" EnvironmentVariables.PATH)" /bin/sh -c 'command -v uv')" ] || fail "uv is not on the gc agent PATH"
 	run_discovery
 	[ "$code" -eq 0 ] || fail "gc discovery failed: $output"
 	printf 'ok: gc plist installed at %s and discovery passed\n' "$plist"

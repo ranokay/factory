@@ -335,7 +335,14 @@ def gc_agent_plist(home: Path) -> bytes:
     gh = shutil.which("gh")
     if not gh:
         raise SystemExit("bootstrap: cannot resolve gh for the gc agent")
-    path = os.pathsep.join(dict.fromkeys([str(Path(mise).parent), str(Path(gh).parent), "/usr/bin", "/bin", "/usr/sbin", "/sbin"]))
+    uv = shutil.which("uv")
+    if not uv:
+        raise SystemExit("bootstrap: cannot resolve uv for the gc agent")
+    path = os.pathsep.join(
+        dict.fromkeys(
+            [str(Path(mise).parent), str(Path(gh).parent), str(Path(uv).parent), "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        )
+    )
     data = {
         "Label": GC_LABEL,
         "EnvironmentVariables": {"PATH": path},
@@ -360,8 +367,8 @@ def install_gc_agent(home: Path) -> bool:
         return True
     launchctl = launchctl_binary()
     if not launchctl:
-        print("bootstrap: launchctl is not available; the gc agent is written but not loaded")
-        return True
+        print("bootstrap: launchctl is not available; the gc agent cannot be loaded", file=sys.stderr)
+        return False
     return load_agent(launchctl, GC_LABEL, path)
 
 
