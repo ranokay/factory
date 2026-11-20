@@ -7,7 +7,7 @@ description: "Record Verification Evidence outside the repository and post the s
 
 Use this skill for the proof a reviewer cannot get from tests: a screenshot, a screen recording, or a rendered statechart. The CLI stores evidence in the Factory cache, never in the repository, and turns it into one PR comment that ends with a Run receipt.
 
-The command is `scripts/evidence` beside this file. In the Factory Repo it is also `mise run evidence -- <command> ...`. It needs `git`, `gh`, `ffmpeg`, `ffprobe` and Python 3.13, all declared in `mise.toml`.
+The command is `scripts/evidence` beside this file. In the Factory Repo it is also `mise run evidence -- <command> ...`. It uses `git`, the GitHub CLI `gh`, and `ffmpeg` with its `ffprobe`; `ffmpeg` and Python 3.13 are declared in `mise.toml`. In the Factory, run it on the Worker model: `opencode-go/deepseek-v4.1-flash` at variant `max`, or `opencode-go/glm-5.3` at variant `max` when the Worker fell back.
 
 ## Where evidence lives
 
@@ -23,7 +23,7 @@ The command is `scripts/evidence` beside this file. In the Factory Repo it is al
 | `add <file>... [--pr N]` | Copies images and videos into the evidence directory. Refuses other file types: put text in `--summary`. A video over 10 MB is compressed with ffmpeg to fit before it is stored. |
 | `path`, `list` | Print the evidence directory, or every file with its byte size. |
 | `receipt ...` | Writes `receipt.json`: the comment summary and the Run receipt. Every field is required. |
-| `attach [--pr N] [--dry-run]` | Moves staged evidence into the PR directory, renders `body.md`, and posts or replaces the single evidence comment with `gh pr comment --attach`. `--dry-run` copies nothing into place, posts nothing, and prints the body path and exact command. |
+| `attach [--pr N] [--dry-run]` | Moves staged evidence into the PR directory, renders `body.md`, and posts or replaces the single evidence comment with `gh pr comment --attach`. `--dry-run` copies staged files into the PR directory, writes `body.md` and prints the exact command, but posts nothing and leaves the staging directory. |
 | `cleanup --worktree <path> --pr N` | After a merge: deletes the remote and local branch, the worktree with its build outputs, and both evidence directories. Run it from the main checkout. |
 
 `--repo` defaults to the `origin` remote, or `gh repo view`; `--pr` defaults to the current branch's PR. Tests override the cache with `EVIDENCE_CACHE_ROOT` and the limit with `EVIDENCE_MAX_BYTES`.
@@ -46,8 +46,8 @@ The receipt is the last block of the comment. Every value is required:
 
 ## One comment per PR
 
-The comment starts with `<!-- factory-evidence -->`. `attach` finds every marked comment through `gh api`; after posting the new one it deletes the previous ones, so a rerun leaves exactly one evidence comment and never a second. Attachments cannot be edited in place, which is why a rerun replaces the comment instead of updating it.
+The comment starts with `<!-- factory-evidence -->`. `attach` finds every marked comment through `gh api`; it deletes the previous ones, then posts the new one, so a PR never holds two evidence comments. Attachments cannot be edited in place, which is why a rerun replaces the comment instead of updating it. If the delete or the post fails, the command exits non-zero and names what happened, and a rerun converges to one comment.
 
 ## Merge cleanup
 
-Run `cleanup` from the main checkout, not from inside the worktree. It refuses unless `gh` reports the PR merged and every surviving ref and worktree tip is the merged head, and it refuses a dirty worktree. A missing worktree, branch or evidence directory is reported as already gone, so a rerun after a partial cleanup succeeds. It never deletes a ref whose tip is not the merged head, so unpushed commits survive the refusal.
+Run `cleanup` from the main checkout, not from inside the worktree. It refuses unless `gh` reports the PR merged and every surviving ref and worktree tip is the merged head, and it refuses a dirty worktree. A missing worktree, branch or evidence directory is reported as already gone, so a rerun after a partial cleanup succeeds. It never deletes a ref whose tip is not the merged head, so unpushed commits survive the refusal. The remote branch is deleted under an expected-SHA lease, and another open PR using that branch refuses the cleanup.

@@ -21,6 +21,7 @@ UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 UNAVAILABLE = re.compile(r"^unavailable \([^)]+\)$")
 RESERVED = {"body.md", "receipt.json"}
 ENCODERS = ("libx264", "libopenh264", "h264_videotoolbox")
+SUPPORTED = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
 
 USAGE = """\
 examples:
@@ -178,6 +179,11 @@ def repository_dir(repo):
     return cache_root() / owner / name
 
 
+def evidence_target(args):
+    repo = repo_slug(args)
+    return repo, target_dir(args, repo)
+
+
 def target_dir(args, repo):
     base = repository_dir(repo)
     root = repository_root()
@@ -282,10 +288,9 @@ def fit_video(path):
 
 
 def cmd_add(args):
-    repo = repo_slug(args)
+    _, target = evidence_target(args)
     root = repository_root()
     sources = []
-    supported = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
     for value in args.files:
         source = Path(value).expanduser()
         if not source.is_file():
@@ -294,12 +299,11 @@ def cmd_add(args):
         require_outside(source, root, "the source file")
         suffix = source.suffix.lower()
         if suffix not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
-            fail(f"{source.name} is not an image or video; attachments accept {supported}. Put text in --summary instead")
+            fail(f"{source.name} is not an image or video; attachments accept {SUPPORTED}. Put text in --summary instead")
         name = UNSAFE_NAME.sub("-", source.name).lstrip(".")
         if not name:
             fail(f"{source.name} has no usable file name; rename it before adding")
         sources.append((source, name, suffix))
-    target = target_dir(args, repo)
     target.mkdir(parents=True, exist_ok=True)
     for source, name, suffix in sources:
         destination = target / name
@@ -308,25 +312,23 @@ def cmd_add(args):
             continue
         if suffix in IMAGE_SUFFIXES:
             require_size(source)
-            shutil.copy2(source, destination)
-            print(f"added {name} ({human(destination.stat().st_size)}) to {target}")
-            continue
         shutil.copy2(source, destination)
         print(f"added {name} ({human(destination.stat().st_size)}) to {target}")
-        try:
-            fit_video(destination)
-        except Refused:
-            destination.unlink(missing_ok=True)
-            (target / f"{destination.stem}-compressed.mp4").unlink(missing_ok=True)
-            raise
+        if suffix in VIDEO_SUFFIXES:
+            try:
+                fit_video(destination)
+            except Refused:
+                destination.unlink(missing_ok=True)
+                (target / f"{destination.stem}-compressed.mp4").unlink(missing_ok=True)
+                raise
 
 
 def cmd_path(args):
-    print(target_dir(args, repo_slug(args)))
+    print(evidence_target(args)[1])
 
 
 def cmd_list(args):
-    target = target_dir(args, repo_slug(args))
+    target = evidence_target(args)[1]
     if not target.is_dir():
         print(f"no evidence in {target}")
         return
@@ -338,8 +340,7 @@ def cmd_list(args):
 
 
 def cmd_receipt(args):
-    repo = repo_slug(args)
-    target = target_dir(args, repo)
+    _, target = evidence_target(args)
     cost = args.cost.strip()
     if not cost:
         fail("--cost is required")
@@ -393,7 +394,7 @@ def attachments(directory):
     return files
 
 
-def prepare(directory):
+def validated_attachments(directory):
     for item in attachments(directory):
         if item.suffix.lower() in VIDEO_SUFFIXES:
             fit_video(item)
@@ -402,10 +403,9 @@ def prepare(directory):
     files = attachments(directory)
     if len(files) > MAX_ATTACHMENTS:
         fail(f"{len(files)} attachments; GitHub allows {MAX_ATTACHMENTS} per comment. Keep the important ones")
-    supported = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
     for item in files:
         if item.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
-            fail(f"{item.name} is not an image or video; attachments accept {supported}")
+            fail(f"{item.name} is not an image or video; attachments accept {SUPPORTED}")
     return files
 
 
@@ -430,10 +430,8 @@ def render(data, files):
 
 
 def pr_branch(repo, pr):
-    result = command(["gh", "pr", "view", str(pr), "--repo", repo, "--json", "headRefName", "--jq", ".headRefName"], check=False)
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip() or None
+    branch = output(["gh", "pr", "view", str(pr), "--repo", repo, "--json", "headRefName", "--jq", ".headRefName"])
+    return branch or None
 
 
 def move_staged(stage, target, copy=False):
@@ -451,14 +449,12 @@ def move_staged(stage, target, copy=False):
     if copy:
         print(f"copied staged evidence from {stage} to {target} for the dry run")
         return
-    try:
-        stage.rmdir()
-    except OSError:
-        pass
-    try:
+    if any(stage.iterdir()):
+        print(f"left {stage} in place; it still holds files")
+        return
+    stage.rmdir()
+    if stage.parent.is_dir() and not any(stage.parent.iterdir()):
         stage.parent.rmdir()
-    except OSError:
-        pass
     print(f"moved staged evidence from {stage} to {target}")
 
 
@@ -477,9 +473,8 @@ def marked_comments(repo, pr):
 
 
 def cmd_attach(args):
-    repo = repo_slug(args)
+    repo, target = evidence_target(args)
     pr = pr_number(args)
-    target = target_dir(args, repo)
     branch = pr_branch(repo, pr)
     if branch:
         stage = (repository_dir(repo) / "branch" / branch_slug(branch)).resolve()
@@ -490,7 +485,7 @@ def cmd_attach(args):
     if not receipt_path.is_file():
         fail(f"{receipt_path} does not exist; run `evidence receipt ...` first")
     data = load_receipt(receipt_path)
-    files = prepare(target)
+    files = validated_attachments(target)
     body_path = target / "body.md"
     body_path.write_text(render(data, files))
     print(f"body: {body_path}")
@@ -502,11 +497,11 @@ def cmd_attach(args):
         print(shlex.join(cmd))
         return
     previous = marked_comments(repo, pr)
-    url = output(cmd)
-    print(f"posted {url}")
     for comment in previous:
         command(["gh", "api", "--method", "DELETE", f"repos/{repo}/issues/comments/{comment}"])
-        print(f"replaced previous evidence comment {comment}")
+        print(f"removed previous evidence comment {comment}")
+    url = output(cmd)
+    print(f"posted {url}")
 
 
 def main_checkout():
@@ -536,10 +531,15 @@ def pr_state(repo, pr):
 def prune_empty(start, stop):
     candidate = start
     while candidate != stop and stop in candidate.parents:
+        if not candidate.is_dir():
+            candidate = candidate.parent
+            continue
+        if any(candidate.iterdir()):
+            return
         try:
             candidate.rmdir()
-        except OSError:
-            return
+        except OSError as error:
+            fail(f"cannot remove {candidate}: {error}")
         candidate = candidate.parent
 
 
@@ -565,14 +565,15 @@ def cmd_cleanup(args):
         current = output(["git", "-C", str(worktree), "rev-parse", "HEAD"])
         if current != head:
             fail(f"{worktree} is at {current} but the merged head is {head}; it has commits that were not merged")
-        on_branch = output(["git", "-C", str(worktree), "rev-parse", "--abbrev-ref", "HEAD"])
-        if on_branch != branch:
-            fail(f"{worktree} is on {on_branch}, not {branch}")
         dirty = output(["git", "-C", str(worktree), "status", "--porcelain"])
         if dirty:
             fail(f"{worktree} has uncommitted changes; commit, stash or remove them before cleanup:\n{dirty}")
     else:
         print(f"already gone: worktree {worktree}")
+    others = json.loads(output(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number"]))
+    blockers = [str(item["number"]) for item in others if str(item.get("number")) != str(pr)]
+    if blockers:
+        fail(f"remote branch {branch} is used by open PR {', '.join(blockers)}; merge or close it before cleanup")
     local = output(["git", "-C", str(main), "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], check=False) or None
     if local and local != head:
         fail(f"local branch {branch} is at {local}, not the merged head {head}; it has commits that were not merged")
@@ -587,7 +588,21 @@ def cmd_cleanup(args):
     evidence = repository_dir(repo) / str(pr)
     staged = repository_dir(repo) / "branch" / branch_slug(branch)
     if remote:
-        command(["git", "-C", str(main), "push", "origin", "--delete", branch])
+        try:
+            command(
+                [
+                    "git",
+                    "-C",
+                    str(main),
+                    "push",
+                    "--delete",
+                    f"--force-with-lease=refs/heads/{branch}:{head}",
+                    "origin",
+                    branch,
+                ]
+            )
+        except Refused as error:
+            fail(f"{error}; the remote branch moved after the merged head {head}, so it was not deleted")
         print(f"deleted remote branch {branch}")
     else:
         print(f"already gone: remote branch {branch}")

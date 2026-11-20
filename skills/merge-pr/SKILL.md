@@ -154,10 +154,11 @@ In the Factory, run the Factory's `skills/evidence/scripts/evidence cleanup
 --worktree <path> --pr <n> [--repo owner/name]` from the main checkout (also
 `mise run evidence -- cleanup ...` in the Factory Repo). It deletes the remote
 and local topic branches, the worktree with its build outputs, and the PR's
-evidence directories; it refuses unless the PR is merged and every surviving
-ref and worktree tip is the verified merged head; and it reports a missing
-worktree, branch or evidence directory as already gone. The bullets below are
-the guards it enforces.
+evidence directories. It refuses when the PR is not merged, when a surviving ref
+or worktree tip is not the merged head, or when another open PR uses the branch;
+the remote delete is guarded by an expected-SHA lease. A missing worktree,
+branch or evidence directory is reported as already gone. The bullets below
+state the requirement it enforces.
 
 - Delete only the merged PR's remote topic branch, guarded by the verified merged
   head SHA. If no safe expected-SHA deletion is available, skip and report it.

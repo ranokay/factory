@@ -47,6 +47,8 @@ elif args[:2] == ["pr", "view"]:
         print(pr_data().get("headRefName", ""))
     else:
         print(json.dumps(pr_data()))
+elif args[:2] == ["pr", "list"]:
+    print(read("open_prs", "[]"))
 elif args[0] == "api":
     if "--method" in args and args[args.index("--method") + 1] == "DELETE":
         removed = args[-1].rsplit("/", 1)[1]
@@ -379,6 +381,18 @@ def case_receipt_rules(work):
 
 
 @case
+def case_too_many(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    image = make_image(work / "shot.png")
+    for index in range(51):
+        shutil.copy2(image, target / f"shot-{index:02d}.png")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "GitHub allows 50")
+
+
+@case
 def case_cleanup(work):
     repo, origin = make_repo(work)
     wt = make_worktree(repo, work)
@@ -442,6 +456,10 @@ def case_cleanup_refusals(work):
     refused(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]), "uncommitted changes")
     intact()
     git(wt, "checkout", "--", "change.txt")
+    (work / "gh" / "open_prs").write_text(json.dumps([{"number": 8}]))
+    refused(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]), "open PR 8")
+    intact()
+    (work / "gh" / "open_prs").unlink()
     (wt / "change.txt").write_text("second\n")
     git(wt, "add", "change.txt")
     git(wt, "commit", "-q", "-m", "second")

@@ -349,6 +349,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "receipt_rules" }
         expect { code = 0 }
       }
+      ["more than 50 attachments is refused"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "too_many" }
+        expect { code = 0 }
+      }
       ["cleanup removes the worktree, branches and evidence"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "cleanup" }
