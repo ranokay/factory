@@ -263,7 +263,7 @@ steps {
   ["gc"] = new Step {
     check = "sh {{root}}/scripts/gc-test.sh"
     tests {
-      ["prunes a stale worktree and keeps unpushed commits"] {
+      ["prunes stale data and keeps unsafe candidates"] {
         run = "check"
         expect { code = 0 }
       }

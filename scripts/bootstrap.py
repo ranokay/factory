@@ -270,13 +270,13 @@ def load_agent(launchctl: str, label: str, path: Path) -> bool:
 def install_secret_agent(home: Path) -> bool:
     path = secret_agent_path(home)
     write_agent(path, secret_agent_plist(home), home)
-    launchctl = launchctl_binary()
-    if launchctl is None:
-        print("bootstrap: launchctl is not available; the secrets agent is written but not loaded")
-        return True
     if home != Path.home().resolve():
         print("bootstrap: not the real home; the secrets agent is not loaded")
         return True
+    launchctl = launchctl_binary()
+    if launchctl is None:
+        print("bootstrap: launchctl is not available; the secrets agent cannot be loaded", file=sys.stderr)
+        return False
     applied = mcp_sync(home, "--env")
     if applied.stdout.strip():
         print(applied.stdout.strip())

@@ -59,21 +59,25 @@ def worktree_reason(path):
     return None
 
 
+def keep(path, reason_for):
+    try:
+        reason = reason_for(path)
+    except (OSError, subprocess.SubprocessError, StopIteration, ValueError, IndexError) as error:
+        message = f'cannot inspect {path}: {error}'
+        FAILURES.append(message)
+        print(f'kept {path}: {message}', flush=True)
+        return True
+    if reason:
+        print(f'kept {path}: {reason}', flush=True)
+    return bool(reason)
+
+
 def worktrees():
     root = HOME / '.t3/worktrees'
     for path in sorted(root.glob('*/*')):
         if not path.is_dir() or path.is_symlink():
             continue
-        try:
-            reason = worktree_reason(path)
-        except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as error:
-            message = f'cannot inspect {path}: {error}'
-            FAILURES.append(message)
-            print(f'kept {path}: {message}', flush=True)
-            continue
-        if reason:
-            print(f'kept {path}: {reason}', flush=True)
-        else:
+        if not keep(path, worktree_reason):
             yield path
 
 
@@ -92,16 +96,7 @@ def evidence():
     for path in sorted((HOME / '.cache/factory').glob('*/*/*')):
         if not path.is_dir() or path.is_symlink() or not path.name.isdecimal():
             continue
-        try:
-            reason = evidence_reason(path)
-        except (OSError, subprocess.SubprocessError) as error:
-            message = f'cannot inspect {path}: {error}'
-            FAILURES.append(message)
-            print(f'kept {path}: {message}', flush=True)
-            continue
-        if reason:
-            print(f'kept {path}: {reason}', flush=True)
-        else:
+        if not keep(path, evidence_reason):
             yield path
 
 
@@ -186,6 +181,8 @@ def prune_tools(dry_run):
     candidates = list(tool_candidates())
     active = active_tools()
     protected = protected_programs()
+    recheck_active = active_tools()
+    recheck_protected = protected_programs()
     for tool, version, install, paths in candidates:
         reason = tool_keep_reason(tool, version, install, active, protected)
         if reason:
@@ -195,7 +192,7 @@ def prune_tools(dry_run):
             print(f'kept {tool}@{version}: contains git data')
             continue
         if not dry_run:
-            reason = tool_keep_reason(tool, version, install, active_tools(), protected_programs())
+            reason = tool_keep_reason(tool, version, install, recheck_active, recheck_protected)
             if reason:
                 print(f'kept {install}: {reason} before pruning')
                 continue
@@ -212,12 +209,14 @@ def prune_cache(dry_run):
     paths = cache_candidates()
     if any(contains_git(path) for path in paths):
         raise RuntimeError('mise cache contains git data; refusing cache prune')
+    if not dry_run and paths != cache_candidates():
+        print('kept mise cache: candidates changed before pruning', flush=True)
+        FAILURES.append('mise cache candidates changed before pruning')
+        return 0
     total = sum(size(path) for path in paths if path.exists())
     for path in paths:
         print(f'delete {path} {size(path) if path.exists() else 0} bytes', flush=True)
     if not dry_run:
-        if paths != cache_candidates():
-            raise RuntimeError('mise cache candidates changed before pruning')
         tool_output('cache', 'prune', '--verbose')
     return total
 
@@ -229,34 +228,16 @@ def main():
     args = parser.parse_args()
     total = 0
     for path in worktrees():
-        if not args.dry_run:
-            try:
-                reason = worktree_reason(path)
-            except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as error:
-                message = f'cannot inspect {path}: {error}'
-                FAILURES.append(message)
-                print(f'kept {path}: {message}', flush=True)
-                continue
-            if reason:
-                print(f'kept {path}: {reason}', flush=True)
-                continue
+        if not args.dry_run and keep(path, worktree_reason):
+            continue
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)
         total += amount
         if not args.dry_run:
             run('git', 'worktree', 'remove', str(path), cwd=path)
     for path in evidence():
-        if not args.dry_run:
-            try:
-                reason = evidence_reason(path)
-            except (OSError, subprocess.SubprocessError) as error:
-                message = f'cannot inspect {path}: {error}'
-                FAILURES.append(message)
-                print(f'kept {path}: {message}', flush=True)
-                continue
-            if reason:
-                print(f'kept {path}: {reason}', flush=True)
-                continue
+        if not args.dry_run and keep(path, evidence_reason):
+            continue
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)
         total += amount

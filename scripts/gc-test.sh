@@ -79,18 +79,25 @@ PATH=$base_path
 grep 'kept .*badtime.*cannot inspect' "$tmp/badtime"
 
 fake_root="$tmp/fake/install"
-mkdir -p "$fake_root/fake/1.0" "$fake_root/recent/1.0" "$tmp/fake/bin" "$tmp/tool-home"
+mkdir -p "$fake_root/fake/1.0" "$fake_root/recent/1.0" "$fake_root/stale/1.0" "$tmp/fake/bin" "$tmp/tool-home"
 printf 'fake\n' >"$fake_root/fake/1.0/file"
 printf 'recent\n' >"$fake_root/recent/1.0/file"
-touch -t 202001010000 "$fake_root/fake/1.0/file"
+printf 'stale\n' >"$fake_root/stale/1.0/file"
+touch -t 202001010000 "$fake_root/fake/1.0" "$fake_root/fake/1.0/file" "$fake_root/stale/1.0" "$fake_root/stale/1.0/file"
 cat >"$tmp/fake/bin/mise" <<STUB
 #!/bin/sh
 case "\$1 \$2" in
 "ls --json")
-	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":true}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}]}\n'
+	count=0
+	[ -f "$tmp/fake/count" ] && count=\$(cat "$tmp/fake/count")
+	count=\$((count + 1))
+	printf '%s\n' "\$count" >"$tmp/fake/count"
+	stale_active=false
+	[ "\${FAKE_MODE:-}" = flip ] && [ "\$count" -ge 2 ] && stale_active=true
+	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":true}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":%s}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n' "\$stale_active"
 	;;
 "ls --prunable")
-	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":false}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}]}\n'
+	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":false}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":false}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n'
 	;;
 "cache path")
 	printf '%s\n' "$tmp/cache"
@@ -99,9 +106,18 @@ case "\$1 \$2" in
 	printf 'INFO  cache pruned 0 files, 0 B\n'
 	;;
 "prune --tools")
-	case \$4 in
-	fake@1.0) printf '[dryrun] remove %s\n' "$fake_root/fake/1.0" ;;
-	recent@1.0) printf '[dryrun] remove %s\n' "$fake_root/recent/1.0" ;;
+	case \$3 in
+	--dry-run)
+		case \$4 in
+		fake@1.0) printf '[dryrun] remove %s\n' "$fake_root/fake/1.0" ;;
+		recent@1.0) printf '[dryrun] remove %s\n' "$fake_root/recent/1.0" ;;
+		stale@1.0) printf '[dryrun] remove %s\n' "$fake_root/stale/1.0" ;;
+		missing@1.0) printf '[dryrun] remove %s\n' "$fake_root/missing/1.0" ;;
+		esac
+		;;
+	--yes)
+		printf '%s\n' "\$4" >>"$tmp/prune.log"
+		;;
 	esac
 	;;
 *)
@@ -115,12 +131,26 @@ HOME="$tmp/tool-home" run_gc --dry-run >"$tmp/tools"
 PATH=$base_path
 grep 'kept .*fake/1.0: active tool' "$tmp/tools"
 grep 'kept .*recent/1.0: recent install' "$tmp/tools"
-if grep '^delete .*fake/1.0' "$tmp/tools"; then exit 1; fi
+grep 'kept .*missing/1.0: install path missing' "$tmp/tools"
+grep '^delete .*stale/1.0' "$tmp/tools"
+rm -f "$tmp/fake/count" "$tmp/prune.log"
+PATH="$tmp/fake/bin:$base_path"
+HOME="$tmp/tool-home" run_gc >"$tmp/tools-run"
+PATH=$base_path
+grep 'stale@1.0' "$tmp/prune.log"
+rm -f "$tmp/fake/count"
+: >"$tmp/prune.log"
+PATH="$tmp/fake/bin:$base_path"
+FAKE_MODE=flip HOME="$tmp/tool-home" run_gc >"$tmp/tools-flip"
+PATH=$base_path
+grep 'kept .*stale/1.0: active tool before pruning' "$tmp/tools-flip"
+if grep -q 'stale@1.0' "$tmp/prune.log"; then exit 1; fi
 
 evidence_home="$tmp/evidence-home"
-mkdir -p "$evidence_home/.cache/factory/owner/repo/1" "$tmp/evidence-bin"
+mkdir -p "$evidence_home/.cache/factory/owner/repo/1" "$evidence_home/.cache/factory/owner/repo/2" "$tmp/evidence-bin"
 printf 'evidence\n' >"$evidence_home/.cache/factory/owner/repo/1/file"
 touch -t 202001010000 "$evidence_home/.cache/factory/owner/repo/1/file" "$evidence_home/.cache/factory/owner/repo/1"
+printf 'recent\n' >"$evidence_home/.cache/factory/owner/repo/2/file"
 cat >"$tmp/evidence-bin/mise" <<STUB
 #!/bin/sh
 case "\$1 \$2" in
@@ -151,6 +181,8 @@ PATH="$tmp/evidence-bin:$base_path"
 HOME="$evidence_home" run_gc --dry-run >"$tmp/evidence-dry"
 PATH=$base_path
 grep '^delete .*repo/1' "$tmp/evidence-dry"
+grep 'kept .*repo/2: recent evidence' "$tmp/evidence-dry"
+if grep '^delete .*repo/2' "$tmp/evidence-dry"; then exit 1; fi
 PATH="$tmp/evidence-bin:$base_path"
 HOME="$evidence_home" run_gc >"$tmp/evidence-run"
 PATH=$base_path
