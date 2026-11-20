@@ -12,6 +12,7 @@ from pathlib import Path
 
 HOME = Path.home()
 AGE = 30 * 86400
+FAILURES = []
 
 
 def run(*args, cwd=None):
@@ -36,7 +37,9 @@ def worktrees():
         try:
             records = run('git', 'worktree', 'list', '--porcelain', cwd=path).split('\n\n')
             record = next(r.splitlines() for r in records if Path(r.splitlines()[0][9:]).resolve() == path.resolve())
-            branch = next(line[7:] for line in record if line.startswith('branch '))
+            branch = next((line[7:] for line in record if line.startswith('branch ')), None)
+            if branch is None:
+                raise ValueError('detached HEAD')
             if any(line.startswith('locked') for line in record):
                 raise ValueError('locked')
             if run('git', 'status', '--porcelain', '--untracked-files=all', '--ignored', cwd=path):
@@ -51,8 +54,12 @@ def worktrees():
             if not remotes and any(ref.endswith('/' + short) for ref in all_remotes.splitlines()):
                 raise ValueError('remote branch not merged')
             yield path
-        except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as error:
+        except ValueError as error:
             print(f'kept {path}: {error}', flush=True)
+        except (OSError, subprocess.SubprocessError, StopIteration) as error:
+            message = f'cannot inspect {path}: {error}'
+            FAILURES.append(message)
+            print(f'kept {path}: {message}', flush=True)
 
 
 def evidence():
@@ -71,7 +78,9 @@ def evidence():
                 continue
             yield path
         except (OSError, subprocess.SubprocessError) as error:
-            print(f'kept {path}: {error}', flush=True)
+            message = f'cannot inspect {path}: {error}'
+            FAILURES.append(message)
+            print(f'kept {path}: {message}', flush=True)
 
 
 
@@ -194,7 +203,8 @@ def main():
         message = f'Factory GC reclaimed {total} bytes'
         run('/usr/bin/osascript', '-e', f'display notification "{message}" with title "Factory GC"')
         print(f'notification posted: {message}', flush=True)
+    return 1 if FAILURES else 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

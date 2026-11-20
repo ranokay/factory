@@ -323,8 +323,13 @@ def gc_agent_plist(home: Path, executable: str | None = None, label: str = "dev.
     mise = executable or shutil.which("mise")
     if not mise or not Path(mise).is_file():
         raise SystemExit("bootstrap: cannot resolve mise for the gc agent")
+    gh = shutil.which("gh")
+    if not gh:
+        raise SystemExit("bootstrap: cannot resolve gh for the gc agent")
+    path = os.pathsep.join(dict.fromkeys([str(Path(mise).parent), str(Path(gh).parent), "/usr/bin", "/bin", "/usr/sbin", "/sbin"]))
     data = {
         "Label": label,
+        "EnvironmentVariables": {"PATH": path},
         "ProgramArguments": [str(Path(mise).resolve()), "--cd", str(home / ".agents"), "run", "gc"],
         "StartCalendarInterval": {"Weekday": 0, "Hour": 3, "Minute": 0},
         "StandardOutPath": str(home / "Library" / "Logs" / "factory-gc.log"),

@@ -34,3 +34,9 @@ test ! -e "$HOME/.t3/worktrees/example/stale"
 
 test -f "$HOME/.t3/worktrees/example/dirty/untracked"
 test -d "$HOME/.t3/worktrees/example/locked"
+
+mkdir "$HOME/.t3/worktrees/example/broken"
+if GC_TEST_WORKTREES_ONLY=1 python3 "$root/scripts/gc.py" --dry-run >"$tmp/broken"; then
+	exit 1
+fi
+grep 'kept .*broken.*cannot inspect' "$tmp/broken"

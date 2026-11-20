@@ -651,6 +651,8 @@ case_gc_agent() {
 	[ "$(plist_value "$plist" Label)" = dev.factory.gc ] || fail "wrong label"
 	[ "$(plist_value "$plist" StartCalendarInterval.Weekday)" = 0 ] || fail "wrong day"
 	[ "$(plist_value "$plist" StartCalendarInterval.Hour)" = 3 ] || fail "wrong hour"
+	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v mise)")"
+	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v gh)")"
 	run_discovery
 	[ "$code" -eq 0 ] || fail "gc discovery failed: $output"
 	printf 'ok: gc plist installed at %s and discovery passed\n' "$plist"
