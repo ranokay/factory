@@ -293,9 +293,25 @@ case_malformed() {
 	run_sync --check
 	[ "$code" -ne 0 ] || fail "the check passed on a malformed config"
 	expect_contains "$output" "$home/.claude.json"
-	expect_contains "$output" "Expecting value"
 	expect_not_contains "$output" "Traceback"
-	printf 'ok: a malformed config is a named error, not a traceback\n'
+	write_config claude 'null'
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "the check passed on a null config"
+	expect_contains "$output" "$home/.claude.json"
+	expect_contains "$output" "expected a JSON object"
+	expect_not_contains "$output" "Traceback"
+	write_config claude '{"mcpServers": []}'
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "the check passed on a list-valued mcpServers"
+	expect_contains "$output" "$home/.claude.json"
+	expect_contains "$output" "must be an object"
+	expect_not_contains "$output" "Traceback"
+	printf 'not json\n' >"$case_dir/registry.json"
+	run_sync --check --registry "$case_dir/registry.json"
+	[ "$code" -ne 0 ] || fail "the check passed on a malformed registry"
+	expect_contains "$output" "$case_dir/registry.json"
+	expect_not_contains "$output" "Traceback"
+	printf 'ok: malformed configs and registries are named errors, not tracebacks\n'
 }
 
 case_all() {

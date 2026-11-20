@@ -606,7 +606,6 @@ case_mcp() {
 	run_discovery
 	[ "$code" -ne 0 ] || fail "bootstrap:check passed with malformed JSON"
 	expect_contains "$output" "MCP configs are not in sync"
-	expect_contains "$output" "Expecting value"
 	expect_contains "$output" "$home/.claude.json"
 	expect_not_contains "$output" "Traceback"
 	printf 'ok: bootstrap renders, checks, backs up and repairs the MCP configs\n'

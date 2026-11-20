@@ -59,7 +59,14 @@ def backup_path(path: Path) -> Path:
 
 
 def load_registry(path: Path) -> tuple[dict, list[str]]:
-    data = json.loads(path.read_text())
+    try:
+        data = json.loads(path.read_text())
+    except OSError as error:
+        raise SyncError(f"{path}: {error}") from None
+    except ValueError as error:
+        raise SyncError(f"{path}: {error}") from None
+    if not isinstance(data, dict):
+        raise SyncError(f"{path}: expected a JSON object")
     servers = data.get("servers")
     if not isinstance(servers, dict) or not servers:
         raise SyncError(f"{path}: servers must be a non-empty object")
@@ -265,7 +272,14 @@ def render(home: Path, servers: dict, retired: list[str], check: bool) -> int:
             document = json.loads(text)
         except ValueError as error:
             raise SyncError(f"{path}: {error}") from None
+        if not isinstance(document, dict):
+            raise SyncError(f"{path}: expected a JSON object")
         key = "mcpServers" if target == "claude-code" else "mcp"
+        managed = document.get(key)
+        if managed is None:
+            document[key] = {}
+        elif not isinstance(managed, dict):
+            raise SyncError(f"{path}: {key} must be an object")
         rendered = desired_json(document, key, servers, retired, target, home)
         write(path, json.dumps(rendered, indent=2, ensure_ascii=False) + "\n", check, changed)
     if check:
