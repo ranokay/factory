@@ -226,6 +226,21 @@ class ClonesTest(unittest.TestCase):
             self.assertIn(str(new), self.git(tree, 'worktree', 'list'))
             self.assertEqual(Path(self.git(tree, 'rev-parse', '--git-common-dir')).resolve(), (new / '.git').resolve())
 
+    def test_move_exit_for_dirty_worktree_and_inspection_failure(self):
+        old = self.repo(self.source, 'repo')
+        tree = self.root / 'linked'
+        self.git(old, 'worktree', 'add', '-b', 'linked', str(tree))
+        (tree / 'new').write_text('dirty')
+        result = self.cli('move', '--json', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('uncommitted work', json.loads(result.stdout)['repositories'][0]['refusal'])
+        self.assertTrue(old.exists())
+        (tree / 'new').unlink()
+        argv = ['canonical-clones', 'move', '--source-root', str(self.source), '--developer-root', str(self.developer)]
+        with patch('sys.argv', argv), patch.object(clones, 'linked_worktrees', side_effect=OSError('fixture failure')), patch('sys.stdout', new_callable=io.StringIO):
+            self.assertEqual(clones.main(), 1)
+        self.assertTrue(old.exists())
+
     def test_t3_running_and_dirty_refuse(self):
         old = self.repo(self.source, 'repo')
         tree = self.root / '.t3/worktrees/repo/tree'
