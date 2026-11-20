@@ -199,6 +199,10 @@ case_fresh() {
 	for name in ardia cua-driver cua-sandboxes cua-spaces cua-volume gui-automation find-docs reverse-engineer-anything gh-stack; do
 		[ -f "$factory/skills/$name/SKILL.md" ] || fail "installer did not create skills/$name"
 	done
+	for name in find-skills emil-prototype playwright-cli prototype; do
+		[ -f "$factory/skills/$name/SKILL.md" ] || fail "vendored skill skills/$name is missing"
+	done
+	[ "$(sed -n '2p' "$factory/skills/emil-prototype/SKILL.md")" = "name: emil-prototype" ] || fail "the emil-prototype rename patch did not apply"
 	[ "$(count_lines '^ardia ' "$log")" -eq 1 ] || fail "ardia installer did not run once"
 	[ "$(count_lines '^cua ' "$log")" -eq 1 ] || fail "cua installer did not run once"
 	[ "$(count_lines '^ctx7 ' "$log")" -eq 1 ] || fail "ctx7 installer did not run once"
