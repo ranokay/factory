@@ -183,7 +183,8 @@ def render_mcp(home: Path) -> bool:
         return False
     check = mcp_sync(home, "--check")
     if check.returncode != 0:
-        print(f"bootstrap: MCP configs drifted after the render: {check.stdout.strip()}", file=sys.stderr)
+        detail = "\n".join(part for part in (check.stdout.strip(), check.stderr.strip()) if part)
+        print(f"bootstrap: MCP configs are not in sync after the render: {detail}", file=sys.stderr)
         return False
     print("bootstrap: MCP configs are in sync")
     return True
@@ -193,7 +194,10 @@ def launch_interpreter() -> str:
     executable = Path(sys.executable)
     if executable.is_absolute() and executable.parent != Path("/usr/bin") and executable.is_file():
         return str(executable)
-    result = subprocess.run(["mise", "which", "python"], capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["mise", "which", "python"], capture_output=True, text=True, check=False)
+    except OSError:
+        raise SystemExit("bootstrap: cannot resolve an absolute Python for the secrets agent") from None
     resolved = result.stdout.strip()
     if result.returncode == 0 and resolved and Path(resolved).is_file():
         return resolved
@@ -229,8 +233,8 @@ def install_secret_agent(home: Path) -> bool:
         print(f"bootstrap: wrote {display(path, home)}")
     else:
         print(f"bootstrap: {display(path, home)} is current")
-    if sys.platform != "darwin":
-        print("bootstrap: launchd is macOS-only; the secrets agent is written but not loaded")
+    if shutil.which("launchctl") is None:
+        print("bootstrap: launchctl is not available; the secrets agent is written but not loaded")
         return True
     if home != Path.home().resolve():
         print("bootstrap: not the real home; the secrets agent is not loaded")
@@ -296,7 +300,7 @@ def secret_agent_errors(home: Path) -> list[str]:
         ]
     if path.read_bytes() != secret_agent_plist(home, interpreter):
         return [f"{shown} differs from what bootstrap writes now; run mise run bootstrap"]
-    if home == Path.home().resolve() and sys.platform == "darwin":
+    if home == Path.home().resolve() and shutil.which("launchctl") is not None:
         applied = mcp_sync(home, "--env", "--check")
         if applied.returncode != 0:
             return [f"the launchd secret check failed: {(applied.stderr or applied.stdout).strip()}"]
@@ -357,7 +361,7 @@ def setup_github_ssh(home: Path) -> bool:
     if SSH_MARKER in text:
         print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
     elif block is not None:
-        managed = re.search(r"(?im)^\s*IdentityAgent\s+\"?[^\n]*2BUA8C4S2C\.com\.1password", block)
+        managed = re.search(r'(?im)^\s*IdentityAgent\s*=?\s*"?[^\n]*2BUA8C4S2C\.com\.1password', block)
         if managed:
             print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
         else:
@@ -567,7 +571,7 @@ def discovery(home: Path) -> int:
     errors.extend(secret_agent_errors(home))
     mcp_check = mcp_sync(home, "--check")
     if mcp_check.returncode != 0:
-        detail = (mcp_check.stderr or mcp_check.stdout).strip()
+        detail = "\n".join(part for part in (mcp_check.stdout.strip(), mcp_check.stderr.strip()) if part)
         errors.append(f"MCP configs are not in sync: {detail}")
     expected_names = factory_skill_names()
     opencode = config_home(home) / "opencode"

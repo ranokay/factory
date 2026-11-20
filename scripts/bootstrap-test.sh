@@ -597,6 +597,7 @@ case_mcp() {
 	run_discovery
 	[ "$code" -ne 0 ] || fail "bootstrap:check passed with a drifted MCP config"
 	expect_contains "$output" "MCP configs are not in sync"
+	expect_contains "$output" "$home/.claude.json"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair the drift: $output"
 	run_mcp_check
@@ -701,7 +702,7 @@ case_ssh_existing() {
 	baseline_repo "$factory"
 	git -C "$factory" remote add origin git@github.com:example/factory.git
 	mkdir -p "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t" "$home/.ssh"
-	printf 'Host github.com\n  User git\n  IdentityFile ~/.ssh/other\n' >"$home/.ssh/config"
+	printf 'Host github.com\n  User git\n  IdentityFile ~/.ssh/other\n  # IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
 	: >"$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
@@ -723,10 +724,6 @@ case_ssh_existing() {
 }
 
 case_launchd() {
-	if [ "$(uname -s)" != Darwin ]; then
-		printf 'ok: launchd is macOS-only; skipped\n'
-		return 0
-	fi
 	setup_case launchd
 	write_mcp_configs
 	[ "$(command -v op)" = "$bin/op" ] || fail "the op stub is not first on PATH"
@@ -753,8 +750,11 @@ case_plist_interpreter() {
 	setup_case plist-interpreter
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
-	run_python -c 'import sys; sys.path.insert(0, sys.argv[1]); import bootstrap; from pathlib import Path; bootstrap.launch_interpreter = lambda: (_ for _ in ()).throw(SystemExit("cannot resolve an absolute Python")); errors = bootstrap.secret_agent_errors(Path(sys.argv[2])); assert errors and "cannot resolve" in errors[0] and "dev.factory.secrets.plist" in errors[0], errors; print("ok")' "$factory/scripts" "$home"
-	[ "$code" -eq 0 ] || fail "the check did not name the plist when the interpreter cannot resolve: $output"
+	run_python -c 'import os,sys; sys.path.insert(0, sys.argv[1]); import bootstrap; sys.executable = "/usr/bin/python3"; os.environ["PATH"] = "/usr/bin:/bin"; code = bootstrap.main(["--check", "--home", sys.argv[2]]); print(f"exit={code}")' "$factory/scripts" "$home"
+	[ "$code" -eq 0 ] || fail "the check run failed to execute: $output"
+	expect_contains "$output" "exit=1"
+	expect_contains "$output" "cannot resolve an absolute Python"
+	expect_contains "$output" "$tilde/Library/LaunchAgents/dev.factory.secrets.plist"
 	printf 'ok: an unresolvable interpreter names the plist\n'
 }
 
