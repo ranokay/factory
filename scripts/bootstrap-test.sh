@@ -698,7 +698,12 @@ case_ssh_agent() {
 	run_command ssh -F "$home/.ssh/config" -G github.com
 	[ "$code" -eq 0 ] || fail "ssh cannot parse the repaired config: $output"
 	expect_contains "$output" "identitiesonly no"
+	grep -q '^  $' "$home/.ssh/config" || fail "the repair dropped a whitespace-only line"
 	grep -q '^# keep-trailing   $' "$home/.ssh/config" || fail "the repair did not preserve trailing content byte-for-byte"
+	printf '\n# Factory: github.com through the 1Password SSH agent\nHost github.com\n    IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not remove a duplicate block: $output"
+	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "a duplicate ssh block survived"
 	printf 'ok: the ssh config routes GitHub through 1Password and the origin moves to SSH\n'
 }
 

@@ -356,18 +356,24 @@ def ssh_block(socket: Path) -> str:
 
 def replace_managed_block(text: str, block: str) -> str | None:
     lines = text.splitlines(keepends=True)
-    for index, line in enumerate(lines):
-        if line.strip() != SSH_MARKER:
+    kept: list[str] = []
+    found = False
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() != SSH_MARKER:
+            kept.append(lines[index])
+            index += 1
             continue
-        ending = "\r\n" if line.endswith("\r\n") else "\n"
-        end = index + 1
-        if end < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[end]):
-            end += 1
-        while end < len(lines) and lines[end].startswith((" ", "\t")):
-            end += 1
-        replacement = block.replace("\n", ending) + ending
-        return replacement + "".join(lines[:index] + lines[end:])
-    return None
+        found = True
+        index += 1
+        if index < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[index]):
+            index += 1
+        while index < len(lines) and lines[index].strip() and lines[index].startswith((" ", "\t")):
+            index += 1
+    if not found:
+        return None
+    ending = "\r\n" if "\r\n" in text else "\n"
+    return block.replace("\n", ending) + ending + "".join(kept)
 
 
 def prepend_managed_block(text: str, block: str) -> str:
