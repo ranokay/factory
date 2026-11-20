@@ -3,7 +3,7 @@ import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtin
 import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
 
 local const pinactScript = "{{root}}/profiles/universal/scripts/pinact.sh"
-local const pinactArgs = List(pinactScript, "run", "--verify-comment")
+local const pinactCmd = List(pinactScript, "run", "--verify-comment")
 
 steps {
   ["editorconfig-checker"] = Builtins.editorconfig_checker
@@ -74,14 +74,14 @@ steps {
   ["pinact"] = (Builtins.pinact) {
     check = new Config.CommandSpec {
       command = new Config.Command {
-        argv = pinactArgs + List("--check", "{{files}}")
+        argv = pinactCmd + List("--check", "{{files}}")
       }
       effect = "read"
     }
     check_diff = new Config.CommandSpec {
       command = new Config.Command {
         argv =
-          List("hk", "util", "sarif-diff", "--") + pinactArgs + List(
+          List("hk", "util", "sarif-diff", "--") + pinactCmd + List(
             "--check",
             "--format",
             "sarif",
@@ -91,7 +91,7 @@ steps {
       effect = "read"
     }
     fix = new Config.CommandSpec {
-      command = new Config.Command { argv = pinactArgs + List("{{files}}") }
+      command = new Config.Command { argv = pinactCmd + List("{{files}}") }
       effect = "write"
     }
     tests = new Mapping<String, Config.StepTest> {
@@ -141,6 +141,24 @@ steps {
         expect {
           code = 1
           stderr = "gh auth login"
+        }
+      }
+      ["passes gh's own error through"] {
+        run = "check"
+        write {
+          ["{{tmp}}/bin/gh"] = "#!/bin/sh\necho 'gh: authentication required' >&2\nexit 1\n"
+          ["{{tmp}}/bin/pinact"] = "#!/bin/sh\nexit 0\n"
+          ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
+        }
+        files = List("{{tmp}}/.github/workflows/test.yml")
+        before = "chmod +x bin/gh bin/pinact"
+        env {
+          ["PATH"] = "bin:/usr/bin:/bin"
+          ["GITHUB_TOKEN"] = ""
+        }
+        expect {
+          code = 1
+          stderr = "gh: authentication required"
         }
       }
     }
