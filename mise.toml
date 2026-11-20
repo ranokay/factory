@@ -44,6 +44,14 @@ run = "uv run --offline --no-project --no-config --python \"$(mise which python)
 description = "Record Verification Evidence and post the single PR evidence comment"
 run = "./skills/evidence/scripts/evidence"
 
+[tasks.gc]
+description = "Prune stale Factory data and tool caches"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/gc.py"
+
+[tasks."gc:test"]
+description = "Run GC fixture tests"
+run = "hk test --step gc"
+
 [tasks.check]
 description = "Run every Gate"
 depends = [
@@ -54,6 +62,7 @@ depends = [
   "process-receipt:test",
   "evidence:test",
   "bootstrap:test",
+  "gc:test",
   "mcp:test",
   "gitleaks:test",
   "tools:test",

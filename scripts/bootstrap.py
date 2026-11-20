@@ -318,6 +318,57 @@ def secret_agent_errors(home: Path) -> list[str]:
     return []
 
 
+
+def gc_agent_plist(home: Path, executable: str | None = None, label: str = "dev.factory.gc") -> bytes:
+    mise = executable or shutil.which("mise")
+    if not mise or not Path(mise).is_file():
+        raise SystemExit("bootstrap: cannot resolve mise for the gc agent")
+    data = {
+        "Label": label,
+        "ProgramArguments": [str(Path(mise).resolve()), "--cd", str(home / ".agents"), "run", "gc"],
+        "StartCalendarInterval": {"Weekday": 0, "Hour": 3, "Minute": 0},
+        "StandardOutPath": str(home / "Library" / "Logs" / "factory-gc.log"),
+        "StandardErrorPath": str(home / "Library" / "Logs" / "factory-gc-error.log"),
+    }
+    return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False)
+
+
+def gc_agent_path(home: Path) -> Path:
+    return home / "Library" / "LaunchAgents" / "dev.factory.gc.plist"
+
+
+def install_gc_agent(home: Path) -> bool:
+    path = gc_agent_path(home)
+    data = gc_agent_plist(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    (home / "Library" / "Logs").mkdir(parents=True, exist_ok=True)
+    if not path.is_file() or path.read_bytes() != data:
+        path.write_bytes(data)
+        os.chmod(path, 0o600)
+    if home != Path.home().resolve():
+        return True
+    launchctl = launchctl_binary()
+    if not launchctl:
+        print("bootstrap: launchctl unavailable for gc agent", file=sys.stderr)
+        return False
+    subprocess.run([launchctl, "bootout", f"gui/{os.getuid()}/dev.factory.gc"], capture_output=True, check=False)
+    result = subprocess.run([launchctl, "bootstrap", f"gui/{os.getuid()}", str(path)], capture_output=True, text=True, check=False)
+    if result.returncode:
+        print(f"bootstrap: gc agent load failed: {result.stderr.strip()}", file=sys.stderr)
+        return False
+    return True
+
+
+def gc_agent_errors(home: Path) -> list[str]:
+    path = gc_agent_path(home)
+    try:
+        expected = gc_agent_plist(home)
+        if path.read_bytes() != expected:
+            return [f"{display(path, home)} differs from what bootstrap writes now; run mise run bootstrap"]
+    except (OSError, SystemExit) as error:
+        return [f"{display(path, home)} missing or invalid: {error}; run mise run bootstrap"]
+    return []
+
 def github_slug(url: str) -> tuple[str, str] | None:
     for pattern in (GITHUB_HTTPS, GITHUB_SSH):
         match = pattern.match(url)
@@ -653,6 +704,7 @@ def discovery(home: Path) -> int:
         print(f"bootstrap: missing {factory_skills}", file=sys.stderr)
         return 1
     errors.extend(secret_agent_errors(home))
+    errors.extend(gc_agent_errors(home))
     mcp_check = mcp_sync(home, "--check")
     if mcp_check.returncode != 0:
         errors.append(f"MCP configs are not in sync: {combined(mcp_check)}")
@@ -896,6 +948,8 @@ def main(argv: list[str] | None = None) -> int:
     if not render_mcp(home):
         return 1
     if not install_secret_agent(home):
+        return 1
+    if not install_gc_agent(home):
         return 1
     if not setup_github_ssh(home):
         return 1
