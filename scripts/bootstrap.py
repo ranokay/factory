@@ -357,7 +357,8 @@ def setup_github_ssh(home: Path) -> bool:
     if SSH_MARKER in text:
         print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
     elif block is not None:
-        if "IdentityAgent" in block and "2BUA8C4S2C.com.1password" in block:
+        managed = re.search(r"(?im)^\s*IdentityAgent\s+\"?[^\n]*2BUA8C4S2C\.com\.1password", block)
+        if managed:
             print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
         else:
             print(
@@ -566,7 +567,8 @@ def discovery(home: Path) -> int:
     errors.extend(secret_agent_errors(home))
     mcp_check = mcp_sync(home, "--check")
     if mcp_check.returncode != 0:
-        errors.append(f"MCP configs have drifted: {mcp_check.stdout.strip()}")
+        detail = (mcp_check.stderr or mcp_check.stdout).strip()
+        errors.append(f"MCP configs are not in sync: {detail}")
     expected_names = factory_skill_names()
     opencode = config_home(home) / "opencode"
     harnesses = {

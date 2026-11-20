@@ -99,6 +99,17 @@ case_url_host() {
 	printf 'ok: a ctx7 URL host is not a key\n'
 }
 
+case_named_value() {
+	fake="$(random_hex)"
+	mkdir -p "$test_root/named"
+	printf '{"CONTEXT7_API_KEY":"%s"}\n' "$fake" >"$test_root/named/config.json"
+	run_scan "$test_root/named"
+	[ "$code" -ne 0 ] || fail "a key stored under CONTEXT7_API_KEY was not detected"
+	expect_contains "$output" "mcp-literal-credential"
+	expect_not_contains "$output" "$fake"
+	printf 'ok: a key under the CONTEXT7_API_KEY name is detected and redacted\n'
+}
+
 case_default_rules() {
 	fake=$(random_alnum 32)
 	mkdir -p "$test_root/defaults"
@@ -121,6 +132,7 @@ case_all() {
 	case_env_reference
 	case_bare_key
 	case_url_host
+	case_named_value
 	case_default_rules
 	case_repo
 }
@@ -130,6 +142,7 @@ fabricated) case_fabricated ;;
 env-reference) case_env_reference ;;
 bare-key) case_bare_key ;;
 url-host) case_url_host ;;
+named-value) case_named_value ;;
 default-rules) case_default_rules ;;
 repo) case_repo ;;
 all) case_all ;;

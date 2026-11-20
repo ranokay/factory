@@ -39,6 +39,11 @@ steps {
         env { ["GITLEAKS_CHECK_CASE"] = "url-host" }
         expect { code = 0 }
       }
+      ["a key under the CONTEXT7_API_KEY name is detected"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "named-value" }
+        expect { code = 0 }
+      }
       ["the default rules still fire"] {
         run = "check"
         env { ["GITLEAKS_CHECK_CASE"] = "default-rules" }
@@ -348,6 +353,11 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "plist-drift" }
         expect { code = 0 }
       }
+      ["an unresolvable interpreter names the plist"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "plist-interpreter" }
+        expect { code = 0 }
+      }
       ["the ssh config routes GitHub through 1Password and the origin moves to SSH"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "ssh-agent" }
@@ -358,7 +368,7 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "ssh-no-agent" }
         expect { code = 0 }
       }
-      ["an existing github.com block is left alone"] {
+      ["an existing github.com block is left alone and warned about"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "ssh-existing" }
         expect { code = 0 }

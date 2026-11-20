@@ -596,7 +596,7 @@ case_mcp() {
 	expect_contains "$output" "$home/.claude.json"
 	run_discovery
 	[ "$code" -ne 0 ] || fail "bootstrap:check passed with a drifted MCP config"
-	expect_contains "$output" "MCP configs have drifted"
+	expect_contains "$output" "MCP configs are not in sync"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair the drift: $output"
 	run_mcp_check
@@ -723,8 +723,14 @@ case_ssh_existing() {
 }
 
 case_launchd() {
+	if [ "$(uname -s)" != Darwin ]; then
+		printf 'ok: launchd is macOS-only; skipped\n'
+		return 0
+	fi
 	setup_case launchd
 	write_mcp_configs
+	[ "$(command -v op)" = "$bin/op" ] || fail "the op stub is not first on PATH"
+	[ "$(command -v launchctl)" = "$bin/launchctl" ] || fail "the launchctl stub is not first on PATH"
 	uv_bin=$(mise which uv)
 	python_bin=$(mise which python)
 	export LAUNCHCTL_VALUE=value
@@ -741,6 +747,15 @@ case_launchd() {
 	expect_contains "$output" "the launchd secret check failed"
 	expect_contains "$output" "CONTEXT7_API_KEY"
 	printf 'ok: bootstrap loads the agent and the check catches an unset launchd secret\n'
+}
+
+case_plist_interpreter() {
+	setup_case plist-interpreter
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	run_python -c 'import sys; sys.path.insert(0, sys.argv[1]); import bootstrap; from pathlib import Path; bootstrap.launch_interpreter = lambda: (_ for _ in ()).throw(SystemExit("cannot resolve an absolute Python")); errors = bootstrap.secret_agent_errors(Path(sys.argv[2])); assert errors and "cannot resolve" in errors[0] and "dev.factory.secrets.plist" in errors[0], errors; print("ok")' "$factory/scripts" "$home"
+	[ "$code" -eq 0 ] || fail "the check did not name the plist when the interpreter cannot resolve: $output"
+	printf 'ok: an unresolvable interpreter names the plist\n'
 }
 
 case_all() {
@@ -762,6 +777,7 @@ case_all() {
 	case_mcp
 	case_secrets_agent
 	case_plist_drift
+	case_plist_interpreter
 	case_ssh_agent
 	case_ssh_no_agent
 	case_ssh_existing
@@ -787,6 +803,7 @@ synced-discovery) case_synced_discovery ;;
 mcp) case_mcp ;;
 secrets-agent) case_secrets_agent ;;
 plist-drift) case_plist_drift ;;
+plist-interpreter) case_plist_interpreter ;;
 ssh-agent) case_ssh_agent ;;
 ssh-no-agent) case_ssh_no_agent ;;
 ssh-existing) case_ssh_existing ;;
