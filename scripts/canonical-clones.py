@@ -266,8 +266,13 @@ def main():
                 new.parent.mkdir(parents=True, exist_ok=True)
                 relocate(old, new, current_worktrees)
                 result['repoint'].append({'old': str(old), 'new': str(new)})
-                if entry['parent_identity'] and upstream_identity(new) is None:
-                    git(new, 'remote', 'add', 'upstream', 'https://' + entry['parent_identity'] + '.git')
+                if entry['parent_identity']:
+                    try:
+                        if upstream_identity(new) is None:
+                            git(new, 'remote', 'add', 'upstream', 'https://' + entry['parent_identity'] + '.git')
+                    except (OSError, subprocess.SubprocessError) as error:
+                        result['actions'].append(f'moved {old} to {new}, but could not configure upstream: {error}')
+                        failed = True
             except (OSError, subprocess.SubprocessError, ValueError) as error:
                 result['actions'].append(f'refused move {old}: {error}')
                 failed = True

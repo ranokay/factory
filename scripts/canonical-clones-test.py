@@ -235,6 +235,23 @@ class ClonesTest(unittest.TestCase):
             (tree / 'new').write_text('dirty')
             self.assertIn('uncommitted work', clones.move_blocker(old, [str(tree)]))
 
+    def test_upstream_failure_reports_completed_move(self):
+        fork = self.repo(self.source, 'demo', 'https://github.com/ranokay/demo')
+        self.repo(self.source, 'upstream', 'https://github.com/other/demo')
+        real_git = clones.git
+        def fail_add(path, *args):
+            if args[:3] == ('remote', 'add', 'upstream'):
+                raise OSError('fixture failure')
+            return real_git(path, *args)
+        argv = ['canonical-clones', 'move', '--json', '--source-root', str(self.source), '--developer-root', str(self.developer)]
+        with patch('sys.argv', argv), patch.object(clones, 'github_parent', return_value='github.com/other/demo'), patch.object(clones, 'git', side_effect=fail_add), patch('sys.stdout', new_callable=io.StringIO) as output:
+            self.assertEqual(clones.main(), 1)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result['repoint'][0]['old'], str(fork))
+        self.assertTrue((self.developer / 'demo').exists())
+        self.assertIn('moved ', result['actions'][0])
+        self.assertIn('could not configure upstream', result['actions'][0])
+
     def test_fork_parent_collision_migrates_and_preserves_unpushed(self):
         fork = self.repo(self.source, 'fork', 'https://github.com/ranokay/demo')
         extra = self.repo(self.source, 'issue', 'https://github.com/ranokay/demo')
