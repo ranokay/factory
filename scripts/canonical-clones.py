@@ -60,15 +60,21 @@ def is_main_clone(path):
 
 
 def move_blocker(path, worktrees):
-    t3_root = Path.home() / '.t3' / 'worktrees'
-    t3_paths = [Path(w) for w in worktrees if Path(w).resolve().is_relative_to(t3_root.resolve())]
-    for tree in t3_paths:
-        if git(tree, 'status', '--porcelain', '--untracked-files=all'):
-            return f'T3 worktree has uncommitted work: {tree}'
-    if not t3_paths:
+    if not worktrees:
         return None
-    threads = json.loads(subprocess.run(['t3', 'thread', 'list', '--project', str(path), '--json'],
-                                        check=True, capture_output=True, text=True).stdout)
+    paths = [Path(w) for w in worktrees]
+    for tree in paths:
+        if git(tree, 'status', '--porcelain', '--untracked-files=all'):
+            return f'linked worktree has uncommitted work: {tree}'
+    result = subprocess.run(['t3', 'thread', 'list', '--project', str(path), '--json'],
+                            capture_output=True, text=True)
+    if result.returncode:
+        t3_root = (Path.home() / '.t3' / 'worktrees').resolve()
+        has_t3_tree = any(tree.resolve().is_relative_to(t3_root) for tree in paths)
+        if result.stderr.startswith('No T3 Code project matches ') and not has_t3_tree:
+            return None
+        raise ValueError(f'T3 thread list failed: {result.stderr.strip()}')
+    threads = json.loads(result.stdout)
     if not isinstance(threads, list):
         raise ValueError('T3 thread list is not a list')
     active = {'preparing', 'queued', 'starting', 'running', 'waiting'}
@@ -79,7 +85,7 @@ def move_blocker(path, worktrees):
             tree = details.get('worktreePath')
             if tree is None:
                 return f"cannot establish worktree for active T3 thread {thread['threadId']}"
-            if Path(tree).resolve() in {p.resolve() for p in t3_paths}:
+            if Path(tree).resolve() in {p.resolve() for p in paths}:
                 return f"active T3 thread {thread['threadId']}: {tree}"
         elif thread.get('status') not in {'idle', 'completed', 'failed', 'cancelled', 'interrupted'}:
             raise ValueError(f"unknown T3 thread status: {thread.get('status')}")

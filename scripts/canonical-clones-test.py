@@ -28,6 +28,14 @@ class ClonesTest(unittest.TestCase):
         self.developer = self.root / 'developer'
         self.source.mkdir()
         self.developer.mkdir()
+        bindir = self.root / 'bin'
+        bindir.mkdir()
+        t3 = bindir / 't3'
+        t3.write_text('#!/bin/sh\necho "No T3 Code project matches fixture" >&2\nexit 1\n')
+        t3.chmod(0o755)
+        env = patch.dict(os.environ, {'PATH': str(bindir) + os.pathsep + os.environ.get('PATH', '')})
+        env.start()
+        self.addCleanup(env.stop)
 
     def git(self, path, *args):
         return run('git', '-C', str(path), *args).stdout.strip()
@@ -234,6 +242,16 @@ class ClonesTest(unittest.TestCase):
             self.assertIn('active T3 thread', clones.move_blocker(old, [str(tree)]))
             (tree / 'new').write_text('dirty')
             self.assertIn('uncommitted work', clones.move_blocker(old, [str(tree)]))
+            (tree / 'new').unlink()
+            external = self.root / 'elsewhere'
+            self.git(old, 'worktree', 'add', '-b', 'elsewhere', str(external))
+            def fake_external(args, **kwargs):
+                if args[0] == 't3':
+                    data = [{'threadId': 'test', 'status': 'running'}] if args[2] == 'list' else {'thread': {'worktreePath': str(external)}}
+                    return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
+                return real_run(args, **kwargs)
+            with patch.object(subprocess, 'run', side_effect=fake_external):
+                self.assertIn('active T3 thread', clones.move_blocker(old, [str(external)]))
 
     def test_upstream_failure_reports_completed_move(self):
         fork = self.repo(self.source, 'demo', 'https://github.com/ranokay/demo')
