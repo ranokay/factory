@@ -668,7 +668,7 @@ case_ssh_agent() {
 	baseline_repo "$factory"
 	git -C "$factory" remote add origin https://github.com/example/factory.git
 	mkdir -p "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t" "$home/.ssh"
-	printf 'Host example\n  User someone\n' >"$home/.ssh/config"
+	printf 'Host *\n  IdentitiesOnly yes\nHost example\n  User someone\n' >"$home/.ssh/config"
 	: >"$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
@@ -680,7 +680,7 @@ case_ssh_agent() {
 	run_command ssh -F "$home/.ssh/config" -G github.com
 	[ "$code" -eq 0 ] || fail "ssh cannot parse the config: $output"
 	expect_contains "$output" "identityagent $home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
-	expect_not_contains "$output" "identitiesonly yes"
+	expect_contains "$output" "identitiesonly no"
 	backup=$(find "$home/.ssh" -name 'config.backup-*' | head -n 1)
 	[ -n "$backup" ] || fail "the ssh config was not backed up"
 	grep -q '^Host example$' "$backup" || fail "the ssh config backup lost the original"
@@ -688,12 +688,17 @@ case_ssh_agent() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the ssh block was written twice"
+	printf '  \n# keep-trailing   \n' >>"$home/.ssh/config"
 	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    User git\n", "    User git\n    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
 	[ "$code" -eq 0 ] || fail "cannot drift the ssh block: $output"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair the ssh block: $output"
 	expect_contains "$output" "updated github.com"
-	grep -q 'IdentitiesOnly' "$home/.ssh/config" && fail "the repaired block still disables agent identities"
+	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the repaired block duplicated the marker"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the repaired config: $output"
+	expect_contains "$output" "identitiesonly no"
+	grep -q '^# keep-trailing   $' "$home/.ssh/config" || fail "the repair did not preserve trailing content byte-for-byte"
 	printf 'ok: the ssh config routes GitHub through 1Password and the origin moves to SSH\n'
 }
 

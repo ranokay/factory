@@ -345,30 +345,34 @@ def github_host_block(text: str) -> str | None:
 
 def ssh_block(socket: Path) -> str:
     return (
-        f"\n{SSH_MARKER}\n"
+        f"{SSH_MARKER}\n"
         "Host github.com\n"
         "    HostName github.com\n"
         "    User git\n"
         f'    IdentityAgent "{socket}"\n'
+        "    IdentitiesOnly no"
     )
 
 
 def replace_managed_block(text: str, block: str) -> str | None:
-    lines = text.splitlines()
+    lines = text.splitlines(keepends=True)
     for index, line in enumerate(lines):
         if line.strip() != SSH_MARKER:
             continue
+        ending = "\r\n" if line.endswith("\r\n") else "\n"
         end = index + 1
         if end < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[end]):
             end += 1
-        while end < len(lines) and (lines[end].startswith((" ", "\t")) or not lines[end].strip()):
+        while end < len(lines) and lines[end].startswith((" ", "\t")):
             end += 1
-        replacement = block.strip("\n").splitlines()
-        if end < len(lines):
-            replacement.append("")
-        lines[index:end] = replacement
-        return "\n".join(lines).rstrip() + "\n"
+        replacement = block.replace("\n", ending) + ending
+        return replacement + "".join(lines[:index] + lines[end:])
     return None
+
+
+def prepend_managed_block(text: str, block: str) -> str:
+    ending = "\r\n" if "\r\n" in text else "\n"
+    return block.replace("\n", ending) + ending + text
 
 
 def setup_github_ssh(home: Path) -> bool:
@@ -422,7 +426,7 @@ def setup_github_ssh(home: Path) -> bool:
         if config.is_file():
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             shutil.copy2(config, backup_path(config, stamp))
-        config.write_text(text + wanted)
+        config.write_text(prepend_managed_block(text, wanted))
         os.chmod(config, 0o600)
         print(f"bootstrap: added github.com to {display(config, home)}")
     if GITHUB_HTTPS.match(origin):
