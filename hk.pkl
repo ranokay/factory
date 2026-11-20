@@ -1,5 +1,6 @@
 amends "profiles/universal/hk.pkl"
 
+import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtins.pkl"
 import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
 import "pkl:json"
 
@@ -9,6 +10,46 @@ local vendored = lock.skills.fold(List(), (acc, skill) -> acc.add("skills/\(skil
 steps {
   ["typos"] {
     exclude = vendored
+  }
+  ["gitleaks"] = (Builtins.gitleaks) {
+    check = "sh {{root}}/scripts/gitleaks-check.sh"
+    tests = new Mapping<String, Config.StepTest> {
+      ["the Factory scans clean"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "repo" }
+        expect { code = 0 }
+      }
+      ["the Context7 rule fires on a fabricated key"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "fabricated" }
+        expect { code = 0 }
+      }
+      ["an env reference is not a secret"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "env-reference" }
+        expect { code = 0 }
+      }
+      ["a bare Context7 key is detected"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "bare-key" }
+        expect { code = 0 }
+      }
+      ["a ctx7 URL host is not a key"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "url-host" }
+        expect { code = 0 }
+      }
+      ["a key under the CONTEXT7_API_KEY name is detected"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "named-value" }
+        expect { code = 0 }
+      }
+      ["the default rules still fire"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "default-rules" }
+        expect { code = 0 }
+      }
+    }
   }
   ["editorconfig-checker"] {
     exclude = vendored
@@ -295,6 +336,117 @@ steps {
       ["discovery counts are unchanged with the synced cache present"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "synced-discovery" }
+        expect { code = 0 }
+      }
+      ["bootstrap renders, checks, backs up and repairs the MCP configs"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "mcp" }
+        expect { code = 0 }
+      }
+      ["the secrets agent uses an absolute interpreter and retries loudly"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "secrets-agent" }
+        expect { code = 0 }
+      }
+      ["the check names a missing, stale or absent secrets agent"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "plist-drift" }
+        expect { code = 0 }
+      }
+      ["an unresolvable interpreter names the plist"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "plist-interpreter" }
+        expect { code = 0 }
+      }
+      ["the ssh config routes GitHub through 1Password and the origin moves to SSH"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "ssh-agent" }
+        expect { code = 0 }
+      }
+      ["a missing 1Password agent fails loudly and leaves origin alone"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "ssh-no-agent" }
+        expect { code = 0 }
+      }
+      ["an existing github.com block is left alone and warned about"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "ssh-existing" }
+        expect { code = 0 }
+      }
+      ["a CRLF ssh config keeps its line endings"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "ssh-crlf" }
+        expect { code = 0 }
+      }
+      ["bootstrap loads the agent and the check catches an unset launchd secret"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "launchd" }
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["mcp-sync"] = new Step {
+    check = "sh {{root}}/scripts/mcp-sync-test.sh"
+    tests {
+      ["a fresh render uses each harness env syntax and stays in sync"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "fresh" }
+        expect { code = 0 }
+      }
+      ["the check names drift and the render repairs it"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "drift" }
+        expect { code = 0 }
+      }
+      ["a retired server is removed and an unmanaged one survives"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "retired" }
+        expect { code = 0 }
+      }
+      ["an absent harness config is left absent"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "absent" }
+        expect { code = 0 }
+      }
+      ["keys and servers outside the registry survive"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "preserve" }
+        expect { code = 0 }
+      }
+      ["a rewritten config is backed up and keeps its mode"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "backup" }
+        expect { code = 0 }
+      }
+      ["the env mode reads the reference and sets only the name in output"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "env" }
+        expect { code = 0 }
+      }
+      ["an unreadable reference fails loudly and sets nothing"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "env-fail" }
+        expect { code = 0 }
+      }
+      ["the env check reports a missing launchd variable"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "env-check" }
+        expect { code = 0 }
+      }
+      ["a literal registry header is refused"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "literal-header" }
+        expect { code = 0 }
+      }
+      ["a registry without secret references is a no-op"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "no-references" }
+        expect { code = 0 }
+      }
+      ["a malformed config is a named error"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "malformed" }
         expect { code = 0 }
       }
     }

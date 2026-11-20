@@ -130,7 +130,28 @@ mkdir -p "$dir/gh-stack"
 printf '# gh-stack\n' >"$dir/gh-stack/SKILL.md"
 STUB
 
-	chmod +x "$bin/ardia" "$bin/cua" "$bin/ctx7" "$bin/npx" "$bin/rea" "$bin/gh"
+	cat >"$bin/op" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'op %s\n' "$*" >>"$STUB_LOG"
+printf 'dummy-value'
+STUB
+
+	cat >"$bin/launchctl" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'launchctl %s\n' "$*" >>"$STUB_LOG"
+if [ "$1" = getenv ]; then
+	if [ -n "${LAUNCHCTL_VALUE:-}" ]; then
+		printf '%s\n' "$LAUNCHCTL_VALUE"
+		exit 0
+	fi
+	exit 1
+fi
+exit 0
+STUB
+
+	chmod +x "$bin/ardia" "$bin/cua" "$bin/ctx7" "$bin/npx" "$bin/rea" "$bin/gh" "$bin/op" "$bin/launchctl"
 }
 
 setup_case() {
@@ -163,8 +184,18 @@ run_check_tool_skills() {
 	run_command mise --cd "$root" run bootstrap -- --check-tool-skills --root "$1"
 }
 
+claude_expected() {
+	printf 'Bearer $%s' '{CONTEXT7_API_KEY}'
+}
+
 run_python() {
 	run_command uv run --offline --no-project --no-config --python "$(mise which python)" python "$@"
+}
+
+file_mode() {
+	run_python -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"
+	[ "$code" -eq 0 ] || fail "cannot read the mode of $1: $output"
+	printf '%s\n' "$output"
 }
 
 run_hook() {
@@ -180,6 +211,26 @@ run_hook() {
 
 count_lines() {
 	grep -c "$1" "$2" || true
+}
+
+json_value() {
+	file=$1
+	path=$2
+	run_python -c 'import functools,json,sys; print(functools.reduce(lambda d,p: d[int(p)] if p.isdigit() else d[p], sys.argv[2].split("."), json.load(open(sys.argv[1]))))' "$file" "$path"
+	[ "$code" -eq 0 ] || fail "cannot read $path from $file: $output"
+	printf '%s\n' "$output"
+}
+
+plist_value() {
+	file=$1
+	path=$2
+	run_python -c 'import functools,plistlib,sys; print(functools.reduce(lambda d,p: d[int(p)] if p.isdigit() else d[p], sys.argv[2].split("."), plistlib.load(open(sys.argv[1], "rb"))))' "$file" "$path"
+	[ "$code" -eq 0 ] || fail "cannot read $path from $file: $output"
+	printf '%s\n' "$output"
+}
+
+run_mcp_check() {
+	run_python "$factory/scripts/mcp-sync.py" --home "$home" --check
 }
 
 snapshot() {
@@ -517,6 +568,308 @@ case_synced_discovery() {
 	printf 'ok: discovery counts are unchanged with the synced cache present\n'
 }
 
+write_mcp_configs() {
+	mkdir -p "$home/.config/opencode" "$home/.codex"
+	printf '{"mcpServers":{"keep":{"type":"stdio","command":"keep","args":[],"env":{}}}}\n' >"$home/.claude.json"
+	printf '{"mcp":{"keep":{"type":"local","command":["keep"],"enabled":true}}}\n' >"$home/.config/opencode/opencode.json"
+	printf '[mcp_servers.keep]\ncommand = "keep"\n' >"$home/.codex/config.toml"
+}
+
+backup_total() {
+	find "$home" -name '*.backup-*' | wc -l | tr -d ' '
+}
+
+case_mcp() {
+	setup_case mcp
+	write_mcp_configs
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	expect_contains "$output" "MCP configs are in sync"
+	[ "$(json_value "$home/.claude.json" mcpServers.context7.headers.Authorization)" = "$(claude_expected)" ] || fail "Claude has no env reference for context7"
+	[ "$(json_value "$home/.claude.json" mcpServers.keep.command)" = keep ] || fail "bootstrap dropped an unmanaged Claude server"
+	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "OpenCode has no env reference for context7"
+	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.keep.command.0')" = keep ] || fail "bootstrap dropped an unmanaged OpenCode server"
+	grep -q '^bearer_token_env_var = "CONTEXT7_API_KEY"$' "$home/.codex/config.toml" || fail "Codex has no env reference for context7"
+	grep -q '^\[mcp_servers.keep\]$' "$home/.codex/config.toml" || fail "bootstrap dropped an unmanaged Codex server"
+	backups=$(backup_total)
+	[ "$backups" -ge 3 ] || fail "bootstrap did not back up each rewritten config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
+	[ "$(backup_total)" = "$backups" ] || fail "an unchanged bootstrap wrote another backup"
+	printf '{"headers":{"Authorization":"Bearer literal-value"}}\n' >"$home/.claude.json"
+	run_mcp_check
+	[ "$code" -ne 0 ] || fail "the MCP check passed with a drifted config"
+	expect_contains "$output" "$home/.claude.json"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "bootstrap:check passed with a drifted MCP config"
+	expect_contains "$output" "MCP configs are not in sync"
+	expect_contains "$output" "$home/.claude.json"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair the drift: $output"
+	run_mcp_check
+	[ "$code" -eq 0 ] || fail "the MCP check still reports drift: $output"
+	printf 'not json\n' >"$home/.claude.json"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "bootstrap:check passed with malformed JSON"
+	expect_contains "$output" "MCP configs are not in sync"
+	expect_contains "$output" "$home/.claude.json"
+	expect_not_contains "$output" "Traceback"
+	printf 'ok: bootstrap renders, checks, backs up and repairs the MCP configs\n'
+}
+
+case_secrets_agent() {
+	setup_case secrets-agent
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	plist=$home/Library/LaunchAgents/dev.factory.secrets.plist
+	[ -f "$plist" ] || fail "bootstrap did not write the secrets agent plist"
+	program=$(plist_value "$plist" ProgramArguments.0)
+	case $program in
+	/usr/bin/python*) fail "the secrets agent program is $program" ;;
+	esac
+	[ "$(plist_value "$plist" ProgramArguments.1)" = "$home/.agents/scripts/mcp-sync.py" ] || fail "the secrets agent program is not the Factory mcp-sync"
+	[ "$(plist_value "$plist" ProgramArguments.2)" = --env ] || fail "the secrets agent does not run --env"
+	[ "$(plist_value "$plist" KeepAlive.SuccessfulExit)" = False ] || fail "the secrets agent does not retry on failure"
+	[ "$(plist_value "$plist" ThrottleInterval)" -gt 0 ] || fail "the secrets agent has no throttle"
+	[ "$(plist_value "$plist" RunAtLoad)" = True ] || fail "the secrets agent does not run at load"
+	[ "$(plist_value "$plist" StandardErrorPath)" = "$home/Library/Logs/factory-secrets.log" ] || fail "the secrets agent has no log"
+	before=$(cksum "$plist")
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
+	[ "$(cksum "$plist")" = "$before" ] || fail "the second bootstrap rewrote the plist"
+	run_discovery
+	[ "$code" -eq 0 ] || fail "discovery failed with the secrets agent present: $output"
+	printf 'ok: the secrets agent uses an absolute interpreter and retries loudly\n'
+}
+
+case_plist_drift() {
+	setup_case plist-drift
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	plist=$home/Library/LaunchAgents/dev.factory.secrets.plist
+	run_python -c 'import plistlib,sys; p=sys.argv[1]; d=plistlib.loads(open(p, "rb").read()); d["ProgramArguments"][0]="/nonexistent/factory-python"; open(p, "wb").write(plistlib.dumps(d))' "$plist"
+	[ "$code" -eq 0 ] || fail "cannot drift the plist: $output"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "discovery passed with a missing interpreter in the plist"
+	expect_contains "$output" "$tilde/Library/LaunchAgents/dev.factory.secrets.plist"
+	expect_contains "$output" "/nonexistent/factory-python"
+	run_python -c 'import plistlib,sys; p=sys.argv[1]; d=plistlib.loads(open(p, "rb").read()); d["ThrottleInterval"]=5; open(p, "wb").write(plistlib.dumps(d))' "$plist"
+	[ "$code" -eq 0 ] || fail "cannot drift the plist throttle: $output"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "discovery passed with a stale plist"
+	expect_contains "$output" "$tilde/Library/LaunchAgents/dev.factory.secrets.plist"
+	rm "$plist"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "discovery passed without the plist"
+	expect_contains "$output" "$tilde/Library/LaunchAgents/dev.factory.secrets.plist"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not restore the plist: $output"
+	run_discovery
+	[ "$code" -eq 0 ] || fail "discovery failed after the repair: $output"
+	printf 'ok: the check names a missing, stale or absent secrets agent\n'
+}
+
+case_ssh_agent() {
+	setup_case ssh-agent
+	baseline_repo "$factory"
+	git -C "$factory" remote add origin https://github.com/example/factory.git
+	mkdir -p "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t" "$home/.ssh"
+	printf 'Host *\n  IdentitiesOnly yes\nHost example\n  User someone\n' >"$home/.ssh/config"
+	: >"$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	expect_contains "$output" "added github.com"
+	grep -q '^Host github.com$' "$home/.ssh/config" || fail "the ssh config has no github.com block"
+	grep -q 'IdentityAgent .*2BUA8C4S2C.com.1password/t/agent.sock' "$home/.ssh/config" || fail "the ssh config does not use the 1Password agent"
+	grep -q '^Host example$' "$home/.ssh/config" || fail "the ssh config lost an existing block"
+	[ "$(file_mode "$home/.ssh/config")" = 600 ] || fail "the ssh config is not 600"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the config: $output"
+	expect_contains "$output" "identityagent $home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+	expect_contains "$output" "identitiesonly no"
+	run_command ssh -F "$home/.ssh/config" -G example
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the host example block: $output"
+	expect_contains "$output" "user someone"
+	backup=$(find "$home/.ssh" -name 'config.backup-*' | head -n 1)
+	[ -n "$backup" ] || fail "the ssh config was not backed up"
+	grep -q '^Host example$' "$backup" || fail "the ssh config backup lost the original"
+	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "the origin was not rewritten to SSH"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
+	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the ssh block was written twice"
+	printf 'ForwardX11 yes\n  \n# keep-trailing   \n' >>"$home/.ssh/config"
+	run_command ssh -F "$home/.ssh/config" -G example
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the config with a global line: $output"
+	expect_contains "$output" "forwardx11 yes"
+	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    User git\n", "    User git\n# note\n\n    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "cannot drift the ssh block: $output"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair the ssh block: $output"
+	expect_contains "$output" "updated github.com"
+	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the repaired block duplicated the marker"
+	[ "$(count_lines 'IdentityAgent .*1password' "$home/.ssh/config")" -eq 1 ] || fail "the repair left an orphaned agent line"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the repaired config: $output"
+	expect_contains "$output" "identitiesonly no"
+	run_command ssh -F "$home/.ssh/config" -G example
+	expect_contains "$output" "forwardx11 yes"
+	grep -q '^  $' "$home/.ssh/config" || fail "the repair dropped a whitespace-only line"
+	grep -q '^# keep-trailing   $' "$home/.ssh/config" || fail "the repair did not preserve trailing content byte-for-byte"
+	printf '\n# Factory: github.com through the 1Password SSH agent\nHost github.com\n    IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not remove a duplicate block: $output"
+	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "a duplicate ssh block survived"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n\n    Bogus\n' >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair a corrupt block: $output"
+	[ "$(count_lines '^Host github.com$' "$home/.ssh/config")" -eq 1 ] || fail "a corrupt block orphaned a second Host github.com"
+	grep -q 'Bogus' "$home/.ssh/config" && fail "the corrupt block kept its stray line"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the repaired corrupt block: $output"
+	expect_contains "$output" "identitiesonly no"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n\nHost github.company\n    User similar\n' >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a look-alike block: $output"
+	grep -q '^Host github.company$' "$home/.ssh/config" || fail "the repair removed a look-alike host block"
+	grep -q '^    User similar$' "$home/.ssh/config" || fail "the repair removed the look-alike options"
+	printf '\n# Factory: github.com through the 1Password SSH agent\nHost github.com\n    IdentitiesOnly yes\n\nMatch all\n' >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a blank-terminated block: $output"
+	[ "$(count_lines '^Match all$' "$home/.ssh/config")" -eq 1 ] || fail "the repair left a duplicated Match all"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n\n# note one\n# note two\n\n    IdentitiesOnly yes\n    IdentityAgent "/stale/agent.sock"\n' >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a commented block: $output"
+	[ "$(count_lines 'IdentityAgent .*1password' "$home/.ssh/config")" -eq 1 ] || fail "the commented block left a stale agent line"
+	grep -q 'note one\|note two\|/stale/agent.sock' "$home/.ssh/config" && fail "the commented block kept its stale lines"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse after a commented block: $output"
+	expect_contains "$output" "identitiesonly no"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n\n  Host indented-example\n    User someone\n' >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind an indented host block: $output"
+	grep -q '^  Host indented-example$' "$home/.ssh/config" || fail "the repair removed an indented user block"
+	grep -q '^    User someone$' "$home/.ssh/config" || fail "the repair removed the indented user options"
+	printf '\nHost github.company\n    User similar\n' >>"$home/.ssh/config"
+	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    IdentitiesOnly no\n", "    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a look-alike host block: $output"
+	grep -q '^Host github.company$' "$home/.ssh/config" || fail "the repair removed a look-alike host block"
+	printf 'ok: the ssh config routes GitHub through 1Password and the origin moves to SSH\n'
+}
+
+case_ssh_crlf() {
+	setup_case ssh-crlf
+	baseline_repo "$factory"
+	git -C "$factory" remote add origin https://github.com/example/factory.git
+	mkdir -p "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t" "$home/.ssh"
+	printf 'Host example\r\n  User someone\r\n' >"$home/.ssh/config"
+	: >"$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed on a CRLF config: $output"
+	run_python -c 'import sys; b=open(sys.argv[1],"rb").read(); assert b"Host example\r\n" in b, "user block"; assert b"IdentitiesOnly no\r\n" in b, "managed block"; assert b"Host github.com\r\n" in b, "host line"' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "the CRLF config was not preserved: $output"
+	run_python -c 'import sys; p=sys.argv[1]; b=open(p,"rb").read(); open(p,"wb").write(b.replace(b"    IdentitiesOnly no\r\n", b"    IdentitiesOnly yes\r\n", 1))' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "cannot drift the CRLF block: $output"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed to repair the CRLF block: $output"
+	run_python -c 'import sys; b=open(sys.argv[1],"rb").read(); assert b"IdentitiesOnly no\r\n" in b, "repair"; assert b"IdentitiesOnly yes" not in b, "stale"; assert b"Host example\r\n" in b, "user block"' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "the CRLF repair lost line endings: $output"
+	run_python -c 'import sys; p=sys.argv[1]; b=open(p,"rb").read(); open(p,"wb").write(b.replace(b"    User git\r\n", b"    User git\r\n# note\r\n\r\n    IdentitiesOnly yes\r\n", 1))' "$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed on a CRLF block with a comment: $output"
+	run_python -c 'import sys; b=open(sys.argv[1],"rb").read(); assert b"IdentitiesOnly no\r\n" in b, "repair"; assert b"IdentitiesOnly yes" not in b, "stale"; assert b.count(b"IdentityAgent") == 1, "orphan"' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "the CRLF block with a comment was not fully repaired: $output"
+	printf 'ok: a CRLF ssh config keeps its line endings\n'
+}
+
+case_ssh_no_agent() {
+	setup_case ssh-no-agent
+	baseline_repo "$factory"
+	git -C "$factory" remote add origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap passed without the 1Password SSH agent"
+	expect_contains "$output" "2BUA8C4S2C.com.1password/t/agent.sock"
+	expect_contains "$output" "1Password"
+	[ ! -e "$home/.ssh/config" ] || fail "bootstrap wrote an ssh config without the agent"
+	[ "$(git -C "$factory" remote get-url origin)" = "https://github.com/example/factory.git" ] || fail "bootstrap rewrote origin without SSH auth"
+	printf 'ok: a missing 1Password agent fails loudly and leaves origin alone\n'
+}
+
+case_ssh_existing() {
+	setup_case ssh-existing
+	baseline_repo "$factory"
+	git -C "$factory" remote add origin git@github.com:example/factory.git
+	mkdir -p "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t" "$home/.ssh"
+	printf 'Host github.com\n  User git\n  IdentityFile ~/.ssh/other\n  # IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
+	: >"$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	expect_contains "$output" "SSH auth through it is unverified"
+	[ "$(count_lines '^Host github.com$' "$home/.ssh/config")" -eq 1 ] || fail "bootstrap duplicated the user block"
+	grep -q 'IdentityFile ~/.ssh/other' "$home/.ssh/config" || fail "bootstrap edited the user block"
+	git -C "$factory" remote set-url origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind an unmanaged block: $output"
+	expect_contains "$output" "SSH auth through it is unverified"
+	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS"
+	printf 'Host github.com *.github.com\n  IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
+	git -C "$factory" remote set-url origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind an agent block: $output"
+	expect_contains "$output" "already routes github.com through 1Password"
+	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS behind an agent block"
+	printf 'Host github.com\n  IdentityAgent="%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
+	git -C "$factory" remote set-url origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind an equals-form agent block: $output"
+	expect_contains "$output" "already routes github.com through 1Password"
+	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS behind an equals-form agent block"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the equals-form block: $output"
+	expect_contains "$output" "identityagent $home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+	printf 'Host github.com\n  IdentityAgentBroken "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
+	git -C "$factory" remote set-url origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a look-alike agent block: $output"
+	expect_contains "$output" "SSH auth through it is unverified"
+	printf 'ok: an existing github.com block is left alone and an HTTPS origin still moves to SSH\n'
+}
+
+case_launchd() {
+	setup_case launchd
+	write_mcp_configs
+	[ "$(command -v op)" = "$bin/op" ] || fail "the op stub is not first on PATH"
+	[ "$(command -v launchctl)" = "$bin/launchctl" ] || fail "the launchctl stub is not first on PATH"
+	uv_bin=$(mise which uv)
+	python_bin=$(mise which python)
+	export LAUNCHCTL_VALUE=value
+	run_command env HOME="$home" MISE_DATA_DIR="$HOME/.local/share/mise" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$factory/scripts/bootstrap.py" --home "$home"
+	[ "$code" -eq 0 ] || fail "bootstrap with a temp HOME failed: $output"
+	expect_contains "$output" "MCP configs are in sync"
+	grep -q 'op read --no-newline op://Private/Context7 API/credential' "$log" || fail "the agent did not read the 1Password reference"
+	grep -q 'launchctl setenv CONTEXT7_API_KEY dummy-value' "$log" || fail "the agent did not set the launchd variable"
+	grep -q 'launchctl bootstrap gui/' "$log" || fail "bootstrap did not load the secrets agent"
+	run_command env HOME="$home" MISE_DATA_DIR="$HOME/.local/share/mise" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$factory/scripts/bootstrap.py" --check --home "$home"
+	[ "$code" -eq 0 ] || fail "the check failed with the launchd variable set: $output"
+	run_command env HOME="$home" LAUNCHCTL_VALUE='' MISE_DATA_DIR="$HOME/.local/share/mise" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$factory/scripts/bootstrap.py" --check --home "$home"
+	[ "$code" -ne 0 ] || fail "the check passed with the launchd variable unset"
+	expect_contains "$output" "the launchd secret check failed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	printf 'ok: bootstrap loads the agent and the check catches an unset launchd secret\n'
+}
+
+case_plist_interpreter() {
+	setup_case plist-interpreter
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	run_python -c 'import os,sys; sys.path.insert(0, sys.argv[1]); import bootstrap; sys.executable = "/usr/bin/true"; os.environ["PATH"] = "/usr/bin:/bin"; code = bootstrap.main(["--check", "--home", sys.argv[2]]); print(f"exit={code}")' "$factory/scripts" "$home"
+	[ "$code" -eq 0 ] || fail "the check run failed to execute: $output"
+	expect_contains "$output" "exit=1"
+	expect_contains "$output" "cannot resolve an absolute Python"
+	expect_contains "$output" "$tilde/Library/LaunchAgents/dev.factory.secrets.plist"
+	printf 'ok: an unresolvable interpreter names the plist\n'
+}
+
 case_all() {
 	case_fresh
 	case_second
@@ -533,6 +886,15 @@ case_all() {
 	case_synced_tracked
 	case_synced_ignored
 	case_synced_discovery
+	case_mcp
+	case_secrets_agent
+	case_plist_drift
+	case_plist_interpreter
+	case_ssh_agent
+	case_ssh_no_agent
+	case_ssh_existing
+	case_ssh_crlf
+	case_launchd
 }
 
 case $case_name in
@@ -551,6 +913,15 @@ tracked) case_tracked ;;
 synced-tracked) case_synced_tracked ;;
 synced-ignored) case_synced_ignored ;;
 synced-discovery) case_synced_discovery ;;
+mcp) case_mcp ;;
+secrets-agent) case_secrets_agent ;;
+plist-drift) case_plist_drift ;;
+plist-interpreter) case_plist_interpreter ;;
+ssh-agent) case_ssh_agent ;;
+ssh-no-agent) case_ssh_no_agent ;;
+ssh-existing) case_ssh_existing ;;
+ssh-crlf) case_ssh_crlf ;;
+launchd) case_launchd ;;
 all) case_all ;;
 *)
 	printf 'unknown case: %s\n' "$case_name" >&2

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +31,14 @@ GH_STACK_PIN = "d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419"
 CODEX_MANAGED_SKILLS = {".system"}
 # Claude Code's claude.ai sync cache: skills/synced/<bucket>/<skill>/SKILL.md.
 SYNCED_SKILLS = "synced"
+SECRET_LABEL = "dev.factory.secrets"
+SECRET_RETRY_SECONDS = 60
+SECRET_LOG = Path("Library") / "Logs" / "factory-secrets.log"
+AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
+SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
+GITHUB_HOST_RE = re.compile(r"(?i)^\s*Host\s+github\.com(?![A-Za-z0-9.-])")
+GITHUB_HTTPS = re.compile(r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$")
+GITHUB_SSH = re.compile(r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$")
 
 
 @dataclass(frozen=True)
@@ -156,6 +166,317 @@ def apply_links(changes: list[Planned], home: Path) -> None:
             action = "link"
         os.symlink(change.target, change.path)
         print(f"bootstrap: {action} {display(change.path, home)} -> {display(change.target, home)}")
+
+
+def mcp_sync(home: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "mcp-sync.py"), "--home", str(home), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def combined(result: subprocess.CompletedProcess) -> str:
+    return "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+
+
+def launchctl_binary() -> str | None:
+    for candidate in (shutil.which("launchctl"), "/bin/launchctl"):
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return None
+
+
+def render_mcp(home: Path) -> bool:
+    render = mcp_sync(home)
+    if render.returncode != 0:
+        print(f"bootstrap: MCP render failed: {combined(render)}", file=sys.stderr)
+        return False
+    check = mcp_sync(home, "--check")
+    if check.returncode != 0:
+        print(f"bootstrap: MCP configs are not in sync after the render: {combined(check)}", file=sys.stderr)
+        return False
+    print("bootstrap: MCP configs are in sync")
+    return True
+
+
+def launch_interpreter() -> str:
+    executable = Path(sys.executable)
+    if executable.is_absolute() and executable.parent != Path("/usr/bin") and executable.is_file():
+        return str(executable)
+    try:
+        result = subprocess.run(["mise", "which", "python"], capture_output=True, text=True, check=False)
+    except OSError:
+        raise SystemExit("bootstrap: cannot resolve an absolute Python for the secrets agent") from None
+    resolved = result.stdout.strip()
+    if result.returncode == 0 and resolved and Path(resolved).is_file():
+        return resolved
+    raise SystemExit("bootstrap: cannot resolve an absolute Python for the secrets agent")
+
+
+def secret_agent_path(home: Path) -> Path:
+    return home / "Library" / "LaunchAgents" / f"{SECRET_LABEL}.plist"
+
+
+def secret_agent_plist(home: Path, interpreter: str | None = None) -> bytes:
+    program = home / ".agents" / "scripts" / "mcp-sync.py"
+    log = home / SECRET_LOG
+    data = {
+        "Label": SECRET_LABEL,
+        "ProgramArguments": [interpreter or launch_interpreter(), str(program), "--env"],
+        "RunAtLoad": True,
+        "KeepAlive": {"SuccessfulExit": False},
+        "ThrottleInterval": SECRET_RETRY_SECONDS,
+        "StandardOutPath": str(log),
+        "StandardErrorPath": str(log),
+    }
+    return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False)
+
+
+def install_secret_agent(home: Path) -> bool:
+    path = secret_agent_path(home)
+    text = secret_agent_plist(home)
+    if not path.is_file() or path.read_bytes() != text:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text)
+        os.chmod(path, 0o600)
+        print(f"bootstrap: wrote {display(path, home)}")
+    else:
+        print(f"bootstrap: {display(path, home)} is current")
+    launchctl = launchctl_binary()
+    if launchctl is None:
+        print("bootstrap: launchctl is not available; the secrets agent is written but not loaded")
+        return True
+    if home != Path.home().resolve():
+        print("bootstrap: not the real home; the secrets agent is not loaded")
+        return True
+    applied = mcp_sync(home, "--env")
+    if applied.stdout.strip():
+        print(applied.stdout.strip())
+    loaded = True
+    if applied.returncode != 0:
+        print(f"bootstrap: {applied.stderr.strip()}", file=sys.stderr)
+        print(
+            f"bootstrap: the secrets agent retries; see {display(home / SECRET_LOG, home)}",
+            file=sys.stderr,
+        )
+        loaded = False
+    else:
+        verified = mcp_sync(home, "--env", "--check")
+        if verified.returncode != 0:
+            print(f"bootstrap: {(verified.stderr or verified.stdout).strip()}", file=sys.stderr)
+            loaded = False
+    uid = os.getuid()
+    subprocess.run(
+        [launchctl, "bootout", f"gui/{uid}/{SECRET_LABEL}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    bootstrap = subprocess.run(
+        [launchctl, "bootstrap", f"gui/{uid}", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if bootstrap.returncode != 0:
+        print(f"bootstrap: launchctl bootstrap failed: {bootstrap.stderr.strip()}", file=sys.stderr)
+        return False
+    return loaded
+
+
+def secret_agent_errors(home: Path) -> list[str]:
+    path = secret_agent_path(home)
+    shown = display(path, home)
+    if not path.is_file():
+        return [f"the secrets agent is missing: {shown}; run mise run bootstrap"]
+    try:
+        data = plistlib.loads(path.read_bytes())
+    except (ValueError, OSError) as error:
+        return [f"{shown} is not a readable plist: {error}; run mise run bootstrap"]
+    program = data.get("ProgramArguments") or []
+    if len(program) < 3:
+        return [f"{shown} has no program arguments; run mise run bootstrap"]
+    interpreter = Path(str(program[0]))
+    if not interpreter.is_file():
+        return [f"{shown} names a missing interpreter: {interpreter}; run mise run bootstrap"]
+    script = Path(str(program[1]))
+    if script.name != "mcp-sync.py" or program[2] != "--env":
+        return [f"{shown} does not run mcp-sync.py --env; run mise run bootstrap"]
+    try:
+        interpreter = launch_interpreter()
+    except SystemExit as error:
+        reason = str(error).removeprefix("bootstrap: ")
+        return [f"{shown} cannot resolve the secrets agent interpreter ({reason}); run mise run bootstrap"]
+    if path.read_bytes() != secret_agent_plist(home, interpreter):
+        return [f"{shown} differs from what bootstrap writes now; run mise run bootstrap"]
+    if home == Path.home().resolve() and launchctl_binary() is not None:
+        applied = mcp_sync(home, "--env", "--check")
+        if applied.returncode != 0:
+            return [f"the launchd secret check failed: {(applied.stderr or applied.stdout).strip()}"]
+    return []
+
+
+def github_slug(url: str) -> tuple[str, str] | None:
+    for pattern in (GITHUB_HTTPS, GITHUB_SSH):
+        match = pattern.match(url)
+        if match:
+            return match.group(1), match.group(2)
+    return None
+
+
+def github_host_block(text: str) -> str | None:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"(?i)^\s*Host\s+([^#]+)", line)
+        if not match:
+            continue
+        hosts = match.group(1).split()
+        if not any(host == "github.com" or host.endswith(".github.com") for host in hosts):
+            continue
+        block = []
+        for following in lines[index + 1 :]:
+            if re.match(r"(?i)^\s*(Host|Match)\s+", following):
+                break
+            block.append(following)
+        return "\n".join(block)
+    return None
+
+
+def ssh_block(socket: Path) -> str:
+    return (
+        f"{SSH_MARKER}\n"
+        "Host github.com\n"
+        "    HostName github.com\n"
+        "    User git\n"
+        f'    IdentityAgent "{socket}"\n'
+        "    IdentitiesOnly no\n"
+        "Match all"
+    )
+
+
+def file_ending(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def ssh_option(line: str) -> bool:
+    return (
+        bool(line.strip())
+        and line.startswith((" ", "\t"))
+        and not re.match(r"(?i)^\s*(Host|Match)\s+", line)
+    )
+
+
+def replace_managed_block(text: str, block: str) -> str | None:
+    lines = text.splitlines(keepends=True)
+    kept: list[str] = []
+    found = False
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() != SSH_MARKER:
+            kept.append(lines[index])
+            index += 1
+            continue
+        found = True
+        index += 1
+        look = index
+        while look < len(lines) and not lines[look].strip():
+            look += 1
+        if look < len(lines):
+            if GITHUB_HOST_RE.match(lines[look]) or ssh_option(lines[look]):
+                index = look
+        if index < len(lines) and GITHUB_HOST_RE.match(lines[index]):
+            index += 1
+        while True:
+            if index < len(lines) and ssh_option(lines[index]):
+                index += 1
+                continue
+            look = index
+            while look < len(lines) and (not lines[look].strip() or lines[look].strip().startswith("#")):
+                look += 1
+            if look > index and look < len(lines) and ssh_option(lines[look]):
+                index = look
+                continue
+            break
+        look = index
+        while look < len(lines) and not lines[look].strip():
+            look += 1
+        if look < len(lines) and re.match(r"(?i)^\s*Match\s+all\s*$", lines[look]):
+            index = look + 1
+    if not found:
+        return None
+    ending = file_ending(text)
+    return block.replace("\n", ending) + ending + "".join(kept)
+
+
+def prepend_managed_block(text: str, block: str) -> str:
+    ending = file_ending(text)
+    return block.replace("\n", ending) + ending + text
+
+
+def setup_github_ssh(home: Path) -> bool:
+    origin = None
+    result = git(ROOT, "remote", "get-url", "origin")
+    if result.returncode == 0:
+        origin = result.stdout.strip() or None
+    if origin is None:
+        print("bootstrap: no origin remote; GitHub SSH setup skipped")
+        return True
+    slug = github_slug(origin)
+    if slug is None:
+        print(f"bootstrap: origin {origin} is not GitHub; SSH setup skipped")
+        return True
+    socket = home / AGENT_SOCKET
+    if not socket.exists():
+        print(
+            f"bootstrap: {display(socket, home)} is missing; start 1Password so its SSH agent "
+            "can serve the GitHub key",
+            file=sys.stderr,
+        )
+        return False
+    config = home / ".ssh" / "config"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(config.parent, 0o700)
+    text = config.read_bytes().decode("utf-8") if config.is_file() else ""
+    block = github_host_block(text)
+    wanted = ssh_block(socket)
+    managed_text = replace_managed_block(text, wanted)
+    if managed_text is not None:
+        if managed_text != text:
+            if config.is_file():
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                shutil.copy2(config, backup_path(config, stamp))
+            config.write_bytes(managed_text.encode("utf-8"))
+            os.chmod(config, 0o600)
+            print(f"bootstrap: updated github.com in {display(config, home)}")
+        else:
+            print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
+    elif block is not None:
+        managed = re.search(r'(?im)^\s*IdentityAgent(?:\s*=\s*|\s+)"?[^\n]*2BUA8C4S2C\.com\.1password', block)
+        if managed:
+            print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
+        else:
+            print(
+                f"bootstrap: {display(config, home)} already has a github.com block the Factory "
+                "does not manage; SSH auth through it is unverified",
+                file=sys.stderr,
+            )
+    else:
+        if config.is_file():
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            shutil.copy2(config, backup_path(config, stamp))
+        config.write_bytes(prepend_managed_block(text, wanted).encode("utf-8"))
+        os.chmod(config, 0o600)
+        print(f"bootstrap: added github.com to {display(config, home)}")
+    if GITHUB_HTTPS.match(origin):
+        rewritten = f"git@github.com:{slug[0]}/{slug[1]}.git"
+        changed = git(ROOT, "remote", "set-url", "origin", rewritten)
+        if changed.returncode != 0:
+            print(f"bootstrap: cannot rewrite origin: {changed.stderr.strip()}", file=sys.stderr)
+            return False
+        print(f"bootstrap: origin is now {rewritten}")
+    return True
 
 
 def read_tool_skill_groups() -> dict[str, list[str]]:
@@ -331,6 +652,10 @@ def discovery(home: Path) -> int:
     if not factory_skills.is_dir():
         print(f"bootstrap: missing {factory_skills}", file=sys.stderr)
         return 1
+    errors.extend(secret_agent_errors(home))
+    mcp_check = mcp_sync(home, "--check")
+    if mcp_check.returncode != 0:
+        errors.append(f"MCP configs are not in sync: {combined(mcp_check)}")
     expected_names = factory_skill_names()
     opencode = config_home(home) / "opencode"
     harnesses = {
@@ -568,6 +893,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"bootstrap: {error}", file=sys.stderr)
         return 1
     apply_links(changes, home)
+    if not render_mcp(home):
+        return 1
+    if not install_secret_agent(home):
+        return 1
+    if not setup_github_ssh(home):
+        return 1
     tools_present_before = all(skill_present(name) for name in read_tool_skills())
     errors = install_tool_skills(home)
     discovery_code = discovery(home)

@@ -1,0 +1,23 @@
+{
+  "servers": {
+    "context7": {
+      "transport": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "Authorization": {
+          "scheme": "Bearer",
+          "env": "CONTEXT7_API_KEY",
+          "reference": "op://Private/Context7 API/credential"
+        }
+      },
+      "targets": ["claude-code", "opencode", "codex"]
+    },
+    "cua-driver": {
+      "transport": "stdio",
+      "command": "~/.local/bin/cua-driver",
+      "args": ["mcp"],
+      "targets": ["claude-code", "opencode", "codex"]
+    }
+  },
+  "retired": ["caveman"]
+}
