@@ -282,6 +282,21 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "tracked" }
         expect { code = 0 }
       }
+      ["a tracked synced skill fails the check and names the path"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "synced-tracked" }
+        expect { code = 0 }
+      }
+      ["an ignored synced cache keeps git status clean and passes the check"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "synced-ignored" }
+        expect { code = 0 }
+      }
+      ["discovery counts are unchanged with the synced cache present"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "synced-discovery" }
+        expect { code = 0 }
+      }
     }
   }
 
