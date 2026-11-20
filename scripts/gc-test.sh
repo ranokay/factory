@@ -107,6 +107,7 @@ case "\$1 \$2" in
 	printf '%s\n' "$tmp/cache"
 	;;
 "cache prune")
+	printf '\033[35mDEBUG\033[0m ARGS: mise cache prune --dry-run --verbose\n'
 	if [ "\${CACHE_BAD:-}" = 1 ]; then
 		printf 'INFO  pruning unexpected cache message\n'
 		exit 0

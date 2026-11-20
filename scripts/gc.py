@@ -161,6 +161,7 @@ def cache_candidates():
     output = tool_output('cache', 'prune', '--dry-run', '--verbose')
     paths = []
     for line in output.splitlines():
+        line = re.sub(r'\x1b\[[0-9;]*m', '', line)
         if 'pruning ' in line:
             candidate = line.split('pruning ', 1)[1].strip()
             if not (candidate.startswith('/') or candidate.startswith('~')):
