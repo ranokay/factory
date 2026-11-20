@@ -130,6 +130,8 @@ setup_case() {
 	mkdir -p "$home" "$bin"
 	factory=$(CDPATH='' cd "$factory" && pwd -P)
 	home=$(CDPATH='' cd "$home" && pwd -P)
+	export XDG_CONFIG_HOME="$home/.config"
+	export CODEX_HOME="$home/.codex"
 	make_stubs "$bin"
 	: >"$log"
 	export STUB_LOG="$log"
