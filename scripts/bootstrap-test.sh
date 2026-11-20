@@ -59,6 +59,12 @@ init_git() {
 	git -C "$1" config commit.gpgsign false
 }
 
+baseline_repo() {
+	init_git "$1"
+	git -C "$1" add -A
+	git -C "$1" commit -qm "baseline"
+}
+
 make_stubs() {
 	bin=$1
 	mkdir -p "$bin"
@@ -330,9 +336,7 @@ case_external() {
 
 case_worktree() {
 	setup_case worktree
-	init_git "$factory"
-	git -C "$factory" add -A
-	git -C "$factory" commit -qm "baseline"
+	baseline_repo "$factory"
 	worktree_dir=$case_dir/worktree
 	git -C "$factory" worktree add -q "$worktree_dir"
 	fake_home=$case_dir/fake-home
@@ -463,9 +467,7 @@ case_tracked() {
 
 case_synced_tracked() {
 	setup_case synced-tracked
-	init_git "$factory"
-	git -C "$factory" add -A
-	git -C "$factory" commit -qm "baseline"
+	baseline_repo "$factory"
 	mkdir -p "$factory/skills/synced/bucket/nested/skill"
 	printf '# nested\n' >"$factory/skills/synced/bucket/nested/skill/SKILL.md"
 	git -C "$factory" add -f skills/synced/bucket/nested/skill/SKILL.md
@@ -477,9 +479,7 @@ case_synced_tracked() {
 
 case_synced_ignored() {
 	setup_case synced-ignored
-	init_git "$factory"
-	git -C "$factory" add -A
-	git -C "$factory" commit -qm "baseline"
+	baseline_repo "$factory"
 	mkdir -p "$factory/skills/synced/bucket-one/alpha" "$factory/skills/synced/bucket-two/beta/references"
 	printf '# alpha\n' >"$factory/skills/synced/bucket-one/alpha/SKILL.md"
 	printf '# beta\n' >"$factory/skills/synced/bucket-two/beta/SKILL.md"
@@ -499,9 +499,7 @@ case_synced_ignored() {
 
 case_synced_discovery() {
 	setup_case synced-discovery
-	init_git "$factory"
-	git -C "$factory" add -A
-	git -C "$factory" commit -qm "baseline"
+	baseline_repo "$factory"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
 	count=$(printf '%s\n' "$output" | sed -n 's/.*(\([0-9][0-9]*\) skills)/\1/p')
