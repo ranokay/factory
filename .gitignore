@@ -5,6 +5,8 @@ skills/cua-spaces/
 skills/cua-volume/
 skills/gui-automation/
 skills/find-docs/
+skills/reverse-engineer-anything/
+skills/gh-stack/
 
 __pycache__/
 *.pyc

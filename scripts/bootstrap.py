@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,7 +24,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL_SKILLS_FILE = ROOT / "scripts" / "tool-skills.txt"
-REQUIRED_TOOL_GROUPS = ("ardia", "cua", "ctx7")
+REQUIRED_TOOL_GROUPS = ("ardia", "cua", "ctx7", "rea", "gh-stack")
+GH_STACK_PIN = "v0.2.0"
 CODEX_MANAGED_SKILLS = {".system"}
 
 
@@ -185,11 +187,11 @@ def skill_present(name: str) -> bool:
     return (ROOT / "skills" / name / "SKILL.md").is_file()
 
 
-def ctx7_version() -> str:
+def tool_version(name: str) -> str:
     tools = tomllib.loads((ROOT / "mise.toml").read_text()).get("tools", {})
-    version = tools.get("npm:ctx7")
+    version = tools.get(name)
     if not isinstance(version, str):
-        raise SystemExit("bootstrap: mise.toml has no npm:ctx7 pin")
+        raise SystemExit(f"bootstrap: mise.toml has no {name} pin")
     return version
 
 
@@ -207,28 +209,72 @@ def run_installer(label: str, argv: list[str], home: Path) -> None:
         print(f"bootstrap: {label} installer failed with exit {result.returncode}", file=sys.stderr)
 
 
+def install_gh_stack(home: Path) -> None:
+    executable = shutil.which("gh")
+    if executable is None:
+        print("bootstrap: warning: gh is not installed; skipping gh-stack")
+        return
+    with tempfile.TemporaryDirectory(prefix="factory-gh-stack-") as state:
+        environment = os.environ.copy()
+        environment["HOME"] = state
+        environment["GH_CONFIG_DIR"] = os.environ.get("GH_CONFIG_DIR") or str(Path.home() / ".config" / "gh")
+        argv = [
+            executable,
+            "skill",
+            "install",
+            "github/gh-stack",
+            "gh-stack",
+            "--dir",
+            str(home / ".claude" / "skills"),
+            "--pin",
+            GH_STACK_PIN,
+            "--force",
+        ]
+        print(f"bootstrap: install gh-stack: {' '.join(argv)}")
+        result = subprocess.run(argv, env=environment, check=False)
+        if result.returncode != 0:
+            print(f"bootstrap: gh-stack installer failed with exit {result.returncode}", file=sys.stderr)
+
+
 def install_tool_skills(home: Path) -> list[str]:
     errors = []
     groups = read_tool_skill_groups()
     installers = {
         "ardia": ["ardia", "skills", "install", "--target", "general", "--no-cua"],
         "cua": ["cua", "connect", "setup", "--skills-only", "--agents", "claude", "-y"],
+        "rea": ["rea", "setup", "--skill-client", "shared", "--yes"],
     }
     for group, argv in installers.items():
-        names = groups.get(group, [])
+        names = groups[group]
         if not all(skill_present(name) for name in names):
+            if group == "rea" and shutil.which("rea") is None:
+                argv = [
+                    "npx",
+                    "--yes",
+                    f"rea-agents@{tool_version('npm:rea-agents')}",
+                    "setup",
+                    "--skill-client",
+                    "shared",
+                    "--yes",
+                ]
             run_installer(group, argv, home)
         for name in names:
             if not skill_present(name):
                 errors.append(f"{group}: {display(ROOT / 'skills' / name / 'SKILL.md', home)} is missing")
-    ctx7_names = groups.get("ctx7", [])
+    gh_names = groups["gh-stack"]
+    if not all(skill_present(name) for name in gh_names):
+        install_gh_stack(home)
+    for name in gh_names:
+        if not skill_present(name):
+            errors.append(f"gh-stack: {display(ROOT / 'skills' / name / 'SKILL.md', home)} is missing")
+    ctx7_names = groups["ctx7"]
     if not all(skill_present(name) for name in ctx7_names):
         if shutil.which("ctx7"):
             run_installer("ctx7", ["ctx7", "setup", "--claude", "--cli", "-y"], home)
         else:
             run_installer(
                 "ctx7",
-                ["npx", "--yes", f"ctx7@{ctx7_version()}", "setup", "--claude", "--cli", "-y"],
+                ["npx", "--yes", f"ctx7@{tool_version('npm:ctx7')}", "setup", "--claude", "--cli", "-y"],
                 home,
             )
     for name in ctx7_names:

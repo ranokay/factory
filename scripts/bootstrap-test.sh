@@ -90,7 +90,34 @@ mkdir -p "$HOME/.claude/skills/find-docs"
 printf '# find-docs\n' >"$HOME/.claude/skills/find-docs/SKILL.md"
 STUB
 
-	chmod +x "$bin/ardia" "$bin/cua" "$bin/ctx7" "$bin/npx"
+	cat >"$bin/rea" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'rea %s\n' "$*" >>"$STUB_LOG"
+mkdir -p "$HOME/.agents/skills/reverse-engineer-anything"
+printf '# rea\n' >"$HOME/.agents/skills/reverse-engineer-anything/SKILL.md"
+STUB
+
+	cat >"$bin/gh" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'gh %s\n' "$*" >>"$STUB_LOG"
+dir=
+while [ "$#" -gt 0 ]; do
+	case $1 in
+	--dir)
+		dir=$2
+		shift 2
+		;;
+	*) shift ;;
+	esac
+done
+[ -n "$dir" ] || exit 2
+mkdir -p "$dir/gh-stack"
+printf '# gh-stack\n' >"$dir/gh-stack/SKILL.md"
+STUB
+
+	chmod +x "$bin/ardia" "$bin/cua" "$bin/ctx7" "$bin/npx" "$bin/rea" "$bin/gh"
 }
 
 setup_case() {
@@ -167,12 +194,14 @@ case_fresh() {
 		[ "$(readlink "$path")" = "$home/.agents/AGENTS.md" ] || fail "$path points at $(readlink "$path")"
 		[ "$(head -n 1 "$path")" = "# Factory" ] || fail "$path does not show the Factory instructions"
 	done
-	for name in ardia cua-driver cua-sandboxes cua-spaces cua-volume gui-automation find-docs; do
+	for name in ardia cua-driver cua-sandboxes cua-spaces cua-volume gui-automation find-docs reverse-engineer-anything gh-stack; do
 		[ -f "$factory/skills/$name/SKILL.md" ] || fail "installer did not create skills/$name"
 	done
 	[ "$(count_lines '^ardia ' "$log")" -eq 1 ] || fail "ardia installer did not run once"
 	[ "$(count_lines '^cua ' "$log")" -eq 1 ] || fail "cua installer did not run once"
 	[ "$(count_lines '^ctx7 ' "$log")" -eq 1 ] || fail "ctx7 installer did not run once"
+	[ "$(count_lines '^rea ' "$log")" -eq 1 ] || fail "rea installer did not run once"
+	[ "$(count_lines '^gh ' "$log")" -eq 1 ] || fail "gh-stack installer did not run once"
 	[ "$(count_lines '^npx ' "$log")" -eq 0 ] || fail "the pinned ctx7 fallback ran instead of ctx7"
 	printf 'ok: a fresh temp HOME gets the Factory links\n'
 }

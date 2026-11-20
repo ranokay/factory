@@ -10,3 +10,9 @@ gui-automation
 
 [ctx7]
 find-docs
+
+[rea]
+reverse-engineer-anything
+
+[gh-stack]
+gh-stack
