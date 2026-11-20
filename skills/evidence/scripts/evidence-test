@@ -40,6 +40,9 @@ def pr_data():
 if args[:2] == ["repo", "view"]:
     print(read("repo", "a/one"))
 elif args[:2] == ["pr", "view"]:
+    if (state / "fail_pr_view").exists():
+        print("no pull requests found for branch feat/thing", file=sys.stderr)
+        sys.exit(1)
     fields = args[args.index("--json") + 1] if "--json" in args else ""
     if fields == "number":
         print(read("pr_number", "7"))
@@ -51,6 +54,10 @@ elif args[:2] == ["pr", "list"]:
     print(read("open_prs", "[]"))
 elif args[0] == "api":
     if "--method" in args and args[args.index("--method") + 1] == "DELETE":
+        if (state / "fail_delete").exists():
+            (state / "fail_delete").unlink()
+            print("stub gh: delete failed", file=sys.stderr)
+            sys.exit(1)
         removed = args[-1].rsplit("/", 1)[1]
         ids = [line for line in read("ids", "").splitlines() if line and line != removed]
         write("ids", "\\n".join(ids))
@@ -393,6 +400,62 @@ def case_too_many(work):
 
 
 @case
+def case_attach_gh_failure(work):
+    repo, _ = make_repo(work)
+    (work / "gh" / "fail_pr_view").write_text("1")
+    ok(tool(work, repo, receipt_args(pr="7")))
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "no pull requests found")
+    expect("does not exist" not in result.stderr, result.stderr)
+
+
+@case
+def case_attach_rollback(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    ok(tool(work, repo, ["add", str(make_image(work / "shot.png")), "--repo", "a/one", "--pr", "7"]))
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"]))
+    (work / "gh" / "fail_delete").write_text("1")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"])
+    refused(result, "previous comment 101 remains")
+    expect("new comment was withdrawn" in result.stderr, result.stderr)
+    ids = (work / "gh" / "ids").read_text().split()
+    expect(ids == ["101"], f"expected the previous comment to remain, found {ids}")
+
+
+@case
+def case_stage_leftover(work):
+    repo, _ = make_repo(work)
+    wt = make_worktree(repo, work)
+    make_pr(work, git(wt, "rev-parse", "HEAD"), "feat/thing")
+    ok(tool(work, wt, ["add", str(make_image(work / "shot.png")), "--repo", "a/one"]))
+    ok(tool(work, wt, receipt_args(pr=None)))
+    stage = work / "cache" / "a" / "one" / "branch" / "feat-thing"
+    (stage / "nested").mkdir()
+    (stage / "nested" / "keep.txt").write_text("keep")
+    out = ok(tool(work, wt, ["attach", "--repo", "a/one", "--pr", "7"]))
+    expect("left" in out and "in place" in out, out)
+    expect((stage / "nested" / "keep.txt").is_file(), "the nested stage content was lost")
+    expect((work / "cache" / "a" / "one" / "7" / "shot.png").is_file(), "the staged image did not move")
+
+
+@case
+def case_cleanup_prune(work):
+    repo, origin = make_repo(work)
+    wt = make_worktree(repo, work)
+    make_pr(work, git(wt, "rev-parse", "HEAD"), "feat/thing")
+    seed_evidence(work, "7", "feat-thing")
+    owner = work / "cache" / "a"
+    owner.chmod(0o500)
+    try:
+        result = tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"])
+    finally:
+        owner.chmod(0o700)
+    refused(result, "cannot remove")
+    expect(not wt.exists(), "the worktree was not removed before the prune failure")
+
+
+@case
 def case_cleanup(work):
     repo, origin = make_repo(work)
     wt = make_worktree(repo, work)
@@ -406,6 +469,8 @@ def case_cleanup(work):
     from_worktree = tool(work, wt, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"])
     refused(from_worktree, "main checkout")
     expect(wt.is_dir(), "the refused run removed the worktree")
+    (work / "gh" / "open_prs").write_text(json.dumps([{"number": 9, "headRepositoryOwner": {"login": "contributor"}}]))
+    git(wt, "switch", "-c", "other")
     ok(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]))
     expect(not wt.exists(), "the worktree remains")
     expect(not (wt / "node_modules").exists(), "the ignored build directory remains")
@@ -456,7 +521,7 @@ def case_cleanup_refusals(work):
     refused(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]), "uncommitted changes")
     intact()
     git(wt, "checkout", "--", "change.txt")
-    (work / "gh" / "open_prs").write_text(json.dumps([{"number": 8}]))
+    (work / "gh" / "open_prs").write_text(json.dumps([{"number": 8, "headRepositoryOwner": {"login": "a"}}]))
     refused(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]), "open PR 8")
     intact()
     (work / "gh" / "open_prs").unlink()

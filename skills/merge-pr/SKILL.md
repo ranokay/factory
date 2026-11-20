@@ -161,11 +161,12 @@ branch or evidence directory is reported as already gone. The bullets below
 state the requirement it enforces.
 
 - Delete only the merged PR's remote topic branch, guarded by the verified merged
-  head SHA. If no safe expected-SHA deletion is available, skip and report it.
-  Preserve a remote branch used by another open PR or active task. If the head is
-  a fork, skip the remote deletion unless the user explicitly asked to delete
-  that fork branch. Account for automatic deletion; a missing branch is success,
-  not an error.
+  head SHA; the Factory tool does so with `--force-with-lease`. When a safe
+  expected-SHA deletion is unavailable, skip it and report that, so no ref is
+  deleted on trust. Preserve a remote branch used by another open PR or active
+  task. If the head is a fork, skip the remote deletion unless the user
+  explicitly asked to delete that fork branch. Account for automatic deletion; a
+  missing branch is success, not an error.
 - Delete the local topic branch only when it is unused, belongs to the PR's head
   repository, and its tip is the verified merged head or its work is proven
   included in the merge. For a squash merge, ancestry does not prove inclusion;

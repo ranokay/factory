@@ -497,10 +497,19 @@ def cmd_attach(args):
         print(shlex.join(cmd))
         return
     previous = marked_comments(repo, pr)
-    for comment in previous:
-        command(["gh", "api", "--method", "DELETE", f"repos/{repo}/issues/comments/{comment}"])
-        print(f"removed previous evidence comment {comment}")
     url = output(cmd)
+    new_comment = url.rsplit("#issuecomment-", 1)[1] if "#issuecomment-" in url else None
+    for comment in previous:
+        try:
+            command(["gh", "api", "--method", "DELETE", f"repos/{repo}/issues/comments/{comment}"])
+        except Refused as error:
+            withdrawn = new_comment and command(
+                ["gh", "api", "--method", "DELETE", f"repos/{repo}/issues/comments/{new_comment}"], check=False
+            ).returncode == 0
+            if withdrawn:
+                fail(f"{error}; previous comment {comment} remains and the new comment was withdrawn")
+            fail(f"{error}; both comment {comment} and the new comment {url} remain")
+        print(f"removed previous evidence comment {comment}")
     print(f"posted {url}")
 
 
@@ -570,8 +579,23 @@ def cmd_cleanup(args):
             fail(f"{worktree} has uncommitted changes; commit, stash or remove them before cleanup:\n{dirty}")
     else:
         print(f"already gone: worktree {worktree}")
-    others = json.loads(output(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number"]))
-    blockers = [str(item["number"]) for item in others if str(item.get("number")) != str(pr)]
+    others = output(
+        ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,headRepositoryOwner"]
+    )
+    try:
+        open_prs = json.loads(others)
+    except json.JSONDecodeError:
+        fail(f"could not read the open PRs for {branch} from gh, got {others!r}")
+    owner = repo.split("/")[0]
+    blockers = []
+    for item in open_prs:
+        number = item.get("number")
+        if number is None or str(number) == str(pr):
+            continue
+        head_owner = (item.get("headRepositoryOwner") or {}).get("login", "").lower()
+        if head_owner and head_owner != owner:
+            continue
+        blockers.append(str(number))
     if blockers:
         fail(f"remote branch {branch} is used by open PR {', '.join(blockers)}; merge or close it before cleanup")
     local = output(["git", "-C", str(main), "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], check=False) or None
@@ -602,7 +626,9 @@ def cmd_cleanup(args):
                 ]
             )
         except Refused as error:
-            fail(f"{error}; the remote branch moved after the merged head {head}, so it was not deleted")
+            if "stale info" in str(error):
+                fail(f"{error}; the remote branch moved after the merged head {head}, so it was not deleted")
+            raise
         print(f"deleted remote branch {branch}")
     else:
         print(f"already gone: remote branch {branch}")

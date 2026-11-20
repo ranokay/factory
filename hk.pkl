@@ -354,6 +354,26 @@ steps {
         env { ["EVIDENCE_CASE"] = "too_many" }
         expect { code = 0 }
       }
+      ["a gh failure names its cause"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_gh_failure" }
+        expect { code = 0 }
+      }
+      ["a failed replacement keeps one evidence comment"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_rollback" }
+        expect { code = 0 }
+      }
+      ["a staged directory left behind is reported"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "stage_leftover" }
+        expect { code = 0 }
+      }
+      ["a cache permission failure is reported"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "cleanup_prune" }
+        expect { code = 0 }
+      }
       ["cleanup removes the worktree, branches and evidence"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "cleanup" }

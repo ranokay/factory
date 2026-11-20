@@ -46,7 +46,7 @@ The receipt is the last block of the comment. Every value is required:
 
 ## One comment per PR
 
-The comment starts with `<!-- factory-evidence -->`. `attach` finds every marked comment through `gh api`; it deletes the previous ones, then posts the new one, so a PR never holds two evidence comments. Attachments cannot be edited in place, which is why a rerun replaces the comment instead of updating it. If the delete or the post fails, the command exits non-zero and names what happened, and a rerun converges to one comment.
+The comment starts with `<!-- factory-evidence -->`. `attach` posts the new comment, then deletes the previous marked ones; if a delete fails it withdraws the new comment and exits non-zero, so a PR never holds two evidence comments and the previous evidence is not lost. Attachments cannot be edited in place, which is why a rerun replaces the comment instead of updating it.
 
 ## Merge cleanup
 
