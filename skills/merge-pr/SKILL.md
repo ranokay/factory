@@ -150,7 +150,7 @@ local ref belongs to the PR's repositories: the topic branch to the head
 repository, and the integration checkout to the base repository and base
 branch. If either does not match, skip that part and report it.
 
-In the Factory, run the Factory's `skills/evidence/scripts/evidence cleanup
+In the Factory, run `~/Developer/factory/skills/evidence/scripts/evidence cleanup
 --worktree <path> --pr <n> [--repo owner/name]` from the main checkout (also
 `mise run evidence -- cleanup ...` in the Factory Repo). It deletes the remote
 and local topic branches, the worktree with its build outputs, and the PR's

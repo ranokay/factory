@@ -456,6 +456,25 @@ def case_cleanup_prune(work):
 
 
 @case
+def case_attach_resolves_pr(work):
+    repo, _ = make_repo(work)
+    wt = make_worktree(repo, work)
+    make_pr(work, git(wt, "rev-parse", "HEAD"), "feat/thing")
+    (work / "gh" / "pr_number").write_text("7")
+    ok(tool(work, wt, ["add", str(make_image(work / "shot.png")), "--repo", "a/one"]))
+    ok(tool(work, wt, receipt_args(pr=None)))
+    stage = work / "cache" / "a" / "one" / "branch" / "feat-thing"
+    out = ok(tool(work, wt, ["attach", "--repo", "a/one"]))
+    target = work / "cache" / "a" / "one" / "7"
+    expect((target / "shot.png").is_file(), "the staged file did not move into the PR directory")
+    expect((target / "body.md").is_file(), "the body was not written to the PR directory")
+    expect(not stage.exists(), "the staging directory remains")
+    expect("https://github.com/a/one/pull/7#issuecomment-" in out, out)
+    recorded = comment(work, "101")
+    expect(recorded["attachments"] == [str(target / "shot.png")], str(recorded))
+
+
+@case
 def case_cleanup(work):
     repo, origin = make_repo(work)
     wt = make_worktree(repo, work)

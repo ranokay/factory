@@ -334,6 +334,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "stage_attach" }
         expect { code = 0 }
       }
+      ["attach without a PR resolves it and posts from the PR directory"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_resolves_pr" }
+        expect { code = 0 }
+      }
       ["a video over the limit is compressed and the comment is replaced"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "video" }

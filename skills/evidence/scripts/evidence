@@ -184,19 +184,27 @@ def evidence_target(args):
     return repo, target_dir(args, repo)
 
 
-def target_dir(args, repo):
-    base = repository_dir(repo)
-    root = repository_root()
-    require_outside(cache_root(), root, "the evidence cache")
-    if args.pr is not None:
-        target = base / str(pr_number(args))
-    else:
-        if root is None:
-            fail("run this inside a git checkout or pass --pr")
-        target = base / "branch" / branch_slug(current_branch(root))
-    target = target.resolve()
-    require_outside(target, root, "the evidence directory")
+def cache_dir(repo, pr):
+    target = (repository_dir(repo) / str(pr)).resolve()
+    require_outside(cache_root(), repository_root(), "the evidence cache")
+    require_outside(target, repository_root(), "the evidence directory")
     return target
+
+
+def staging_dir(repo, branch):
+    stage = (repository_dir(repo) / "branch" / branch_slug(branch)).resolve()
+    require_outside(cache_root(), repository_root(), "the evidence cache")
+    require_outside(stage, repository_root(), "the staged evidence directory")
+    return stage
+
+
+def target_dir(args, repo):
+    if args.pr is not None:
+        return cache_dir(repo, pr_number(args))
+    root = repository_root()
+    if root is None:
+        fail("run this inside a git checkout or pass --pr")
+    return staging_dir(repo, current_branch(root))
 
 
 def require_size(path):
@@ -473,12 +481,12 @@ def marked_comments(repo, pr):
 
 
 def cmd_attach(args):
-    repo, target = evidence_target(args)
+    repo = repo_slug(args)
     pr = pr_number(args)
+    target = cache_dir(repo, pr)
     branch = pr_branch(repo, pr)
     if branch:
-        stage = (repository_dir(repo) / "branch" / branch_slug(branch)).resolve()
-        require_outside(stage, repository_root(), "the staged evidence directory")
+        stage = staging_dir(repo, branch)
         if stage.is_dir() and stage != target:
             move_staged(stage, target, copy=args.dry_run)
     receipt_path = target / "receipt.json"

@@ -7,7 +7,7 @@ description: "Record Verification Evidence outside the repository and post the s
 
 Use this skill for the proof a reviewer cannot get from tests: a screenshot, a screen recording, or a rendered statechart. The CLI stores evidence in the Factory cache, never in the repository, and turns it into one PR comment that ends with a Run receipt.
 
-The command is `scripts/evidence` beside this file. In the Factory Repo it is also `mise run evidence -- <command> ...`. It uses `git`, the GitHub CLI `gh`, and `ffmpeg` with its `ffprobe`; `ffmpeg` and Python 3.13 are declared in `mise.toml`. In the Factory, run it on the Worker model: `opencode-go/deepseek-v4.1-flash` at variant `max`, or `opencode-go/glm-5.3` at variant `max` when the Worker fell back.
+The command is `scripts/evidence` beside this file; from any other repository it is `~/Developer/factory/skills/evidence/scripts/evidence`. In the Factory Repo it is also `mise run evidence -- <command> ...`. It uses `git`, the GitHub CLI `gh`, and `ffmpeg` with its `ffprobe`; `ffmpeg` and Python 3.13 are declared in `mise.toml`. In the Factory, run it on the Worker model: `opencode-go/deepseek-v4.1-flash` at variant `max`, or `opencode-go/glm-5.3` at variant `max` when the Worker fell back.
 
 ## Where evidence lives
 

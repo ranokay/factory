@@ -194,9 +194,9 @@ simulator blocks the hand-off until it is stopped.
 
 After verifying the merge:
 
-- In the Factory, clean up with the Factory's `skills/evidence/scripts/evidence
-  cleanup --worktree <path> --pr <n> [--repo owner/name]` command, run from the
-  main checkout (also `mise run evidence -- cleanup ...` in the Factory Repo).
+- In the Factory, clean up with `~/Developer/factory/skills/evidence/scripts/evidence
+  cleanup --worktree <path> --pr <n> [--repo owner/name]`, run from the main
+  checkout (also `mise run evidence -- cleanup ...` in the Factory Repo).
   It deletes the remote and local topic branches, the worktree with its build
   outputs, and the PR's evidence directories. It refuses when the PR is not
   merged, when a surviving ref or worktree tip is not the merged head, or when

@@ -163,6 +163,7 @@ Issue: <owner>/<repo>#<n>, or none.
 9. After the merge, and while the worktree still exists, stop every process this thread started (dev servers, simulators, watchers) and run <supervise path>/scripts/process-receipt check <worktree>; the notice carries its output.
 10. Run `~/Developer/factory/skills/evidence/scripts/evidence cleanup --worktree <this worktree> --pr <number>` from the main checkout, because T3's sweep keeps any worktree a PR fork shares. Set `<main>` to the parent of `git -C <this worktree> rev-parse --path-format=absolute --git-common-dir` and `cd <main>` first: cleanup refuses to run from inside the worktree. It deletes the remote and local branch, the worktree with its build outputs and the evidence directory, and it refuses unless every surviving ref and worktree tip is the merged head. A missing worktree, branch or evidence directory is already gone, not an error.
 11. Send notices to thread <notice thread ID> with `t3_thread_send` (`mode: "queue"`). After step 10: `supervise · notice · <task> · merged <PR URL> <merge SHA>` and a `processes:` line. When you stop before the merge for a human decision or a Blocker: `supervise · notice · <task> · stopped <this fork's thread ID> · <one-line reason>`, a `blocker:` line with the Blocker comment URL or none, an `unblock:` line with the exact step ranokay must take, and a `processes:` line. A later message that names a new notice thread replaces this one.
+```
 
 Include step 11 only with `--notify`, with the IDs filled in.
 
