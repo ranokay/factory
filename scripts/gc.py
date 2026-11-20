@@ -59,17 +59,18 @@ def worktree_reason(path):
     return None
 
 
-def keep(path, reason_for):
+def pruneable(path, reason_for):
     try:
         reason = reason_for(path)
     except (OSError, subprocess.SubprocessError, StopIteration, ValueError, IndexError) as error:
         message = f'cannot inspect {path}: {error}'
         FAILURES.append(message)
         print(f'kept {path}: {message}', flush=True)
-        return True
+        return False
     if reason:
         print(f'kept {path}: {reason}', flush=True)
-    return bool(reason)
+        return False
+    return True
 
 
 def worktrees():
@@ -77,7 +78,7 @@ def worktrees():
     for path in sorted(root.glob('*/*')):
         if not path.is_dir() or path.is_symlink():
             continue
-        if not keep(path, worktree_reason):
+        if pruneable(path, worktree_reason):
             yield path
 
 
@@ -96,7 +97,7 @@ def evidence():
     for path in sorted((HOME / '.cache/factory').glob('*/*/*')):
         if not path.is_dir() or path.is_symlink() or not path.name.isdecimal():
             continue
-        if not keep(path, evidence_reason):
+        if pruneable(path, evidence_reason):
             yield path
 
 
@@ -181,8 +182,6 @@ def prune_tools(dry_run):
     candidates = list(tool_candidates())
     active = active_tools()
     protected = protected_programs()
-    recheck_active = active_tools()
-    recheck_protected = protected_programs()
     for tool, version, install, paths in candidates:
         reason = tool_keep_reason(tool, version, install, active, protected)
         if reason:
@@ -192,7 +191,7 @@ def prune_tools(dry_run):
             print(f'kept {tool}@{version}: contains git data')
             continue
         if not dry_run:
-            reason = tool_keep_reason(tool, version, install, recheck_active, recheck_protected)
+            reason = tool_keep_reason(tool, version, install, active_tools(), protected_programs())
             if reason:
                 print(f'kept {install}: {reason} before pruning')
                 continue
@@ -228,7 +227,7 @@ def main():
     args = parser.parse_args()
     total = 0
     for path in worktrees():
-        if not args.dry_run and keep(path, worktree_reason):
+        if not args.dry_run and not pruneable(path, worktree_reason):
             continue
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)
@@ -236,7 +235,7 @@ def main():
         if not args.dry_run:
             run('git', 'worktree', 'remove', str(path), cwd=path)
     for path in evidence():
-        if not args.dry_run and keep(path, evidence_reason):
+        if not args.dry_run and not pruneable(path, evidence_reason):
             continue
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)

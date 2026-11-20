@@ -38,6 +38,9 @@ run_gc() {
 }
 run_gc --dry-run >"$tmp/dry"
 if grep -E '^delete .*(unpushed|dirty|locked)' "$tmp/dry"; then exit 1; fi
+grep 'kept .*unpushed: unpushed commits' "$tmp/dry"
+grep 'kept .*dirty: dirty' "$tmp/dry"
+grep 'kept .*locked: locked' "$tmp/dry"
 grep '^delete .*stale' "$tmp/dry"
 grep '^delete .*old-tool' "$tmp/dry"
 grep -E '^would reclaim [1-9][0-9]* bytes' "$tmp/dry"
@@ -103,7 +106,16 @@ case "\$1 \$2" in
 	printf '%s\n' "$tmp/cache"
 	;;
 "cache prune")
-	printf 'INFO  cache pruned 0 files, 0 B\n'
+	if [ "\${CACHE_FLIP:-}" = 1 ]; then
+		if [ -f "$tmp/cache-flip" ]; then
+			printf 'INFO  pruning %s\n' "$tmp/cache/flip-two"
+		else
+			printf '1\n' >"$tmp/cache-flip"
+			printf 'INFO  pruning %s\n' "$tmp/cache/flip-one"
+		fi
+	else
+		printf 'INFO  cache pruned 0 files, 0 B\n'
+	fi
 	;;
 "prune --tools")
 	case \$3 in
@@ -145,6 +157,15 @@ FAKE_MODE=flip HOME="$tmp/tool-home" run_gc >"$tmp/tools-flip"
 PATH=$base_path
 grep 'kept .*stale/1.0: active tool before pruning' "$tmp/tools-flip"
 if grep -q 'stale@1.0' "$tmp/prune.log"; then exit 1; fi
+mkdir -p "$tmp/cache/flip-one" "$tmp/cache/flip-two"
+printf 'flip\n' >"$tmp/cache/flip-one/file"
+printf 'flip\n' >"$tmp/cache/flip-two/file"
+rm -f "$tmp/cache-flip"
+PATH="$tmp/fake/bin:$base_path"
+if CACHE_FLIP=1 HOME="$tmp/tool-home" run_gc >"$tmp/cache-flip-run" 2>&1; then exit 1; fi
+PATH=$base_path
+grep 'kept mise cache: candidates changed before pruning' "$tmp/cache-flip-run"
+test -f "$tmp/cache/flip-one/file"
 
 evidence_home="$tmp/evidence-home"
 mkdir -p "$evidence_home/.cache/factory/owner/repo/1" "$evidence_home/.cache/factory/owner/repo/2" "$tmp/evidence-bin"
