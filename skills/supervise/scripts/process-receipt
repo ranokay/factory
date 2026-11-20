@@ -1,0 +1,192 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: process-receipt baseline|check <worktree>
+
+baseline records what is already running when a Run starts: every process
+whose working directory or command line is inside <worktree>, and every
+booted iOS simulator. check reports anything matching that is not in the
+baseline, so harness processes and LSP servers recorded before the Run do
+not fail it, while every dev server, watcher or simulator the Run started
+does.
+
+State lives in the worktree's git directory, so removing the worktree removes
+it; outside a git worktree it falls back to the agent state directory
+($XDG_STATE_HOME or ~/.local/state). The script never reports itself or its
+parent chain.
+EOF
+}
+
+fail() {
+  printf 'process-receipt: %s\n' "$1" >&2
+  exit 2
+}
+
+command=${1:-}
+worktree=${2:-}
+case $command in
+baseline | check) ;;
+*)
+  usage >&2
+  exit 2
+  ;;
+esac
+[ -n "$worktree" ] || {
+  usage >&2
+  exit 2
+}
+
+[ "$#" -eq 2 ] || {
+  usage >&2
+  exit 2
+}
+
+root=$(cd "$worktree" 2>/dev/null && pwd -P) || fail "no such worktree: $worktree"
+given=$(cd "$worktree" 2>/dev/null && pwd) || fail "no such worktree: $worktree"
+cd /
+
+command -v lsof >/dev/null 2>&1 || fail "lsof is required"
+
+if git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+  state_file=$(git -C "$root" rev-parse --path-format=absolute --git-path process-receipt)
+else
+  state_root=${XDG_STATE_HOME:-"$HOME/.local/state"}/agent-tools/process-receipt
+  state_file=$state_root/$(printf '%s' "$root" | cksum | awk '{print $1}')
+fi
+
+excluded=' '
+pid=$$
+while :; do
+  excluded="$excluded$pid "
+  ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -n "$ppid" ] || break
+  [ "$ppid" -gt 1 ] || break
+  pid=$ppid
+done
+
+cwd_pids() {
+  listing=$(lsof -u "$(id -u)" -a -d cwd -Fpn) || return 1
+  printf '%s\n' "$listing" | ROOT=$root awk '
+    BEGIN { root = ENVIRON["ROOT"] }
+    /^p/ { pid = substr($0, 2); next }
+    /^n/ {
+      path = substr($0, 2)
+      if (path == root || index(path, root "/") == 1) print pid
+    }
+  '
+}
+
+argv_pids() {
+  listing=$(ps -Ao pid=,command=) || return 1
+  printf '%s\n' "$listing" | ROOT=$root GIVEN=$given awk '
+    BEGIN {
+      root = ENVIRON["ROOT"]
+      given = ENVIRON["GIVEN"]
+    }
+    function mentions_path(s, needle,   p, c) {
+      while ((p = index(s, needle)) > 0) {
+        c = substr(s, p + length(needle), 1)
+        if (c == "" || c !~ /[A-Za-z0-9._-]/) return 1
+        s = substr(s, p + length(needle))
+      }
+      return 0
+    }
+    function mentions(s) {
+      if (mentions_path(s, root)) return 1
+      if (given != root && mentions_path(s, given)) return 1
+      return 0
+    }
+    $1 ~ /^[0-9]+$/ && mentions($0) { print $1 }
+  '
+}
+
+current_pids() {
+  cwd=$(cwd_pids) || return 1
+  argv=$(argv_pids) || return 1
+  printf '%s\n%s\n' "$cwd" "$argv" | sort -u | while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    case " $excluded " in
+    *" $pid "*) continue ;;
+    esac
+    command_line=$(ps -o command= -p "$pid" 2>/dev/null | sed 's/^[[:space:]]*//')
+    [ -n "$command_line" ] || continue
+    case $command_line in
+    *"$0"*) continue ;;
+    esac
+    printf '%s\n' "$pid"
+  done
+}
+
+booted_sims() {
+  command -v xcrun >/dev/null 2>&1 || return 0
+  listing=$(xcrun simctl list devices booted) || return 1
+  printf '%s\n' "$listing" | awk '
+    /\(Booted\)/ {
+      line = $0
+      if (match(line, /\([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\)/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+      }
+    }
+  '
+}
+
+baseline() {
+  pids=$(current_pids) || fail "cannot list processes under $root"
+  sims=$(booted_sims) || fail "cannot list booted simulators"
+  mkdir -p "$(dirname "$state_file")"
+  {
+    printf '%s\n' "$pids" | sed '/^$/d; s/^/p /'
+    printf '%s\n' "$sims" | sed '/^$/d; s/^/s /'
+  } | sort -u >"$state_file"
+  printf 'recorded %s processes and %s simulators\n' \
+    "$(printf '%s\n' "$pids" | sed '/^$/d' | wc -l | tr -d ' ')" \
+    "$(printf '%s\n' "$sims" | sed '/^$/d' | wc -l | tr -d ' ')"
+}
+
+check() {
+  [ -f "$state_file" ] || fail "no baseline for $root; run process-receipt baseline $root before starting processes"
+  current=$(current_pids) || fail "cannot list processes under $root"
+  status=0
+  new=$(printf '%s\n' "$current" | while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    if ! grep -qx "p $pid" "$state_file"; then
+      printf '%s\n' "$pid"
+    fi
+  done)
+  if [ -n "$new" ]; then
+    status=1
+    printf 'processes: %s running\n' "$(printf '%s\n' "$new" | wc -l | tr -d ' ')"
+    for pid in $new; do
+      printf 'pid %s: %s\n' "$pid" "$(ps -o command= -p "$pid" 2>/dev/null | sed 's/^[[:space:]]*//')"
+    done
+  else
+    printf 'processes: none\n'
+  fi
+  if command -v xcrun >/dev/null 2>&1; then
+    if ! sims=$(booted_sims); then
+      printf 'simulators: unknown (xcrun failed)\n'
+      status=1
+    elif [ -z "$sims" ]; then
+      printf 'simulators: none\n'
+    else
+      for sim in $sims; do
+        if grep -qx "s $sim" "$state_file"; then
+          printf 'simulator %s: pre-existing\n' "$sim"
+        else
+          printf 'simulator %s: new\n' "$sim"
+          status=1
+        fi
+      done
+    fi
+  else
+    printf 'simulators: not checked (no xcrun)\n'
+  fi
+  exit "$status"
+}
+
+case $command in
+baseline) baseline ;;
+check) check ;;
+esac

@@ -1,0 +1,100 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: file-promotion <owner>/<repo> --title <title> --correction <text>
+                      (--gate-check <text> | --no-check <reason>)
+                      [--label <label>]...
+
+Files a promotion issue: the correction, and either the Gate check that will
+catch the mistake (an hk step, lint rule or workflow assertion) or the reason
+no check is possible. The body uses the same headings as
+.github/ISSUE_TEMPLATE/promotion.yml. The issue always gets the promotion
+label; --label adds more.
+EOF
+}
+
+fail() {
+  printf 'file-promotion: %s\n' "$1" >&2
+  exit 2
+}
+
+script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+# shellcheck source=skills/supervise/scripts/valid-repo.sh
+# shellcheck disable=SC1091
+. "$script_dir/valid-repo.sh"
+
+[ "$#" -ge 1 ] || {
+  usage >&2
+  exit 2
+}
+repo=$1
+shift
+valid_repo "$repo" || fail "invalid repository $repo"
+
+title=
+correction=
+gate=
+no_check=
+labels=
+while [ "$#" -gt 0 ]; do
+  case $1 in
+  --title)
+    [ "$#" -ge 2 ] || fail "missing value for --title"
+    title=$2
+    shift 2
+    ;;
+  --correction)
+    [ "$#" -ge 2 ] || fail "missing value for --correction"
+    correction=$2
+    shift 2
+    ;;
+  --gate-check)
+    [ "$#" -ge 2 ] || fail "missing value for --gate-check"
+    gate=$2
+    shift 2
+    ;;
+  --no-check)
+    [ "$#" -ge 2 ] || fail "missing value for --no-check"
+    no_check=$2
+    shift 2
+    ;;
+  --label)
+    [ "$#" -ge 2 ] || fail "missing value for --label"
+    labels="$labels$2
+"
+    shift 2
+    ;;
+  *)
+    fail "unknown argument $1"
+    ;;
+  esac
+done
+[ -n "$title" ] || fail "missing --title"
+[ -n "$correction" ] || fail "missing --correction"
+if [ -n "$gate" ] && [ -n "$no_check" ]; then
+  fail "use either --gate-check or --no-check"
+fi
+if [ -z "$gate" ] && [ -z "$no_check" ]; then
+  fail "missing --gate-check or --no-check"
+fi
+check=${gate:-"No check possible: $no_check"}
+
+body=$(mktemp)
+trap 'rm -f "$body"' EXIT
+{
+  printf '### Correction\n\n%s\n\n' "$correction"
+  printf '### Gate check\n\n%s\n' "$check"
+} >"$body"
+
+set -- issue create -R "$repo" --title "$title" --body-file "$body" --label promotion
+while IFS= read -r label; do
+  [ -n "$label" ] || continue
+  set -- "$@" --label "$label"
+done <<EOF
+$labels
+EOF
+
+url=$(gh "$@")
+printf '%s\n' "$url"

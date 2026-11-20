@@ -1,0 +1,35 @@
+name: Blocker notify
+on:
+  workflow_call:
+    inputs:
+      issue:
+        description: Issue number carrying the Blocker
+        required: true
+        type: number
+permissions: {}
+jobs:
+  notify:
+    name: Notify
+    permissions:
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comment the Blocker link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          set -eu
+          set -o pipefail
+          issue_url="$SERVER/$REPOSITORY/issues/$ISSUE"
+          blocker=$(gh api "repos/$REPOSITORY/issues/$ISSUE/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- factory:blocker -->")) | .html_url' \
+            | tail -n 1)
+          {
+            printf '@ranokay Blocker on #%s: %s\n' "$ISSUE" "$issue_url"
+            printf 'Latest Blocker comment: %s\n' "${blocker:-none}"
+          } >blocker-notify.md
+          gh issue comment "$ISSUE" --repo "$REPOSITORY" --body-file blocker-notify.md

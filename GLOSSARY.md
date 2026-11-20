@@ -10,6 +10,10 @@ The machinery that takes ranokay's work from idea to merged, verified change acr
 The public repository that holds the global instructions, skills, shared configs and reusable CI workflows. It holds machinery only, never project knowledge or secrets.
 _Avoid_: wiki, dotfiles, agent-workflows
 
+**Project Template**:
+The starting files under `project/` that seed a repository.
+_Avoid_: repo template, boilerplate
+
 **System of Record**:
 GitHub issues, labels, pull requests and their comments: the only durable home of work state.
 _Avoid_: plan file, todo list, progress file
@@ -60,12 +64,16 @@ _Avoid_: judge, critic
 One issue taken from ready to merged by an Orchestrator and its Worker.
 _Avoid_: thread, session, job
 
+**Run budget**:
+The four Worker attempts a Run gets; the first three failures may be followed by another attempt, and a fourth failure makes it a Blocker.
+_Avoid_: retry limit, attempt counter
+
 **Sync PR**:
 A pull request that merges upstream's default branch into a Personal Fork's `main`, carrying a verdict for every upstream change.
 _Avoid_: mirror sync, upstream merge, develop branch
 
 **Blocker**:
-A condition a Run cannot resolve with its own access, such as missing credentials, an OS permission prompt, an exhausted quota or a decision only ranokay can make.
+A condition a Run cannot resolve with its own access, such as missing credentials or permissions, an OS permission prompt, an exhausted Orchestrator quota or attempt budget, a required reviewer that cannot run, or a decision only ranokay can make.
 _Avoid_: issue, problem, error
 
 **Gate**:
