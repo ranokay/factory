@@ -730,6 +730,14 @@ case_ssh_agent() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind a blank-terminated block: $output"
 	[ "$(count_lines '^Match all$' "$home/.ssh/config")" -eq 1 ] || fail "the repair left a duplicated Match all"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n\n# note one\n# note two\n\n    IdentitiesOnly yes\n    IdentityAgent "/stale/agent.sock"\n' >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a commented block: $output"
+	[ "$(count_lines 'IdentityAgent .*1password' "$home/.ssh/config")" -eq 1 ] || fail "the commented block left a stale agent line"
+	grep -q 'note one\|note two\|/stale/agent.sock' "$home/.ssh/config" && fail "the commented block kept its stale lines"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse after a commented block: $output"
+	expect_contains "$output" "identitiesonly no"
 	printf '\n# Factory: github.com through the 1Password SSH agent\n\n  Host indented-example\n    User someone\n' >>"$home/.ssh/config"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind an indented host block: $output"
