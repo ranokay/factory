@@ -162,7 +162,10 @@ def cache_candidates():
     paths = []
     for line in output.splitlines():
         if 'pruning ' in line:
-            path = Path(line.split('pruning ', 1)[1]).expanduser().resolve()
+            candidate = line.split('pruning ', 1)[1].strip()
+            if not (candidate.startswith('/') or candidate.startswith('~')):
+                continue
+            path = Path(candidate).expanduser().resolve()
             if root not in path.parents or path == root:
                 raise RuntimeError(f'unsafe cache path {path}')
             paths.append(path)

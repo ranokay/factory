@@ -107,6 +107,7 @@ case "\$1 \$2" in
 	printf '%s\n' "$tmp/cache"
 	;;
 "cache prune")
+	printf 'INFO  pruning old cache files, this behavior can be modified with the MISE_CACHE_PRUNE_AGE setting\n'
 	if [ "\${CACHE_FLIP:-}" = 1 ]; then
 		if [ -f "$tmp/cache-flip" ]; then
 			printf 'INFO  pruning %s\n' "$tmp/cache/flip-two"
@@ -187,6 +188,7 @@ case "\$1 \$2" in
 	printf '%s\n' "$tmp/cache"
 	;;
 "cache prune")
+	printf 'INFO  pruning old cache files, this behavior can be modified with the MISE_CACHE_PRUNE_AGE setting\n'
 	printf 'INFO  cache pruned 0 files, 0 B\n'
 	;;
 *)
