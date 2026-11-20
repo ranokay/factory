@@ -651,6 +651,12 @@ case_gc_agent() {
 	[ "$(plist_value "$plist" Label)" = dev.factory.gc ] || fail "wrong label"
 	[ "$(plist_value "$plist" StartCalendarInterval.Weekday)" = 0 ] || fail "wrong day"
 	[ "$(plist_value "$plist" StartCalendarInterval.Hour)" = 3 ] || fail "wrong hour"
+	[ "$(plist_value "$plist" StartCalendarInterval.Minute)" = 0 ] || fail "wrong minute"
+	[ "$(plist_value "$plist" ProgramArguments.2)" = "$home/.agents" ] || fail "wrong working directory"
+	[ "$(plist_value "$plist" ProgramArguments.3)" = run ] || fail "does not run a task"
+	[ "$(plist_value "$plist" ProgramArguments.4)" = gc ] || fail "does not run gc"
+	[ "$(plist_value "$plist" StandardOutPath)" = "$home/Library/Logs/factory-gc.log" ] || fail "wrong log path"
+	[ "$(plist_value "$plist" StandardErrorPath)" = "$home/Library/Logs/factory-gc-error.log" ] || fail "wrong error log path"
 	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v mise)")"
 	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v gh)")"
 	run_discovery

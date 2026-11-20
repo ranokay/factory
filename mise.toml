@@ -46,7 +46,7 @@ run = "./skills/evidence/scripts/evidence"
 
 [tasks.gc]
 description = "Prune stale Factory data and tool caches"
-run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/gc.py"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/gc.py --notify"
 
 [tasks."gc:test"]
 description = "Run GC fixture tests"

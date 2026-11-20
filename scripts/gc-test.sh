@@ -1,10 +1,18 @@
 #!/bin/sh
 set -eu
 root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
+python_bin=$(mise which python)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 export HOME="$tmp/home"
-mkdir -p "$HOME/.t3/worktrees/example" "$tmp/remote.git"
+export XDG_CONFIG_HOME="$HOME/.config"
+export MISE_CONFIG_DIR="$tmp/config"
+export MISE_DATA_DIR="$tmp/data"
+export MISE_STATE_DIR="$tmp/state"
+export MISE_CACHE_DIR="$tmp/cache"
+mkdir -p "$HOME/.t3/worktrees/example" "$MISE_CACHE_DIR/old-tool" "$MISE_CONFIG_DIR" "$tmp/remote.git"
+printf 'cached\n' >"$MISE_CACHE_DIR/old-tool/file"
+touch -t 202001010000 "$MISE_CACHE_DIR/old-tool/file"
 git init -q --bare --initial-branch=main "$tmp/remote.git"
 git clone -q "$tmp/remote.git" "$tmp/repo"
 git -C "$tmp/repo" config user.name Test
@@ -24,19 +32,26 @@ printf 'uncommitted\n' >"$HOME/.t3/worktrees/example/dirty/untracked"
 git -C "$tmp/repo" worktree add -qb locked "$HOME/.t3/worktrees/example/locked"
 git -C "$tmp/repo" worktree lock "$HOME/.t3/worktrees/example/locked"
 git -C "$tmp/repo" commit --allow-empty -qm newer
-GC_TEST_WORKTREES_ONLY=1 python3 "$root/scripts/gc.py" --dry-run >"$tmp/dry"
+run_gc() {
+	(cd "$tmp" && uv run --offline --no-project --no-config --python "$python_bin" python "$root/scripts/gc.py" "$@")
+}
+run_gc --dry-run >"$tmp/dry"
 if grep -E '^delete .*(unpushed|dirty|locked)' "$tmp/dry"; then exit 1; fi
 grep '^delete .*stale' "$tmp/dry"
-GC_TEST_WORKTREES_ONLY=1 python3 "$root/scripts/gc.py" >"$tmp/run"
+grep '^delete .*old-tool' "$tmp/dry"
+grep '^would reclaim' "$tmp/dry"
+run_gc >"$tmp/run"
+grep '^reclaimed' "$tmp/run"
 test -d "$HOME/.t3/worktrees/example/unpushed"
 git -C "$HOME/.t3/worktrees/example/unpushed" log -1 --format=%s | grep '^unpushed$'
 test ! -e "$HOME/.t3/worktrees/example/stale"
+test ! -e "$MISE_CACHE_DIR/old-tool"
 
 test -f "$HOME/.t3/worktrees/example/dirty/untracked"
 test -d "$HOME/.t3/worktrees/example/locked"
 
 mkdir "$HOME/.t3/worktrees/example/broken"
-if GC_TEST_WORKTREES_ONLY=1 python3 "$root/scripts/gc.py" --dry-run >"$tmp/broken"; then
+if run_gc --dry-run >"$tmp/broken"; then
 	exit 1
 fi
 grep 'kept .*broken.*cannot inspect' "$tmp/broken"
@@ -55,7 +70,10 @@ fi
 exec "$REAL_GIT" "$@"
 STUB
 chmod +x "$tmp/bin/git"
-if PATH="$tmp/bin:$PATH" GC_TEST_WORKTREES_ONLY=1 python3 "$root/scripts/gc.py" --dry-run >"$tmp/badtime"; then
+if (
+	PATH="$tmp/bin:$PATH"
+	run_gc --dry-run >"$tmp/badtime"
+); then
 	exit 1
 fi
 grep 'kept .*badtime.*cannot inspect' "$tmp/badtime"

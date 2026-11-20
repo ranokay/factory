@@ -33,6 +33,15 @@ def size(path):
     return total
 
 
+def human_size(amount):
+    value = float(amount)
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if value < 1024 or unit == 'GB':
+            return f'{value:.0f} {unit}' if unit == 'B' else f'{value:.1f} {unit}'
+        value /= 1024
+    return f'{value:.1f} TB'
+
+
 def worktrees():
     root = HOME / '.t3/worktrees'
     for path in sorted(root.glob('*/*')):
@@ -104,15 +113,32 @@ def protected_programs():
     return programs
 
 
+def active_tools():
+    installed = json.loads(tool_output('ls', '--json'))
+    return {
+        (tool, entry['version'])
+        for tool, entries in installed.items()
+        for entry in entries
+        if entry.get('installed') and entry.get('active')
+    }
+
+
 def tool_candidates():
     versions = json.loads(tool_output('ls', '--prunable', '--json'))
+    active = active_tools()
     protected = protected_programs()
     for tool, entries in versions.items():
         for entry in entries:
             version = entry['version']
             path = Path(entry['install_path'])
+            if (tool, version) in active:
+                print(f'kept {path}: active tool')
+                continue
             if any(program.startswith(str(path) + '/') or program == str(path) for program in protected):
                 print(f'kept {path}: used by launch agent')
+                continue
+            if time.time() - path.stat().st_mtime < AGE:
+                print(f'kept {path}: recent install')
                 continue
             output = tool_output('prune', '--tools', '--dry-run', f'{tool}@{version}')
             matches = re.findall(r'\[dryrun\]\s+remove (.+)', output)
@@ -130,7 +156,7 @@ def cache_candidates():
     paths = []
     for line in output.splitlines():
         if 'pruning ' in line:
-            path = Path(line.split('pruning ', 1)[1]).resolve()
+            path = Path(line.split('pruning ', 1)[1]).expanduser().resolve()
             if root not in path.parents or path == root:
                 raise RuntimeError(f'unsafe cache path {path}')
             paths.append(path)
@@ -156,11 +182,8 @@ def prune_tools(dry_run):
             print(f'delete {path} {amount} bytes', flush=True)
             total += amount
         if not dry_run:
-            current = list(tool_candidates())
-            if (tool, version, paths) not in current:
-                raise RuntimeError(f'{tool}@{version} changed before pruning')
             tool_output('prune', '--tools', '--yes', f'{tool}@{version}')
-    return 0 if dry_run else total
+    return total
 
 
 def prune_cache(dry_run):
@@ -174,37 +197,33 @@ def prune_cache(dry_run):
         if paths != cache_candidates():
             raise RuntimeError('mise cache candidates changed before pruning')
         tool_output('cache', 'prune', '--verbose')
-    return 0 if dry_run else total
+    return total
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--notify', action='store_true')
     args = parser.parse_args()
     total = 0
-    candidates = [(p, 'worktree') for p in worktrees()]
-    if not os.environ.get('GC_TEST_WORKTREES_ONLY'):
-        candidates.extend((p, 'evidence') for p in evidence())
-    for path, kind in candidates:
+    for path in worktrees():
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)
+        total += amount
         if not args.dry_run:
-            if kind == 'worktree':
-                if path not in set(worktrees()):
-                    print(f'kept {path}: safety state changed', flush=True)
-                    continue
-                run('git', 'worktree', 'remove', str(path), cwd=path)
-            else:
-                if path not in set(evidence()):
-                    print(f'kept {path}: safety state changed', flush=True)
-                    continue
-                shutil.rmtree(path)
-            total += amount
-    if not os.environ.get('GC_TEST_WORKTREES_ONLY'):
-        total += prune_tools(args.dry_run)
-        total += prune_cache(args.dry_run)
-    print(f'reclaimed {total} bytes', flush=True)
-    if not args.dry_run and sys.platform == 'darwin':
-        message = f'Factory GC reclaimed {total} bytes'
+            run('git', 'worktree', 'remove', str(path), cwd=path)
+    for path in evidence():
+        amount = size(path)
+        print(f'delete {path} {amount} bytes', flush=True)
+        total += amount
+        if not args.dry_run:
+            shutil.rmtree(path)
+    total += prune_tools(args.dry_run)
+    total += prune_cache(args.dry_run)
+    summary = f'{total} bytes' if total < 1024 else human_size(total)
+    print(f'{"would reclaim" if args.dry_run else "reclaimed"} {summary}', flush=True)
+    if args.notify and not args.dry_run and sys.platform == 'darwin':
+        message = f'Factory GC reclaimed {summary}'
         run('/usr/bin/osascript', '-e', f'display notification "{message}" with title "Factory GC"')
         print(f'notification posted: {message}', flush=True)
     return 1 if FAILURES else 0

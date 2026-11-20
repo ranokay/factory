@@ -34,6 +34,9 @@ SYNCED_SKILLS = "synced"
 SECRET_LABEL = "dev.factory.secrets"
 SECRET_RETRY_SECONDS = 60
 SECRET_LOG = Path("Library") / "Logs" / "factory-secrets.log"
+GC_LABEL = "dev.factory.gc"
+GC_LOG = Path("Library") / "Logs" / "factory-gc.log"
+GC_ERROR_LOG = Path("Library") / "Logs" / "factory-gc-error.log"
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
 SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
 GITHUB_HOST_RE = re.compile(r"(?i)^\s*Host\s+github\.com(?![A-Za-z0-9.-])")
@@ -234,16 +237,39 @@ def secret_agent_plist(home: Path, interpreter: str | None = None) -> bytes:
     return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False)
 
 
-def install_secret_agent(home: Path) -> bool:
-    path = secret_agent_path(home)
-    text = secret_agent_plist(home)
-    if not path.is_file() or path.read_bytes() != text:
+def write_agent(path: Path, data: bytes, home: Path) -> None:
+    if not path.is_file() or path.read_bytes() != data:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(text)
+        path.write_bytes(data)
         os.chmod(path, 0o600)
         print(f"bootstrap: wrote {display(path, home)}")
     else:
         print(f"bootstrap: {display(path, home)} is current")
+
+
+def load_agent(launchctl: str, label: str, path: Path) -> bool:
+    uid = os.getuid()
+    subprocess.run(
+        [launchctl, "bootout", f"gui/{uid}/{label}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    result = subprocess.run(
+        [launchctl, "bootstrap", f"gui/{uid}", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        print(f"bootstrap: launchctl bootstrap failed for {label}: {result.stderr.strip()}", file=sys.stderr)
+        return False
+    return True
+
+
+def install_secret_agent(home: Path) -> bool:
+    path = secret_agent_path(home)
+    write_agent(path, secret_agent_plist(home), home)
     launchctl = launchctl_binary()
     if launchctl is None:
         print("bootstrap: launchctl is not available; the secrets agent is written but not loaded")
@@ -267,23 +293,7 @@ def install_secret_agent(home: Path) -> bool:
         if verified.returncode != 0:
             print(f"bootstrap: {(verified.stderr or verified.stdout).strip()}", file=sys.stderr)
             loaded = False
-    uid = os.getuid()
-    subprocess.run(
-        [launchctl, "bootout", f"gui/{uid}/{SECRET_LABEL}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    bootstrap = subprocess.run(
-        [launchctl, "bootstrap", f"gui/{uid}", str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if bootstrap.returncode != 0:
-        print(f"bootstrap: launchctl bootstrap failed: {bootstrap.stderr.strip()}", file=sys.stderr)
-        return False
-    return loaded
+    return load_agent(launchctl, SECRET_LABEL, path) and loaded
 
 
 def secret_agent_errors(home: Path) -> list[str]:
@@ -318,9 +328,8 @@ def secret_agent_errors(home: Path) -> list[str]:
     return []
 
 
-
-def gc_agent_plist(home: Path, executable: str | None = None, label: str = "dev.factory.gc") -> bytes:
-    mise = executable or shutil.which("mise")
+def gc_agent_plist(home: Path) -> bytes:
+    mise = shutil.which("mise")
     if not mise or not Path(mise).is_file():
         raise SystemExit("bootstrap: cannot resolve mise for the gc agent")
     gh = shutil.which("gh")
@@ -328,40 +337,32 @@ def gc_agent_plist(home: Path, executable: str | None = None, label: str = "dev.
         raise SystemExit("bootstrap: cannot resolve gh for the gc agent")
     path = os.pathsep.join(dict.fromkeys([str(Path(mise).parent), str(Path(gh).parent), "/usr/bin", "/bin", "/usr/sbin", "/sbin"]))
     data = {
-        "Label": label,
+        "Label": GC_LABEL,
         "EnvironmentVariables": {"PATH": path},
         "ProgramArguments": [str(Path(mise).resolve()), "--cd", str(home / ".agents"), "run", "gc"],
         "StartCalendarInterval": {"Weekday": 0, "Hour": 3, "Minute": 0},
-        "StandardOutPath": str(home / "Library" / "Logs" / "factory-gc.log"),
-        "StandardErrorPath": str(home / "Library" / "Logs" / "factory-gc-error.log"),
+        "StandardOutPath": str(home / GC_LOG),
+        "StandardErrorPath": str(home / GC_ERROR_LOG),
     }
     return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False)
 
 
 def gc_agent_path(home: Path) -> Path:
-    return home / "Library" / "LaunchAgents" / "dev.factory.gc.plist"
+    return home / "Library" / "LaunchAgents" / f"{GC_LABEL}.plist"
 
 
 def install_gc_agent(home: Path) -> bool:
     path = gc_agent_path(home)
-    data = gc_agent_plist(home)
-    path.parent.mkdir(parents=True, exist_ok=True)
     (home / "Library" / "Logs").mkdir(parents=True, exist_ok=True)
-    if not path.is_file() or path.read_bytes() != data:
-        path.write_bytes(data)
-        os.chmod(path, 0o600)
+    write_agent(path, gc_agent_plist(home), home)
     if home != Path.home().resolve():
+        print("bootstrap: not the real home; the gc agent is not loaded")
         return True
     launchctl = launchctl_binary()
     if not launchctl:
-        print("bootstrap: launchctl unavailable for gc agent", file=sys.stderr)
-        return False
-    subprocess.run([launchctl, "bootout", f"gui/{os.getuid()}/dev.factory.gc"], capture_output=True, check=False)
-    result = subprocess.run([launchctl, "bootstrap", f"gui/{os.getuid()}", str(path)], capture_output=True, text=True, check=False)
-    if result.returncode:
-        print(f"bootstrap: gc agent load failed: {result.stderr.strip()}", file=sys.stderr)
-        return False
-    return True
+        print("bootstrap: launchctl is not available; the gc agent is written but not loaded")
+        return True
+    return load_agent(launchctl, GC_LABEL, path)
 
 
 def gc_agent_errors(home: Path) -> list[str]:

@@ -84,6 +84,10 @@ _Avoid_: hook, validation
 Artifacts proving a change works as intended at runtime, such as screenshots, videos, traces or statecharts, inspected by the Orchestrator and attached to the pull request.
 _Avoid_: proof files, test output, scratch
 
+**GC**:
+The `mise run gc` task that prunes stale worktrees, old Verification Evidence, package caches and unused mise tool versions; it never deletes work that is not on a remote.
+_Avoid_: cleanup, janitor
+
 **Definition of Done**:
 Gates green, Verification Evidence inspected, and every review finding fixed or filed as a linked issue.
 _Avoid_: done, complete, ready
