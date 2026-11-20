@@ -145,20 +145,22 @@ class ClonesTest(unittest.TestCase):
     def test_ambiguous_selection(self):
         self.repo(self.source, 'a')
         self.repo(self.source, 'b')
-        output = self.cli('move').stdout
+        output = self.cli('move', check=False).stdout
         self.assertIn('ambiguous canonical clone', output)
         self.assertFalse((self.developer / 'repo').exists())
 
     def test_collision(self):
         self.repo(self.source, 'one', 'https://github.com/a/repo')
         self.repo(self.source, 'two', 'https://github.com/b/repo')
-        self.assertIn('repository name collision', self.cli('move').stdout)
+        result = self.cli('move', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('repository name collision', result.stdout)
         self.assertFalse((self.developer / 'repo').exists())
 
     def test_occupied_destination(self):
         old = self.repo(self.source, 'repo')
         (self.developer / 'repo').mkdir()
-        self.assertIn('destination already exists', self.cli('move').stdout)
+        self.assertIn('destination already exists', self.cli('move', check=False).stdout)
         self.assertTrue(old.exists())
 
     def test_move_and_pairs(self):

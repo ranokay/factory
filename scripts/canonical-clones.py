@@ -260,6 +260,8 @@ def main():
     result['actions'] = []
     failed = False
     for entry in result['repositories']:
+        if args.action == 'move' and entry['refusal']:
+            failed = True
         if args.action == 'move' and entry['move']:
             old, new = Path(entry['selected']), Path(entry['canonical'])
             try:
