@@ -7,7 +7,7 @@ missing_token() {
 }
 
 if [ -z "${GITHUB_TOKEN:-}" ]; then
-	GITHUB_TOKEN=$(gh auth token 2>/dev/null) || missing_token
+	GITHUB_TOKEN=$(gh auth token) || missing_token
 	[ -n "$GITHUB_TOKEN" ] || missing_token
 	export GITHUB_TOKEN
 fi
