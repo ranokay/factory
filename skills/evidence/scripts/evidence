@@ -590,7 +590,9 @@ def cmd_cleanup(args):
     blockers = []
     for item in open_prs:
         number = item.get("number")
-        if number is None or str(number) == str(pr):
+        if number is None:
+            fail(f"gh returned an open PR without a number for {branch}")
+        if str(number) == str(pr):
             continue
         head_owner = (item.get("headRepositoryOwner") or {}).get("login", "").lower()
         if head_owner and head_owner != owner:

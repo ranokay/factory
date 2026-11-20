@@ -206,9 +206,10 @@ After verifying the merge:
 - Perform branch deletion through these cleanup checks. A merge command's
   cleanup option must not bypass them.
 - Delete only the merged PR's remote topic branch, using an expected-SHA deletion
-  guard against the verified merged PR head. If a safe deletion guard is
-  unavailable, report the cleanup as skipped. Preserve remote branches reused by
-  another open PR or active task. This task's own active local checkout does not
+  guard against the verified merged PR head; the Factory tool does so with
+  `--force-with-lease`. If a safe deletion guard is unavailable, report the
+  cleanup as skipped. Preserve remote branches reused by another open PR or
+  active task. This task's own active local checkout does not
   by itself prevent deleting the remote ref. Account for automatic remote deletion.
 - Delete the local topic branch only when it is unused and its tip is the
   verified merged PR head or its work is otherwise proven included in the merge.
