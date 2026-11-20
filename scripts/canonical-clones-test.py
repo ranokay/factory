@@ -23,7 +23,7 @@ class ClonesTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.source = self.root / 'source'
         self.developer = self.root / 'developer'
         self.source.mkdir()
@@ -163,12 +163,34 @@ class ClonesTest(unittest.TestCase):
         data = json.loads(self.cli('move', '--json').stdout)
         self.assertEqual(data['repoint'], [{'old': str(old), 'new': str(new)}])
 
+    def test_source_linked_worktree_and_report_move_parity(self):
+        main = self.repo(self.source, 'repo')
+        linked = self.source / 'linked'
+        self.git(main, 'worktree', 'add', '-b', 'linked', str(linked))
+        movable = self.repo(self.source, 'other', 'https://github.com/example/other')
+        report = json.loads(self.cli('report', '--json').stdout)
+        entry = next(e for e in report['repositories'] if e['selected'] == str(main))
+        self.assertEqual(entry['paths'], [str(main)])
+        self.assertEqual(entry['duplicates'], [])
+        self.assertIn(str(linked), entry['linked_worktrees'][str(main)])
+        self.assertFalse(entry['move'])
+        self.assertIn(str(linked), entry['refusal'])
+        self.assertIn(f'linked worktree of {main}: {linked}', self.cli().stdout)
+        self.cli('remove', '--approve-path', str(linked))
+        self.assertTrue(linked.exists())
+        moved = json.loads(self.cli('move', '--json').stdout)
+        moved_paths = {pair['old'] for pair in moved['repoint']}
+        for repo in report['repositories']:
+            self.assertEqual(repo['move'], repo['selected'] in moved_paths)
+        self.assertIn(str(movable), moved_paths)
+        self.assertTrue(main.exists())
+        self.git(linked, 'status', '--porcelain')
+
     def test_linked_worktree_refused(self):
         old = self.repo(self.source, 'repo')
         linked = self.root / 'linked'
         self.git(old, 'worktree', 'add', '-b', 'linked', str(linked))
         result = self.cli('move', check=False)
-        self.assertNotEqual(result.returncode, 0)
         self.assertIn('linked worktrees', result.stdout)
         self.assertTrue(old.exists())
         self.git(linked, 'status', '--porcelain')
