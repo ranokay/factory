@@ -205,6 +205,13 @@ case_preserve() {
 	[ "$(json_value "$home/.config/opencode/opencode.json" theme)" = dark ] || fail "the render dropped an unmanaged OpenCode key"
 	[ "$(json_value "$home/.claude.json" mcpServers.cua.command)" = cua ] || fail "the render dropped an unmanaged Claude server"
 	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.cua.command.0')" = cua ] || fail "the render dropped an unmanaged OpenCode server"
+	run_python -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["numStartups"]=99; open(p,"w").write(json.dumps(d,indent=2)+"\n")' "$home/.claude.json"
+	[ "$code" -eq 0 ] || fail "cannot churn an unrelated key: $output"
+	run_sync --check
+	[ "$code" -eq 0 ] || fail "unrelated churn was reported as drift: $output"
+	run_sync
+	[ "$code" -eq 0 ] || fail "render failed after unrelated churn: $output"
+	[ "$(json_value "$home/.claude.json" numStartups)" = 99 ] || fail "the render overwrote an unrelated key"
 	printf 'ok: keys and servers outside the registry survive\n'
 }
 

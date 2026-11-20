@@ -221,6 +221,19 @@ def desired_json(document: dict, key: str, servers: dict, retired: list[str], ta
     return document
 
 
+def managed_matches(document: dict, key: str, servers: dict, retired: list[str], target: str, home: Path) -> bool:
+    managed = document.get(key) or {}
+    if any(name in managed for name in retired):
+        return False
+    for name, spec in servers.items():
+        if target not in spec["targets"]:
+            continue
+        entry = claude_entry(spec, home) if target == "claude-code" else opencode_entry(spec, home)
+        if managed.get(name) != entry:
+            return False
+    return True
+
+
 def desired_codex(text: str, servers: dict, retired: list[str], home: Path) -> str:
     names = {name for name, spec in servers.items() if "codex" in spec["targets"]} | set(retired)
     body = strip_codex(text, names)
@@ -278,6 +291,8 @@ def render(home: Path, servers: dict, retired: list[str], check: bool) -> int:
         if key in document and not isinstance(document[key], dict):
             raise SyncError(f"{path}: {key} must be an object")
         document.setdefault(key, {})
+        if managed_matches(document, key, servers, retired, target, home):
+            continue
         rendered = desired_json(document, key, servers, retired, target, home)
         write(path, json.dumps(rendered, indent=2, ensure_ascii=False) + "\n", check, changed)
     if check:
