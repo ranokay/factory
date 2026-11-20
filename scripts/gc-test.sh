@@ -40,3 +40,22 @@ if GC_TEST_WORKTREES_ONLY=1 python3 "$root/scripts/gc.py" --dry-run >"$tmp/broke
 	exit 1
 fi
 grep 'kept .*broken.*cannot inspect' "$tmp/broken"
+
+rmdir "$HOME/.t3/worktrees/example/broken"
+git -C "$tmp/repo" worktree add -qb badtime "$HOME/.t3/worktrees/example/badtime" origin/master
+REAL_GIT=$(command -v git)
+export REAL_GIT
+mkdir "$tmp/bin"
+cat >"$tmp/bin/git" <<'STUB'
+#!/bin/sh
+if [ "$1" = show ]; then
+    printf 'invalid timestamp\n'
+    exit 0
+fi
+exec "$REAL_GIT" "$@"
+STUB
+chmod +x "$tmp/bin/git"
+if PATH="$tmp/bin:$PATH" GC_TEST_WORKTREES_ONLY=1 python3 "$root/scripts/gc.py" --dry-run >"$tmp/badtime"; then
+	exit 1
+fi
+grep 'kept .*badtime.*cannot inspect' "$tmp/badtime"

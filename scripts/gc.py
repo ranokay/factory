@@ -15,6 +15,10 @@ AGE = 30 * 86400
 FAILURES = []
 
 
+class Kept(Exception):
+    pass
+
+
 def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, text=True, capture_output=True, check=True).stdout.strip()
 
@@ -39,24 +43,24 @@ def worktrees():
             record = next(r.splitlines() for r in records if Path(r.splitlines()[0][9:]).resolve() == path.resolve())
             branch = next((line[7:] for line in record if line.startswith('branch ')), None)
             if branch is None:
-                raise ValueError('detached HEAD')
+                raise Kept('detached HEAD')
             if any(line.startswith('locked') for line in record):
-                raise ValueError('locked')
+                raise Kept('locked')
             if run('git', 'status', '--porcelain', '--untracked-files=all', '--ignored', cwd=path):
-                raise ValueError('dirty')
+                raise Kept('dirty')
             if run('git', 'rev-list', branch, '--not', '--remotes', cwd=path):
-                raise ValueError('unpushed commits')
+                raise Kept('unpushed commits')
             if time.time() - int(run('git', 'show', '-s', '--format=%ct', branch, cwd=path)) < AGE:
-                raise ValueError('recent commit')
+                raise Kept('recent commit')
             remotes = run('git', 'for-each-ref', '--format=%(refname)', '--contains', branch, 'refs/remotes', cwd=path)
             all_remotes = run('git', 'for-each-ref', '--format=%(refname)', 'refs/remotes', cwd=path)
             short = branch.removeprefix('refs/heads/')
             if not remotes and any(ref.endswith('/' + short) for ref in all_remotes.splitlines()):
-                raise ValueError('remote branch not merged')
+                raise Kept('remote branch not merged')
             yield path
-        except ValueError as error:
+        except Kept as error:
             print(f'kept {path}: {error}', flush=True)
-        except (OSError, subprocess.SubprocessError, StopIteration) as error:
+        except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as error:
             message = f'cannot inspect {path}: {error}'
             FAILURES.append(message)
             print(f'kept {path}: {message}', flush=True)
