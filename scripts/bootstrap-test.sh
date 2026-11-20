@@ -681,6 +681,9 @@ case_ssh_agent() {
 	[ "$code" -eq 0 ] || fail "ssh cannot parse the config: $output"
 	expect_contains "$output" "identityagent $home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 	expect_contains "$output" "identitiesonly no"
+	run_command ssh -F "$home/.ssh/config" -G example
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the host example block: $output"
+	expect_contains "$output" "user someone"
 	backup=$(find "$home/.ssh" -name 'config.backup-*' | head -n 1)
 	[ -n "$backup" ] || fail "the ssh config was not backed up"
 	grep -q '^Host example$' "$backup" || fail "the ssh config backup lost the original"
@@ -704,10 +707,19 @@ case_ssh_agent() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not remove a duplicate block: $output"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "a duplicate ssh block survived"
-	printf '\n# Factory: github.com through the 1Password SSH agent\n    Bogus\nHost github.com\n    IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >>"$home/.ssh/config"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n    Bogus\n' >>"$home/.ssh/config"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair a corrupt block: $output"
 	[ "$(count_lines '^Host github.com$' "$home/.ssh/config")" -eq 1 ] || fail "a corrupt block orphaned a second Host github.com"
+	grep -q 'Bogus' "$home/.ssh/config" && fail "the corrupt block kept its stray line"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the repaired corrupt block: $output"
+	expect_contains "$output" "identitiesonly no"
+	printf '\n  Host indented-example\n    User someone\n' >>"$home/.ssh/config"
+	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    IdentitiesOnly no\n", "    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind an indented host block: $output"
+	grep -q '^  Host indented-example$' "$home/.ssh/config" || fail "the repair removed an indented user block"
 	printf 'ok: the ssh config routes GitHub through 1Password and the origin moves to SSH\n'
 }
 
@@ -722,6 +734,12 @@ case_ssh_crlf() {
 	[ "$code" -eq 0 ] || fail "bootstrap failed on a CRLF config: $output"
 	run_python -c 'import sys; b=open(sys.argv[1],"rb").read(); assert b"Host example\r\n" in b, "user block"; assert b"IdentitiesOnly no\r\n" in b, "managed block"; assert b"Host github.com\r\n" in b, "host line"' "$home/.ssh/config"
 	[ "$code" -eq 0 ] || fail "the CRLF config was not preserved: $output"
+	run_python -c 'import sys; p=sys.argv[1]; b=open(p,"rb").read(); open(p,"wb").write(b.replace(b"    IdentitiesOnly no\r\n", b"    IdentitiesOnly yes\r\n", 1))' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "cannot drift the CRLF block: $output"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed to repair the CRLF block: $output"
+	run_python -c 'import sys; b=open(sys.argv[1],"rb").read(); assert b"IdentitiesOnly no\r\n" in b, "repair"; assert b"IdentitiesOnly yes" not in b, "stale"; assert b"Host example\r\n" in b, "user block"' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "the CRLF repair lost line endings: $output"
 	printf 'ok: a CRLF ssh config keeps its line endings\n'
 }
 

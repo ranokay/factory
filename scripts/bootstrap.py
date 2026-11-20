@@ -350,7 +350,8 @@ def ssh_block(socket: Path) -> str:
         "    HostName github.com\n"
         "    User git\n"
         f'    IdentityAgent "{socket}"\n'
-        "    IdentitiesOnly no"
+        "    IdentitiesOnly no\n"
+        "Match all"
     )
 
 
@@ -370,21 +371,17 @@ def replace_managed_block(text: str, block: str) -> str | None:
             continue
         found = True
         index += 1
-        while True:
-            if index < len(lines) and lines[index].strip() and lines[index].startswith((" ", "\t")):
-                index += 1
-                continue
-            if index < len(lines) and not lines[index].strip():
-                look = index
-                while look < len(lines) and not lines[look].strip():
-                    look += 1
-                if look < len(lines) and lines[look].strip() and lines[look].startswith((" ", "\t")):
-                    index = look
-                    continue
-            if index < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[index]):
-                index += 1
-                continue
-            break
+        if index < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[index]):
+            index += 1
+        while (
+            index < len(lines)
+            and lines[index].strip()
+            and lines[index].startswith((" ", "\t"))
+            and not re.match(r"(?i)^\s*(Host|Match)\s+", lines[index])
+        ):
+            index += 1
+        if index < len(lines) and re.match(r"(?i)^\s*Match\s+all\s*$", lines[index]):
+            index += 1
     if not found:
         return None
     ending = file_ending(text)
