@@ -373,6 +373,11 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "ssh-existing" }
         expect { code = 0 }
       }
+      ["a CRLF ssh config keeps its line endings"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "ssh-crlf" }
+        expect { code = 0 }
+      }
       ["bootstrap loads the agent and the check catches an unset launchd secret"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "launchd" }

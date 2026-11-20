@@ -689,7 +689,7 @@ case_ssh_agent() {
 	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the ssh block was written twice"
 	printf '  \n# keep-trailing   \n' >>"$home/.ssh/config"
-	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    User git\n", "    User git\n    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
+	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    User git\n", "    User git\n\n    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
 	[ "$code" -eq 0 ] || fail "cannot drift the ssh block: $output"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair the ssh block: $output"
@@ -704,7 +704,25 @@ case_ssh_agent() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not remove a duplicate block: $output"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "a duplicate ssh block survived"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n    Bogus\nHost github.com\n    IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair a corrupt block: $output"
+	[ "$(count_lines '^Host github.com$' "$home/.ssh/config")" -eq 1 ] || fail "a corrupt block orphaned a second Host github.com"
 	printf 'ok: the ssh config routes GitHub through 1Password and the origin moves to SSH\n'
+}
+
+case_ssh_crlf() {
+	setup_case ssh-crlf
+	baseline_repo "$factory"
+	git -C "$factory" remote add origin https://github.com/example/factory.git
+	mkdir -p "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t" "$home/.ssh"
+	printf 'Host example\r\n  User someone\r\n' >"$home/.ssh/config"
+	: >"$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed on a CRLF config: $output"
+	run_python -c 'import sys; b=open(sys.argv[1],"rb").read(); assert b"Host example\r\n" in b, "user block"; assert b"IdentitiesOnly no\r\n" in b, "managed block"; assert b"Host github.com\r\n" in b, "host line"' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "the CRLF config was not preserved: $output"
+	printf 'ok: a CRLF ssh config keeps its line endings\n'
 }
 
 case_ssh_no_agent() {
@@ -818,6 +836,7 @@ case_all() {
 	case_ssh_agent
 	case_ssh_no_agent
 	case_ssh_existing
+	case_ssh_crlf
 	case_launchd
 }
 
@@ -844,6 +863,7 @@ plist-interpreter) case_plist_interpreter ;;
 ssh-agent) case_ssh_agent ;;
 ssh-no-agent) case_ssh_no_agent ;;
 ssh-existing) case_ssh_existing ;;
+ssh-crlf) case_ssh_crlf ;;
 launchd) case_launchd ;;
 all) case_all ;;
 *)

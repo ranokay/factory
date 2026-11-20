@@ -354,6 +354,10 @@ def ssh_block(socket: Path) -> str:
     )
 
 
+def file_ending(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\n"
+
+
 def replace_managed_block(text: str, block: str) -> str | None:
     lines = text.splitlines(keepends=True)
     kept: list[str] = []
@@ -366,18 +370,29 @@ def replace_managed_block(text: str, block: str) -> str | None:
             continue
         found = True
         index += 1
-        if index < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[index]):
-            index += 1
-        while index < len(lines) and lines[index].strip() and lines[index].startswith((" ", "\t")):
-            index += 1
+        while True:
+            if index < len(lines) and lines[index].strip() and lines[index].startswith((" ", "\t")):
+                index += 1
+                continue
+            if index < len(lines) and not lines[index].strip():
+                look = index
+                while look < len(lines) and not lines[look].strip():
+                    look += 1
+                if look < len(lines) and lines[look].strip() and lines[look].startswith((" ", "\t")):
+                    index = look
+                    continue
+            if index < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[index]):
+                index += 1
+                continue
+            break
     if not found:
         return None
-    ending = "\r\n" if "\r\n" in text else "\n"
+    ending = file_ending(text)
     return block.replace("\n", ending) + ending + "".join(kept)
 
 
 def prepend_managed_block(text: str, block: str) -> str:
-    ending = "\r\n" if "\r\n" in text else "\n"
+    ending = file_ending(text)
     return block.replace("\n", ending) + ending + text
 
 
@@ -404,7 +419,7 @@ def setup_github_ssh(home: Path) -> bool:
     config = home / ".ssh" / "config"
     config.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(config.parent, 0o700)
-    text = config.read_text() if config.is_file() else ""
+    text = config.read_bytes().decode("utf-8") if config.is_file() else ""
     block = github_host_block(text)
     wanted = ssh_block(socket)
     managed_text = replace_managed_block(text, wanted)
@@ -413,7 +428,7 @@ def setup_github_ssh(home: Path) -> bool:
             if config.is_file():
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
                 shutil.copy2(config, backup_path(config, stamp))
-            config.write_text(managed_text)
+            config.write_bytes(managed_text.encode("utf-8"))
             os.chmod(config, 0o600)
             print(f"bootstrap: updated github.com in {display(config, home)}")
         else:
@@ -432,7 +447,7 @@ def setup_github_ssh(home: Path) -> bool:
         if config.is_file():
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             shutil.copy2(config, backup_path(config, stamp))
-        config.write_text(prepend_managed_block(text, wanted))
+        config.write_bytes(prepend_managed_block(text, wanted).encode("utf-8"))
         os.chmod(config, 0o600)
         print(f"bootstrap: added github.com to {display(config, home)}")
     if GITHUB_HTTPS.match(origin):
