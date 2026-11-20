@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
+base_path=$PATH
 python_bin=$(mise which python)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -70,10 +71,42 @@ fi
 exec "$REAL_GIT" "$@"
 STUB
 chmod +x "$tmp/bin/git"
-if (
-	PATH="$tmp/bin:$PATH"
-	run_gc --dry-run >"$tmp/badtime"
-); then
+PATH="$tmp/bin:$base_path"
+if run_gc --dry-run >"$tmp/badtime"; then
 	exit 1
 fi
+PATH=$base_path
 grep 'kept .*badtime.*cannot inspect' "$tmp/badtime"
+
+fake_root="$tmp/fake/install"
+mkdir -p "$fake_root/fake/1.0" "$fake_root/recent/1.0" "$tmp/fake/bin" "$tmp/tool-home"
+printf 'fake\n' >"$fake_root/fake/1.0/file"
+printf 'recent\n' >"$fake_root/recent/1.0/file"
+touch -t 202001010000 "$fake_root/fake/1.0/file"
+cat >"$tmp/fake/bin/mise" <<STUB
+#!/bin/sh
+case "\$1 \$2" in
+"ls --json")
+	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":true}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}]}\n'
+	;;
+"ls --prunable")
+	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":false}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}]}\n'
+	;;
+"cache path")
+	printf '%s\n' "$tmp/cache"
+	;;
+"cache prune")
+	printf 'INFO  cache pruned 0 files, 0 B\n'
+	;;
+*)
+	printf '[dryrun] remove %s\n' "$fake_root/fake/1.0"
+	;;
+esac
+STUB
+chmod +x "$tmp/fake/bin/mise"
+PATH="$tmp/fake/bin:$base_path"
+HOME="$tmp/tool-home" run_gc --dry-run >"$tmp/tools"
+PATH=$base_path
+grep 'kept .*fake/1.0: active tool' "$tmp/tools"
+grep 'kept .*recent/1.0: recent install' "$tmp/tools"
+if grep '^delete .*fake/1.0' "$tmp/tools"; then exit 1; fi

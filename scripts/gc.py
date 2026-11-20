@@ -15,10 +15,6 @@ AGE = 30 * 86400
 FAILURES = []
 
 
-class Kept(Exception):
-    pass
-
-
 def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, text=True, capture_output=True, check=True).stdout.strip()
 
@@ -37,9 +33,30 @@ def human_size(amount):
     value = float(amount)
     for unit in ('B', 'KB', 'MB', 'GB'):
         if value < 1024 or unit == 'GB':
-            return f'{value:.0f} {unit}' if unit == 'B' else f'{value:.1f} {unit}'
+            return f'{value:.0f} bytes' if unit == 'B' else f'{value:.1f} {unit}'
         value /= 1024
-    return f'{value:.1f} TB'
+
+
+def worktree_reason(path):
+    records = run('git', 'worktree', 'list', '--porcelain', cwd=path).split('\n\n')
+    record = next(r.splitlines() for r in records if Path(r.splitlines()[0][9:]).resolve() == path.resolve())
+    branch = next((line[7:] for line in record if line.startswith('branch ')), None)
+    if branch is None:
+        return 'detached HEAD'
+    if any(line.startswith('locked') for line in record):
+        return 'locked'
+    if run('git', 'status', '--porcelain', '--untracked-files=all', '--ignored', cwd=path):
+        return 'dirty'
+    if run('git', 'rev-list', branch, '--not', '--remotes', cwd=path):
+        return 'unpushed commits'
+    if time.time() - int(run('git', 'show', '-s', '--format=%ct', branch, cwd=path)) < AGE:
+        return 'recent commit'
+    remotes = run('git', 'for-each-ref', '--format=%(refname)', '--contains', branch, 'refs/remotes', cwd=path)
+    all_remotes = run('git', 'for-each-ref', '--format=%(refname)', 'refs/remotes', cwd=path)
+    short = branch.removeprefix('refs/heads/')
+    if not remotes and any(ref.endswith('/' + short) for ref in all_remotes.splitlines()):
+        return 'remote branch not merged'
+    return None
 
 
 def worktrees():
@@ -48,31 +65,27 @@ def worktrees():
         if not path.is_dir() or path.is_symlink():
             continue
         try:
-            records = run('git', 'worktree', 'list', '--porcelain', cwd=path).split('\n\n')
-            record = next(r.splitlines() for r in records if Path(r.splitlines()[0][9:]).resolve() == path.resolve())
-            branch = next((line[7:] for line in record if line.startswith('branch ')), None)
-            if branch is None:
-                raise Kept('detached HEAD')
-            if any(line.startswith('locked') for line in record):
-                raise Kept('locked')
-            if run('git', 'status', '--porcelain', '--untracked-files=all', '--ignored', cwd=path):
-                raise Kept('dirty')
-            if run('git', 'rev-list', branch, '--not', '--remotes', cwd=path):
-                raise Kept('unpushed commits')
-            if time.time() - int(run('git', 'show', '-s', '--format=%ct', branch, cwd=path)) < AGE:
-                raise Kept('recent commit')
-            remotes = run('git', 'for-each-ref', '--format=%(refname)', '--contains', branch, 'refs/remotes', cwd=path)
-            all_remotes = run('git', 'for-each-ref', '--format=%(refname)', 'refs/remotes', cwd=path)
-            short = branch.removeprefix('refs/heads/')
-            if not remotes and any(ref.endswith('/' + short) for ref in all_remotes.splitlines()):
-                raise Kept('remote branch not merged')
-            yield path
-        except Kept as error:
-            print(f'kept {path}: {error}', flush=True)
+            reason = worktree_reason(path)
         except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as error:
             message = f'cannot inspect {path}: {error}'
             FAILURES.append(message)
             print(f'kept {path}: {message}', flush=True)
+            continue
+        if reason:
+            print(f'kept {path}: {reason}', flush=True)
+        else:
+            yield path
+
+
+def evidence_reason(path):
+    if time.time() - path.stat().st_mtime < AGE:
+        return 'recent evidence'
+    state = run('gh', 'pr', 'view', path.name, '--repo', f'{path.parent.parent.name}/{path.parent.name}', '--json', 'state', '--jq', '.state')
+    if state not in ('CLOSED', 'MERGED'):
+        return f'PR is {state}'
+    if contains_git(path):
+        return 'contains git data'
+    return None
 
 
 def evidence():
@@ -80,20 +93,18 @@ def evidence():
         if not path.is_dir() or path.is_symlink() or not path.name.isdecimal():
             continue
         try:
-            if time.time() - path.stat().st_mtime < AGE:
-                continue
-            state = run('gh', 'pr', 'view', path.name, '--repo', f'{path.parent.parent.name}/{path.parent.name}', '--json', 'state', '--jq', '.state')
-            if state not in ('CLOSED', 'MERGED'):
-                print(f'kept {path}: PR is {state}')
-                continue
-            if contains_git(path):
-                print(f'kept {path}: contains git data')
-                continue
-            yield path
+            reason = evidence_reason(path)
         except (OSError, subprocess.SubprocessError) as error:
             message = f'cannot inspect {path}: {error}'
             FAILURES.append(message)
             print(f'kept {path}: {message}', flush=True)
+            continue
+        if reason == 'recent evidence':
+            continue
+        if reason:
+            print(f'kept {path}: {reason}', flush=True)
+        else:
+            yield path
 
 
 
@@ -160,7 +171,7 @@ def cache_candidates():
             if root not in path.parents or path == root:
                 raise RuntimeError(f'unsafe cache path {path}')
             paths.append(path)
-        elif not (line.startswith('DEBUG ARGS:') or 'cache pruned ' in line or not line.strip()):
+        elif not (line.startswith('DEBUG ') or 'cache pruned ' in line or not line.strip()):
             raise RuntimeError(f'unrecognized mise cache output: {line}')
     return paths
 
@@ -173,7 +184,15 @@ def contains_git(path):
 
 def prune_tools(dry_run):
     total = 0
-    for tool, version, paths in tool_candidates():
+    candidates = list(tool_candidates())
+    active = active_tools()
+    for tool, version, paths in candidates:
+        if (tool, version) in active:
+            print(f'kept {paths[0]}: active tool')
+            continue
+        if time.time() - paths[0].stat().st_mtime < AGE:
+            print(f'kept {paths[0]}: recent install')
+            continue
         if any(contains_git(path) for path in paths):
             print(f'kept {tool}@{version}: contains git data')
             continue
@@ -209,18 +228,42 @@ def main():
     for path in worktrees():
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)
+        if args.dry_run:
+            total += amount
+            continue
+        try:
+            reason = worktree_reason(path)
+        except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as error:
+            message = f'cannot inspect {path}: {error}'
+            FAILURES.append(message)
+            print(f'kept {path}: {message}', flush=True)
+            continue
+        if reason:
+            print(f'kept {path}: {reason}', flush=True)
+            continue
+        run('git', 'worktree', 'remove', str(path), cwd=path)
         total += amount
-        if not args.dry_run:
-            run('git', 'worktree', 'remove', str(path), cwd=path)
     for path in evidence():
         amount = size(path)
         print(f'delete {path} {amount} bytes', flush=True)
+        if args.dry_run:
+            total += amount
+            continue
+        try:
+            reason = evidence_reason(path)
+        except (OSError, subprocess.SubprocessError) as error:
+            message = f'cannot inspect {path}: {error}'
+            FAILURES.append(message)
+            print(f'kept {path}: {message}', flush=True)
+            continue
+        if reason:
+            print(f'kept {path}: {reason}', flush=True)
+            continue
+        shutil.rmtree(path)
         total += amount
-        if not args.dry_run:
-            shutil.rmtree(path)
     total += prune_tools(args.dry_run)
     total += prune_cache(args.dry_run)
-    summary = f'{total} bytes' if total < 1024 else human_size(total)
+    summary = human_size(total)
     print(f'{"would reclaim" if args.dry_run else "reclaimed"} {summary}', flush=True)
     if args.notify and not args.dry_run and sys.platform == 'darwin':
         message = f'Factory GC reclaimed {summary}'
