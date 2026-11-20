@@ -343,6 +343,34 @@ def github_host_block(text: str) -> str | None:
     return None
 
 
+def ssh_block(socket: Path) -> str:
+    return (
+        f"\n{SSH_MARKER}\n"
+        "Host github.com\n"
+        "    HostName github.com\n"
+        "    User git\n"
+        f'    IdentityAgent "{socket}"\n'
+    )
+
+
+def replace_managed_block(text: str, block: str) -> str | None:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() != SSH_MARKER:
+            continue
+        end = index + 1
+        if end < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[end]):
+            end += 1
+        while end < len(lines) and (lines[end].startswith((" ", "\t")) or not lines[end].strip()):
+            end += 1
+        replacement = block.strip("\n").splitlines()
+        if end < len(lines):
+            replacement.append("")
+        lines[index:end] = replacement
+        return "\n".join(lines).rstrip() + "\n"
+    return None
+
+
 def setup_github_ssh(home: Path) -> bool:
     origin = None
     result = git(ROOT, "remote", "get-url", "origin")
@@ -368,8 +396,18 @@ def setup_github_ssh(home: Path) -> bool:
     os.chmod(config.parent, 0o700)
     text = config.read_text() if config.is_file() else ""
     block = github_host_block(text)
-    if SSH_MARKER in text:
-        print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
+    wanted = ssh_block(socket)
+    managed_text = replace_managed_block(text, wanted)
+    if managed_text is not None:
+        if managed_text != text:
+            if config.is_file():
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                shutil.copy2(config, backup_path(config, stamp))
+            config.write_text(managed_text)
+            os.chmod(config, 0o600)
+            print(f"bootstrap: updated github.com in {display(config, home)}")
+        else:
+            print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
     elif block is not None:
         managed = re.search(r'(?im)^\s*IdentityAgent(?:\s*=\s*|\s+)"?[^\n]*2BUA8C4S2C\.com\.1password', block)
         if managed:
@@ -384,15 +422,7 @@ def setup_github_ssh(home: Path) -> bool:
         if config.is_file():
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             shutil.copy2(config, backup_path(config, stamp))
-        block = (
-            f"\n{SSH_MARKER}\n"
-            "Host github.com\n"
-            "    HostName github.com\n"
-            "    User git\n"
-            f'    IdentityAgent "{socket}"\n'
-            "    IdentitiesOnly yes\n"
-        )
-        config.write_text(text + block)
+        config.write_text(text + wanted)
         os.chmod(config, 0o600)
         print(f"bootstrap: added github.com to {display(config, home)}")
     if GITHUB_HTTPS.match(origin):

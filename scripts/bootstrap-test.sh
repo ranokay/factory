@@ -680,6 +680,7 @@ case_ssh_agent() {
 	run_command ssh -F "$home/.ssh/config" -G github.com
 	[ "$code" -eq 0 ] || fail "ssh cannot parse the config: $output"
 	expect_contains "$output" "identityagent $home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+	expect_not_contains "$output" "identitiesonly yes"
 	backup=$(find "$home/.ssh" -name 'config.backup-*' | head -n 1)
 	[ -n "$backup" ] || fail "the ssh config was not backed up"
 	grep -q '^Host example$' "$backup" || fail "the ssh config backup lost the original"
@@ -687,6 +688,12 @@ case_ssh_agent() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the ssh block was written twice"
+	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    User git\n", "    User git\n    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "cannot drift the ssh block: $output"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair the ssh block: $output"
+	expect_contains "$output" "updated github.com"
+	grep -q 'IdentitiesOnly' "$home/.ssh/config" && fail "the repaired block still disables agent identities"
 	printf 'ok: the ssh config routes GitHub through 1Password and the origin moves to SSH\n'
 }
 
