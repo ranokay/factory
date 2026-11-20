@@ -695,7 +695,7 @@ case_ssh_agent() {
 	run_command ssh -F "$home/.ssh/config" -G example
 	[ "$code" -eq 0 ] || fail "ssh cannot parse the config with a global line: $output"
 	expect_contains "$output" "forwardx11 yes"
-	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    User git\n", "    User git\n\n    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
+	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    User git\n", "    User git\n# note\n\n    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
 	[ "$code" -eq 0 ] || fail "cannot drift the ssh block: $output"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair the ssh block: $output"
@@ -721,11 +721,16 @@ case_ssh_agent() {
 	run_command ssh -F "$home/.ssh/config" -G github.com
 	[ "$code" -eq 0 ] || fail "ssh cannot parse the repaired corrupt block: $output"
 	expect_contains "$output" "identitiesonly no"
-	printf '\n  Host indented-example\n    User someone\n' >>"$home/.ssh/config"
-	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    IdentitiesOnly no\n", "    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n\nHost github.company\n    User similar\n' >>"$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a look-alike block: $output"
+	grep -q '^Host github.company$' "$home/.ssh/config" || fail "the repair removed a look-alike host block"
+	grep -q '^    User similar$' "$home/.ssh/config" || fail "the repair removed the look-alike options"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n\n  Host indented-example\n    User someone\n' >>"$home/.ssh/config"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind an indented host block: $output"
 	grep -q '^  Host indented-example$' "$home/.ssh/config" || fail "the repair removed an indented user block"
+	grep -q '^    User someone$' "$home/.ssh/config" || fail "the repair removed the indented user options"
 	printf '\nHost github.company\n    User similar\n' >>"$home/.ssh/config"
 	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    IdentitiesOnly no\n", "    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
 	run_bootstrap
@@ -751,6 +756,11 @@ case_ssh_crlf() {
 	[ "$code" -eq 0 ] || fail "bootstrap failed to repair the CRLF block: $output"
 	run_python -c 'import sys; b=open(sys.argv[1],"rb").read(); assert b"IdentitiesOnly no\r\n" in b, "repair"; assert b"IdentitiesOnly yes" not in b, "stale"; assert b"Host example\r\n" in b, "user block"' "$home/.ssh/config"
 	[ "$code" -eq 0 ] || fail "the CRLF repair lost line endings: $output"
+	run_python -c 'import sys; p=sys.argv[1]; b=open(p,"rb").read(); open(p,"wb").write(b.replace(b"    User git\r\n", b"    User git\r\n# note\r\n\r\n    IdentitiesOnly yes\r\n", 1))' "$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed on a CRLF block with a comment: $output"
+	run_python -c 'import sys; b=open(sys.argv[1],"rb").read(); assert b"IdentitiesOnly no\r\n" in b, "repair"; assert b"IdentitiesOnly yes" not in b, "stale"; assert b.count(b"IdentityAgent") == 1, "orphan"' "$home/.ssh/config"
+	[ "$code" -eq 0 ] || fail "the CRLF block with a comment was not fully repaired: $output"
 	printf 'ok: a CRLF ssh config keeps its line endings\n'
 }
 

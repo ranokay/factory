@@ -360,6 +360,14 @@ def file_ending(text: str) -> str:
     return "\r\n" if "\r\n" in text else "\n"
 
 
+def ssh_option(line: str) -> bool:
+    return (
+        bool(line.strip())
+        and line.startswith((" ", "\t"))
+        and not re.match(r"(?i)^\s*(Host|Match)\s+", line)
+    )
+
+
 def replace_managed_block(text: str, block: str) -> str | None:
     lines = text.splitlines(keepends=True)
     kept: list[str] = []
@@ -376,37 +384,34 @@ def replace_managed_block(text: str, block: str) -> str | None:
         while look < len(lines) and not lines[look].strip():
             look += 1
         if look < len(lines):
-            indented_option = lines[look].startswith((" ", "\t")) and not re.match(
-                r"(?i)^\s*(Host|Match)\s+", lines[look]
-            )
-            if GITHUB_HOST_RE.match(lines[look]) or indented_option:
+            if GITHUB_HOST_RE.match(lines[look]) or ssh_option(lines[look]):
                 index = look
         if index < len(lines) and GITHUB_HOST_RE.match(lines[index]):
             index += 1
         while True:
-            if (
-                index < len(lines)
-                and lines[index].strip()
-                and lines[index].startswith((" ", "\t"))
-                and not re.match(r"(?i)^\s*(Host|Match)\s+", lines[index])
-            ):
+            if index < len(lines) and ssh_option(lines[index]):
                 index += 1
                 continue
+            if index < len(lines) and lines[index].strip().startswith("#"):
+                look = index + 1
+                while look < len(lines) and not lines[look].strip():
+                    look += 1
+                if look < len(lines) and ssh_option(lines[look]):
+                    index = look
+                    continue
             if index < len(lines) and not lines[index].strip():
                 look = index
                 while look < len(lines) and not lines[look].strip():
                     look += 1
-                if (
-                    look < len(lines)
-                    and lines[look].strip()
-                    and lines[look].startswith((" ", "\t"))
-                    and not re.match(r"(?i)^\s*(Host|Match)\s+", lines[look])
-                ):
+                if look < len(lines) and ssh_option(lines[look]):
                     index = look
                     continue
             break
-        if index < len(lines) and re.match(r"(?i)^\s*Match\s+all\s*$", lines[index]):
-            index += 1
+        look = index
+        while look < len(lines) and not lines[look].strip():
+            look += 1
+        if look < len(lines) and re.match(r"(?i)^\s*Match\s+all\s*$", lines[look]):
+            index = look + 1
     if not found:
         return None
     ending = file_ending(text)
