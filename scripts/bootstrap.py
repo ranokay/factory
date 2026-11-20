@@ -176,15 +176,25 @@ def mcp_sync(home: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+def combined(result: subprocess.CompletedProcess) -> str:
+    return "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+
+
+def launchctl_binary() -> str | None:
+    for candidate in (shutil.which("launchctl"), "/bin/launchctl"):
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return None
+
+
 def render_mcp(home: Path) -> bool:
     render = mcp_sync(home)
     if render.returncode != 0:
-        print(f"bootstrap: MCP render failed: {(render.stderr or render.stdout).strip()}", file=sys.stderr)
+        print(f"bootstrap: MCP render failed: {combined(render)}", file=sys.stderr)
         return False
     check = mcp_sync(home, "--check")
     if check.returncode != 0:
-        detail = "\n".join(part for part in (check.stdout.strip(), check.stderr.strip()) if part)
-        print(f"bootstrap: MCP configs are not in sync after the render: {detail}", file=sys.stderr)
+        print(f"bootstrap: MCP configs are not in sync after the render: {combined(check)}", file=sys.stderr)
         return False
     print("bootstrap: MCP configs are in sync")
     return True
@@ -233,7 +243,7 @@ def install_secret_agent(home: Path) -> bool:
         print(f"bootstrap: wrote {display(path, home)}")
     else:
         print(f"bootstrap: {display(path, home)} is current")
-    if shutil.which("launchctl") is None:
+    if launchctl_binary() is None:
         print("bootstrap: launchctl is not available; the secrets agent is written but not loaded")
         return True
     if home != Path.home().resolve():
@@ -295,12 +305,11 @@ def secret_agent_errors(home: Path) -> list[str]:
     try:
         interpreter = launch_interpreter()
     except SystemExit as error:
-        return [
-            f"{shown} cannot resolve the secrets agent interpreter ({error}); run mise run bootstrap"
-        ]
+        reason = str(error).removeprefix("bootstrap: ")
+        return [f"{shown} cannot resolve the secrets agent interpreter ({reason}); run mise run bootstrap"]
     if path.read_bytes() != secret_agent_plist(home, interpreter):
         return [f"{shown} differs from what bootstrap writes now; run mise run bootstrap"]
-    if home == Path.home().resolve() and shutil.which("launchctl") is not None:
+    if home == Path.home().resolve() and launchctl_binary() is not None:
         applied = mcp_sync(home, "--env", "--check")
         if applied.returncode != 0:
             return [f"the launchd secret check failed: {(applied.stderr or applied.stdout).strip()}"]
@@ -361,7 +370,7 @@ def setup_github_ssh(home: Path) -> bool:
     if SSH_MARKER in text:
         print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
     elif block is not None:
-        managed = re.search(r'(?im)^\s*IdentityAgent\s*=?\s*"?[^\n]*2BUA8C4S2C\.com\.1password', block)
+        managed = re.search(r'(?im)^\s*IdentityAgent(?:\s*=\s*|\s+)"?[^\n]*2BUA8C4S2C\.com\.1password', block)
         if managed:
             print(f"bootstrap: {display(config, home)} already routes github.com through 1Password")
         else:
@@ -571,8 +580,7 @@ def discovery(home: Path) -> int:
     errors.extend(secret_agent_errors(home))
     mcp_check = mcp_sync(home, "--check")
     if mcp_check.returncode != 0:
-        detail = "\n".join(part for part in (mcp_check.stdout.strip(), mcp_check.stderr.strip()) if part)
-        errors.append(f"MCP configs are not in sync: {detail}")
+        errors.append(f"MCP configs are not in sync: {combined(mcp_check)}")
     expected_names = factory_skill_names()
     opencode = config_home(home) / "opencode"
     harnesses = {

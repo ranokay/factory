@@ -602,6 +602,11 @@ case_mcp() {
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair the drift: $output"
 	run_mcp_check
 	[ "$code" -eq 0 ] || fail "the MCP check still reports drift: $output"
+	printf 'not json\n' >"$home/.claude.json"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "bootstrap:check passed with malformed JSON"
+	expect_contains "$output" "MCP configs are not in sync"
+	expect_contains "$output" "Expecting value"
 	printf 'ok: bootstrap renders, checks, backs up and repairs the MCP configs\n'
 }
 
@@ -720,6 +725,11 @@ case_ssh_existing() {
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind an agent block: $output"
 	expect_contains "$output" "already routes github.com through 1Password"
 	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS behind an agent block"
+	printf 'Host github.com\n  IdentityAgent=%s\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
+	git -C "$factory" remote set-url origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind an equals-form agent block: $output"
+	expect_contains "$output" "already routes github.com through 1Password"
 	printf 'ok: an existing github.com block is left alone and an HTTPS origin still moves to SSH\n'
 }
 
@@ -750,7 +760,7 @@ case_plist_interpreter() {
 	setup_case plist-interpreter
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
-	run_python -c 'import os,sys; sys.path.insert(0, sys.argv[1]); import bootstrap; sys.executable = "/usr/bin/python3"; os.environ["PATH"] = "/usr/bin:/bin"; code = bootstrap.main(["--check", "--home", sys.argv[2]]); print(f"exit={code}")' "$factory/scripts" "$home"
+	run_python -c 'import os,sys; sys.path.insert(0, sys.argv[1]); import bootstrap; sys.executable = "/usr/bin/true"; os.environ["PATH"] = "/usr/bin:/bin"; code = bootstrap.main(["--check", "--home", sys.argv[2]]); print(f"exit={code}")' "$factory/scripts" "$home"
 	[ "$code" -eq 0 ] || fail "the check run failed to execute: $output"
 	expect_contains "$output" "exit=1"
 	expect_contains "$output" "cannot resolve an absolute Python"
