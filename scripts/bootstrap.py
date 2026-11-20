@@ -39,15 +39,24 @@ def display(path: Path, home: Path) -> str:
         return str(path)
 
 
+def codex_home(home: Path) -> Path:
+    return Path(os.environ.get("CODEX_HOME") or home / ".codex").expanduser()
+
+
+def config_home(home: Path) -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config").expanduser()
+
+
 def desired_links(home: Path) -> list[Link]:
     agents = home / ".agents"
+    opencode = config_home(home) / "opencode"
     return [
         Link(agents, ROOT),
         Link(home / ".claude" / "skills", ROOT / "skills"),
-        Link(home / ".config" / "opencode" / "skills", ROOT / "skills"),
+        Link(opencode / "skills", ROOT / "skills"),
         Link(home / ".claude" / "CLAUDE.md", agents / "AGENTS.md"),
-        Link(home / ".codex" / "AGENTS.md", agents / "AGENTS.md"),
-        Link(home / ".config" / "opencode" / "AGENTS.md", agents / "AGENTS.md"),
+        Link(codex_home(home) / "AGENTS.md", agents / "AGENTS.md"),
+        Link(opencode / "AGENTS.md", agents / "AGENTS.md"),
     ]
 
 
@@ -176,7 +185,7 @@ def factory_skill_names() -> set[str]:
 
 
 def codex_root_errors(home: Path) -> list[str]:
-    root = home / ".codex" / "skills"
+    root = codex_home(home) / "skills"
     if not root.is_dir():
         return []
     errors = []
@@ -212,6 +221,7 @@ def discovery(home: Path) -> int:
         print(f"bootstrap: missing {factory_skills}", file=sys.stderr)
         return 1
     expected_names = factory_skill_names()
+    opencode = config_home(home) / "opencode"
     harnesses = {
         "claude-code": {
             "instructions": [home / ".claude" / "CLAUDE.md"],
@@ -219,18 +229,14 @@ def discovery(home: Path) -> int:
             "shadows": [],
         },
         "opencode": {
-            "instructions": [home / ".config" / "opencode" / "AGENTS.md"],
-            "skills": [
-                home / ".config" / "opencode" / "skills",
-                home / ".claude" / "skills",
-                home / ".agents" / "skills",
-            ],
+            "instructions": [opencode / "AGENTS.md"],
+            "skills": [opencode / "skills", home / ".claude" / "skills", home / ".agents" / "skills"],
             "shadows": [],
         },
         "codex": {
-            "instructions": [home / ".codex" / "AGENTS.md"],
+            "instructions": [codex_home(home) / "AGENTS.md"],
             "skills": [home / ".agents" / "skills"],
-            "shadows": [home / ".codex" / "AGENTS.override.md"],
+            "shadows": [codex_home(home) / "AGENTS.override.md"],
         },
     }
     discovered = {}
@@ -260,7 +266,6 @@ def discovery(home: Path) -> int:
                     f"{harness}: {display(path, home)} does not resolve to "
                     f"{display(factory_skills, home)}"
                 )
-                continue
             names |= {
                 entry.name
                 for entry in path.iterdir()
@@ -290,22 +295,73 @@ def discovery(home: Path) -> int:
 
 def check_tool_skills(root: Path) -> int:
     names = read_tool_skills()
-    result = subprocess.run(
+    tracked = subprocess.run(
         ["git", "-C", str(root), "ls-files", "--", *[f"skills/{name}" for name in names]],
         capture_output=True,
         text=True,
         check=False,
     )
-    if result.returncode != 0:
-        print(f"bootstrap: cannot list tracked files in {root}: {result.stderr.strip()}", file=sys.stderr)
+    if tracked.returncode != 0:
+        print(f"bootstrap: cannot list tracked files in {root}: {tracked.stderr.strip()}", file=sys.stderr)
         return 1
-    tracked = [line for line in result.stdout.splitlines() if line]
-    if tracked:
-        for path in tracked:
-            print(f"bootstrap: tool-owned skill is tracked: {path}", file=sys.stderr)
+    untracked = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard", "--", ":(glob)skills/*/SKILL.md"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if untracked.returncode != 0:
+        print(f"bootstrap: cannot list untracked files in {root}: {untracked.stderr.strip()}", file=sys.stderr)
+        return 1
+    problems = False
+    for path in [line for line in tracked.stdout.splitlines() if line]:
+        print(f"bootstrap: tool-owned skill is tracked: {path}", file=sys.stderr)
+        problems = True
+    for path in [line for line in untracked.stdout.splitlines() if line]:
+        print(f"bootstrap: untracked skill is not declared as tool-owned: {path}", file=sys.stderr)
+        problems = True
+    if problems:
         return 1
     print("bootstrap: no tool-owned skill is tracked")
     return 0
+
+
+def run_skills_sync(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "uv",
+            "run",
+            "--offline",
+            "--no-project",
+            "--no-config",
+            "--python",
+            "3.13",
+            "python",
+            str(ROOT / "scripts" / "skills-sync.py"),
+            "--root",
+            str(ROOT),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def ensure_vendored_skills() -> tuple[bool, list[str]]:
+    try:
+        check = run_skills_sync("--check")
+        if check.returncode == 0:
+            print("bootstrap: vendored skills check passed")
+            return False, []
+        print("bootstrap: vendored skills drifted; running skills:sync", file=sys.stderr)
+        sync = run_skills_sync()
+        if sync.returncode != 0:
+            return False, [f"skills:sync failed: {(sync.stderr or sync.stdout).strip()}"]
+    except OSError as error:
+        return False, [f"skills:sync unavailable: {error}"]
+    print("bootstrap: skills:sync repaired the vendored skills")
+    return True, []
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -337,13 +393,15 @@ def main(argv: list[str] | None = None) -> int:
         print("Approve with: mise run bootstrap -- --adopt-existing", file=sys.stderr)
         return 2
     apply_links(changes, home)
-    errors = install_tool_skills(home)
+    synced, sync_errors = ensure_vendored_skills()
+    tools_ready = all(skill_present(name) for name in read_tool_skills())
+    errors = [*sync_errors, *install_tool_skills(home)]
     discovery_code = discovery(home)
     for error in errors:
         print(f"bootstrap: {error}", file=sys.stderr)
     if errors or discovery_code != 0:
         return 1
-    if not changes and not errors:
+    if not changes and not synced and tools_ready:
         print("Already bootstrapped: no changes.")
     else:
         print(f"bootstrap: complete with {len(changes)} link change(s)")

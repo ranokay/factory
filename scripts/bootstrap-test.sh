@@ -148,6 +148,7 @@ case_fresh() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "fresh bootstrap failed: $output"
 	expect_contains "$output" "tool-owned skills are installed"
+	expect_contains "$output" "vendored skills check passed"
 	expect_contains "$output" "discovery check passed"
 	[ -L "$home/.agents" ] || fail "$tilde/.agents is not a symlink"
 	[ "$(readlink "$home/.agents")" = "$factory" ] || fail "$tilde/.agents points at $(readlink "$home/.agents")"
@@ -193,6 +194,15 @@ case_broken() {
 	[ "$code" -ne 0 ] || fail "discovery passed without ~/.claude/CLAUDE.md"
 	expect_contains "$output" "claude-code"
 	expect_contains "$output" "$tilde/.claude/CLAUDE.md"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair a managed link: $output"
+	mkdir -p "$home/.codex/skills"
+	ln -s "$home/missing-target" "$home/.codex/skills/rogue"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap passed with a broken Codex link"
+	expect_contains "$output" "codex"
+	expect_contains "$output" "$tilde/.codex/skills/rogue"
+	rm "$home/.codex/skills/rogue"
 	rm "$home/.claude/skills"
 	mkdir -p "$home/.claude/skills/rogue"
 	printf '# rogue\n' >"$home/.claude/skills/rogue/SKILL.md"
@@ -271,6 +281,23 @@ case_codex() {
 	printf 'ok: Codex extras are named and managed entries are ignored\n'
 }
 
+case_env() {
+	setup_case env
+	xdg=$case_dir/xdg
+	codex=$case_dir/codex
+	mkdir -p "$xdg" "$codex"
+	run_command env XDG_CONFIG_HOME="$xdg" CODEX_HOME="$codex" mise --cd "$factory" run bootstrap -- --home "$home"
+	[ "$code" -eq 0 ] || fail "bootstrap with XDG_CONFIG_HOME and CODEX_HOME failed: $output"
+	[ -L "$xdg/opencode/skills" ] || fail "XDG_CONFIG_HOME/opencode/skills is not a symlink"
+	[ "$(readlink "$xdg/opencode/skills")" = "$factory/skills" ] || fail "the OpenCode skills link is wrong"
+	[ -L "$xdg/opencode/AGENTS.md" ] || fail "XDG_CONFIG_HOME/opencode/AGENTS.md is not a symlink"
+	[ -L "$codex/AGENTS.md" ] || fail "CODEX_HOME/AGENTS.md is not a symlink"
+	[ "$(readlink "$codex/AGENTS.md")" = "$home/.agents/AGENTS.md" ] || fail "the Codex instructions link is wrong"
+	run_command env XDG_CONFIG_HOME="$xdg" CODEX_HOME="$codex" mise --cd "$factory" run bootstrap:check -- --home "$home"
+	[ "$code" -eq 0 ] || fail "discovery with XDG_CONFIG_HOME and CODEX_HOME failed: $output"
+	printf 'ok: XDG_CONFIG_HOME and CODEX_HOME are honoured\n'
+}
+
 case_hooks() {
 	setup_case hooks
 	run_bootstrap
@@ -296,9 +323,12 @@ case_tracked() {
 	printf '# ardia\n' >"$fixture/skills/ardia/SKILL.md"
 	git -C "$fixture" add skills/ardia/SKILL.md
 	git -C "$fixture" commit -qm "import ardia"
+	mkdir -p "$fixture/skills/new-tool"
+	printf '# new tool\n' >"$fixture/skills/new-tool/SKILL.md"
 	run_python "$root/scripts/bootstrap.py" --check-tool-skills --root "$fixture"
 	[ "$code" -ne 0 ] || fail "the tracked tool-owned skill passed"
 	expect_contains "$output" "skills/ardia/SKILL.md"
+	expect_contains "$output" "skills/new-tool/SKILL.md"
 	run_python "$root/scripts/bootstrap.py" --check-tool-skills --root "$root"
 	[ "$code" -eq 0 ] || fail "the Factory has a tracked tool-owned skill: $output"
 	expect_contains "$output" "no tool-owned skill is tracked"
@@ -316,6 +346,7 @@ case_all() {
 	case_refuse
 	case_sync
 	case_codex
+	case_env
 	case_hooks
 	case_tracked
 }
@@ -327,6 +358,7 @@ broken) case_broken ;;
 refuse) case_refuse ;;
 sync) case_sync ;;
 codex) case_codex ;;
+env) case_env ;;
 hooks) case_hooks ;;
 tracked) case_tracked ;;
 all) case_all ;;

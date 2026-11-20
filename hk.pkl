@@ -241,6 +241,11 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "codex" }
         expect { code = 0 }
       }
+      ["XDG_CONFIG_HOME and CODEX_HOME are honoured"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "env" }
+        expect { code = 0 }
+      }
       ["the hook helpers still resolve and run"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "hooks" }
