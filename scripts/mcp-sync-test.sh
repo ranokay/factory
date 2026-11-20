@@ -78,6 +78,12 @@ setup_case() {
 	PATH="$bin:$base_path"
 }
 
+file_mode() {
+	run_python -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"
+	[ "$code" -eq 0 ] || fail "cannot read the mode of $1: $output"
+	printf '%s\n' "$output"
+}
+
 run_sync() {
 	run_command uv run --offline --no-project --no-config --python "$(mise which python)" python "$root/scripts/mcp-sync.py" --home "$home" "$@"
 }
@@ -225,7 +231,7 @@ case_backup() {
 	backup=$(find "$home" -maxdepth 1 -name '.claude.json.backup-*' -type f | head -n 1)
 	[ -n "$backup" ] || fail "the render did not back up the Claude config"
 	run_python -c 'import json,sys; assert json.load(open(sys.argv[1]))["numStartups"] == 7' "$backup"
-	[ "$(stat -f '%Lp' "$home/.claude.json" 2>/dev/null || stat -c '%a' "$home/.claude.json")" = 600 ] || fail "the render changed the Claude config mode"
+	[ "$(file_mode "$home/.claude.json")" = 600 ] || fail "the render changed the Claude config mode"
 	before=$(backup_count)
 	run_sync
 	[ "$(backup_count)" = "$before" ] || fail "an unchanged render wrote another backup"

@@ -192,6 +192,12 @@ run_python() {
 	run_command uv run --offline --no-project --no-config --python "$(mise which python)" python "$@"
 }
 
+file_mode() {
+	run_python -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"
+	[ "$code" -eq 0 ] || fail "cannot read the mode of $1: $output"
+	printf '%s\n' "$output"
+}
+
 run_hook() {
 	payload=$1
 	tool=$2
@@ -676,7 +682,7 @@ case_ssh_agent() {
 	grep -q '^Host github.com$' "$home/.ssh/config" || fail "the ssh config has no github.com block"
 	grep -q 'IdentityAgent .*2BUA8C4S2C.com.1password/t/agent.sock' "$home/.ssh/config" || fail "the ssh config does not use the 1Password agent"
 	grep -q '^Host example$' "$home/.ssh/config" || fail "the ssh config lost an existing block"
-	[ "$(stat -f '%Lp' "$home/.ssh/config" 2>/dev/null || stat -c '%a' "$home/.ssh/config")" = 600 ] || fail "the ssh config is not 600"
+	[ "$(file_mode "$home/.ssh/config")" = 600 ] || fail "the ssh config is not 600"
 	run_command ssh -F "$home/.ssh/config" -G github.com
 	[ "$code" -eq 0 ] || fail "ssh cannot parse the config: $output"
 	expect_contains "$output" "identityagent $home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
