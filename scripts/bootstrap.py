@@ -33,6 +33,13 @@ class Link:
     target: Path
 
 
+@dataclass(frozen=True)
+class Planned:
+    path: Path
+    target: Path
+    approval: bool
+
+
 def display(path: Path, home: Path) -> str:
     try:
         return "~/" + path.relative_to(home).as_posix()
@@ -70,20 +77,54 @@ def resolved_link(path: Path) -> Path | None:
     return stored.resolve(strict=False)
 
 
-def plan_links(home: Path) -> tuple[list[Link], list[Link]]:
+def plan_links(home: Path) -> list[Planned]:
     changes = []
-    needs_approval = []
     for link in desired_links(home):
+        current = resolved_link(link.path)
         if link.path.is_symlink():
-            if resolved_link(link.path) == link.target.resolve(strict=False):
+            if current == link.target.resolve(strict=False):
                 continue
-            changes.append(link)
+            approval = bool(current and current.exists() and not inside_factory(current))
         elif os.path.lexists(link.path):
-            changes.append(link)
-            needs_approval.append(link)
+            approval = True
         else:
-            changes.append(link)
-    return changes, needs_approval
+            approval = False
+        changes.append(Planned(link.path, link.target, approval))
+    return changes
+
+
+def inside_factory(path: Path) -> bool:
+    return path == ROOT or ROOT in path.parents
+
+
+def main_checkout() -> Path:
+    result = git(ROOT, "worktree", "list", "--porcelain")
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            if line.startswith("worktree "):
+                return Path(line[len("worktree ") :]).resolve()
+    return ROOT
+
+
+def worktree_guard(home: Path) -> list[str]:
+    if home != Path.home().resolve():
+        return []
+    git_dir = git(ROOT, "rev-parse", "--git-dir")
+    common_dir = git(ROOT, "rev-parse", "--git-common-dir")
+    if git_dir.returncode != 0 or common_dir.returncode != 0:
+        return []
+    git_path = Path(git_dir.stdout.strip())
+    common_path = Path(common_dir.stdout.strip())
+    if not git_path.is_absolute():
+        git_path = ROOT / git_path
+    if not common_path.is_absolute():
+        common_path = ROOT / common_path
+    if git_path.resolve() == common_path.resolve():
+        return []
+    return [
+        f"refusing to run from linked git worktree {ROOT}",
+        f"run it from the main checkout {main_checkout()}",
+    ]
 
 
 def backup_path(path: Path, stamp: str) -> Path:
@@ -95,18 +136,18 @@ def backup_path(path: Path, stamp: str) -> Path:
     return candidate
 
 
-def apply_links(changes: list[Link], home: Path) -> None:
+def apply_links(changes: list[Planned], home: Path) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     for change in changes:
         change.path.parent.mkdir(parents=True, exist_ok=True)
-        if change.path.is_symlink():
-            action = "repoint"
-            change.path.unlink()
-        elif os.path.lexists(change.path):
+        if change.approval:
             action = "replace"
             backup = backup_path(change.path, stamp)
             change.path.rename(backup)
             print(f"bootstrap: backed up {display(change.path, home)} -> {display(backup, home)}")
+        elif change.path.is_symlink():
+            action = "repoint"
+            change.path.unlink()
         else:
             action = "link"
         os.symlink(change.target, change.path)
@@ -376,20 +417,17 @@ def run_skills_sync(*args: str) -> subprocess.CompletedProcess:
     )
 
 
-def ensure_vendored_skills() -> tuple[bool, list[str]]:
+def check_vendored_skills() -> list[str]:
     try:
         check = run_skills_sync("--check")
-        if check.returncode == 0:
-            print("bootstrap: vendored skills check passed")
-            return False, []
-        print("bootstrap: vendored skills drifted; running skills:sync", file=sys.stderr)
-        sync = run_skills_sync()
-        if sync.returncode != 0:
-            return False, [f"skills:sync failed: {(sync.stderr or sync.stdout).strip()}"]
     except OSError as error:
-        return False, [f"skills:sync unavailable: {error}"]
-    print("bootstrap: skills:sync repaired the vendored skills")
-    return True, []
+        return [f"skills:sync unavailable: {error}"]
+    if check.returncode == 0:
+        print("bootstrap: vendored skills check passed")
+        return []
+    for line in (check.stderr or check.stdout).strip().splitlines():
+        print(f"bootstrap: {line}", file=sys.stderr)
+    return ["vendored skills drifted; run `mise run skills:sync` to repair them, then rerun bootstrap"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -412,31 +450,39 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.check:
         return discovery(home)
+    guard = worktree_guard(home)
+    if guard:
+        for line in guard:
+            print(f"bootstrap: {line}", file=sys.stderr)
+        return 2
     print(f"bootstrap: Factory checkout {ROOT}")
-    changes, needs_approval = plan_links(home)
+    changes = plan_links(home)
+    needs_approval = [change for change in changes if change.approval]
     if needs_approval and not args.adopt_existing:
-        print("bootstrap: refusing to replace real paths:", file=sys.stderr)
-        for link in needs_approval:
-            print(f"  {display(link.path, home)}", file=sys.stderr)
+        print("bootstrap: refusing to replace these managed paths:", file=sys.stderr)
+        for change in needs_approval:
+            print(f"  {display(change.path, home)}", file=sys.stderr)
         print("Approve with: mise run bootstrap -- --adopt-existing", file=sys.stderr)
         return 2
+    vendored_errors = check_vendored_skills()
+    if vendored_errors:
+        for error in vendored_errors:
+            print(f"bootstrap: {error}", file=sys.stderr)
+        return 1
     apply_links(changes, home)
-    synced, sync_errors = ensure_vendored_skills()
     tools_present_before = all(skill_present(name) for name in read_tool_skills())
-    errors = [*sync_errors, *install_tool_skills(home)]
+    errors = install_tool_skills(home)
     discovery_code = discovery(home)
     for error in errors:
         print(f"bootstrap: {error}", file=sys.stderr)
     if errors or discovery_code != 0:
         return 1
-    if not changes and not synced and tools_present_before:
+    if not changes and tools_present_before:
         print("Already bootstrapped: no changes.")
     else:
         work = []
         if changes:
             work.append(f"{len(changes)} link change(s)")
-        if synced:
-            work.append("vendored skills synced")
         if not tools_present_before:
             work.append("tool skills installed")
         print("bootstrap: complete with " + ", ".join(work))

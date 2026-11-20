@@ -233,7 +233,7 @@ case_refuse() {
 	printf 'keep\n' >"$home/.claude/skills/keep.txt"
 	run_bootstrap
 	[ "$code" -ne 0 ] || fail "bootstrap replaced real directories without approval"
-	expect_contains "$output" "refusing to replace real paths"
+	expect_contains "$output" "refusing to replace these managed paths"
 	expect_contains "$output" "$tilde/.agents"
 	expect_contains "$output" "$tilde/.claude/skills"
 	expect_contains "$output" "mise run bootstrap -- --adopt-existing"
@@ -253,6 +253,61 @@ case_refuse() {
 	[ -n "$skills_backup" ] || fail "no dated backup for ~/.claude/skills"
 	[ -f "$skills_backup/keep.txt" ] || fail "the ~/.claude/skills backup lost keep.txt"
 	printf 'ok: real directories are refused, then backed up with approval\n'
+}
+
+case_external() {
+	setup_case external
+	mkdir -p "$home/old-agents" "$home/old-skills" "$home/.claude"
+	printf 'old\n' >"$home/old-agents/AGENTS.md"
+	printf 'old\n' >"$home/old-skills/SKILL.md"
+	ln -s "$home/old-agents" "$home/.agents"
+	ln -s "$home/old-skills" "$home/.claude/skills"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap repointed external links without approval"
+	expect_contains "$output" "refusing to replace these managed paths"
+	expect_contains "$output" "$tilde/.agents"
+	expect_contains "$output" "$tilde/.claude/skills"
+	expect_contains "$output" "mise run bootstrap -- --adopt-existing"
+	[ "$(readlink "$home/.agents")" = "$home/old-agents" ] || fail "refusal moved ~/.agents"
+	[ "$(readlink "$home/.claude/skills")" = "$home/old-skills" ] || fail "refusal moved ~/.claude/skills"
+	[ ! -e "$home/.claude/CLAUDE.md" ] || fail "refusal wrote a link before approval"
+	run_bootstrap --adopt-existing
+	[ "$code" -eq 0 ] || fail "approved bootstrap failed: $output"
+	[ "$(readlink "$home/.agents")" = "$factory" ] || fail "$tilde/.agents does not point at the Factory"
+	[ "$(readlink "$home/.claude/skills")" = "$factory/skills" ] || fail "$tilde/.claude/skills does not point at the Factory"
+	agents_backup=$(find "$home" -maxdepth 1 -name '.agents.backup-*' | head -n 1)
+	[ -L "$agents_backup" ] || fail "no symlink backup for ~/.agents"
+	[ "$(readlink "$agents_backup")" = "$home/old-agents" ] || fail "the ~/.agents backup lost its target"
+	skills_backup=$(find "$home/.claude" -maxdepth 1 -name 'skills.backup-*' | head -n 1)
+	[ -L "$skills_backup" ] || fail "no symlink backup for ~/.claude/skills"
+	[ "$(readlink "$skills_backup")" = "$home/old-skills" ] || fail "the skills backup lost its target"
+	[ -f "$home/old-agents/AGENTS.md" ] || fail "the old ~/.agents target was removed"
+	[ -f "$home/old-skills/SKILL.md" ] || fail "the old skills target was removed"
+	printf 'ok: external symlinks need approval and are backed up\n'
+}
+
+case_worktree() {
+	setup_case worktree
+	git -C "$factory" init -q
+	git -C "$factory" config user.name "Bootstrap test"
+	git -C "$factory" config user.email "bootstrap-test@example.invalid"
+	git -C "$factory" config commit.gpgsign false
+	git -C "$factory" add -A
+	git -C "$factory" commit -qm "baseline"
+	worktree_dir=$case_dir/worktree
+	git -C "$factory" worktree add -q "$worktree_dir"
+	fake_home=$case_dir/fake-home
+	mkdir -p "$fake_home"
+	uv_bin=$(mise which uv)
+	python_bin=$(mise which python)
+	run_command env HOME="$fake_home" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$worktree_dir/scripts/bootstrap.py" --home "$fake_home"
+	[ "$code" -ne 0 ] || fail "bootstrap ran from a linked worktree against the real home"
+	expect_contains "$output" "linked git worktree"
+	expect_contains "$output" "$worktree_dir"
+	expect_contains "$output" "main checkout"
+	expect_contains "$output" "$factory"
+	[ ! -e "$fake_home/.agents" ] || fail "the worktree refusal wrote a link"
+	printf 'ok: linked worktrees are refused for the real home\n'
 }
 
 case_sync() {
@@ -335,11 +390,13 @@ case_repair() {
 	cp -R "$fixture_dir/skills/." "$factory/skills/"
 	printf 'hand edit\n' >>"$factory/skills/alpha/SKILL.md"
 	run_bootstrap
-	[ "$code" -eq 0 ] || fail "bootstrap did not repair a drifted vendored skill: $output"
-	expect_contains "$output" "skills:sync repaired the vendored skills"
-	[ "$(cat "$factory/skills/alpha/SKILL.md")" = "alpha" ] || fail "the vendored skill was not restored"
-	[ -f "$factory/skills/ardia/SKILL.md" ] || fail "the repair removed a tool-owned skill"
-	printf 'ok: bootstrap repairs a drifted vendored skill\n'
+	[ "$code" -ne 0 ] || fail "bootstrap repaired a drifted vendored skill without approval"
+	expect_contains "$output" "skills/alpha/SKILL.md"
+	expect_contains "$output" "mise run skills:sync"
+	grep -q 'hand edit' "$factory/skills/alpha/SKILL.md" || fail "bootstrap destroyed the local edit"
+	[ ! -e "$home/.agents" ] || fail "bootstrap wrote links before refusing the drift"
+	[ ! -e "$factory/skills/ardia/SKILL.md" ] || fail "bootstrap installed tools before refusing the drift"
+	printf 'ok: bootstrap refuses a drifted vendored skill\n'
 }
 
 case_tracked() {
@@ -373,6 +430,8 @@ case_all() {
 	case_second
 	case_broken
 	case_refuse
+	case_external
+	case_worktree
 	case_sync
 	case_codex
 	case_env
@@ -386,6 +445,8 @@ fresh) case_fresh ;;
 second) case_second ;;
 broken) case_broken ;;
 refuse) case_refuse ;;
+external) case_external ;;
+worktree) case_worktree ;;
 sync) case_sync ;;
 codex) case_codex ;;
 env) case_env ;;

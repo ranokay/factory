@@ -242,6 +242,16 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "refuse" }
         expect { code = 0 }
       }
+      ["external symlinks need approval and are backed up"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "external" }
+        expect { code = 0 }
+      }
+      ["linked worktrees are refused for the real home"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "worktree" }
+        expect { code = 0 }
+      }
       ["skills:sync --check ignores tool-owned skill directories"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "sync" }
@@ -262,7 +272,7 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "hooks" }
         expect { code = 0 }
       }
-      ["bootstrap repairs a drifted vendored skill"] {
+      ["bootstrap refuses a drifted vendored skill"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "repair" }
         expect { code = 0 }
