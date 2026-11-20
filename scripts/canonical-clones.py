@@ -97,12 +97,13 @@ def inventory(roots, developer):
                 reason = 'destination already exists'
         if len(targets[target]) > 1:
             reason = 'repository name collision: ' + ', '.join(targets[target])
-        clone_worktrees = {}
+        clone_worktrees, inspection_errors = {}, {}
         for path in paths:
             try:
                 clone_worktrees[str(path)] = linked_worktrees(path)
             except (OSError, subprocess.SubprocessError) as error:
                 clone_worktrees[str(path)] = []
+                inspection_errors[str(path)] = f'worktree inspection failed: {error}'
                 if path == selected:
                     reason = f'worktree inspection failed: {error}'
         if selected is not None and selected != target and clone_worktrees[str(selected)] and reason is None:
@@ -112,6 +113,8 @@ def inventory(roots, developer):
             if path != selected:
                 try:
                     reasons = work(path)
+                    if str(path) in inspection_errors:
+                        reasons.append(inspection_errors[str(path)])
                     if clone_worktrees[str(path)]:
                         reasons.append('linked worktrees')
                 except (OSError, subprocess.SubprocessError) as error:
@@ -153,8 +156,9 @@ def main():
         if args.action == 'move' and entry['move']:
             old, new = Path(entry['selected']), Path(entry['canonical'])
             try:
-                if linked_worktrees(old):
-                    raise ValueError('linked worktrees require manual migration: ' + ', '.join(linked_worktrees(old)))
+                current_worktrees = linked_worktrees(old)
+                if current_worktrees:
+                    raise ValueError('linked worktrees require manual migration: ' + ', '.join(current_worktrees))
                 if new.exists() or new.is_symlink():
                     raise ValueError('destination already exists')
                 new.parent.mkdir(parents=True, exist_ok=True)

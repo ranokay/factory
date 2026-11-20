@@ -163,6 +163,19 @@ class ClonesTest(unittest.TestCase):
         data = json.loads(self.cli('move', '--json').stdout)
         self.assertEqual(data['repoint'], [{'old': str(old), 'new': str(new)}])
 
+    def test_failed_duplicate_worktree_inspection_is_not_clean(self):
+        self.repo(self.developer, 'repo')
+        duplicate = self.repo(self.source, 'copy')
+        original = clones.linked_worktrees
+        def inspect(path):
+            if path == duplicate:
+                raise OSError('fixture failure')
+            return original(path)
+        with patch.object(clones, 'linked_worktrees', side_effect=inspect):
+            result = clones.inventory([self.source, self.developer], self.developer)
+        entry = result['repositories'][0]['duplicates'][0]
+        self.assertIn('worktree inspection failed: fixture failure', entry['unpublished'])
+
     def test_source_linked_worktree_and_report_move_parity(self):
         main = self.repo(self.source, 'repo')
         linked = self.source / 'linked'
