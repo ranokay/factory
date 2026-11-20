@@ -52,6 +52,19 @@ copy_factory() {
 	done <"$root/scripts/tool-skills.txt"
 }
 
+init_git() {
+	git -C "$1" init -q
+	git -C "$1" config user.name "Bootstrap test"
+	git -C "$1" config user.email "bootstrap-test@example.invalid"
+	git -C "$1" config commit.gpgsign false
+}
+
+baseline_repo() {
+	init_git "$1"
+	git -C "$1" add -A
+	git -C "$1" commit -qm "baseline"
+}
+
 make_stubs() {
 	bin=$1
 	mkdir -p "$bin"
@@ -323,12 +336,7 @@ case_external() {
 
 case_worktree() {
 	setup_case worktree
-	git -C "$factory" init -q
-	git -C "$factory" config user.name "Bootstrap test"
-	git -C "$factory" config user.email "bootstrap-test@example.invalid"
-	git -C "$factory" config commit.gpgsign false
-	git -C "$factory" add -A
-	git -C "$factory" commit -qm "baseline"
+	baseline_repo "$factory"
 	worktree_dir=$case_dir/worktree
 	git -C "$factory" worktree add -q "$worktree_dir"
 	fake_home=$case_dir/fake-home
@@ -437,10 +445,7 @@ case_repair() {
 case_tracked() {
 	fixture=$test_root/tracked
 	mkdir -p "$fixture/skills/ardia"
-	git -C "$fixture" init -q
-	git -C "$fixture" config user.name "Bootstrap test"
-	git -C "$fixture" config user.email "bootstrap-test@example.invalid"
-	git -C "$fixture" config commit.gpgsign false
+	init_git "$fixture"
 	printf '# ardia\n' >"$fixture/skills/ardia/SKILL.md"
 	git -C "$fixture" add skills/ardia/SKILL.md
 	git -C "$fixture" commit -qm "import ardia"
@@ -460,6 +465,58 @@ case_tracked() {
 	printf 'ok: tool-owned skill tracking and ignore drift are checked\n'
 }
 
+case_synced_tracked() {
+	setup_case synced-tracked
+	baseline_repo "$factory"
+	mkdir -p "$factory/skills/synced/bucket/nested/skill"
+	printf '# nested\n' >"$factory/skills/synced/bucket/nested/skill/SKILL.md"
+	git -C "$factory" add -f skills/synced/bucket/nested/skill/SKILL.md
+	run_check_tool_skills "$factory"
+	[ "$code" -ne 0 ] || fail "a tracked synced cache passed the check"
+	expect_contains "$output" "skills/synced/bucket/nested/skill/SKILL.md"
+	printf 'ok: a tracked synced skill fails the check and names the path\n'
+}
+
+case_synced_ignored() {
+	setup_case synced-ignored
+	baseline_repo "$factory"
+	mkdir -p "$factory/skills/synced/bucket-one/alpha" "$factory/skills/synced/bucket-two/beta/references"
+	printf '# alpha\n' >"$factory/skills/synced/bucket-one/alpha/SKILL.md"
+	printf '# beta\n' >"$factory/skills/synced/bucket-two/beta/SKILL.md"
+	printf '# cache root\n' >"$factory/skills/synced/SKILL.md"
+	run_command git -C "$factory" status --porcelain
+	[ -z "$output" ] || fail "a populated synced cache is not ignored: $output"
+	run_check_tool_skills "$factory"
+	[ "$code" -eq 0 ] || fail "an ignored synced cache failed the check: $output"
+	expect_contains "$output" "tool-owned skill checks passed"
+	grep -v '^skills/synced/$' "$factory/.gitignore" >"$factory/.gitignore.replaced"
+	mv "$factory/.gitignore.replaced" "$factory/.gitignore"
+	run_check_tool_skills "$factory"
+	[ "$code" -ne 0 ] || fail "a synced cache without its ignore rule passed the check"
+	expect_contains "$output" "synced skill cache is not ignored: skills/synced/bucket-one/alpha/SKILL.md"
+	printf 'ok: an ignored synced cache keeps git status clean and passes the check\n'
+}
+
+case_synced_discovery() {
+	setup_case synced-discovery
+	baseline_repo "$factory"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	count=$(printf '%s\n' "$output" | sed -n 's/.*(\([0-9][0-9]*\) skills)/\1/p')
+	[ -n "$count" ] || fail "bootstrap did not report a skill count: $output"
+	mkdir -p "$factory/skills/synced/bucket/skill"
+	printf '# synced\n' >"$factory/skills/synced/bucket/skill/SKILL.md"
+	printf '# cache root\n' >"$factory/skills/synced/SKILL.md"
+	run_command git -C "$factory" status --porcelain
+	[ -z "$output" ] || fail "bootstrap plus a populated synced cache is not clean: $output"
+	run_discovery
+	[ "$code" -eq 0 ] || fail "discovery failed with a synced cache present: $output"
+	expect_contains "$output" "discovery check passed for claude-code, opencode and codex ($count skills)"
+	expect_not_contains "$output" "skills/synced"
+	[ -f "$factory/skills/synced/bucket/skill/SKILL.md" ] || fail "discovery removed the synced cache"
+	printf 'ok: discovery counts are unchanged with the synced cache present\n'
+}
+
 case_all() {
 	case_fresh
 	case_second
@@ -473,6 +530,9 @@ case_all() {
 	case_hooks
 	case_repair
 	case_tracked
+	case_synced_tracked
+	case_synced_ignored
+	case_synced_discovery
 }
 
 case $case_name in
@@ -488,6 +548,9 @@ env) case_env ;;
 hooks) case_hooks ;;
 repair) case_repair ;;
 tracked) case_tracked ;;
+synced-tracked) case_synced_tracked ;;
+synced-ignored) case_synced_ignored ;;
+synced-discovery) case_synced_discovery ;;
 all) case_all ;;
 *)
 	printf 'unknown case: %s\n' "$case_name" >&2

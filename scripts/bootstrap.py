@@ -27,6 +27,8 @@ TOOL_SKILLS_FILE = ROOT / "scripts" / "tool-skills.txt"
 REQUIRED_TOOL_GROUPS = ("ardia", "cua", "ctx7", "rea", "gh-stack")
 GH_STACK_PIN = "d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419"
 CODEX_MANAGED_SKILLS = {".system"}
+# Claude Code's claude.ai sync cache: skills/synced/<bucket>/<skill>/SKILL.md.
+SYNCED_SKILLS = "synced"
 
 
 @dataclass(frozen=True)
@@ -289,7 +291,7 @@ def factory_skill_names() -> set[str]:
     return {
         path.name
         for path in (ROOT / "skills").iterdir()
-        if path.is_dir() and (path / "SKILL.md").is_file()
+        if path.is_dir() and path.name != SYNCED_SKILLS and (path / "SKILL.md").is_file()
     }
 
 
@@ -381,7 +383,9 @@ def discovery(home: Path) -> int:
             names |= {
                 entry.name
                 for entry in path.iterdir()
-                if entry.is_dir() and (entry / "SKILL.md").is_file()
+                if entry.is_dir()
+                and entry.name != SYNCED_SKILLS
+                and (entry / "SKILL.md").is_file()
             }
         discovered[harness] = names
         if names != expected_names:
@@ -414,37 +418,85 @@ def git(root: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+def git_paths(root: Path, label: str, *args: str) -> list[str] | None:
+    result = git(root, *args)
+    if result.returncode != 0:
+        print(f"bootstrap: cannot list {label} in {root}: {result.stderr.strip()}", file=sys.stderr)
+        return None
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def synced_cache_errors(root: Path) -> list[str] | None:
+    tracked = git_paths(root, "tracked synced cache files", "ls-files", "--", f"skills/{SYNCED_SKILLS}")
+    if tracked is None:
+        return None
+    untracked = git_paths(
+        root,
+        "untracked synced cache files",
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "--",
+        f"skills/{SYNCED_SKILLS}",
+    )
+    if untracked is None:
+        return None
+    return [f"synced skill cache is tracked: {path}" for path in tracked] + [
+        f"synced skill cache is not ignored: {path}" for path in untracked
+    ]
+
+
 def check_tool_skills(root: Path) -> int:
     names = read_tool_skills()
-    tracked = git(root, "ls-files", "--", *[f"skills/{name}" for name in names])
-    if tracked.returncode != 0:
-        print(f"bootstrap: cannot list tracked files in {root}: {tracked.stderr.strip()}", file=sys.stderr)
+    tracked = git_paths(
+        root, "tracked tool-owned skill files", "ls-files", "--", *[f"skills/{name}" for name in names]
+    )
+    if tracked is None:
         return 1
-    untracked = git(root, "ls-files", "--others", "--exclude-standard", "--", ":(glob)skills/*/SKILL.md")
-    if untracked.returncode != 0:
-        print(f"bootstrap: cannot list untracked files in {root}: {untracked.stderr.strip()}", file=sys.stderr)
+    untracked = git_paths(
+        root,
+        "untracked skill files",
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "--",
+        ":(glob)skills/*/SKILL.md",
+    )
+    if untracked is None:
+        return 1
+    synced_errors = synced_cache_errors(root)
+    if synced_errors is None:
         return 1
     problems = False
-    for path in [line for line in tracked.stdout.splitlines() if line]:
+    for path in tracked:
         print(f"bootstrap: tool-owned skill is tracked: {path}", file=sys.stderr)
         problems = True
-    for path in [line for line in untracked.stdout.splitlines() if line]:
+    for path in untracked:
         print(f"bootstrap: untracked skill is not declared as tool-owned: {path}", file=sys.stderr)
+        problems = True
+    for error in synced_errors:
+        print(f"bootstrap: {error}", file=sys.stderr)
         problems = True
     for name in names:
         ignored = git(root, "check-ignore", "-q", f"skills/{name}/SKILL.md")
         if ignored.returncode != 0:
             print(f"bootstrap: declared tool-owned skill is not ignored: skills/{name}", file=sys.stderr)
             problems = True
-    ignored_files = git(
-        root, "ls-files", "--others", "--ignored", "--exclude-standard", "--", ":(glob)skills/*/SKILL.md"
+    ignored_files = git_paths(
+        root,
+        "ignored skill files",
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "--",
+        ":(glob)skills/*/SKILL.md",
     )
-    if ignored_files.returncode != 0:
-        print(f"bootstrap: cannot list ignored files in {root}: {ignored_files.stderr.strip()}", file=sys.stderr)
+    if ignored_files is None:
         return 1
-    for path in [line for line in ignored_files.stdout.splitlines() if line]:
+    for path in ignored_files:
         name = Path(path).parts[1] if len(Path(path).parts) > 1 else path
-        if name not in names:
+        if name != SYNCED_SKILLS and name not in names:
             print(f"bootstrap: ignored skill is not declared tool-owned: skills/{name}", file=sys.stderr)
             problems = True
     if problems:
