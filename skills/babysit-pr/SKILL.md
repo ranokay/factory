@@ -163,6 +163,13 @@ Inside a Run, readiness includes the Supervisor's `supervise · merge` for this
 head, which follows the final Definition of Done check. Without it, the PR is not
 ready to merge.
 
+In the Factory, the Verification Evidence is the single `evidence` comment on
+the PR. Its Run receipt takes the Worker model and variant from the launch
+target, whether the fallback ran from the executed model against the requested
+one, the Run's Worker attempt count, the harness usage for token cost
+(`unavailable (<reason>)` only when it reports none), and the gate commands that
+actually ran. Every field is required.
+
 Once readiness is verified, merge as part of the default babysitting request,
 subject to the merge policy above. Use the repository's merge method, or squash
 when none is specified, and a merge commit for a Sync PR. Refresh the live head,
@@ -187,12 +194,22 @@ simulator blocks the hand-off until it is stopped.
 
 After verifying the merge:
 
+- In the Factory, clean up with `~/Developer/factory/skills/evidence/scripts/evidence
+  cleanup --worktree <path> --pr <n> [--repo owner/name]`, run from the main
+  checkout (also `mise run evidence -- cleanup ...` in the Factory Repo).
+  It deletes the remote and local topic branches, the worktree with its build
+  outputs, and the PR's evidence directories. It refuses when the PR is not
+  merged, when a surviving ref or worktree tip is not the merged head, or when
+  another open PR uses the branch; the remote delete is guarded by an
+  expected-SHA lease. A missing worktree, branch or evidence directory is
+  reported as already gone.
 - Perform branch deletion through these cleanup checks. A merge command's
   cleanup option must not bypass them.
 - Delete only the merged PR's remote topic branch, using an expected-SHA deletion
-  guard against the verified merged PR head. If a safe deletion guard is
-  unavailable, report the cleanup as skipped. Preserve remote branches reused by
-  another open PR or active task. This task's own active local checkout does not
+  guard against the verified merged PR head; the Factory tool does so with
+  `--force-with-lease`. If a safe deletion guard is unavailable, report the
+  cleanup as skipped. Preserve remote branches reused by another open PR or
+  active task. This task's own active local checkout does not
   by itself prevent deleting the remote ref. Account for automatic remote deletion.
 - Delete the local topic branch only when it is unused and its tip is the
   verified merged PR head or its work is otherwise proven included in the merge.

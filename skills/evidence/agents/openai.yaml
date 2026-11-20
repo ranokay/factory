@@ -1,0 +1,3 @@
+interface:
+  display_name: "Evidence"
+  short_description: "Record Verification Evidence and post the single PR evidence comment"

@@ -5,6 +5,7 @@ include = ["./profiles/universal/mise.toml"]
 [tools]
 python = "3.13.18"
 uv = "0.11.27"
+ffmpeg = "9.0.2"
 
 [task_config]
 includes = ["profiles/universal/tasks.toml"]
@@ -12,6 +13,10 @@ includes = ["profiles/universal/tasks.toml"]
 [tasks."skills:sync"]
 description = "Sync Vendored Skills at their pins; --check, --check --fetch or --update"
 run = "uv run scripts/skills-sync.py"
+
+[tasks.evidence]
+description = "Record Verification Evidence and post the single PR evidence comment"
+run = "./skills/evidence/scripts/evidence"
 
 [tasks.check]
 description = "Run every Gate"
@@ -21,6 +26,7 @@ depends = [
   "block-issue:test",
   "file-promotion:test",
   "process-receipt:test",
+  "evidence:test",
 ]
 
 [tasks."skills:test"]
@@ -42,3 +48,7 @@ run = "hk test --step file-promotion"
 [tasks."process-receipt:test"]
 description = "Run the process-receipt tests"
 run = "hk test --step process-receipt"
+
+[tasks."evidence:test"]
+description = "Run the evidence CLI tests"
+run = "hk test --step evidence"

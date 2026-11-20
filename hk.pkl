@@ -305,4 +305,100 @@ steps {
       }
     }
   }
+
+  ["evidence"] = new Step {
+    check = "python3 {{root}}/skills/evidence/scripts/evidence-test"
+    tests {
+      ["evidence stays out of the repository"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_outside" }
+        expect { code = 0 }
+      }
+      ["the repository and branch default to gh and the current branch"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "defaults" }
+        expect { code = 0 }
+      }
+      ["add refuses a source inside the repository"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_source_inside" }
+        expect { code = 0 }
+      }
+      ["add refuses a cache inside the repository"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_dest_inside" }
+        expect { code = 0 }
+      }
+      ["staged evidence moves to the PR directory before the comment"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "stage_attach" }
+        expect { code = 0 }
+      }
+      ["attach without a PR resolves it and posts from the PR directory"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_resolves_pr" }
+        expect { code = 0 }
+      }
+      ["a video over the limit is compressed and the comment is replaced"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "video" }
+        expect { code = 0 }
+      }
+      ["a file over the limit fails before upload"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "oversize" }
+        expect { code = 0 }
+      }
+      ["the receipt requires every field and one cost exception"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "receipt_rules" }
+        expect { code = 0 }
+      }
+      ["more than 50 attachments is refused"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "too_many" }
+        expect { code = 0 }
+      }
+      ["a gh failure names its cause"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_gh_failure" }
+        expect { code = 0 }
+      }
+      ["a failed replacement keeps one evidence comment"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_rollback" }
+        expect { code = 0 }
+      }
+      ["a staged directory left behind is reported"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "stage_leftover" }
+        expect { code = 0 }
+      }
+      ["a cache permission failure is reported"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "cleanup_prune" }
+        expect { code = 0 }
+      }
+      ["cleanup removes the worktree, branches and evidence"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "cleanup" }
+        expect { code = 0 }
+      }
+      ["cleanup tolerates an already-deleted remote branch and a rerun"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "cleanup_idempotent" }
+        expect { code = 0 }
+      }
+      ["cleanup refuses unmerged heads and dirty worktrees"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "cleanup_refusals" }
+        expect { code = 0 }
+      }
+      ["the mise task runs the command"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "mise_task" }
+        expect { code = 0 }
+      }
+    }
+  }
 }

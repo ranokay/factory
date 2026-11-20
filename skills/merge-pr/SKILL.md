@@ -80,6 +80,14 @@ Readiness requires all of:
 Hosted AI reviews are optional under the shared workflow unless explicitly
 requested for this run. Report incomplete bot coverage without waiting for it;
 inspect available findings and respect actual forge-enforced protections.
+
+Inside a Factory Run, the Verification Evidence is the single `evidence`
+comment on the PR. Its Run receipt takes the Worker model and variant from the
+launch target, whether the fallback ran from the executed model against the
+requested one, the Run's Worker attempt count, the harness usage for token cost
+(`unavailable (<reason>)` only when it reports none), and the gate commands that
+actually ran. Every field is required.
+
 Unknown mergeability, pending required checks, and missing required local or
 human reviews are pending, not ready. Enabling GitHub auto-merge is acceptable only as the repository's
 required queue mechanism for an otherwise-ready PR. Do not enable it, or request
@@ -142,12 +150,23 @@ local ref belongs to the PR's repositories: the topic branch to the head
 repository, and the integration checkout to the base repository and base
 branch. If either does not match, skip that part and report it.
 
+In the Factory, run `~/Developer/factory/skills/evidence/scripts/evidence cleanup
+--worktree <path> --pr <n> [--repo owner/name]` from the main checkout (also
+`mise run evidence -- cleanup ...` in the Factory Repo). It deletes the remote
+and local topic branches, the worktree with its build outputs, and the PR's
+evidence directories. It refuses when the PR is not merged, when a surviving ref
+or worktree tip is not the merged head, or when another open PR uses the branch;
+the remote delete is guarded by an expected-SHA lease. A missing worktree,
+branch or evidence directory is reported as already gone. The bullets below
+state the requirement it enforces.
+
 - Delete only the merged PR's remote topic branch, guarded by the verified merged
-  head SHA. If no safe expected-SHA deletion is available, skip and report it.
-  Preserve a remote branch used by another open PR or active task. If the head is
-  a fork, skip the remote deletion unless the user explicitly asked to delete
-  that fork branch. Account for automatic deletion; a missing branch is success,
-  not an error.
+  head SHA; the Factory tool does so with `--force-with-lease`. When a safe
+  expected-SHA deletion is unavailable, skip it and report that, so no ref is
+  deleted on trust. Preserve a remote branch used by another open PR or active
+  task. If the head is a fork, skip the remote deletion unless the user
+  explicitly asked to delete that fork branch. Account for automatic deletion; a
+  missing branch is success, not an error.
 - Delete the local topic branch only when it is unused, belongs to the PR's head
   repository, and its tip is the verified merged head or its work is proven
   included in the merge. For a squash merge, ancestry does not prove inclusion;
