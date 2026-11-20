@@ -208,6 +208,52 @@ steps {
     }
   }
 
+  ["bootstrap"] = new Step {
+    check = "sh {{root}}/scripts/bootstrap-test.sh"
+    tests {
+      ["a fresh temp HOME gets the Factory links"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "fresh" }
+        expect { code = 0 }
+      }
+      ["the second run changes nothing and says so"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "second" }
+        expect { code = 0 }
+      }
+      ["a broken link names the harness and the path"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "broken" }
+        expect { code = 0 }
+      }
+      ["real directories are refused, then backed up with approval"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "refuse" }
+        expect { code = 0 }
+      }
+      ["skills:sync --check ignores tool-owned skill directories"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "sync" }
+        expect { code = 0 }
+      }
+      ["Codex extras are named and managed entries are ignored"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "codex" }
+        expect { code = 0 }
+      }
+      ["the hook helpers still resolve and run"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "hooks" }
+        expect { code = 0 }
+      }
+      ["a tracked tool-owned skill fails the check"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "tracked" }
+        expect { code = 0 }
+      }
+    }
+  }
+
   ["block-issue"] = new Step {
     check = "sh {{root}}/skills/supervise/scripts/block-issue-test.sh"
     tests {
