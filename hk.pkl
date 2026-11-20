@@ -260,6 +260,16 @@ steps {
     }
   }
 
+  ["gc"] = new Step {
+    check = "sh {{root}}/scripts/gc-test.sh"
+    tests {
+      ["prunes stale data and keeps unsafe candidates"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
   ["bootstrap"] = new Step {
     check = "sh {{root}}/scripts/bootstrap-test.sh"
     tests {
@@ -341,6 +351,11 @@ steps {
       ["bootstrap renders, checks, backs up and repairs the MCP configs"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "mcp" }
+        expect { code = 0 }
+      }
+      ["the gc agent is installed and drift is detected"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "gc-agent" }
         expect { code = 0 }
       }
       ["the secrets agent uses an absolute interpreter and retries loudly"] {

@@ -642,6 +642,39 @@ case_secrets_agent() {
 	printf 'ok: the secrets agent uses an absolute interpreter and retries loudly\n'
 }
 
+case_gc_agent() {
+	setup_case gc-agent
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	plist=$home/Library/LaunchAgents/dev.factory.gc.plist
+	[ -f "$plist" ] || fail "gc plist missing"
+	[ "$(plist_value "$plist" Label)" = dev.factory.gc ] || fail "wrong label"
+	[ "$(plist_value "$plist" StartCalendarInterval.Weekday)" = 0 ] || fail "wrong day"
+	[ "$(plist_value "$plist" StartCalendarInterval.Hour)" = 3 ] || fail "wrong hour"
+	[ "$(plist_value "$plist" StartCalendarInterval.Minute)" = 0 ] || fail "wrong minute"
+	[ "$(plist_value "$plist" ProgramArguments.2)" = "$home/.agents" ] || fail "wrong working directory"
+	[ "$(plist_value "$plist" ProgramArguments.3)" = run ] || fail "does not run a task"
+	[ "$(plist_value "$plist" ProgramArguments.4)" = gc ] || fail "does not run gc"
+	[ "$(plist_value "$plist" StandardOutPath)" = "$home/Library/Logs/factory-gc.log" ] || fail "wrong log path"
+	[ "$(plist_value "$plist" StandardErrorPath)" = "$home/Library/Logs/factory-gc-error.log" ] || fail "wrong error log path"
+	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v mise)")"
+	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v gh)")"
+	[ -n "$(env -i PATH="$(plist_value "$plist" EnvironmentVariables.PATH)" /bin/sh -c 'command -v uv')" ] || fail "uv is not on the gc agent PATH"
+	run_discovery
+	[ "$code" -eq 0 ] || fail "gc discovery failed: $output"
+	printf 'ok: gc plist installed at %s and discovery passed\n' "$plist"
+	run_python -c 'import plistlib,sys; p=sys.argv[1]; d=plistlib.loads(open(p,"rb").read()); d["StartCalendarInterval"]["Hour"]=4; open(p,"wb").write(plistlib.dumps(d))' "$plist"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "drift went undetected"
+	expect_contains "$output" dev.factory.gc.plist
+	printf 'ok: gc plist drift detected\n'
+	rm "$plist"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "missing plist went undetected"
+	expect_contains "$output" dev.factory.gc.plist
+	printf 'ok: missing gc plist detected\n'
+}
+
 case_plist_drift() {
 	setup_case plist-drift
 	run_bootstrap
@@ -888,6 +921,7 @@ case_all() {
 	case_synced_discovery
 	case_mcp
 	case_secrets_agent
+	case_gc_agent
 	case_plist_drift
 	case_plist_interpreter
 	case_ssh_agent
@@ -915,6 +949,7 @@ synced-ignored) case_synced_ignored ;;
 synced-discovery) case_synced_discovery ;;
 mcp) case_mcp ;;
 secrets-agent) case_secrets_agent ;;
+gc-agent) case_gc_agent ;;
 plist-drift) case_plist_drift ;;
 plist-interpreter) case_plist_interpreter ;;
 ssh-agent) case_ssh_agent ;;
