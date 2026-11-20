@@ -36,6 +36,7 @@ SECRET_RETRY_SECONDS = 60
 SECRET_LOG = Path("Library") / "Logs" / "factory-secrets.log"
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
 SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
+GITHUB_HOST_RE = re.compile(r"(?i)^\s*Host\s+github\.com(?![A-Za-z0-9.-])")
 GITHUB_HTTPS = re.compile(r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$")
 GITHUB_SSH = re.compile(r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$")
 
@@ -371,15 +372,39 @@ def replace_managed_block(text: str, block: str) -> str | None:
             continue
         found = True
         index += 1
-        if index < len(lines) and re.match(r"(?i)^\s*Host\s+github\.com", lines[index]):
+        look = index
+        while look < len(lines) and not lines[look].strip():
+            look += 1
+        if look < len(lines):
+            indented_option = lines[look].startswith((" ", "\t")) and not re.match(
+                r"(?i)^\s*(Host|Match)\s+", lines[look]
+            )
+            if GITHUB_HOST_RE.match(lines[look]) or indented_option:
+                index = look
+        if index < len(lines) and GITHUB_HOST_RE.match(lines[index]):
             index += 1
-        while (
-            index < len(lines)
-            and lines[index].strip()
-            and lines[index].startswith((" ", "\t"))
-            and not re.match(r"(?i)^\s*(Host|Match)\s+", lines[index])
-        ):
-            index += 1
+        while True:
+            if (
+                index < len(lines)
+                and lines[index].strip()
+                and lines[index].startswith((" ", "\t"))
+                and not re.match(r"(?i)^\s*(Host|Match)\s+", lines[index])
+            ):
+                index += 1
+                continue
+            if index < len(lines) and not lines[index].strip():
+                look = index
+                while look < len(lines) and not lines[look].strip():
+                    look += 1
+                if (
+                    look < len(lines)
+                    and lines[look].strip()
+                    and lines[look].startswith((" ", "\t"))
+                    and not re.match(r"(?i)^\s*(Host|Match)\s+", lines[look])
+                ):
+                    index = look
+                    continue
+            break
         if index < len(lines) and re.match(r"(?i)^\s*Match\s+all\s*$", lines[index]):
             index += 1
     if not found:

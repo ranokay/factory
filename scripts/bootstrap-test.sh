@@ -691,23 +691,29 @@ case_ssh_agent() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the ssh block was written twice"
-	printf '  \n# keep-trailing   \n' >>"$home/.ssh/config"
+	printf 'ForwardX11 yes\n  \n# keep-trailing   \n' >>"$home/.ssh/config"
+	run_command ssh -F "$home/.ssh/config" -G example
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the config with a global line: $output"
+	expect_contains "$output" "forwardx11 yes"
 	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    User git\n", "    User git\n\n    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
 	[ "$code" -eq 0 ] || fail "cannot drift the ssh block: $output"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair the ssh block: $output"
 	expect_contains "$output" "updated github.com"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the repaired block duplicated the marker"
+	[ "$(count_lines 'IdentityAgent .*1password' "$home/.ssh/config")" -eq 1 ] || fail "the repair left an orphaned agent line"
 	run_command ssh -F "$home/.ssh/config" -G github.com
 	[ "$code" -eq 0 ] || fail "ssh cannot parse the repaired config: $output"
 	expect_contains "$output" "identitiesonly no"
+	run_command ssh -F "$home/.ssh/config" -G example
+	expect_contains "$output" "forwardx11 yes"
 	grep -q '^  $' "$home/.ssh/config" || fail "the repair dropped a whitespace-only line"
 	grep -q '^# keep-trailing   $' "$home/.ssh/config" || fail "the repair did not preserve trailing content byte-for-byte"
 	printf '\n# Factory: github.com through the 1Password SSH agent\nHost github.com\n    IdentityAgent "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >>"$home/.ssh/config"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not remove a duplicate block: $output"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "a duplicate ssh block survived"
-	printf '\n# Factory: github.com through the 1Password SSH agent\n    Bogus\n' >>"$home/.ssh/config"
+	printf '\n# Factory: github.com through the 1Password SSH agent\n\n    Bogus\n' >>"$home/.ssh/config"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap did not repair a corrupt block: $output"
 	[ "$(count_lines '^Host github.com$' "$home/.ssh/config")" -eq 1 ] || fail "a corrupt block orphaned a second Host github.com"
@@ -720,6 +726,11 @@ case_ssh_agent() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind an indented host block: $output"
 	grep -q '^  Host indented-example$' "$home/.ssh/config" || fail "the repair removed an indented user block"
+	printf '\nHost github.company\n    User similar\n' >>"$home/.ssh/config"
+	run_python -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("    IdentitiesOnly no\n", "    IdentitiesOnly yes\n", 1))' "$home/.ssh/config"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a look-alike host block: $output"
+	grep -q '^Host github.company$' "$home/.ssh/config" || fail "the repair removed a look-alike host block"
 	printf 'ok: the ssh config routes GitHub through 1Password and the origin moves to SSH\n'
 }
 
