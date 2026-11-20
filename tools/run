@@ -1,5 +1,4 @@
 #!/bin/sh
-# Bootstrap outside repository environments and lockfiles, using the pinned interpreter.
 set -eu
 tool_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 if [ "$#" -eq 0 ]; then

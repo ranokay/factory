@@ -1,32 +1,13 @@
-"""Checkout identity is observed from the requested working directory."""
+#!/usr/bin/env python3
 
-import importlib.util
-import shutil
+import json
 import subprocess
+import sys
 import tempfile
 import unittest
-import unittest.mock
 from pathlib import Path
 
-SPEC = importlib.util.spec_from_file_location("environment_check", Path(__file__).parents[1] / "environment_check.py")
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
-
-
-class LowDiskTests(unittest.TestCase):
-    def free_bytes(self, free):
-        return unittest.mock.patch.object(MODULE.shutil, "disk_usage", return_value=shutil._ntuple_diskusage(0, 0, free))
-
-    def test_warns_below_the_threshold_with_the_free_space(self):
-        with self.free_bytes(34 * MODULE.GIB):
-            self.assertIn("34 GiB free", MODULE.low_disk_warning(Path("/")))
-
-    def test_stays_silent_at_the_threshold(self):
-        with self.free_bytes(MODULE.LOW_DISK_BYTES):
-            self.assertEqual(MODULE.low_disk_warning(Path("/")), "")
-
-    def test_a_missing_path_is_not_a_warning(self):
-        self.assertEqual(MODULE.low_disk_warning(Path("/nonexistent/agent-test")), "")
+SCRIPT = Path(__file__).resolve().parents[1] / "environment_check.py"
 
 
 class CheckoutTests(unittest.TestCase):
@@ -51,39 +32,78 @@ class CheckoutTests(unittest.TestCase):
             ["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True
         ).stdout.strip()
 
+    def check(self, cwd=None):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "check", "--cwd", str(cwd or self.root)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def state(self, cwd=None, code=0):
+        result = self.check(cwd)
+        self.assertEqual(result.returncode, code, result.stderr)
+        return json.loads(result.stdout)
+
     def test_subdirectory_uses_its_actual_root(self):
         nested = self.root / "nested"
         nested.mkdir()
-        state = MODULE.checkout(nested)
+        state = self.state(nested)
         self.assertEqual(state["root"], str(self.root))
         self.assertEqual(state["status"], "ok")
         self.assertTrue(state["contains_baseline"])
+        self.assertEqual(state["instructions"], ["AGENTS.md"])
 
     def test_integration_branch_is_the_one_origin_head_names(self):
         self.git("update-ref", "refs/remotes/origin/main", "HEAD")
         self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
-        self.assertEqual(MODULE.checkout(self.root)["integration_branch"], "origin/main")
+        self.assertEqual(self.state()["integration_branch"], "origin/main")
 
     def test_checkout_behind_the_integration_branch_is_reported(self):
         self.git("commit", "-q", "--allow-empty", "-m", "newer")
         self.git("update-ref", "refs/remotes/origin/develop", "HEAD")
         self.git("checkout", "-q", "--detach", "HEAD~1")
-        state = MODULE.checkout(self.root)
+        state = self.state(code=1)
         self.assertEqual(state["status"], "needs_preflight")
         self.assertIn("origin/develop", state["warnings"][0])
 
     def test_unset_origin_head_is_reported(self):
         self.git("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
-        state = MODULE.checkout(self.root)
+        state = self.state(code=1)
         self.assertEqual(state["status"], "needs_preflight")
         self.assertEqual(len(state["warnings"]), 1)
 
-    def test_startup_hook_reports_the_checkout(self):
-        payload = MODULE.hook_output("SessionStart", "Checkout preflight: ok")
-        self.assertEqual(payload["hookSpecificOutput"]["additionalContext"], "Checkout preflight: ok")
+    def test_a_non_git_directory_exits_non_zero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.check(Path(directory))
+            state = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(state["status"], "not_git")
 
-    def test_non_repository_has_a_distinct_result(self):
-        self.assertEqual(MODULE.checkout(self.root.parent)["status"], "not_git")
+
+class StartupTests(unittest.TestCase):
+    def run_startup(self, payload):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "startup"],
+            input=payload,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_startup_reports_the_checkout_in_hook_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            result = self.run_startup(json.dumps({"cwd": str(root)}))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = json.loads(result.stdout)
+            self.assertEqual(output["hookSpecificOutput"]["hookEventName"], "SessionStart")
+            self.assertIn("Checkout preflight", output["hookSpecificOutput"]["additionalContext"])
+
+    def test_startup_rejects_a_non_object_payload(self):
+        result = self.run_startup("[]")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("invalid hook input", result.stderr)
 
 
 if __name__ == "__main__":

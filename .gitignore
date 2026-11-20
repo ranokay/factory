@@ -1,5 +1,3 @@
-# Tool-owned skills, installed by their own CLIs through the ~/.claude/skills
-# symlink. They are never committed; `bootstrap --check-tool-skills` fails if one is.
 skills/ardia/
 skills/cua-driver/
 skills/cua-sandboxes/

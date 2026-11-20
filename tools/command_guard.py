@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Deny a few known shell mistakes in a PreToolUse hook payload."""
 
 from __future__ import annotations
 
@@ -48,7 +47,6 @@ def heredoc_word(body: str) -> Word:
 
 
 def shell_words(command: str) -> list[Word]:
-    """Keep quote provenance; shlex discards the information this guard needs."""
     words: list[Word] = []
     heredocs: list[tuple[str, bool, bool]] = []
     heredoc_operator: str | None = None
@@ -139,7 +137,6 @@ def has_unquoted_glob(word: Word, start: int = 0) -> bool:
 
 
 def has_unquoted_query(word: Word) -> bool:
-    """A `?name=` query string, as in `gh api repos/o/r/contents/x?ref=main`."""
     for match in re.finditer(r"\?[A-Za-z_][\w.-]*=", word.text):
         if word.unquoted[match.start()]:
             return True
@@ -147,7 +144,6 @@ def has_unquoted_query(word: Word) -> bool:
 
 
 def swiftc_without_sdk() -> str | None:
-    """Name the PATH swiftc when it can't find the macOS SDK by itself."""
     if sys.platform != "darwin" or os.environ.get("SDKROOT"):
         return None
     found = shutil.which("swiftc")
@@ -157,7 +153,6 @@ def swiftc_without_sdk() -> str | None:
 
 
 def quoted_from(command: str, word: Word, offset: int = 0) -> str | None:
-    """Single-quote a word from `offset`, when its source holds nothing quoting would change."""
     source = command[word.start : word.end]
     if word.start < 0 or set(source) & set("'\"\\$`"):
         return None
@@ -165,7 +160,6 @@ def quoted_from(command: str, word: Word, offset: int = 0) -> str | None:
 
 
 def problem(command: str, shell: str) -> tuple[str, str | None] | None:
-    """Return why a command is unsafe, and the corrected command when one can be built."""
     words = shell_words(command)
     if Path(shell).name == "zsh":
         for word in words:
@@ -275,8 +269,6 @@ def problem(command: str, shell: str) -> tuple[str, str | None] | None:
             if option == "-g" and word.text.startswith("-g") and has_unquoted_glob(word, 2):
                 return FILTER_GLOB_REASON, quoted_from(command, word, 2)
 
-    # Only recognize the common final pipeline. General shell control flow is
-    # deliberately outside this hook's contract.
     pipefail_prefix = [word.text for word in words[:4]] == ["set", "-o", "pipefail", ";"]
     if not pipefail_prefix:
         for index, word in enumerate(words):
@@ -311,7 +303,6 @@ def unsafe_reason(command: str, shell: str) -> str | None:
     if found is None:
         return None
     reason, corrected = found
-    # One command can hold several mistakes; offer a correction only if it passes as a whole.
     for _ in range(MAX_CORRECTIONS):
         if corrected is None:
             return reason

@@ -16,13 +16,13 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL_SKILLS_FILE = ROOT / "scripts" / "tool-skills.txt"
-CTX7_VERSION = "0.12.2"
 CODEX_MANAGED_SKILLS = {".system"}
 
 
@@ -30,7 +30,6 @@ CODEX_MANAGED_SKILLS = {".system"}
 class Link:
     path: Path
     target: Path
-    action: str = ""
 
 
 def display(path: Path, home: Path) -> str:
@@ -63,18 +62,18 @@ def resolved_link(path: Path) -> Path | None:
 
 def plan_links(home: Path) -> tuple[list[Link], list[Link]]:
     changes = []
-    blocked = []
+    needs_approval = []
     for link in desired_links(home):
         if link.path.is_symlink():
             if resolved_link(link.path) == link.target.resolve(strict=False):
                 continue
-            changes.append(Link(link.path, link.target, "repoint"))
+            changes.append(link)
         elif os.path.lexists(link.path):
-            changes.append(Link(link.path, link.target, "replace"))
-            blocked.append(link)
+            changes.append(link)
+            needs_approval.append(link)
         else:
-            changes.append(Link(link.path, link.target, "link"))
-    return changes, blocked
+            changes.append(link)
+    return changes, needs_approval
 
 
 def backup_path(path: Path, stamp: str) -> Path:
@@ -90,14 +89,18 @@ def apply_links(changes: list[Link], home: Path) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     for change in changes:
         change.path.parent.mkdir(parents=True, exist_ok=True)
-        if change.action == "replace":
+        if change.path.is_symlink():
+            action = "repoint"
+            change.path.unlink()
+        elif os.path.lexists(change.path):
+            action = "replace"
             backup = backup_path(change.path, stamp)
             change.path.rename(backup)
             print(f"bootstrap: backed up {display(change.path, home)} -> {display(backup, home)}")
-        elif change.action == "repoint":
-            change.path.unlink()
+        else:
+            action = "link"
         os.symlink(change.target, change.path)
-        print(f"bootstrap: {change.action} {display(change.path, home)} -> {display(change.target, home)}")
+        print(f"bootstrap: {action} {display(change.path, home)} -> {display(change.target, home)}")
 
 
 def read_tool_skills() -> list[str]:
@@ -113,11 +116,19 @@ def skill_present(name: str) -> bool:
     return (ROOT / "skills" / name / "SKILL.md").is_file()
 
 
-def run_installer(label: str, argv: list[str], home: Path) -> bool:
+def ctx7_version() -> str:
+    tools = tomllib.loads((ROOT / "mise.toml").read_text()).get("tools", {})
+    version = tools.get("npm:ctx7")
+    if not isinstance(version, str):
+        raise SystemExit("bootstrap: mise.toml has no npm:ctx7 pin")
+    return version
+
+
+def run_installer(label: str, argv: list[str], home: Path) -> None:
     executable = shutil.which(argv[0])
     if executable is None:
         print(f"bootstrap: warning: {label} is not installed; skipping its skills")
-        return False
+        return
     argv = [executable, *argv[1:]]
     print(f"bootstrap: install {label}: {' '.join(argv)}")
     environment = os.environ.copy()
@@ -125,17 +136,16 @@ def run_installer(label: str, argv: list[str], home: Path) -> bool:
     result = subprocess.run(argv, env=environment, check=False)
     if result.returncode != 0:
         print(f"bootstrap: {label} installer failed with exit {result.returncode}", file=sys.stderr)
-        return False
-    return True
 
 
 def install_tool_skills(home: Path) -> list[str]:
     errors = []
+    names = read_tool_skills()
     if not skill_present("ardia"):
         run_installer("ardia", ["ardia", "skills", "install", "--target", "general", "--no-cua"], home)
     if not skill_present("ardia"):
         errors.append(f"ardia: {display(ROOT / 'skills' / 'ardia' / 'SKILL.md', home)} is missing")
-    cua_names = ["cua-driver", "cua-sandboxes", "cua-spaces", "cua-volume", "gui-automation"]
+    cua_names = [name for name in names if name.startswith("cua-") or name == "gui-automation"]
     if not all(skill_present(name) for name in cua_names):
         run_installer("cua", ["cua", "connect", "setup", "--skills-only", "--agents", "claude", "-y"], home)
     for name in cua_names:
@@ -146,7 +156,9 @@ def install_tool_skills(home: Path) -> list[str]:
             run_installer("ctx7", ["ctx7", "setup", "--claude", "--cli", "-y"], home)
         else:
             run_installer(
-                "ctx7", ["npx", "--yes", f"ctx7@{CTX7_VERSION}", "setup", "--claude", "--cli", "-y"], home
+                "ctx7",
+                ["npx", "--yes", f"ctx7@{ctx7_version()}", "setup", "--claude", "--cli", "-y"],
+                home,
             )
     if not skill_present("find-docs"):
         errors.append(f"ctx7: {display(ROOT / 'skills' / 'find-docs' / 'SKILL.md', home)} is missing")
@@ -317,10 +329,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         return discovery(home)
     print(f"bootstrap: Factory checkout {ROOT}")
-    changes, blocked = plan_links(home)
-    if blocked and not args.adopt_existing:
+    changes, needs_approval = plan_links(home)
+    if needs_approval and not args.adopt_existing:
         print("bootstrap: refusing to replace real paths:", file=sys.stderr)
-        for link in blocked:
+        for link in needs_approval:
             print(f"  {display(link.path, home)}", file=sys.stderr)
         print("Approve with: mise run bootstrap -- --adopt-existing", file=sys.stderr)
         return 2

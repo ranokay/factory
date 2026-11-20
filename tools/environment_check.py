@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Report the active checkout and its integration baseline."""
 
 from __future__ import annotations
 
@@ -51,7 +50,6 @@ def checkout(cwd: Path) -> dict:
 
 
 def low_disk_warning(cwd: Path) -> str:
-    """Stay silent until free space is low, so the session context pays nothing otherwise."""
     try:
         free = shutil.disk_usage(cwd).free
     except OSError:

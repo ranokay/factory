@@ -115,6 +115,10 @@ run_discovery() {
 	run_command mise --cd "$factory" run bootstrap:check -- --home "$home"
 }
 
+run_python() {
+	run_command uv run --offline --no-project --no-config --python 3.13 python "$@"
+}
+
 run_hook() {
 	payload=$1
 	tool=$2
@@ -292,12 +296,16 @@ case_tracked() {
 	printf '# ardia\n' >"$fixture/skills/ardia/SKILL.md"
 	git -C "$fixture" add skills/ardia/SKILL.md
 	git -C "$fixture" commit -qm "import ardia"
-	run_command python3 "$root/scripts/bootstrap.py" --check-tool-skills --root "$fixture"
+	run_python "$root/scripts/bootstrap.py" --check-tool-skills --root "$fixture"
 	[ "$code" -ne 0 ] || fail "the tracked tool-owned skill passed"
 	expect_contains "$output" "skills/ardia/SKILL.md"
-	run_command python3 "$root/scripts/bootstrap.py" --check-tool-skills --root "$root"
+	run_python "$root/scripts/bootstrap.py" --check-tool-skills --root "$root"
 	[ "$code" -eq 0 ] || fail "the Factory has a tracked tool-owned skill: $output"
 	expect_contains "$output" "no tool-owned skill is tracked"
+	while IFS= read -r name; do
+		[ -n "$name" ] || continue
+		git -C "$root" check-ignore -q "skills/$name/SKILL.md" || fail "skills/$name is not ignored"
+	done <"$root/scripts/tool-skills.txt"
 	printf 'ok: a tracked tool-owned skill fails the check\n'
 }
 
