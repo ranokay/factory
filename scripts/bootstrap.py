@@ -392,20 +392,12 @@ def replace_managed_block(text: str, block: str) -> str | None:
             if index < len(lines) and ssh_option(lines[index]):
                 index += 1
                 continue
-            if index < len(lines) and lines[index].strip().startswith("#"):
-                look = index + 1
-                while look < len(lines) and not lines[look].strip():
-                    look += 1
-                if look < len(lines) and ssh_option(lines[look]):
-                    index = look
-                    continue
-            if index < len(lines) and not lines[index].strip():
-                look = index
-                while look < len(lines) and not lines[look].strip():
-                    look += 1
-                if look < len(lines) and ssh_option(lines[look]):
-                    index = look
-                    continue
+            look = index
+            while look < len(lines) and (not lines[look].strip() or lines[look].strip().startswith("#")):
+                look += 1
+            if look > index and look < len(lines) and ssh_option(lines[look]):
+                index = look
+                continue
             break
         look = index
         while look < len(lines) and not lines[look].strip():
