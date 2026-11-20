@@ -191,8 +191,8 @@ class ClonesTest(unittest.TestCase):
         self.assertEqual(entry['paths'], [str(main)])
         self.assertEqual(entry['duplicates'], [])
         self.assertIn(str(linked), entry['linked_worktrees'][str(main)])
-        self.assertFalse(entry['move'])
-        self.assertIn(str(linked), entry['refusal'])
+        self.assertTrue(entry['move'])
+        self.assertIsNone(entry['refusal'])
         self.assertIn(f'linked worktree of {main}: {linked}', self.cli().stdout)
         self.cli('remove', '--approve-path', str(linked))
         self.assertTrue(linked.exists())
@@ -201,17 +201,63 @@ class ClonesTest(unittest.TestCase):
         for repo in report['repositories']:
             self.assertEqual(repo['move'], repo['selected'] in moved_paths)
         self.assertIn(str(movable), moved_paths)
-        self.assertTrue(main.exists())
+        self.assertFalse(main.exists())
         self.git(linked, 'status', '--porcelain')
 
-    def test_linked_worktree_refused(self):
+    def test_move_repairs_two_linked_worktrees(self):
         old = self.repo(self.source, 'repo')
-        linked = self.root / 'linked'
-        self.git(old, 'worktree', 'add', '-b', 'linked', str(linked))
-        result = self.cli('move', check=False)
-        self.assertIn('linked worktrees', result.stdout)
-        self.assertTrue(old.exists())
-        self.git(linked, 'status', '--porcelain')
+        trees = [self.root / 'one', self.root / 'two']
+        for index, tree in enumerate(trees):
+            self.git(old, 'worktree', 'add', '-b', f'branch{index}', str(tree))
+        result = json.loads(self.cli('move', '--json').stdout)
+        new = self.developer / 'repo'
+        self.assertEqual(result['repoint'], [{'old': str(old), 'new': str(new)}])
+        for tree in trees:
+            self.assertIn(str(new), self.git(tree, 'worktree', 'list'))
+            self.assertEqual(Path(self.git(tree, 'rev-parse', '--git-common-dir')).resolve(), (new / '.git').resolve())
+
+    def test_t3_running_and_dirty_refuse(self):
+        old = self.repo(self.source, 'repo')
+        tree = self.root / '.t3/worktrees/repo/tree'
+        tree.parent.mkdir(parents=True)
+        self.git(old, 'worktree', 'add', '-b', 'linked', str(tree))
+        real_run = subprocess.run
+        def fake_run(args, **kwargs):
+            if args[0] == 't3':
+                if args[2] == 'list':
+                    data = [{'threadId': 'test', 'status': 'running'}]
+                else:
+                    data = {'thread': {'worktreePath': str(tree)}}
+                return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
+            return real_run(args, **kwargs)
+        with patch.object(Path, 'home', return_value=self.root), patch.object(subprocess, 'run', side_effect=fake_run):
+            self.assertIn('active T3 thread', clones.move_blocker(old, [str(tree)]))
+            (tree / 'new').write_text('dirty')
+            self.assertIn('uncommitted work', clones.move_blocker(old, [str(tree)]))
+
+    def test_fork_parent_collision_migrates_and_preserves_unpushed(self):
+        fork = self.repo(self.source, 'fork', 'https://github.com/ranokay/demo')
+        extra = self.repo(self.source, 'issue', 'https://github.com/ranokay/demo')
+        upstream = self.repo(self.source, 'upstream', 'https://github.com/other/demo')
+        (extra / 'file').write_text('unpublished')
+        self.git(extra, 'commit', '-qam', 'unpublished')
+        argv = ['canonical-clones', 'move', '--json', '--source-root', str(self.source), '--developer-root', str(self.developer)]
+        with patch('sys.argv', argv), patch.object(clones, 'github_parent', return_value='github.com/other/demo'), patch('sys.stdout', new_callable=io.StringIO) as output:
+            self.assertEqual(clones.main(), 0)
+        data = json.loads(output.getvalue())
+        self.assertEqual(len(data['repositories']), 1)
+        self.assertEqual(data['repoint'][0]['old'], str(fork))
+        self.assertEqual(clones.upstream_identity(self.developer / 'demo'), 'github.com/other/demo')
+        self.assertTrue(extra.exists())
+        self.assertTrue(upstream.exists())
+        entry = data['repositories'][0]
+        self.assertTrue(next(x for x in entry['duplicates'] if x['path'] == str(extra))['unpublished'])
+        argv = ['canonical-clones', 'remove', '--approve-path', str(upstream), '--source-root', str(self.source), '--developer-root', str(self.developer)]
+        with patch('sys.argv', argv), patch.object(clones, 'github_parent', return_value='github.com/other/demo'), patch('sys.stdout', new_callable=io.StringIO):
+            self.assertEqual(clones.main(), 0)
+        self.assertFalse(upstream.exists())
+        self.assertTrue(extra.exists())
+
 
 
 if __name__ == '__main__':

@@ -58,6 +58,76 @@ def is_main_clone(path):
     return common.resolve() == (path / '.git').resolve()
 
 
+
+def move_blocker(path, worktrees):
+    t3_root = Path.home() / '.t3' / 'worktrees'
+    t3_paths = [Path(w) for w in worktrees if Path(w).resolve().is_relative_to(t3_root.resolve())]
+    for tree in t3_paths:
+        if git(tree, 'status', '--porcelain', '--untracked-files=all'):
+            return f'T3 worktree has uncommitted work: {tree}'
+    if not t3_paths:
+        return None
+    threads = json.loads(subprocess.run(['t3', 'thread', 'list', '--project', str(path), '--json'],
+                                        check=True, capture_output=True, text=True).stdout)
+    if not isinstance(threads, list):
+        raise ValueError('T3 thread list is not a list')
+    active = {'preparing', 'queued', 'starting', 'running', 'waiting'}
+    for thread in threads:
+        if thread.get('status') in active:
+            details = json.loads(subprocess.run(['t3', 'thread', 'show', thread['threadId'], '--json'],
+                                                check=True, capture_output=True, text=True).stdout)['thread']
+            tree = details.get('worktreePath')
+            if tree is None:
+                return f"cannot establish worktree for active T3 thread {thread['threadId']}"
+            if Path(tree).resolve() in {p.resolve() for p in t3_paths}:
+                return f"active T3 thread {thread['threadId']}: {tree}"
+        elif thread.get('status') not in {'idle', 'completed', 'failed', 'cancelled', 'interrupted'}:
+            raise ValueError(f"unknown T3 thread status: {thread.get('status')}")
+    return None
+
+
+def relocate(old, new, trees):
+    mapped = [str(new / Path(w).relative_to(old)) if Path(w).is_relative_to(old) else w for w in trees]
+    old.rename(new)
+    try:
+        if mapped:
+            git(new, 'worktree', 'repair', *mapped)
+            for tree in mapped:
+                common = Path(git(tree, 'rev-parse', '--git-common-dir'))
+                if not common.is_absolute():
+                    common = Path(tree) / common
+                if common.resolve() != (new / '.git').resolve():
+                    raise ValueError(f'worktree repair verification failed: {tree}')
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        try:
+            new.rename(old)
+            if trees:
+                git(old, 'worktree', 'repair', *trees)
+        except (OSError, subprocess.SubprocessError) as rollback:
+            raise ValueError(f'move failed: {error}; rollback failed: {rollback}') from error
+        raise ValueError(f'move failed and was rolled back: {error}') from error
+
+
+
+def github_parent(key):
+    if not key.startswith('github.com/ranokay/'):
+        return None
+    result = subprocess.run(['gh', 'api', f'repos/{key.removeprefix("github.com/")}'],
+                            check=True, capture_output=True, text=True)
+    data = json.loads(result.stdout)
+    parent = data.get('parent')
+    if not data.get('fork') or not isinstance(parent, dict) or not parent.get('full_name'):
+        return None
+    return 'github.com/' + parent['full_name'].lower()
+
+
+def upstream_identity(path):
+    remotes = git(path, 'remote').splitlines()
+    if 'upstream' not in remotes:
+        return None
+    return identity(git(path, 'remote', 'get-url', 'upstream')) or 'invalid upstream'
+
+
 def inventory(roots, developer):
     groups, unknown, linked = {}, [], []
     for root in dict.fromkeys(roots):
@@ -78,6 +148,19 @@ def inventory(roots, developer):
                 unknown.append(str(path))
             else:
                 groups.setdefault(key, []).append(path)
+    parents = {}
+    for key in list(groups):
+        if not key.startswith('github.com/ranokay/'):
+            continue
+        if not any(other != key and other.rsplit('/', 1)[-1] == key.rsplit('/', 1)[-1] for other in groups):
+            continue
+        try:
+            parent = github_parent(key)
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+            continue
+        if parent in groups and parent != key:
+            parents[key] = parent
+            groups[key] += groups.pop(parent)
     targets = {}
     for key in groups:
         targets.setdefault(developer / key.rsplit('/', 1)[-1], []).append(key)
@@ -85,16 +168,31 @@ def inventory(roots, developer):
     for key, paths in sorted(groups.items()):
         target = developer / key.rsplit('/', 1)[-1]
         reason = None
-        if target in paths:
+        parent = parents.get(key)
+        candidates = [p for p in paths if not parent or identity(git(p, 'remote', 'get-url', 'origin')) == key]
+        if target in candidates:
             selected = target
         else:
-            dev = [p for p in paths if p.parent == developer]
-            named = [p for p in paths if p.name == target.name]
-            selected = dev[0] if len(dev) == 1 else named[0] if len(named) == 1 else paths[0] if len(paths) == 1 else None
+            dev = [p for p in candidates if p.parent == developer]
+            named = [p for p in candidates if p.name == target.name]
+            selected = dev[0] if len(dev) == 1 else named[0] if len(named) == 1 else candidates[0] if len(candidates) == 1 else None
+            if selected is None and parent:
+                try:
+                    clean = [p for p in candidates if not work(p)]
+                    selected = clean[0] if len(clean) == 1 else None
+                except (OSError, subprocess.SubprocessError):
+                    pass
             if selected is None:
                 reason = 'ambiguous canonical clone; decision required'
             elif target.exists() or target.is_symlink():
                 reason = 'destination already exists'
+        if parent and selected and reason is None:
+            try:
+                upstream = upstream_identity(selected)
+                if upstream and upstream != parent:
+                    reason = f'upstream remote differs from fork parent: {upstream}'
+            except (OSError, subprocess.SubprocessError) as error:
+                reason = f'cannot inspect upstream remote: {error}'
         if len(targets[target]) > 1:
             reason = 'repository name collision: ' + ', '.join(targets[target])
         clone_worktrees, inspection_errors = {}, {}
@@ -106,8 +204,11 @@ def inventory(roots, developer):
                 inspection_errors[str(path)] = f'worktree inspection failed: {error}'
                 if path == selected:
                     reason = f'worktree inspection failed: {error}'
-        if selected is not None and selected != target and clone_worktrees[str(selected)] and reason is None:
-            reason = 'linked worktrees require manual migration: ' + ', '.join(clone_worktrees[str(selected)])
+        if selected is not None and selected != target and reason is None:
+            try:
+                reason = move_blocker(selected, clone_worktrees[str(selected)])
+            except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
+                reason = f'cannot inspect T3 worktrees: {error}'
         duplicates = []
         for path in paths:
             if path != selected:
@@ -121,7 +222,7 @@ def inventory(roots, developer):
                     reasons.append(inspection_errors[str(path)])
                 duplicates.append({'path': str(path), 'unpublished': reasons})
         entries.append({'identity': key, 'paths': [str(p) for p in paths], 'canonical': str(target), 'selected': str(selected) if selected else None,
-                        'move': selected is not None and selected != target and reason is None, 'duplicates': duplicates, 'linked_worktrees': clone_worktrees, 'refusal': reason})
+                        'move': selected is not None and selected != target and reason is None, 'duplicates': duplicates, 'linked_worktrees': clone_worktrees, 'parent_identity': parent, 'refusal': reason})
     unknown_worktrees = {}
     for path in unknown:
         try:
@@ -157,17 +258,31 @@ def main():
             old, new = Path(entry['selected']), Path(entry['canonical'])
             try:
                 current_worktrees = linked_worktrees(old)
-                if current_worktrees:
-                    raise ValueError('linked worktrees require manual migration: ' + ', '.join(current_worktrees))
+                blocker = move_blocker(old, current_worktrees)
+                if blocker:
+                    raise ValueError(blocker)
                 if new.exists() or new.is_symlink():
                     raise ValueError('destination already exists')
                 new.parent.mkdir(parents=True, exist_ok=True)
-                old.rename(new)
+                relocate(old, new, current_worktrees)
                 result['repoint'].append({'old': str(old), 'new': str(new)})
+                if entry['parent_identity'] and upstream_identity(new) is None:
+                    git(new, 'remote', 'add', 'upstream', 'https://' + entry['parent_identity'] + '.git')
             except (OSError, subprocess.SubprocessError, ValueError) as error:
                 result['actions'].append(f'refused move {old}: {error}')
                 failed = True
+        if (args.action == 'move' and entry['parent_identity'] and not entry['refusal']
+                and entry['selected'] == entry['canonical']):
+            try:
+                canonical = Path(entry['canonical'])
+                if upstream_identity(canonical) is None:
+                    git(canonical, 'remote', 'add', 'upstream', 'https://' + entry['parent_identity'] + '.git')
+                    result['actions'].append(f'added upstream for {canonical}')
+            except (OSError, subprocess.SubprocessError) as error:
+                result['actions'].append(f'could not add upstream for {canonical}: {error}')
+                failed = True
         if args.action == 'remove' and not entry['refusal']:
+
             for duplicate in entry['duplicates']:
                 path = Path(duplicate['path'])
                 approved = str(path) in args.approve_path
@@ -180,6 +295,11 @@ def main():
                     if (not canonical.is_dir() or Path(git(canonical, 'rev-parse', '--show-toplevel')).resolve() != canonical.resolve()
                             or identity(git(canonical, 'remote', 'get-url', 'origin')) != entry['identity']):
                         raise ValueError('canonical clone is absent or has changed identity')
+                    if entry['parent_identity'] and upstream_identity(canonical) != entry['parent_identity']:
+                        raise ValueError('canonical clone lacks the expected upstream remote')
+                    duplicate_identity = identity(git(path, 'remote', 'get-url', 'origin'))
+                    if duplicate_identity not in (entry['identity'], entry['parent_identity']):
+                        raise ValueError('duplicate clone identity changed')
                     reasons = work(path)
                     if not is_main_clone(path) or linked_worktrees(path):
                         reasons.append('linked worktrees')
