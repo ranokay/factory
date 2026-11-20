@@ -686,10 +686,10 @@ case_ssh_existing() {
 	grep -q 'IdentityFile ~/.ssh/other' "$home/.ssh/config" || fail "bootstrap edited the user block"
 	git -C "$factory" remote set-url origin https://github.com/example/factory.git
 	run_bootstrap
-	[ "$code" -ne 0 ] || fail "bootstrap rewrote an HTTPS origin behind an unmanaged github.com block"
-	expect_contains "$output" "$tilde/.ssh/config"
-	[ "$(git -C "$factory" remote get-url origin)" = "https://github.com/example/factory.git" ] || fail "bootstrap changed the origin behind an unmanaged block"
-	printf 'ok: an existing github.com block is left alone and blocks an HTTPS rewrite\n'
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind an unmanaged block: $output"
+	expect_contains "$output" "SSH auth through it is unverified"
+	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS"
+	printf 'ok: an existing github.com block is left alone and an HTTPS origin still moves to SSH\n'
 }
 
 case_all() {

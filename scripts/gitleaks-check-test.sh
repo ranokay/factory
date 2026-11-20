@@ -91,6 +91,17 @@ case_bare_key() {
 	printf 'ok: a bare Context7 key is detected and redacted\n'
 }
 
+case_named_key() {
+	fake="$(random_hex)"
+	mkdir -p "$test_root/named"
+	printf '{"CONTEXT7_API_KEY":"%s"}\n' "$fake" >"$test_root/named/config.json"
+	run_scan "$test_root/named"
+	[ "$code" -ne 0 ] || fail "a named Context7 key was not detected"
+	expect_contains "$output" "context7-api-key-value"
+	expect_not_contains "$output" "$fake"
+	printf 'ok: a key stored under a Context7 name is detected and redacted\n'
+}
+
 case_default_rules() {
 	fake=$(random_alnum 32)
 	mkdir -p "$test_root/defaults"
@@ -112,6 +123,7 @@ case_all() {
 	case_fabricated
 	case_env_reference
 	case_bare_key
+	case_named_key
 	case_default_rules
 	case_repo
 }
@@ -120,6 +132,7 @@ case $case_name in
 fabricated) case_fabricated ;;
 env-reference) case_env_reference ;;
 bare-key) case_bare_key ;;
+named-key) case_named_key ;;
 default-rules) case_default_rules ;;
 repo) case_repo ;;
 all) case_all ;;

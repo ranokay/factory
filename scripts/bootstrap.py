@@ -288,7 +288,11 @@ def secret_agent_errors(home: Path) -> list[str]:
     script = Path(str(program[1]))
     if script.name != "mcp-sync.py" or program[2] != "--env":
         return [f"{shown} does not run mcp-sync.py --env; run mise run bootstrap"]
-    if path.read_bytes() != secret_agent_plist(home):
+    try:
+        expected = secret_agent_plist(home)
+    except SystemExit as error:
+        return [f"{shown}: {error}"]
+    if path.read_bytes() != expected:
         return [f"{shown} differs from what bootstrap writes now; run mise run bootstrap"]
     if home == Path.home().resolve() and sys.platform == "darwin":
         applied = mcp_sync(home, "--env", "--check")
@@ -335,11 +339,11 @@ def setup_github_ssh(home: Path) -> bool:
         if GITHUB_HTTPS.match(origin):
             print(
                 f"bootstrap: {display(config, home)} already has a github.com block the Factory "
-                "does not manage; add the 1Password IdentityAgent or keep pushing over SSH manually",
+                "does not manage; SSH auth through it is unverified",
                 file=sys.stderr,
             )
-            return False
-        print(f"bootstrap: {display(config, home)} already has a github.com block; leaving it")
+        else:
+            print(f"bootstrap: {display(config, home)} already has a github.com block; leaving it")
     else:
         if config.is_file():
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

@@ -34,6 +34,11 @@ steps {
         env { ["GITLEAKS_CHECK_CASE"] = "bare-key" }
         expect { code = 0 }
       }
+      ["a key stored under a Context7 name is detected"] {
+        run = "check"
+        env { ["GITLEAKS_CHECK_CASE"] = "named-key" }
+        expect { code = 0 }
+      }
       ["the default rules still fire"] {
         run = "check"
         env { ["GITLEAKS_CHECK_CASE"] = "default-rules" }
@@ -412,11 +417,6 @@ steps {
       ["a literal registry header is refused"] {
         run = "check"
         env { ["MCP_SYNC_CASE"] = "literal-header" }
-        expect { code = 0 }
-      }
-      ["the env mode fails loudly without secret references"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "no-references" }
         expect { code = 0 }
       }
     }

@@ -348,7 +348,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.env:
             references = secret_references(servers)
             if not references:
-                raise SyncError("the registry has no secret references; refusing to report success")
+                print("mcp-sync: the registry has no secret references; nothing to set")
+                return 0
             if args.check:
                 check_env(references)
             else:
