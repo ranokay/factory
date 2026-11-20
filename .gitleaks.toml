@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "mcp-literal-credential"
+description = "literal credential in an MCP or API header"
+regex = '''(?i)(?:authorization|context7[_-]?api[_-]?key|x-api-key)["']?[ \t]*[:=][ \t]*["']?(?:bearer[ \t]+)?([A-Za-z0-9._~+/=-]{20,})'''
+secretGroup = 1
+keywords = [
+  "authorization",
+  "context7",
+  "x-api-key",
+]
