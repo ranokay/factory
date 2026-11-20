@@ -1,0 +1,492 @@
+#!/usr/bin/env python3
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+TOOL = Path(__file__).resolve().with_name("evidence")
+ROOT = TOOL.parents[3]
+CASE = os.environ.get("EVIDENCE_CASE", "all")
+
+STUB = '''#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+state = Path(os.environ["GH_STATE"])
+state.mkdir(parents=True, exist_ok=True)
+args = sys.argv[1:]
+with (state / "log").open("a") as log:
+    log.write(json.dumps(args) + "\\n")
+
+
+def read(name, default=""):
+    path = state / name
+    return path.read_text().strip() if path.exists() else default
+
+
+def write(name, value):
+    (state / name).write_text(value)
+
+
+def pr_data():
+    return json.loads(read("pr.json", "{}"))
+
+
+if args[:2] == ["repo", "view"]:
+    print(read("repo", "a/one"))
+elif args[:2] == ["pr", "view"]:
+    fields = args[args.index("--json") + 1] if "--json" in args else ""
+    if fields == "number":
+        print(read("pr_number", "7"))
+    elif fields == "headRefName":
+        print(pr_data().get("headRefName", ""))
+    else:
+        print(json.dumps(pr_data()))
+elif args[0] == "api":
+    if "--method" in args and args[args.index("--method") + 1] == "DELETE":
+        removed = args[-1].rsplit("/", 1)[1]
+        ids = [line for line in read("ids", "").splitlines() if line and line != removed]
+        write("ids", "\\n".join(ids))
+        print("{}")
+    else:
+        print(read("ids", ""))
+elif args[:2] == ["pr", "comment"]:
+    pr = args[2]
+    body = args[args.index("--body-file") + 1]
+    attach = [args[index + 1] for index, value in enumerate(args) if value == "--attach"]
+    number = int(read("next", "100")) + 1
+    write("next", str(number))
+    write("comment-%d.json" % number, json.dumps({"body": body, "attachments": attach}))
+    ids = read("ids", "").splitlines() + [str(number)]
+    write("ids", "\\n".join(ids))
+    print("https://github.com/a/one/pull/%s#issuecomment-%d" % (pr, number))
+else:
+    print("stub gh: unsupported %r" % (args,), file=sys.stderr)
+    sys.exit(1)
+'''
+
+CASES = {}
+
+
+def case(func):
+    CASES[func.__name__.removeprefix("case_")] = func
+    return func
+
+
+class Failure(AssertionError):
+    pass
+
+
+def expect(condition, message):
+    if not condition:
+        raise Failure(message)
+
+
+def ok(result):
+    if result.returncode != 0:
+        raise Failure(f"expected exit 0, got {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+    return result.stdout
+
+
+def refused(result, needle):
+    if result.returncode == 0:
+        raise Failure(f"expected a refusal, got success\nstdout:\n{result.stdout}")
+    if needle not in result.stderr:
+        raise Failure(f"expected {needle!r} in stderr, got:\n{result.stderr}")
+
+
+def environment(work, extra=None):
+    env = os.environ.copy()
+    env["EVIDENCE_CACHE_ROOT"] = str(work / "cache")
+    env["GH_STATE"] = str(work / "gh")
+    env["PATH"] = f"{work / 'bin'}{os.pathsep}{env['PATH']}"
+    env.pop("EVIDENCE_MAX_BYTES", None)
+    if extra:
+        env.update(extra)
+    return env
+
+
+def tool(work, cwd, args, env=None):
+    return subprocess.run([str(TOOL), *args], cwd=cwd, env=environment(work, env), capture_output=True, text=True)
+
+
+def git(repo, *args):
+    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Failure(f"git {' '.join(args)} in {repo} failed: {result.stderr}")
+    return result.stdout.strip()
+
+
+def new_work():
+    return Path(tempfile.mkdtemp(prefix="evidence-test-")).resolve()
+
+
+def write_stub(work):
+    bindir = work / "bin"
+    bindir.mkdir(parents=True, exist_ok=True)
+    stub = bindir / "gh"
+    stub.write_text(STUB)
+    stub.chmod(0o755)
+    (work / "gh").mkdir(exist_ok=True)
+
+
+def make_repo(work):
+    origin = work / "origin.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(origin)], check=True)
+    repo = work / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    git(repo, "config", "user.email", "worker@example.com")
+    git(repo, "config", "user.name", "Worker")
+    (repo / "README.md").write_text("initial\n")
+    (repo / ".gitignore").write_text("node_modules/\n.env.local\n")
+    git(repo, "add", "README.md", ".gitignore")
+    git(repo, "commit", "-q", "-m", "initial")
+    git(repo, "remote", "add", "origin", str(origin))
+    git(repo, "push", "-q", "origin", "main")
+    write_stub(work)
+    return repo, origin
+
+
+def make_worktree(repo, work, branch="feat/thing"):
+    wt = work / "wt"
+    git(repo, "worktree", "add", "-q", "-b", branch, str(wt))
+    (wt / "change.txt").write_text("change\n")
+    git(wt, "add", "change.txt")
+    git(wt, "commit", "-q", "-m", "change")
+    git(wt, "push", "-q", "-u", "origin", branch)
+    return wt
+
+
+def make_pr(work, head, branch, state="MERGED"):
+    (work / "gh").mkdir(exist_ok=True)
+    (work / "gh" / "pr.json").write_text(
+        json.dumps({"state": state, "headRefOid": head, "headRefName": branch})
+    )
+
+
+def make_image(path, size="640x360"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size={size}", "-frames:v", "1", str(path)],
+        check=True,
+    )
+    return path
+
+
+def make_video(path, seconds=3):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=960x540:rate=30",
+            "-t",
+            str(seconds),
+            "-c:v",
+            "mpeg4",
+            "-q:v",
+            "1",
+            str(path),
+        ],
+        check=True,
+    )
+    return path
+
+
+def receipt_args(pr="9", model="m", variant="max", fallback="no", attempts="1", cost="1k tokens", gates=("`mise run check` \u2014 exit 0",), summary="s"):
+    args = ["receipt", "--repo", "a/one"]
+    if pr is not None:
+        args += ["--pr", pr]
+    for flag, value in (("model", model), ("variant", variant), ("fallback", fallback), ("attempts", attempts), ("cost", cost), ("summary", summary)):
+        if value is not None:
+            args += [f"--{flag}", value]
+    for gate in gates or ():
+        args += ["--gates", gate]
+    return args
+
+
+def seed_evidence(work, pr, slug):
+    prdir = work / "cache" / "a" / "one" / pr
+    prdir.mkdir(parents=True, exist_ok=True)
+    (prdir / "shot.png").write_text("x")
+    stage = work / "cache" / "a" / "one" / "branch" / slug
+    stage.mkdir(parents=True, exist_ok=True)
+    (stage / "shot.png").write_text("x")
+
+
+def comment(work, number):
+    path = work / "gh" / f"comment-{number}.json"
+    expect(path.is_file(), f"no comment {number} recorded: {sorted(p.name for p in (work / 'gh').iterdir())}")
+    return json.loads(path.read_text())
+
+
+@case
+def case_add_outside(work):
+    repo, _ = make_repo(work)
+    image = make_image(work / "shot.png")
+    result = ok(tool(work, repo, ["add", str(image), "--repo", "a/one", "--pr", "7"]))
+    target = work / "cache" / "a" / "one" / "7" / "shot.png"
+    expect(target.is_file(), f"{target} was not written: {result}")
+    expect(git(repo, "status", "--porcelain") == "", "the repository is not clean after add")
+    listing = ok(tool(work, repo, ["list", "--repo", "a/one", "--pr", "7"]))
+    expect(f"shot.png\t{target.stat().st_size}" in listing, f"list did not report shot.png: {listing}")
+    printed = ok(tool(work, repo, ["path", "--repo", "a/one", "--pr", "7"])).strip()
+    expect(printed == str(target.parent), f"path printed {printed}")
+
+
+@case
+def case_defaults(work):
+    repo, _ = make_repo(work)
+    wt = make_worktree(repo, work)
+    image = make_image(work / "shot.png")
+    ok(tool(work, wt, ["add", str(image)]))
+    target = work / "cache" / "a" / "one" / "branch" / "feat-thing" / "shot.png"
+    expect(target.is_file(), f"{target} was not written")
+    expect(git(wt, "status", "--porcelain") == "", "the worktree is not clean after add")
+
+
+@case
+def case_add_source_inside(work):
+    repo, _ = make_repo(work)
+    image = make_image(repo / "shot.png")
+    result = tool(work, repo, ["add", str(image), "--repo", "a/one", "--pr", "7"])
+    refused(result, "inside the repository")
+    expect(not (work / "cache" / "a").exists(), "evidence was written for a refused source")
+
+
+@case
+def case_add_dest_inside(work):
+    repo, _ = make_repo(work)
+    image = make_image(work / "shot.png")
+    result = tool(
+        work,
+        repo,
+        ["add", str(image), "--repo", "a/one", "--pr", "7"],
+        env={"EVIDENCE_CACHE_ROOT": str(repo / ".cache")},
+    )
+    refused(result, "inside the repository")
+    expect(not (repo / ".cache").exists(), "the cache directory was created inside the repository")
+
+
+@case
+def case_stage_attach(work):
+    repo, _ = make_repo(work)
+    wt = make_worktree(repo, work)
+    make_pr(work, git(wt, "rev-parse", "HEAD"), "feat/thing")
+    image = make_image(work / "shot.png")
+    ok(tool(work, wt, ["add", str(image), "--repo", "a/one"]))
+    stage = work / "cache" / "a" / "one" / "branch" / "feat-thing"
+    expect((stage / "shot.png").is_file(), "the image was not staged under the branch")
+    ok(tool(work, wt, receipt_args(pr=None)))
+    expect((stage / "receipt.json").is_file(), "the receipt was not staged under the branch")
+    dry = ok(tool(work, wt, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
+    expect("gh pr comment 7" in dry, f"dry run did not print the command: {dry}")
+    expect((stage / "shot.png").is_file(), "the dry run moved the staged file")
+    if (work / "gh" / "log").exists():
+        expect('"pr", "comment"' not in (work / "gh" / "log").read_text(), "the dry run posted a comment")
+    expect((work / "cache" / "a" / "one" / "7" / "body.md").is_file(), "the dry run wrote no body")
+    ok(tool(work, wt, ["attach", "--repo", "a/one", "--pr", "7"]))
+    target = work / "cache" / "a" / "one" / "7" / "shot.png"
+    expect(target.is_file(), "the staged file was not moved into the PR directory")
+    expect(not stage.exists(), "the branch staging directory was left behind")
+    recorded = comment(work, "101")
+    expect(recorded["attachments"] == [str(target)], f"attachments were {recorded['attachments']}")
+    body = Path(recorded["body"]).read_text()
+    expect("![shot.png](./shot.png)" in body, body)
+    expect(body.rstrip().endswith("  - `mise run check` \u2014 exit 0"), body)
+
+
+@case
+def case_video(work):
+    repo, _ = make_repo(work)
+    source = make_video(work / "demo.mp4")
+    expect(source.stat().st_size > 1000000, f"the fixture video is only {source.stat().st_size} bytes")
+    added = ok(tool(work, repo, ["add", str(source), "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
+    expect("compressed demo.mp4" in added, added)
+    target = work / "cache" / "a" / "one" / "7" / "demo-compressed.mp4"
+    expect(target.is_file(), f"{target} was not written")
+    expect(target.stat().st_size <= 1000000, f"the compressed video is {target.stat().st_size} bytes")
+    expect(not (work / "cache" / "a" / "one" / "7" / "demo.mp4").exists(), "the oversize original remains")
+    ok(
+        tool(
+            work,
+            repo,
+            receipt_args(
+                pr="7",
+                model="opencode-go/deepseek-v4.1-flash",
+                cost="12k tokens",
+                gates=("`mise run check` \u2014 exit 0",),
+                summary="The evidence tool compressed the clip and posted the comment.",
+            ),
+            env={"EVIDENCE_MAX_BYTES": "1000000"},
+        )
+    )
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
+    recorded = comment(work, "101")
+    expect(recorded["attachments"] == [str(target)], f"attachments were {recorded['attachments']}")
+    body = Path(recorded["body"]).read_text()
+    expect("![demo-compressed.mp4](./demo-compressed.mp4)" in body, body)
+    expect("- Worker model: `opencode-go/deepseek-v4.1-flash` (variant `max`)" in body, body)
+    expect("- Fallback used: no" in body, body)
+    expect("- Attempts: 1" in body, body)
+    expect("- Token cost: 12k tokens" in body, body)
+    expect(body.rstrip().endswith("- `mise run check` \u2014 exit 0"), body)
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
+    ids = (work / "gh" / "ids").read_text().split()
+    expect(ids == ["102"], f"expected one comment, found {ids}")
+    log = (work / "gh" / "log").read_text()
+    expect(log.count('"pr", "comment"') == 2, log)
+    expect('"--method", "DELETE"' in log, log)
+
+
+@case
+def case_oversize(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    image = make_image(target / "big.png", size="1920x1080")
+    expect(image.stat().st_size > 150000, f"the fixture image is only {image.stat().st_size} bytes")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"], env={"EVIDENCE_MAX_BYTES": "150000"})
+    refused(result, "attachment limit")
+    expect("resize" in result.stderr or "re-record" in result.stderr, result.stderr)
+    if (work / "gh" / "log").exists():
+        expect('"pr", "comment"' not in (work / "gh" / "log").read_text(), "a comment was posted for an oversize attachment")
+    added = tool(work, repo, ["add", str(image), "--repo", "a/one", "--pr", "8"], env={"EVIDENCE_MAX_BYTES": "150000"})
+    refused(added, "attachment limit")
+
+
+@case
+def case_receipt_rules(work):
+    repo, _ = make_repo(work)
+    refused(tool(work, repo, receipt_args(pr="9", gates=())), "--gates")
+    refused(tool(work, repo, receipt_args(pr="8", model=None)), "--model")
+    refused(tool(work, repo, receipt_args(pr="8", cost="unavailable")), "unavailable (<reason>)")
+    ok(tool(work, repo, receipt_args(pr="8", cost="unavailable (harness reports no usage)")))
+    expect((work / "cache" / "a" / "one" / "8" / "receipt.json").is_file(), "the receipt was not written")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "evidence receipt")
+
+
+@case
+def case_cleanup(work):
+    repo, origin = make_repo(work)
+    wt = make_worktree(repo, work)
+    head = git(wt, "rev-parse", "HEAD")
+    make_pr(work, head, "feat/thing")
+    seed_evidence(work, "7", "feat-thing")
+    (wt / "node_modules").mkdir()
+    (wt / "node_modules" / "dep.js").write_text("x")
+    (wt / ".env.local").write_text("PRIVATE=1\n")
+    expect(git(wt, "status", "--porcelain") == "", "ignored files made the worktree dirty")
+    from_worktree = tool(work, wt, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"])
+    refused(from_worktree, "main checkout")
+    expect(wt.is_dir(), "the refused run removed the worktree")
+    ok(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]))
+    expect(not wt.exists(), "the worktree remains")
+    expect(not (wt / "node_modules").exists(), "the ignored build directory remains")
+    expect(not (wt / ".env.local").exists(), "the ignored file remains")
+    expect(git(repo, "branch", "--list", "feat/thing") == "", "the local branch remains")
+    expect("feat/thing" not in git(origin, "for-each-ref", "--format=%(refname)", "refs/heads"), "the remote branch remains")
+    expect(not (work / "cache" / "a").exists(), "the evidence directory remains")
+
+
+@case
+def case_cleanup_idempotent(work):
+    repo, origin = make_repo(work)
+    wt = make_worktree(repo, work)
+    head = git(wt, "rev-parse", "HEAD")
+    make_pr(work, head, "feat/thing")
+    seed_evidence(work, "7", "feat-thing")
+    git(repo, "push", "origin", "--delete", "feat/thing")
+    ok(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]))
+    expect(not wt.exists(), "the worktree remains")
+    expect(git(repo, "branch", "--list", "feat/thing") == "", "the local branch remains")
+    expect(not (work / "cache" / "a").exists(), "the evidence directory remains")
+    again = ok(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]))
+    expect(again.count("already gone") >= 3, again)
+
+
+@case
+def case_cleanup_refusals(work):
+    repo, origin = make_repo(work)
+    wt = make_worktree(repo, work)
+    head = git(wt, "rev-parse", "HEAD")
+    make_pr(work, head, "feat/thing")
+    seed_evidence(work, "7", "feat-thing")
+
+    def intact():
+        expect(wt.is_dir(), "the worktree was removed by a refused run")
+        expect("feat/thing" in git(repo, "branch", "--list", "feat/thing"), "the local branch was removed by a refused run")
+        expect(
+            "feat/thing" in git(origin, "for-each-ref", "--format=%(refname)", "refs/heads"),
+            "the remote branch was removed by a refused run",
+        )
+        expect((work / "cache" / "a" / "one" / "7" / "shot.png").is_file(), "the evidence was removed by a refused run")
+
+    (wt / "notes.txt").write_text("draft\n")
+    refused(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]), "uncommitted changes")
+    intact()
+    (wt / "notes.txt").unlink()
+    (wt / "change.txt").write_text("modified\n")
+    refused(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]), "uncommitted changes")
+    intact()
+    git(wt, "checkout", "--", "change.txt")
+    (wt / "change.txt").write_text("second\n")
+    git(wt, "add", "change.txt")
+    git(wt, "commit", "-q", "-m", "second")
+    refused(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]), "were not merged")
+    intact()
+    make_pr(work, head, "feat/thing", state="OPEN")
+    refused(tool(work, repo, ["cleanup", "--worktree", str(wt), "--repo", "a/one", "--pr", "7"]), "not MERGED")
+    intact()
+
+
+@case
+def case_mise_task(work):
+    env = environment(work)
+    result = subprocess.run(
+        ["mise", "--cd", str(ROOT), "run", "evidence", "path", "--repo", "a/one", "--pr", "7"],
+        cwd=work,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    printed = ok(result).strip()
+    expected = work / "cache" / "a" / "one" / "7"
+    expect(printed == str(expected), f"mise run evidence path printed {printed}")
+
+
+def main():
+    names = [CASE] if CASE != "all" else list(CASES)
+    failures = []
+    for name in names:
+        work = new_work()
+        failed = False
+        try:
+            CASES[name](work)
+            print(f"ok: {name}")
+        except Failure as error:
+            failed = True
+            failures.append(f"{name}: {error}\nfixture: {work}")
+        finally:
+            if not failed:
+                shutil.rmtree(work, ignore_errors=True)
+    if failures:
+        print("\n\n".join(failures), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

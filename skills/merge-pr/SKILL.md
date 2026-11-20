@@ -80,6 +80,14 @@ Readiness requires all of:
 Hosted AI reviews are optional under the shared workflow unless explicitly
 requested for this run. Report incomplete bot coverage without waiting for it;
 inspect available findings and respect actual forge-enforced protections.
+
+Inside a Factory Run, the Verification Evidence is the single `evidence`
+comment on the PR. Its Run receipt takes the Worker model and variant from the
+launch target, whether the fallback ran from the executed model against the
+requested one, the Run's Worker attempt count, the harness usage for token cost
+(`unavailable (<reason>)` only when it reports none), and the gate commands that
+actually ran. Every field is required.
+
 Unknown mergeability, pending required checks, and missing required local or
 human reviews are pending, not ready. Enabling GitHub auto-merge is acceptable only as the repository's
 required queue mechanism for an otherwise-ready PR. Do not enable it, or request
@@ -141,6 +149,15 @@ Only after verifying the merge. Before touching a local checkout, verify each
 local ref belongs to the PR's repositories: the topic branch to the head
 repository, and the integration checkout to the base repository and base
 branch. If either does not match, skip that part and report it.
+
+In the Factory, run the Factory's `skills/evidence/scripts/evidence cleanup
+--worktree <path> --pr <n> [--repo owner/name]` from the main checkout (also
+`mise run evidence -- cleanup ...` in the Factory Repo). It deletes the remote
+and local topic branches, the worktree with its build outputs, and the PR's
+evidence directories; it refuses unless the PR is merged and every surviving
+ref and worktree tip is the verified merged head; and it reports a missing
+worktree, branch or evidence directory as already gone. The bullets below are
+the guards it enforces.
 
 - Delete only the merged PR's remote topic branch, guarded by the verified merged
   head SHA. If no safe expected-SHA deletion is available, skip and report it.

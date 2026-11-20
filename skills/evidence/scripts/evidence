@@ -1,0 +1,671 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+CACHE_ENV = "EVIDENCE_CACHE_ROOT"
+MAX_ENV = "EVIDENCE_MAX_BYTES"
+DEFAULT_MAX_BYTES = 10 * 1024 * 1024
+MARKER = "<!-- factory-evidence -->"
+MAX_ATTACHMENTS = 50
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+VIDEO_SUFFIXES = {".mp4", ".mov", ".webm"}
+REPOSITORY = re.compile(r"^[a-z0-9_.-]+/[a-z0-9_.-]+$")
+UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+UNAVAILABLE = re.compile(r"^unavailable \([^)]+\)$")
+RESERVED = {"body.md", "receipt.json"}
+ENCODERS = ("libx264", "libopenh264", "h264_videotoolbox")
+
+USAGE = """\
+examples:
+  evidence add demo.mp4 shots/login.png --repo owner/name
+  evidence receipt --repo owner/name --model opencode-go/deepseek-v4.1-flash \\
+    --variant max --fallback no --attempts 1 --cost '214k tokens' \\
+    --gates 'mise run check — exit 0' --summary 'Signed in and saw the new banner.'
+  evidence attach --repo owner/name --pr 41
+  evidence attach --repo owner/name --pr 41 --dry-run
+  evidence cleanup --worktree ~/.t3/worktrees/factory/thread --repo owner/name --pr 41
+
+Evidence lives under ~/.cache/factory/<owner>/<repo>/<pr>/, or under
+<owner>/<repo>/branch/<branch-slug>/ until the PR exists. Tests override the
+cache with EVIDENCE_CACHE_ROOT and the attachment limit with EVIDENCE_MAX_BYTES.
+"""
+
+
+class Refused(Exception):
+    pass
+
+
+def fail(message):
+    raise Refused(message)
+
+
+def command(args, cwd=None, check=True):
+    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    if check and result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        fail(f"{' '.join(args)} failed: {detail}")
+    return result
+
+
+def output(args, cwd=None, check=True):
+    return command(args, cwd=cwd, check=check).stdout.strip()
+
+
+def human(size):
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    if size >= 1024:
+        return f"{size / 1024:.0f} KB"
+    return f"{size} bytes"
+
+
+def max_bytes():
+    raw = os.environ.get(MAX_ENV)
+    if not raw:
+        return DEFAULT_MAX_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        fail(f"{MAX_ENV} must be a number of bytes, got {raw!r}")
+    if value <= 0:
+        fail(f"{MAX_ENV} must be positive, got {value}")
+    return value
+
+
+def cache_root():
+    raw = os.environ.get(CACHE_ENV)
+    root = Path(raw).expanduser() if raw else Path.home() / ".cache" / "factory"
+    return root.resolve()
+
+
+def repository_root():
+    result = command(["git", "rev-parse", "--show-toplevel"], check=False)
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
+def require_outside(path, root, what):
+    if root is not None and (path == root or root in path.parents):
+        fail(f"{what} {path} is inside the repository at {root}; evidence lives under {cache_root()}")
+
+
+def maybe_repo(value):
+    candidate = value.strip().lower()
+    if not REPOSITORY.match(candidate):
+        return None
+    if any(part in (".", "..") for part in candidate.split("/")):
+        return None
+    return candidate
+
+
+def normalize_repo(value):
+    candidate = maybe_repo(value)
+    if candidate is None:
+        fail(f"repository must be <owner>/<repo>, got {value!r}")
+    return candidate
+
+
+def repo_from_remote(url):
+    value = url.strip()
+    if value.endswith(".git"):
+        value = value[:-4]
+    if "://" in value:
+        parts = value.split("/")
+        if len(parts) >= 2:
+            return maybe_repo("/".join(parts[-2:]))
+        return None
+    match = re.match(r"^[^@/]+@[^:]+:(.+)$", value)
+    if match:
+        return maybe_repo(match.group(1))
+    return None
+
+
+def repo_slug(args):
+    if args.repo:
+        return normalize_repo(args.repo)
+    root = repository_root()
+    if root is not None:
+        remote = command(["git", "-C", str(root), "remote", "get-url", "origin"], check=False)
+        if remote.returncode == 0:
+            found = repo_from_remote(remote.stdout)
+            if found:
+                return found
+    return normalize_repo(output(["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]))
+
+
+def pr_number(args):
+    if args.pr is not None:
+        if args.pr < 1:
+            fail("--pr must be a positive number")
+        return args.pr
+    value = output(["gh", "pr", "view", "--json", "number", "--jq", ".number"])
+    try:
+        number = int(value)
+    except ValueError:
+        fail(f"could not read the PR number from gh, got {value!r}")
+    if number < 1:
+        fail(f"gh reported PR number {number}")
+    return number
+
+
+def current_branch(root):
+    result = command(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"], check=False)
+    if result.returncode != 0:
+        fail("run this inside a git checkout of the repository you are working on")
+    name = result.stdout.strip()
+    if name == "HEAD":
+        fail("HEAD is detached; check out the PR branch or pass --pr")
+    return name
+
+
+def branch_slug(branch):
+    value = UNSAFE_NAME.sub("-", branch).strip("-.")
+    if not value:
+        fail(f"cannot turn branch {branch!r} into a directory name")
+    return value
+
+
+def repository_dir(repo):
+    owner, name = repo.split("/")
+    return cache_root() / owner / name
+
+
+def target_dir(args, repo):
+    base = repository_dir(repo)
+    root = repository_root()
+    require_outside(cache_root(), root, "the evidence cache")
+    if args.pr is not None:
+        target = base / str(pr_number(args))
+    else:
+        if root is None:
+            fail("run this inside a git checkout or pass --pr")
+        target = base / "branch" / branch_slug(current_branch(root))
+    target = target.resolve()
+    require_outside(target, root, "the evidence directory")
+    return target
+
+
+def require_size(path):
+    limit = max_bytes()
+    size = path.stat().st_size
+    if size > limit:
+        fail(
+            f"{path.name} is {human(size)} and the attachment limit is {human(limit)}; "
+            f"resize or re-record it under {human(limit)} and add it again"
+        )
+
+
+def encoder_name():
+    listing = command(["ffmpeg", "-hide_banner", "-encoders"], check=False).stdout
+    for name in ENCODERS:
+        if re.search(rf"\b{name}\b", listing):
+            return name
+    fail(f"ffmpeg has no H.264 encoder (looked for {', '.join(ENCODERS)}); install a build with one")
+
+
+def video_seconds(path):
+    value = output(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)])
+    try:
+        seconds = float(value)
+    except ValueError:
+        fail(f"cannot read the duration of {path.name} with ffprobe, got {value!r}")
+    if seconds <= 0:
+        fail(f"{path.name} has no duration; re-record it")
+    return seconds
+
+
+def encode(source, destination, limit):
+    seconds = video_seconds(source)
+    audio = 64000
+    bitrate = int(limit * 0.88 * 8 / seconds) - audio
+    if bitrate < 60000:
+        fail(
+            f"{source.name} cannot fit {human(limit)} in {seconds:.0f} s without an unwatchable bitrate; "
+            "record a shorter clip or lower the resolution first"
+        )
+    encoder = encoder_name()
+    for _ in range(2):
+        args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source), "-c:v", encoder]
+        if encoder == "libx264":
+            args += ["-preset", "veryfast"]
+        args += [
+            "-b:v",
+            str(bitrate),
+            "-maxrate",
+            str(bitrate),
+            "-bufsize",
+            str(bitrate * 2),
+            "-c:a",
+            "aac",
+            "-b:a",
+            str(audio),
+            "-movflags",
+            "+faststart",
+            str(destination),
+        ]
+        result = command(args, check=False)
+        if result.returncode != 0:
+            destination.unlink(missing_ok=True)
+            detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+            fail(f"ffmpeg failed to compress {source.name}: {detail}")
+        if destination.stat().st_size <= limit:
+            return
+        bitrate //= 2
+        if bitrate < 60000:
+            break
+    fail(
+        f"{source.name} is still {human(destination.stat().st_size)} after compression and the limit is {human(limit)}; "
+        "record a shorter clip or lower the resolution and add it again"
+    )
+
+
+def fit_video(path):
+    limit = max_bytes()
+    size = path.stat().st_size
+    if size <= limit:
+        return
+    compressed = path.with_name(f"{path.stem}-compressed.mp4")
+    encode(path, compressed, limit)
+    final = compressed.stat().st_size
+    if final > limit:
+        fail(f"{compressed.name} is still {human(final)} and the limit is {human(limit)}")
+    path.unlink()
+    print(f"compressed {path.name} ({human(size)}) to {compressed.name} ({human(final)})")
+
+
+def cmd_add(args):
+    repo = repo_slug(args)
+    root = repository_root()
+    sources = []
+    supported = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
+    for value in args.files:
+        source = Path(value).expanduser()
+        if not source.is_file():
+            fail(f"{value} is not a file")
+        source = source.resolve()
+        require_outside(source, root, "the source file")
+        suffix = source.suffix.lower()
+        if suffix not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
+            fail(f"{source.name} is not an image or video; attachments accept {supported}. Put text in --summary instead")
+        name = UNSAFE_NAME.sub("-", source.name).lstrip(".")
+        if not name:
+            fail(f"{source.name} has no usable file name; rename it before adding")
+        sources.append((source, name, suffix))
+    target = target_dir(args, repo)
+    target.mkdir(parents=True, exist_ok=True)
+    for source, name, suffix in sources:
+        destination = target / name
+        if destination.resolve() == source:
+            print(f"already in place: {destination}")
+            continue
+        if suffix in IMAGE_SUFFIXES:
+            require_size(source)
+            shutil.copy2(source, destination)
+            print(f"added {name} ({human(destination.stat().st_size)}) to {target}")
+            continue
+        shutil.copy2(source, destination)
+        print(f"added {name} ({human(destination.stat().st_size)}) to {target}")
+        try:
+            fit_video(destination)
+        except Refused:
+            destination.unlink(missing_ok=True)
+            (target / f"{destination.stem}-compressed.mp4").unlink(missing_ok=True)
+            raise
+
+
+def cmd_path(args):
+    print(target_dir(args, repo_slug(args)))
+
+
+def cmd_list(args):
+    target = target_dir(args, repo_slug(args))
+    if not target.is_dir():
+        print(f"no evidence in {target}")
+        return
+    rows = [(item.name, item.stat().st_size) for item in sorted(target.iterdir()) if item.is_file()]
+    for name, size in rows:
+        print(f"{name}\t{size}")
+    if not rows:
+        print(f"no evidence in {target}")
+
+
+def cmd_receipt(args):
+    repo = repo_slug(args)
+    target = target_dir(args, repo)
+    cost = args.cost.strip()
+    if not cost:
+        fail("--cost is required")
+    if cost.startswith("unavailable") and not UNAVAILABLE.match(cost):
+        fail('--cost must be the harness usage, or "unavailable (<reason>)" when the harness reports none')
+    for flag, value in (("--model", args.model), ("--variant", args.variant)):
+        if not value.strip():
+            fail(f"{flag} is required")
+    if args.attempts < 1:
+        fail("--attempts must be at least 1")
+    gates = [gate.strip() for gate in args.gates]
+    if not gates or any(not gate for gate in gates):
+        fail("--gates is required and must name the gate command that ran")
+    fields = {
+        "model": args.model,
+        "variant": args.variant,
+        "fallback": args.fallback,
+        "attempts": args.attempts,
+        "cost": cost,
+        "gates": gates,
+        "summary": args.summary.strip(),
+    }
+    if not fields["summary"]:
+        fail("--summary is required")
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / "receipt.json"
+    path.write_text(json.dumps(fields, indent=2) + "\n")
+    print(f"receipt: {path}")
+
+
+def load_receipt(path):
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"{path} is not readable: {error}")
+    for key in ("model", "variant", "fallback", "attempts", "cost", "gates", "summary"):
+        value = data.get(key)
+        if value in (None, "", []):
+            fail(f"{path} is missing {key}; run `evidence receipt` again")
+    if data["fallback"] not in ("yes", "no"):
+        fail(f"{path} has fallback {data['fallback']!r}, expected yes or no")
+    return data
+
+
+def attachments(directory):
+    files = []
+    for item in sorted(directory.iterdir()):
+        if not item.is_file() or item.name in RESERVED or item.name.startswith("."):
+            continue
+        files.append(item)
+    return files
+
+
+def prepare(directory):
+    for item in attachments(directory):
+        if item.suffix.lower() in VIDEO_SUFFIXES:
+            fit_video(item)
+        else:
+            require_size(item)
+    files = attachments(directory)
+    if len(files) > MAX_ATTACHMENTS:
+        fail(f"{len(files)} attachments; GitHub allows {MAX_ATTACHMENTS} per comment. Keep the important ones")
+    supported = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
+    for item in files:
+        if item.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
+            fail(f"{item.name} is not an image or video; attachments accept {supported}")
+    return files
+
+
+def render(data, files):
+    lines = [MARKER, "", "## Verification Evidence", "", data["summary"].strip(), ""]
+    if files:
+        lines += ["### Attachments", ""]
+        for item in files:
+            lines += [f"![{item.name}](./{item.name})", ""]
+    lines += [
+        "**Run receipt**",
+        "",
+        f"- Worker model: `{data['model']}` (variant `{data['variant']}`)",
+        f"- Fallback used: {data['fallback']}",
+        f"- Attempts: {data['attempts']}",
+        f"- Token cost: {data['cost']}",
+        "- Gates run:",
+    ]
+    for gate in data["gates"]:
+        lines.append(f"  - {gate}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def pr_branch(repo, pr):
+    result = command(["gh", "pr", "view", str(pr), "--repo", repo, "--json", "headRefName", "--jq", ".headRefName"], check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def move_staged(stage, target, copy=False):
+    target.mkdir(parents=True, exist_ok=True)
+    moved = []
+    for item in sorted(stage.iterdir()):
+        if item.is_file():
+            if copy:
+                shutil.copy2(item, target / item.name)
+            else:
+                os.replace(item, target / item.name)
+            moved.append(item.name)
+    if not moved:
+        return
+    if copy:
+        print(f"copied staged evidence from {stage} to {target} for the dry run")
+        return
+    try:
+        stage.rmdir()
+    except OSError:
+        pass
+    try:
+        stage.parent.rmdir()
+    except OSError:
+        pass
+    print(f"moved staged evidence from {stage} to {target}")
+
+
+def marked_comments(repo, pr):
+    listing = output(
+        [
+            "gh",
+            "api",
+            f"repos/{repo}/issues/{pr}/comments",
+            "--paginate",
+            "--jq",
+            '.[] | select(.body | startswith("<!-- factory-evidence -->")) | .id',
+        ]
+    )
+    return [line.strip() for line in listing.splitlines() if line.strip()]
+
+
+def cmd_attach(args):
+    repo = repo_slug(args)
+    pr = pr_number(args)
+    target = target_dir(args, repo)
+    branch = pr_branch(repo, pr)
+    if branch:
+        stage = (repository_dir(repo) / "branch" / branch_slug(branch)).resolve()
+        require_outside(stage, repository_root(), "the staged evidence directory")
+        if stage.is_dir() and stage != target:
+            move_staged(stage, target, copy=args.dry_run)
+    receipt_path = target / "receipt.json"
+    if not receipt_path.is_file():
+        fail(f"{receipt_path} does not exist; run `evidence receipt ...` first")
+    data = load_receipt(receipt_path)
+    files = prepare(target)
+    body_path = target / "body.md"
+    body_path.write_text(render(data, files))
+    print(f"body: {body_path}")
+    cmd = ["gh", "pr", "comment", str(pr), "--repo", repo, "--body-file", str(body_path)]
+    for item in files:
+        cmd += ["--attach", str(item)]
+    if args.dry_run:
+        print("dry run: no comment posted")
+        print(shlex.join(cmd))
+        return
+    previous = marked_comments(repo, pr)
+    url = output(cmd)
+    print(f"posted {url}")
+    for comment in previous:
+        command(["gh", "api", "--method", "DELETE", f"repos/{repo}/issues/comments/{comment}"])
+        print(f"replaced previous evidence comment {comment}")
+
+
+def main_checkout():
+    result = command(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], check=False)
+    if result.returncode != 0:
+        fail("run this from a git checkout of the repository you are cleaning up")
+    return Path(result.stdout.strip()).resolve().parent
+
+
+def registered_worktree(main, worktree):
+    listing = output(["git", "-C", str(main), "worktree", "list", "--porcelain"])
+    return any(line == f"worktree {worktree}" for line in listing.splitlines())
+
+
+def pr_state(repo, pr):
+    raw = output(["gh", "pr", "view", str(pr), "--repo", repo, "--json", "state,headRefOid,headRefName"])
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        fail(f"could not read PR {pr} from gh, got {raw!r}")
+    for key in ("state", "headRefOid", "headRefName"):
+        if not data.get(key):
+            fail(f"gh returned no {key} for PR {pr}")
+    return data
+
+
+def prune_empty(start, stop):
+    candidate = start
+    while candidate != stop and stop in candidate.parents:
+        try:
+            candidate.rmdir()
+        except OSError:
+            return
+        candidate = candidate.parent
+
+
+def cmd_cleanup(args):
+    repo = repo_slug(args)
+    pr = pr_number(args)
+    main = main_checkout()
+    worktree = Path(args.worktree).expanduser()
+    worktree = worktree.resolve() if worktree.exists() else Path(os.path.abspath(worktree))
+    cwd = Path.cwd().resolve()
+    if worktree.exists() and (cwd == worktree or worktree in cwd.parents):
+        fail(f"run cleanup from the main checkout at {main}, not from inside {worktree}")
+    data = pr_state(repo, pr)
+    if data["state"] != "MERGED":
+        fail(f"PR {pr} is {data['state']}, not MERGED; merge it before cleanup")
+    head = data["headRefOid"]
+    branch = data["headRefName"]
+    registered = registered_worktree(main, worktree)
+    if worktree.exists():
+        common = Path(output(["git", "-C", str(worktree), "rev-parse", "--path-format=absolute", "--git-common-dir"])).resolve()
+        if common.parent != main:
+            fail(f"{worktree} is not a worktree of {main}")
+        current = output(["git", "-C", str(worktree), "rev-parse", "HEAD"])
+        if current != head:
+            fail(f"{worktree} is at {current} but the merged head is {head}; it has commits that were not merged")
+        on_branch = output(["git", "-C", str(worktree), "rev-parse", "--abbrev-ref", "HEAD"])
+        if on_branch != branch:
+            fail(f"{worktree} is on {on_branch}, not {branch}")
+        dirty = output(["git", "-C", str(worktree), "status", "--porcelain"])
+        if dirty:
+            fail(f"{worktree} has uncommitted changes; commit, stash or remove them before cleanup:\n{dirty}")
+    else:
+        print(f"already gone: worktree {worktree}")
+    local = output(["git", "-C", str(main), "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], check=False) or None
+    if local and local != head:
+        fail(f"local branch {branch} is at {local}, not the merged head {head}; it has commits that were not merged")
+    remote = [
+        line.split("\t")
+        for line in output(["git", "-C", str(main), "ls-remote", "--heads", "origin", branch]).splitlines()
+        if line
+    ]
+    for entry in remote:
+        if entry[0] != head:
+            fail(f"remote branch {branch} is at {entry[0]}, not the merged head {head}")
+    evidence = repository_dir(repo) / str(pr)
+    staged = repository_dir(repo) / "branch" / branch_slug(branch)
+    if remote:
+        command(["git", "-C", str(main), "push", "origin", "--delete", branch])
+        print(f"deleted remote branch {branch}")
+    else:
+        print(f"already gone: remote branch {branch}")
+    if worktree.exists():
+        command(["git", "-C", str(main), "worktree", "remove", str(worktree)])
+        print(f"removed worktree {worktree}")
+    elif registered:
+        command(["git", "-C", str(main), "worktree", "prune"])
+        print(f"pruned stale worktree entry {worktree}")
+    if local:
+        command(["git", "-C", str(main), "branch", "-D", branch])
+        print(f"deleted local branch {branch}")
+    else:
+        print(f"already gone: local branch {branch}")
+    for directory in (evidence, staged):
+        if directory.is_dir():
+            shutil.rmtree(directory)
+            print(f"removed evidence {directory}")
+        else:
+            print(f"already gone: evidence {directory}")
+    prune_empty(staged.parent, cache_root())
+    prune_empty(evidence.parent, cache_root())
+
+
+def build_parser():
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--repo", metavar="OWNER/REPO", help="repository; defaults to origin or gh repo view")
+    common.add_argument("--pr", type=int, help="pull request number; omit to use the branch staging directory")
+
+    parser = argparse.ArgumentParser(
+        prog="evidence",
+        description="Record Verification Evidence outside the repository and post the single PR evidence comment.",
+        epilog=USAGE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    add = subparsers.add_parser("add", parents=[common], help="copy images and videos into the evidence directory")
+    add.add_argument("files", nargs="+", metavar="FILE")
+    add.set_defaults(func=cmd_add)
+
+    path = subparsers.add_parser("path", parents=[common], help="print the evidence directory")
+    path.set_defaults(func=cmd_path)
+
+    listing = subparsers.add_parser("list", parents=[common], help="print every evidence file with its size")
+    listing.set_defaults(func=cmd_list)
+
+    receipt = subparsers.add_parser("receipt", parents=[common], help="write the Run receipt and comment summary")
+    receipt.add_argument("--model", required=True, help="Worker model from the launch target")
+    receipt.add_argument("--variant", required=True, help="Worker variant from the launch target")
+    receipt.add_argument("--fallback", required=True, choices=("yes", "no"), help="whether the fallback model ran")
+    receipt.add_argument("--attempts", required=True, type=int, help="the Run's Worker attempt count")
+    receipt.add_argument("--cost", required=True, help='harness usage, or "unavailable (<reason>)" when it reports none')
+    receipt.add_argument("--gates", required=True, action="append", help="a gate command that ran, with its result")
+    receipt.add_argument("--summary", required=True, help="what the evidence shows")
+    receipt.set_defaults(func=cmd_receipt)
+
+    attach = subparsers.add_parser("attach", parents=[common], help="post or replace the single evidence comment")
+    attach.add_argument("--dry-run", action="store_true", help="print the body and gh command without posting")
+    attach.set_defaults(func=cmd_attach)
+
+    cleanup = subparsers.add_parser("cleanup", parents=[common], help="delete a merged Run's worktree, branches and evidence")
+    cleanup.add_argument("--worktree", required=True, help="the Run's worktree path; a missing one is already gone")
+    cleanup.set_defaults(func=cmd_cleanup)
+
+    return parser
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        args.func(args)
+    except Refused as error:
+        print(f"evidence: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
