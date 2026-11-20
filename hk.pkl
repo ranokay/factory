@@ -260,6 +260,16 @@ steps {
     }
   }
 
+  ["canonical-clones"] = new Step {
+    check = "sh {{root}}/scripts/canonical-clones-test.sh"
+    tests {
+      ["inventory and migration fixtures pass"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
   ["gc"] = new Step {
     check = "sh {{root}}/scripts/gc-test.sh"
     tests {

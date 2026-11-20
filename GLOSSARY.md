@@ -6,6 +6,10 @@ The machinery that takes ranokay's work from idea to merged, verified change acr
 
 ### Places
 
+**Canonical Clone**:
+The chosen clone of a repository under `~/Developer`, used as its primary local copy.
+_Avoid_: master clone, main checkout
+
 **Factory Repo**:
 The public repository that holds the global instructions, skills, shared configs and reusable CI workflows. It holds machinery only, never project knowledge or secrets.
 _Avoid_: wiki, dotfiles, agent-workflows

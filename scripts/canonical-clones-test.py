@@ -1,0 +1,119 @@
+import importlib.util
+import json
+import os
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).with_name('canonical-clones.py')
+spec = importlib.util.spec_from_file_location('clones', SCRIPT)
+clones = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(clones)
+
+
+def run(*args, cwd=None, check=True, input=None):
+    return subprocess.run(args, cwd=cwd, check=check, capture_output=True, text=True, input=input)
+
+
+class ClonesTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.source = self.root / 'source'
+        self.developer = self.root / 'developer'
+        self.source.mkdir()
+        self.developer.mkdir()
+
+    def git(self, path, *args):
+        return run('git', '-C', str(path), *args).stdout.strip()
+
+    def repo(self, parent, name, remote='https://github.com/Owner/Repo.git'):
+        path = parent / name
+        run('git', 'init', '-q', str(path))
+        self.git(path, 'config', 'user.email', 'fixture@example.com')
+        self.git(path, 'config', 'user.name', 'Fixture')
+        (path / 'file').write_text('one')
+        self.git(path, 'add', 'file')
+        self.git(path, 'commit', '-qm', 'initial')
+        if remote:
+            self.git(path, 'remote', 'add', 'origin', remote)
+            branch = self.git(path, 'branch', '--show-current')
+            self.git(path, 'update-ref', 'refs/remotes/origin/' + branch, 'HEAD')
+            self.git(path, 'branch', '--set-upstream-to', 'origin/' + branch)
+        return path
+
+    def cli(self, *args, check=True):
+        return run('python3', str(SCRIPT), *args, '--source-root', str(self.source), '--developer-root', str(self.developer), check=check)
+
+    def test_identity_and_unknown(self):
+        self.assertEqual(clones.identity('git@github.com:OWNER/Repo.git'), clones.identity('https://github.com/owner/repo'))
+        self.assertNotEqual(clones.identity('https://github.com/owner/repo'), clones.identity('https://github.com/other/repo'))
+        self.repo(self.source, 'unknown', None)
+        self.assertIn('decision required', self.cli().stdout)
+
+    def test_work_and_remove(self):
+        self.repo(self.developer, 'repo')
+        duplicate = self.repo(self.source, 'copy')
+        (duplicate / 'file').write_text('changed')
+        (duplicate / 'extra').write_text('new')
+        self.assertIn('uncommitted or untracked', self.cli().stdout)
+        self.assertNotEqual(self.cli('remove', '--approve-path', str(duplicate), check=False).returncode, 0)
+        self.assertTrue(duplicate.exists())
+        self.git(duplicate, 'add', 'file', 'extra')
+        self.git(duplicate, 'stash')
+        self.assertEqual(clones.work(duplicate), ['stashes'])
+        self.git(duplicate, 'stash', 'drop')
+        self.git(duplicate, 'branch', 'local')
+        self.assertIn('local branches without upstream', clones.work(duplicate))
+        self.git(duplicate, 'branch', '-D', 'local')
+        (duplicate / 'file').write_text('commit')
+        self.git(duplicate, 'commit', '-qam', 'local')
+        self.assertIn('local commits not on remote-tracking branches', clones.work(duplicate))
+
+    def test_per_path_and_non_tty(self):
+        self.repo(self.developer, 'repo')
+        a = self.repo(self.source, 'a')
+        b = self.repo(self.source, 'b')
+        self.assertNotEqual(self.cli('remove', check=False).returncode, 0)
+        self.assertTrue(a.exists() and b.exists())
+        self.cli('remove', '--approve-path', str(a))
+        self.assertFalse(a.exists())
+        self.assertTrue(b.exists())
+
+    def test_collision(self):
+        self.repo(self.source, 'one', 'https://github.com/a/repo')
+        self.repo(self.source, 'two', 'https://github.com/b/repo')
+        self.assertIn('repository name collision', self.cli('move').stdout)
+        self.assertFalse((self.developer / 'repo').exists())
+
+    def test_occupied_destination(self):
+        old = self.repo(self.source, 'repo')
+        (self.developer / 'repo').mkdir()
+        self.assertIn('destination already exists', self.cli('move').stdout)
+        self.assertTrue(old.exists())
+
+    def test_move_and_pairs(self):
+        old = self.repo(self.source, 'repo')
+        output = self.cli('move').stdout
+        new = self.developer / 'repo'
+        self.assertIn(f'{old} -> {new}', output)
+        self.assertTrue(new.exists())
+        new.rename(old)
+        data = json.loads(self.cli('move', '--json').stdout)
+        self.assertEqual(data['repoint'], [{'old': str(old), 'new': str(new)}])
+
+    def test_linked_worktree_refused(self):
+        old = self.repo(self.source, 'repo')
+        linked = self.root / 'linked'
+        self.git(old, 'worktree', 'add', '-b', 'linked', str(linked))
+        result = self.cli('move', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('linked worktrees', result.stdout)
+        self.assertTrue(old.exists())
+        self.git(linked, 'status', '--porcelain')
+
+
+if __name__ == '__main__':
+    unittest.main()
