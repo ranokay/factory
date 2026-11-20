@@ -1,9 +1,11 @@
 import importlib.util
+import io
 import json
 import os
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 SCRIPT = Path(__file__).with_name('canonical-clones.py')
@@ -81,6 +83,49 @@ class ClonesTest(unittest.TestCase):
         self.cli('remove', '--approve-path', str(a))
         self.assertFalse(a.exists())
         self.assertTrue(b.exists())
+
+    def test_recheck_after_approval(self):
+        self.repo(self.developer, 'repo')
+        duplicate = self.repo(self.source, 'copy')
+        def approve(_prompt):
+            (duplicate / 'new').write_text('late change')
+            return 'y'
+        argv = ['canonical-clones', 'remove', '--source-root', str(self.source), '--developer-root', str(self.developer)]
+        with patch('sys.argv', argv), patch('sys.stdin.isatty', return_value=True), patch('builtins.input', side_effect=approve), patch('sys.stdout', new_callable=io.StringIO):
+            self.assertEqual(clones.main(), 1)
+        self.assertTrue(duplicate.exists())
+
+    def test_linked_duplicate_kept(self):
+        self.repo(self.developer, 'repo')
+        duplicate = self.repo(self.source, 'copy')
+        self.git(duplicate, 'worktree', 'add', '-b', 'linked', str(self.root / 'linked'))
+        result = self.cli('remove', '--approve-path', str(duplicate), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(duplicate.exists())
+
+    def test_remove_requires_canonical_copy(self):
+        self.repo(self.source, 'repo')
+        duplicate = self.repo(self.source, 'copy')
+        result = self.cli('remove', '--approve-path', str(duplicate), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(duplicate.exists())
+
+    def test_detached_unpublished_commit(self):
+        self.repo(self.developer, 'repo')
+        duplicate = self.repo(self.source, 'copy')
+        self.git(duplicate, 'checkout', '--detach')
+        (duplicate / 'file').write_text('detached')
+        self.git(duplicate, 'commit', '-qam', 'detached')
+        result = self.cli('remove', '--approve-path', str(duplicate), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(duplicate.exists())
+
+    def test_ambiguous_selection(self):
+        self.repo(self.source, 'a')
+        self.repo(self.source, 'b')
+        output = self.cli('move').stdout
+        self.assertIn('ambiguous canonical clone', output)
+        self.assertFalse((self.developer / 'repo').exists())
 
     def test_collision(self):
         self.repo(self.source, 'one', 'https://github.com/a/repo')

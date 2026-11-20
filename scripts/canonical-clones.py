@@ -37,12 +37,16 @@ def work(path):
         reasons.append('uncommitted or untracked changes')
     if git(path, 'stash', 'list'):
         reasons.append('stashes')
-    if git(path, 'rev-list', '--branches', '--not', '--remotes'):
+    if git(path, 'rev-list', '--branches', 'HEAD', '--not', '--remotes'):
         reasons.append('local commits not on remote-tracking branches')
     branches = git(path, 'for-each-ref', '--format=%(refname:short)%00%(upstream)', 'refs/heads')
     if any(not line.split('\0', 1)[1] for line in branches.splitlines()):
         reasons.append('local branches without upstream')
     return reasons
+
+
+def has_linked_worktrees(path):
+    return len(git(path, 'worktree', 'list', '--porcelain').split('\n\n')) > 1
 
 
 def inventory(roots, developer):
@@ -86,7 +90,7 @@ def inventory(roots, developer):
             if path != selected:
                 try:
                     reasons = work(path)
-                    if len(git(path, 'worktree', 'list', '--porcelain').split('\n\n')) > 1:
+                    if has_linked_worktrees(path):
                         reasons.append('linked worktrees')
                 except (OSError, subprocess.SubprocessError) as error:
                     reasons = [f'inspection failed: {error}']
@@ -117,7 +121,7 @@ def main():
         if args.action == 'move' and entry['move']:
             old, new = Path(entry['selected']), Path(entry['canonical'])
             try:
-                if len(git(old, 'worktree', 'list', '--porcelain').split('\n\n')) > 1:
+                if has_linked_worktrees(old):
                     raise ValueError('linked worktrees require manual migration')
                 if new.exists() or new.is_symlink():
                     raise ValueError('destination already exists')
@@ -136,8 +140,11 @@ def main():
                 if not approved:
                     continue
                 try:
+                    canonical = Path(entry['canonical'])
+                    if not canonical.is_dir() or identity(git(canonical, 'remote', 'get-url', 'origin')) != entry['identity']:
+                        raise ValueError('canonical clone is absent or has changed identity')
                     reasons = work(path)
-                    if len(git(path, 'worktree', 'list', '--porcelain').split('\n\n')) > 1:
+                    if has_linked_worktrees(path):
                         reasons.append('linked worktrees')
                     if reasons:
                         raise ValueError(', '.join(reasons))
