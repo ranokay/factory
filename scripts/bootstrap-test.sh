@@ -730,6 +730,12 @@ case_ssh_existing() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind an equals-form agent block: $output"
 	expect_contains "$output" "already routes github.com through 1Password"
+	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS behind an equals-form agent block"
+	printf 'Host github.com\n  IdentityAgentBroken "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
+	git -C "$factory" remote set-url origin https://github.com/example/factory.git
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed behind a look-alike agent block: $output"
+	expect_contains "$output" "SSH auth through it is unverified"
 	printf 'ok: an existing github.com block is left alone and an HTTPS origin still moves to SSH\n'
 }
 

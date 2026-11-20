@@ -288,10 +288,10 @@ def op_binary() -> str:
 
 
 def launchctl_binary() -> str:
-    found = shutil.which("launchctl")
-    if found is None:
-        raise SyncError("launchctl is not available; launchd env vars need macOS")
-    return found
+    for candidate in (shutil.which("launchctl"), "/bin/launchctl"):
+        if candidate and Path(candidate).is_file():
+            return candidate
+    raise SyncError("launchctl is not available; launchd env vars need macOS")
 
 
 def set_env(references: dict[str, str]) -> None:

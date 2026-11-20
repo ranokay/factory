@@ -243,7 +243,8 @@ def install_secret_agent(home: Path) -> bool:
         print(f"bootstrap: wrote {display(path, home)}")
     else:
         print(f"bootstrap: {display(path, home)} is current")
-    if launchctl_binary() is None:
+    launchctl = launchctl_binary()
+    if launchctl is None:
         print("bootstrap: launchctl is not available; the secrets agent is written but not loaded")
         return True
     if home != Path.home().resolve():
@@ -267,13 +268,13 @@ def install_secret_agent(home: Path) -> bool:
             loaded = False
     uid = os.getuid()
     subprocess.run(
-        ["launchctl", "bootout", f"gui/{uid}/{SECRET_LABEL}"],
+        [launchctl, "bootout", f"gui/{uid}/{SECRET_LABEL}"],
         capture_output=True,
         text=True,
         check=False,
     )
     bootstrap = subprocess.run(
-        ["launchctl", "bootstrap", f"gui/{uid}", str(path)],
+        [launchctl, "bootstrap", f"gui/{uid}", str(path)],
         capture_output=True,
         text=True,
         check=False,
