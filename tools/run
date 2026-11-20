@@ -1,0 +1,23 @@
+#!/bin/sh
+# uv --offline keeps the hook from fetching or creating an environment; see
+# https://docs.astral.sh/uv/reference/cli/#uv-run.
+set -eu
+tool_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+if [ "$#" -eq 0 ]; then
+  echo 'Usage: run {command_guard|environment_check|tests} [arguments...]' >&2
+  exit 2
+fi
+tool=$1
+shift
+case "$tool" in
+command_guard | environment_check)
+  exec uv run --offline --no-project --no-config --python 3.13.18 python "$tool_dir/$tool.py" "$@"
+  ;;
+tests)
+  exec uv run --offline --no-project --no-config --python 3.13.18 python -m unittest discover -s "$tool_dir/tests" "$@"
+  ;;
+*)
+  echo "Unknown agent tool: $tool" >&2
+  exit 2
+  ;;
+esac

@@ -1,0 +1,539 @@
+#!/usr/bin/env python3
+"""Link this Mac's harness config to the Factory and verify every harness sees it.
+
+Discovery paths come from the harness documentation:
+- Claude Code: ~/.claude/CLAUDE.md and ~/.claude/skills (CHANGELOG v2.1.0).
+- Codex: $CODEX_HOME/AGENTS.md (AGENTS.override.md wins) and ~/.agents/skills,
+  plus the deprecated $CODEX_HOME/skills root; .system is Codex-managed.
+- OpenCode: ~/.config/opencode/AGENTS.md and the skills roots
+  ~/.config/opencode/skills, ~/.claude/skills and ~/.agents/skills.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOL_SKILLS_FILE = ROOT / "scripts" / "tool-skills.txt"
+REQUIRED_TOOL_GROUPS = ("ardia", "cua", "ctx7", "rea", "gh-stack")
+GH_STACK_PIN = "d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419"
+CODEX_MANAGED_SKILLS = {".system"}
+
+
+@dataclass(frozen=True)
+class Link:
+    path: Path
+    target: Path
+
+
+@dataclass(frozen=True)
+class Planned:
+    path: Path
+    target: Path
+    approval: bool
+
+
+def display(path: Path, home: Path) -> str:
+    try:
+        return "~/" + path.relative_to(home).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def codex_home(home: Path) -> Path:
+    return Path(os.environ.get("CODEX_HOME") or home / ".codex").expanduser()
+
+
+def config_home(home: Path) -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config").expanduser()
+
+
+def desired_links(home: Path) -> list[Link]:
+    agents = home / ".agents"
+    opencode = config_home(home) / "opencode"
+    return [
+        Link(agents, ROOT),
+        Link(home / ".claude" / "skills", ROOT / "skills"),
+        Link(opencode / "skills", ROOT / "skills"),
+        Link(home / ".claude" / "CLAUDE.md", agents / "AGENTS.md"),
+        Link(codex_home(home) / "AGENTS.md", agents / "AGENTS.md"),
+        Link(opencode / "AGENTS.md", agents / "AGENTS.md"),
+    ]
+
+
+def resolved_link(path: Path) -> Path | None:
+    if not path.is_symlink():
+        return None
+    stored = Path(os.readlink(path))
+    if not stored.is_absolute():
+        stored = path.parent / stored
+    return stored.resolve(strict=False)
+
+
+def plan_links(home: Path) -> list[Planned]:
+    changes = []
+    for link in desired_links(home):
+        current = resolved_link(link.path)
+        if link.path.is_symlink():
+            if current == link.target.resolve(strict=False):
+                continue
+            approval = bool(current and current.exists() and not inside_factory(current))
+        elif os.path.lexists(link.path):
+            approval = True
+        else:
+            approval = False
+        changes.append(Planned(link.path, link.target, approval))
+    return changes
+
+
+def inside_factory(path: Path) -> bool:
+    return path == ROOT or ROOT in path.parents
+
+
+def main_checkout() -> Path:
+    result = git(ROOT, "worktree", "list", "--porcelain")
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            if line.startswith("worktree "):
+                return Path(line[len("worktree ") :]).resolve()
+    return ROOT
+
+
+def worktree_guard(home: Path) -> list[str]:
+    if home != Path.home().resolve():
+        return []
+    git_dir = git(ROOT, "rev-parse", "--git-dir")
+    common_dir = git(ROOT, "rev-parse", "--git-common-dir")
+    if git_dir.returncode != 0 or common_dir.returncode != 0:
+        return []
+    git_path = Path(git_dir.stdout.strip())
+    common_path = Path(common_dir.stdout.strip())
+    if not git_path.is_absolute():
+        git_path = ROOT / git_path
+    if not common_path.is_absolute():
+        common_path = ROOT / common_path
+    if git_path.resolve() == common_path.resolve():
+        return []
+    return [
+        f"refusing to run from linked git worktree {ROOT}",
+        f"run it from the main checkout {main_checkout()}",
+    ]
+
+
+def backup_path(path: Path, stamp: str) -> Path:
+    candidate = path.with_name(f"{path.name}.backup-{stamp}")
+    suffix = 2
+    while os.path.lexists(candidate):
+        candidate = path.with_name(f"{path.name}.backup-{stamp}-{suffix}")
+        suffix += 1
+    return candidate
+
+
+def apply_links(changes: list[Planned], home: Path) -> None:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    for change in changes:
+        change.path.parent.mkdir(parents=True, exist_ok=True)
+        if change.approval:
+            action = "replace"
+            backup = backup_path(change.path, stamp)
+            change.path.rename(backup)
+            print(f"bootstrap: backed up {display(change.path, home)} -> {display(backup, home)}")
+        elif change.path.is_symlink():
+            action = "repoint"
+            change.path.unlink()
+        else:
+            action = "link"
+        os.symlink(change.target, change.path)
+        print(f"bootstrap: {action} {display(change.path, home)} -> {display(change.target, home)}")
+
+
+def read_tool_skill_groups() -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {}
+    current = None
+    for line in TOOL_SKILLS_FILE.read_text().splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if text.startswith("[") and text.endswith("]"):
+            current = text[1:-1]
+            groups[current] = []
+        elif current is None:
+            raise SystemExit("bootstrap: tool-skills.txt has a name outside a group")
+        else:
+            groups[current].append(text)
+    missing = [group for group in REQUIRED_TOOL_GROUPS if group not in groups]
+    if missing:
+        raise SystemExit(f"bootstrap: tool-skills.txt is missing groups: {', '.join(missing)}")
+    empty = [group for group in REQUIRED_TOOL_GROUPS if not groups[group]]
+    if empty:
+        raise SystemExit(f"bootstrap: tool-skills.txt groups are empty: {', '.join(empty)}")
+    return groups
+
+
+def read_tool_skills() -> list[str]:
+    return [name for names in read_tool_skill_groups().values() for name in names]
+
+
+def skill_present(name: str) -> bool:
+    return (ROOT / "skills" / name / "SKILL.md").is_file()
+
+
+def tool_version(name: str) -> str:
+    tools = tomllib.loads((ROOT / "mise.toml").read_text()).get("tools", {})
+    version = tools.get(name)
+    if not isinstance(version, str):
+        raise SystemExit(f"bootstrap: mise.toml has no {name} pin")
+    return version
+
+
+def run_installer(label: str, argv: list[str], home: Path) -> None:
+    executable = shutil.which(argv[0])
+    if executable is None:
+        print(f"bootstrap: warning: {label} is not installed; skipping its skills")
+        return
+    argv = [executable, *argv[1:]]
+    print(f"bootstrap: install {label}: {' '.join(argv)}")
+    environment = os.environ.copy()
+    environment["HOME"] = str(home)
+    result = subprocess.run(argv, env=environment, check=False)
+    if result.returncode != 0:
+        print(f"bootstrap: {label} installer failed with exit {result.returncode}", file=sys.stderr)
+
+
+def install_gh_stack(home: Path) -> None:
+    executable = shutil.which("gh")
+    if executable is None:
+        print("bootstrap: warning: gh is not installed; skipping gh-stack")
+        return
+    with tempfile.TemporaryDirectory(prefix="factory-gh-stack-") as state:
+        environment = os.environ.copy()
+        environment["HOME"] = state
+        environment["GH_CONFIG_DIR"] = os.environ.get("GH_CONFIG_DIR") or str(Path.home() / ".config" / "gh")
+        argv = [
+            executable,
+            "skill",
+            "install",
+            "github/gh-stack",
+            "gh-stack",
+            "--dir",
+            str(home / ".claude" / "skills"),
+            "--pin",
+            GH_STACK_PIN,
+            "--force",
+        ]
+        print(f"bootstrap: install gh-stack: {' '.join(argv)}")
+        result = subprocess.run(argv, env=environment, check=False)
+        if result.returncode != 0:
+            print(f"bootstrap: gh-stack installer failed with exit {result.returncode}", file=sys.stderr)
+
+
+def install_tool_skills(home: Path) -> list[str]:
+    errors = []
+    groups = read_tool_skill_groups()
+    installers = {
+        "ardia": ["ardia", "skills", "install", "--target", "general", "--no-cua"],
+        "cua": ["cua", "connect", "setup", "--skills-only", "--agents", "claude", "-y"],
+        "rea": ["rea", "setup", "--skill-client", "shared", "--yes"],
+    }
+    for group, argv in installers.items():
+        names = groups[group]
+        if not all(skill_present(name) for name in names):
+            if group == "rea" and shutil.which("rea") is None:
+                argv = [
+                    "npx",
+                    "--yes",
+                    f"rea-agents@{tool_version('npm:rea-agents')}",
+                    "setup",
+                    "--skill-client",
+                    "shared",
+                    "--yes",
+                ]
+            run_installer(group, argv, home)
+        for name in names:
+            if not skill_present(name):
+                errors.append(f"{group}: {display(ROOT / 'skills' / name / 'SKILL.md', home)} is missing")
+    gh_names = groups["gh-stack"]
+    if not all(skill_present(name) for name in gh_names):
+        install_gh_stack(home)
+    for name in gh_names:
+        if not skill_present(name):
+            errors.append(f"gh-stack: {display(ROOT / 'skills' / name / 'SKILL.md', home)} is missing")
+    ctx7_names = groups["ctx7"]
+    if not all(skill_present(name) for name in ctx7_names):
+        if shutil.which("ctx7"):
+            run_installer("ctx7", ["ctx7", "setup", "--claude", "--cli", "-y"], home)
+        else:
+            run_installer(
+                "ctx7",
+                ["npx", "--yes", f"ctx7@{tool_version('npm:ctx7')}", "setup", "--claude", "--cli", "-y"],
+                home,
+            )
+    for name in ctx7_names:
+        if not skill_present(name):
+            errors.append(f"ctx7: {display(ROOT / 'skills' / name / 'SKILL.md', home)} is missing")
+    if not errors:
+        print("bootstrap: tool-owned skills are installed")
+    return errors
+
+
+def factory_skill_names() -> set[str]:
+    return {
+        path.name
+        for path in (ROOT / "skills").iterdir()
+        if path.is_dir() and (path / "SKILL.md").is_file()
+    }
+
+
+def codex_root_errors(home: Path) -> list[str]:
+    root = codex_home(home) / "skills"
+    if not root.is_dir():
+        return []
+    errors = []
+    factory_skills = ROOT / "skills"
+    for entry in sorted(root.iterdir()):
+        if entry.name in CODEX_MANAGED_SKILLS:
+            continue
+        if entry.is_symlink():
+            resolved = entry.resolve(strict=False)
+            if resolved == factory_skills or factory_skills in resolved.parents:
+                continue
+            if not entry.exists():
+                errors.append(f"codex: {display(entry, home)} is a broken symlink")
+                continue
+        if not entry.is_dir():
+            continue
+        if any(entry.rglob("SKILL.md")):
+            errors.append(
+                f"codex: {display(entry, home)} holds skills Codex does not manage; "
+                "remove it or move it out of ~/.codex/skills"
+            )
+    return errors
+
+
+def discovery(home: Path) -> int:
+    errors = []
+    factory_agents = ROOT / "AGENTS.md"
+    factory_skills = ROOT / "skills"
+    if not factory_agents.is_file():
+        print(f"bootstrap: missing {factory_agents}", file=sys.stderr)
+        return 1
+    if not factory_skills.is_dir():
+        print(f"bootstrap: missing {factory_skills}", file=sys.stderr)
+        return 1
+    expected_names = factory_skill_names()
+    opencode = config_home(home) / "opencode"
+    harnesses = {
+        "claude-code": {
+            "instructions": [home / ".claude" / "CLAUDE.md"],
+            "skills": [home / ".claude" / "skills"],
+            "shadows": [],
+        },
+        "opencode": {
+            "instructions": [opencode / "AGENTS.md"],
+            "skills": [opencode / "skills", home / ".claude" / "skills", home / ".agents" / "skills"],
+            "shadows": [],
+        },
+        "codex": {
+            "instructions": [codex_home(home) / "AGENTS.md"],
+            "skills": [home / ".agents" / "skills"],
+            "shadows": [codex_home(home) / "AGENTS.override.md"],
+        },
+    }
+    discovered = {}
+    for harness, paths in harnesses.items():
+        names = set()
+        for path in paths["instructions"]:
+            if not path.exists():
+                errors.append(f"{harness}: {display(path, home)} is missing")
+                continue
+            if not path.samefile(factory_agents):
+                errors.append(
+                    f"{harness}: {display(path, home)} does not resolve to "
+                    f"{display(factory_agents, home)}"
+                )
+        for path in paths["shadows"]:
+            if path.is_file() and path.stat().st_size > 0:
+                errors.append(
+                    f"{harness}: {display(path, home)} shadows the global AGENTS.md; "
+                    "remove it or keep it empty"
+                )
+        for path in paths["skills"]:
+            if not path.exists():
+                errors.append(f"{harness}: {display(path, home)} is missing")
+                continue
+            if not path.is_dir():
+                errors.append(f"{harness}: {display(path, home)} is not a directory")
+                continue
+            if not path.samefile(factory_skills):
+                errors.append(
+                    f"{harness}: {display(path, home)} does not resolve to "
+                    f"{display(factory_skills, home)}"
+                )
+            names |= {
+                entry.name
+                for entry in path.iterdir()
+                if entry.is_dir() and (entry / "SKILL.md").is_file()
+            }
+        discovered[harness] = names
+        if names != expected_names:
+            missing = ", ".join(sorted(expected_names - names)) or "none"
+            extra = ", ".join(sorted(names - expected_names)) or "none"
+            errors.append(f"{harness}: skill set differs from the Factory (missing: {missing}; extra: {extra})")
+    errors.extend(codex_root_errors(home))
+    for harness, names in sorted(discovered.items()):
+        other = next((key for key, value in sorted(discovered.items()) if key != harness and value != names), None)
+        if other:
+            errors.append(f"{harness} and {other} do not see the same skill set")
+    if errors:
+        for error in errors:
+            print(f"bootstrap: {error}", file=sys.stderr)
+        print(f"bootstrap: discovery check failed with {len(errors)} problem(s)", file=sys.stderr)
+        return 1
+    print(
+        "bootstrap: discovery check passed for claude-code, opencode and codex "
+        f"({len(expected_names)} skills)"
+    )
+    return 0
+
+
+def git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def check_tool_skills(root: Path) -> int:
+    names = read_tool_skills()
+    tracked = git(root, "ls-files", "--", *[f"skills/{name}" for name in names])
+    if tracked.returncode != 0:
+        print(f"bootstrap: cannot list tracked files in {root}: {tracked.stderr.strip()}", file=sys.stderr)
+        return 1
+    untracked = git(root, "ls-files", "--others", "--exclude-standard", "--", ":(glob)skills/*/SKILL.md")
+    if untracked.returncode != 0:
+        print(f"bootstrap: cannot list untracked files in {root}: {untracked.stderr.strip()}", file=sys.stderr)
+        return 1
+    problems = False
+    for path in [line for line in tracked.stdout.splitlines() if line]:
+        print(f"bootstrap: tool-owned skill is tracked: {path}", file=sys.stderr)
+        problems = True
+    for path in [line for line in untracked.stdout.splitlines() if line]:
+        print(f"bootstrap: untracked skill is not declared as tool-owned: {path}", file=sys.stderr)
+        problems = True
+    for name in names:
+        ignored = git(root, "check-ignore", "-q", f"skills/{name}/SKILL.md")
+        if ignored.returncode != 0:
+            print(f"bootstrap: declared tool-owned skill is not ignored: skills/{name}", file=sys.stderr)
+            problems = True
+    ignored_files = git(
+        root, "ls-files", "--others", "--ignored", "--exclude-standard", "--", ":(glob)skills/*/SKILL.md"
+    )
+    if ignored_files.returncode != 0:
+        print(f"bootstrap: cannot list ignored files in {root}: {ignored_files.stderr.strip()}", file=sys.stderr)
+        return 1
+    for path in [line for line in ignored_files.stdout.splitlines() if line]:
+        name = Path(path).parts[1] if len(Path(path).parts) > 1 else path
+        if name not in names:
+            print(f"bootstrap: ignored skill is not declared tool-owned: skills/{name}", file=sys.stderr)
+            problems = True
+    if problems:
+        return 1
+    print("bootstrap: tool-owned skill checks passed")
+    return 0
+
+
+def run_skills_sync(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["mise", "run", "skills:sync", *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def check_vendored_skills() -> list[str]:
+    try:
+        check = run_skills_sync("--check")
+    except OSError as error:
+        return [f"skills:sync unavailable: {error}"]
+    if check.returncode == 0:
+        print("bootstrap: vendored skills check passed")
+        return []
+    for line in (check.stderr or check.stdout).strip().splitlines():
+        print(f"bootstrap: {line}", file=sys.stderr)
+    return ["vendored skills drifted; run `mise run skills:sync` to repair them, then rerun bootstrap"]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--home", type=Path, default=Path.home(), help="home directory to bootstrap")
+    parser.add_argument("--check", action="store_true", help="run only the discovery check")
+    parser.add_argument(
+        "--adopt-existing",
+        action="store_true",
+        help="replace real files and directories at managed paths, after a dated backup",
+    )
+    parser.add_argument("--check-tool-skills", action="store_true", help="fail if a tool-owned skill is tracked")
+    parser.add_argument("--root", type=Path, default=ROOT, help="checkout to inspect with --check-tool-skills")
+    args = parser.parse_args(argv)
+    home = args.home.expanduser().resolve()
+    if args.check_tool_skills:
+        return check_tool_skills(args.root.resolve())
+    if not home.is_dir():
+        print(f"bootstrap: home directory does not exist: {home}", file=sys.stderr)
+        return 1
+    if args.check:
+        return discovery(home)
+    guard = worktree_guard(home)
+    if guard:
+        for line in guard:
+            print(f"bootstrap: {line}", file=sys.stderr)
+        return 2
+    print(f"bootstrap: Factory checkout {ROOT}")
+    changes = plan_links(home)
+    needs_approval = [change for change in changes if change.approval]
+    if needs_approval and not args.adopt_existing:
+        print("bootstrap: refusing to replace these managed paths:", file=sys.stderr)
+        for change in needs_approval:
+            print(f"  {display(change.path, home)}", file=sys.stderr)
+        print("Approve with: mise run bootstrap -- --adopt-existing", file=sys.stderr)
+        return 2
+    vendored_errors = check_vendored_skills()
+    if vendored_errors:
+        for error in vendored_errors:
+            print(f"bootstrap: {error}", file=sys.stderr)
+        return 1
+    apply_links(changes, home)
+    tools_present_before = all(skill_present(name) for name in read_tool_skills())
+    errors = install_tool_skills(home)
+    discovery_code = discovery(home)
+    for error in errors:
+        print(f"bootstrap: {error}", file=sys.stderr)
+    if errors or discovery_code != 0:
+        return 1
+    if not changes and tools_present_before:
+        print("Already bootstrapped: no changes.")
+    else:
+        work = []
+        if changes:
+            work.append(f"{len(changes)} link change(s)")
+        if not tools_present_before:
+            work.append("tool skills installed")
+        print("bootstrap: complete with " + ", ".join(work))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

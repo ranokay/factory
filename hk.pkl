@@ -154,6 +154,17 @@ steps {
           }
         }
       }
+      ["sync leaves a tool-owned directory alone"] {
+        run = "fix"
+        tmpdir = true
+        before = "\(fixture) tool-skill"
+        expect {
+          code = 0
+          files {
+            ["skills/ardia/SKILL.md"] = "tool\n"
+          }
+        }
+      }
     }
   }
 
@@ -203,6 +214,72 @@ steps {
       ["an owner directory failure names the path"] {
         run = "check"
         env { ["RUN_SLOT_CASE"] = "owner_permission" }
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["bootstrap"] = new Step {
+    check = "sh {{root}}/scripts/bootstrap-test.sh"
+    tests {
+      ["a fresh temp HOME gets the Factory links"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "fresh" }
+        expect { code = 0 }
+      }
+      ["the second run changes nothing and says so"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "second" }
+        expect { code = 0 }
+      }
+      ["a broken link names the harness and the path"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "broken" }
+        expect { code = 0 }
+      }
+      ["real directories are refused, then backed up with approval"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "refuse" }
+        expect { code = 0 }
+      }
+      ["external symlinks need approval and are backed up"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "external" }
+        expect { code = 0 }
+      }
+      ["linked worktrees are refused for the real home"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "worktree" }
+        expect { code = 0 }
+      }
+      ["skills:sync --check ignores tool-owned skill directories"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "sync" }
+        expect { code = 0 }
+      }
+      ["Codex extras are named and managed entries are ignored"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "codex" }
+        expect { code = 0 }
+      }
+      ["XDG_CONFIG_HOME and CODEX_HOME are honoured"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "env" }
+        expect { code = 0 }
+      }
+      ["the hook helpers still resolve and run"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "hooks" }
+        expect { code = 0 }
+      }
+      ["bootstrap refuses a drifted vendored skill"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "repair" }
+        expect { code = 0 }
+      }
+      ["a tracked tool-owned skill fails the check"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "tracked" }
         expect { code = 0 }
       }
     }

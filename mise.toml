@@ -6,6 +6,8 @@ include = ["./profiles/universal/mise.toml"]
 python = "3.13.18"
 uv = "0.11.27"
 ffmpeg = "9.0.2"
+"npm:ctx7" = "0.12.2"
+"npm:rea-agents" = "6.5.0"
 
 [task_config]
 includes = ["profiles/universal/tasks.toml"]
@@ -13,6 +15,22 @@ includes = ["profiles/universal/tasks.toml"]
 [tasks."skills:sync"]
 description = "Sync Vendored Skills at their pins; --check, --check --fetch or --update"
 run = "uv run scripts/skills-sync.py"
+
+[tasks.bootstrap]
+description = "Link this Mac's harness config to the Factory and verify discovery"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/bootstrap.py"
+
+[tasks."bootstrap:check"]
+description = "Verify every harness sees the Factory global instructions and skills"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/bootstrap.py --check"
+
+[tasks."bootstrap:test"]
+description = "Run the bootstrap tests"
+run = "hk test --step bootstrap"
+
+[tasks."tools:test"]
+description = "Run the agent hook helper tests"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python -m unittest discover -s tools/tests"
 
 [tasks.evidence]
 description = "Record Verification Evidence and post the single PR evidence comment"
@@ -27,6 +45,8 @@ depends = [
   "file-promotion:test",
   "process-receipt:test",
   "evidence:test",
+  "bootstrap:test",
+  "tools:test",
 ]
 
 [tasks."skills:test"]

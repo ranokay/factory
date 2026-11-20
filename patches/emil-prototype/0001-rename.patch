@@ -1,0 +1,11 @@
+diff --git a/SKILL.md b/SKILL.md
+index 56a648d..547008e 100644
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,5 +1,5 @@
+ ---
+-name: prototype
++name: emil-prototype
+ description: Build multiple genuinely different versions of a UI piece you describe, rendered behind a visual picker so you can flip through them live and promote the one that feels right.
+ disable-model-invocation: true
+ ---

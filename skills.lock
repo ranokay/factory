@@ -359,6 +359,28 @@
       ]
     },
     {
+      "name": "emil-prototype",
+      "source": "https://github.com/emilkowalski/skills.git",
+      "path": "skills/prototype",
+      "commit": "64eb3deb9a5fbfa041faf783e0bc3fd635872e9c",
+      "patches": [
+        {
+          "path": "0001-rename.patch",
+          "sha256": "aae6d81dc5e6dff8fb3307d607c21ee51c610d654fa8514002055638d6734c0c"
+        }
+      ],
+      "files": [
+        {
+          "path": "PICKER.md",
+          "sha256": "6c1d7a8d1f34dbc83a2e2068cd49f42107f1d02fb4e80369bb4e978d1e026b8d"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "582427a8738b4f1df8d05ec30f414e5f493e6555ad192f36195f6aee4d5a0b7f"
+        }
+      ]
+    },
+    {
       "name": "find-animation-opportunities",
       "source": "https://github.com/emilkowalski/skills.git",
       "path": "skills/find-animation-opportunities",
@@ -368,6 +390,19 @@
         {
           "path": "SKILL.md",
           "sha256": "331479e0d867f90d637ef3ef1bdbbd38498d144ab493442afdfbc138abc751b4"
+        }
+      ]
+    },
+    {
+      "name": "find-skills",
+      "source": "https://github.com/vercel-labs/skills.git",
+      "path": "skills/find-skills",
+      "commit": "57217cf86ba38148a57af9e90d14a4c049558330",
+      "patches": [],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "c00eeea0e13e74fe4a9d84ba0a8542205a1b736d65f13134fe1a6647eb14976f"
         }
       ]
     },
@@ -530,6 +565,59 @@
         {
           "path": "SKILL.md",
           "sha256": "db10dc6b2a0c340d873f69e35140ceb3c929e15664b33fcacd1ecb25c5574df3"
+        }
+      ]
+    },
+    {
+      "name": "playwright-cli",
+      "source": "https://github.com/microsoft/playwright-cli.git",
+      "path": "skills/playwright-cli",
+      "commit": "c872a33cec77fa03c28fa7c6d1ad99d15d04ce42",
+      "patches": [],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "1c4c34000f6102ee71fe91bf25351a221f7da37f48f2d556e1756f66e17d356f"
+        },
+        {
+          "path": "references/element-attributes.md",
+          "sha256": "bf19aa4671e0a50a0fefa9c790f39124e803060eefe395042b723c29fcb7faa2"
+        },
+        {
+          "path": "references/playwright-tests.md",
+          "sha256": "c5b0719fef2cfdff50bd744051b2f9afc119775db4b48e9b2882c1cf3886797c"
+        },
+        {
+          "path": "references/pr-attachments.md",
+          "sha256": "24b118e74598be72e73e24fe223d295b9099c85b1860a7c8f6e5690c9038fa2a"
+        },
+        {
+          "path": "references/request-mocking.md",
+          "sha256": "54e801c9663fc2b6d68ceb058cb1c360724c2499f42acc7852a68e83e5b5f37c"
+        },
+        {
+          "path": "references/running-code.md",
+          "sha256": "eac97e0b77e723f8b1d7b64f276f92efa72f74453f45a805352d27ea1853a495"
+        },
+        {
+          "path": "references/session-management.md",
+          "sha256": "2f4d953136cbfb998136095c064c38f4223ea049d6e13610e17db078dde8971c"
+        },
+        {
+          "path": "references/storage-state.md",
+          "sha256": "71e90f774b5a7d61367f2336940f30be7c5693d43197b63d1154634b99ae5045"
+        },
+        {
+          "path": "references/test-generation.md",
+          "sha256": "b9c5dda349a469b9abf9f10f3787135e6521f433f5743de399a164e14e76f7ce"
+        },
+        {
+          "path": "references/tracing.md",
+          "sha256": "4e397e16e6bd92d8696cb815c4ee6dc4ce0be1da9e760e261a9c30b44c7857c7"
+        },
+        {
+          "path": "references/video-recording.md",
+          "sha256": "1c800b897824cb54394c34265d8ebffdbb530adfc8d612c5d798b667a1799f48"
         }
       ]
     },
