@@ -254,11 +254,17 @@ def render(home: Path, servers: dict, retired: list[str], check: bool) -> int:
     for target, path in config_paths(home).items():
         if not path.exists():
             continue
+        try:
+            text = path.read_text()
+        except OSError as error:
+            raise SyncError(f"{path}: {error}") from None
         if target == "codex":
-            text = desired_codex(path.read_text(), servers, retired, home)
-            write(path, text, check, changed)
+            write(path, desired_codex(text, servers, retired, home), check, changed)
             continue
-        document = json.loads(path.read_text())
+        try:
+            document = json.loads(text)
+        except ValueError as error:
+            raise SyncError(f"{path}: {error}") from None
         key = "mcpServers" if target == "claude-code" else "mcp"
         rendered = desired_json(document, key, servers, retired, target, home)
         write(path, json.dumps(rendered, indent=2, ensure_ascii=False) + "\n", check, changed)

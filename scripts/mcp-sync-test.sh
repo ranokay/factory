@@ -286,6 +286,18 @@ case_no_references() {
 	printf 'ok: a registry without secret references is a no-op\n'
 }
 
+case_malformed() {
+	setup_case malformed
+	make_stubs
+	write_config claude 'not json'
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "the check passed on a malformed config"
+	expect_contains "$output" "$home/.claude.json"
+	expect_contains "$output" "Expecting value"
+	expect_not_contains "$output" "Traceback"
+	printf 'ok: a malformed config is a named error, not a traceback\n'
+}
+
 case_all() {
 	case_fresh
 	case_drift
@@ -298,6 +310,7 @@ case_all() {
 	case_env_check
 	case_literal_header
 	case_no_references
+	case_malformed
 }
 
 case $case_name in
@@ -312,6 +325,7 @@ env-fail) case_env_fail ;;
 env-check) case_env_check ;;
 literal-header) case_literal_header ;;
 no-references) case_no_references ;;
+malformed) case_malformed ;;
 all) case_all ;;
 *)
 	printf 'unknown case: %s\n' "$case_name" >&2

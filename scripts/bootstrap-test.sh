@@ -607,6 +607,8 @@ case_mcp() {
 	[ "$code" -ne 0 ] || fail "bootstrap:check passed with malformed JSON"
 	expect_contains "$output" "MCP configs are not in sync"
 	expect_contains "$output" "Expecting value"
+	expect_contains "$output" "$home/.claude.json"
+	expect_not_contains "$output" "Traceback"
 	printf 'ok: bootstrap renders, checks, backs up and repairs the MCP configs\n'
 }
 
@@ -725,12 +727,15 @@ case_ssh_existing() {
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind an agent block: $output"
 	expect_contains "$output" "already routes github.com through 1Password"
 	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS behind an agent block"
-	printf 'Host github.com\n  IdentityAgent=%s\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
+	printf 'Host github.com\n  IdentityAgent="%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
 	git -C "$factory" remote set-url origin https://github.com/example/factory.git
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed behind an equals-form agent block: $output"
 	expect_contains "$output" "already routes github.com through 1Password"
 	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "bootstrap left the origin on HTTPS behind an equals-form agent block"
+	run_command ssh -F "$home/.ssh/config" -G github.com
+	[ "$code" -eq 0 ] || fail "ssh cannot parse the equals-form block: $output"
+	expect_contains "$output" "identityagent $home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 	printf 'Host github.com\n  IdentityAgentBroken "%s"\n' "$home/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" >"$home/.ssh/config"
 	git -C "$factory" remote set-url origin https://github.com/example/factory.git
 	run_bootstrap

@@ -439,6 +439,11 @@ steps {
         env { ["MCP_SYNC_CASE"] = "no-references" }
         expect { code = 0 }
       }
+      ["a malformed config is a named error"] {
+        run = "check"
+        env { ["MCP_SYNC_CASE"] = "malformed" }
+        expect { code = 0 }
+      }
     }
   }
 
