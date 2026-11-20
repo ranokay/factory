@@ -306,6 +306,12 @@ case_malformed() {
 	expect_contains "$output" "$home/.claude.json"
 	expect_contains "$output" "must be an object"
 	expect_not_contains "$output" "Traceback"
+	write_config claude '{"mcpServers": null}'
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "the check passed on a null mcpServers"
+	expect_contains "$output" "$home/.claude.json"
+	expect_contains "$output" "must be an object"
+	expect_not_contains "$output" "Traceback"
 	printf 'not json\n' >"$case_dir/registry.json"
 	run_sync --check --registry "$case_dir/registry.json"
 	[ "$code" -ne 0 ] || fail "the check passed on a malformed registry"

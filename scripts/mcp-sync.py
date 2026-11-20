@@ -275,11 +275,11 @@ def render(home: Path, servers: dict, retired: list[str], check: bool) -> int:
         if not isinstance(document, dict):
             raise SyncError(f"{path}: expected a JSON object")
         key = "mcpServers" if target == "claude-code" else "mcp"
-        managed = document.get(key)
-        if managed is None:
+        if key in document:
+            if not isinstance(document[key], dict):
+                raise SyncError(f"{path}: {key} must be an object")
+        else:
             document[key] = {}
-        elif not isinstance(managed, dict):
-            raise SyncError(f"{path}: {key} must be an object")
         rendered = desired_json(document, key, servers, retired, target, home)
         write(path, json.dumps(rendered, indent=2, ensure_ascii=False) + "\n", check, changed)
     if check:
