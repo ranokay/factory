@@ -2,6 +2,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -89,6 +90,19 @@ class ClonesTest(unittest.TestCase):
         duplicate = self.repo(self.source, 'copy')
         def approve(_prompt):
             (duplicate / 'new').write_text('late change')
+            return 'y'
+        argv = ['canonical-clones', 'remove', '--source-root', str(self.source), '--developer-root', str(self.developer)]
+        with patch('sys.argv', argv), patch('sys.stdin.isatty', return_value=True), patch('builtins.input', side_effect=approve), patch('sys.stdout', new_callable=io.StringIO):
+            self.assertEqual(clones.main(), 1)
+        self.assertTrue(duplicate.exists())
+
+    def test_canonical_cannot_resolve_to_parent_repo(self):
+        canonical = self.repo(self.developer, 'repo')
+        duplicate = self.repo(self.source, 'copy')
+        run('git', 'init', '-q', str(self.developer))
+        self.git(self.developer, 'remote', 'add', 'origin', 'https://github.com/owner/repo')
+        def approve(_prompt):
+            shutil.rmtree(canonical / '.git')
             return 'y'
         argv = ['canonical-clones', 'remove', '--source-root', str(self.source), '--developer-root', str(self.developer)]
         with patch('sys.argv', argv), patch('sys.stdin.isatty', return_value=True), patch('builtins.input', side_effect=approve), patch('sys.stdout', new_callable=io.StringIO):

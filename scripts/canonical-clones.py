@@ -141,7 +141,8 @@ def main():
                     continue
                 try:
                     canonical = Path(entry['canonical'])
-                    if not canonical.is_dir() or identity(git(canonical, 'remote', 'get-url', 'origin')) != entry['identity']:
+                    if (not canonical.is_dir() or Path(git(canonical, 'rev-parse', '--show-toplevel')).resolve() != canonical.resolve()
+                            or identity(git(canonical, 'remote', 'get-url', 'origin')) != entry['identity']):
                         raise ValueError('canonical clone is absent or has changed identity')
                     reasons = work(path)
                     if has_linked_worktrees(path):
