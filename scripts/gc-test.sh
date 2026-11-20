@@ -82,11 +82,12 @@ PATH=$base_path
 grep 'kept .*badtime.*cannot inspect' "$tmp/badtime"
 
 fake_root="$tmp/fake/install"
-mkdir -p "$fake_root/fake/1.0" "$fake_root/recent/1.0" "$fake_root/stale/1.0" "$tmp/fake/bin" "$tmp/tool-home"
+mkdir -p "$fake_root/fake/1.0" "$fake_root/recent/1.0" "$fake_root/stale/1.0" "$fake_root/stale2/1.0" "$tmp/fake/bin" "$tmp/tool-home"
 printf 'fake\n' >"$fake_root/fake/1.0/file"
 printf 'recent\n' >"$fake_root/recent/1.0/file"
 printf 'stale\n' >"$fake_root/stale/1.0/file"
-touch -t 202001010000 "$fake_root/fake/1.0" "$fake_root/fake/1.0/file" "$fake_root/stale/1.0" "$fake_root/stale/1.0/file"
+printf 'stale2\n' >"$fake_root/stale2/1.0/file"
+touch -t 202001010000 "$fake_root/fake/1.0" "$fake_root/fake/1.0/file" "$fake_root/stale/1.0" "$fake_root/stale/1.0/file" "$fake_root/stale2/1.0" "$fake_root/stale2/1.0/file"
 cat >"$tmp/fake/bin/mise" <<STUB
 #!/bin/sh
 case "\$1 \$2" in
@@ -96,11 +97,12 @@ case "\$1 \$2" in
 	count=\$((count + 1))
 	printf '%s\n' "\$count" >"$tmp/fake/count"
 	stale_active=false
-	[ "\${FAKE_MODE:-}" = flip ] && [ "\$count" -ge 2 ] && stale_active=true
-	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":true}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":%s}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n' "\$stale_active"
+	stale2_active=false
+	[ "\${FAKE_MODE:-}" = flip ] && [ "\$count" -ge 3 ] && stale2_active=true
+	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":true}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":%s}],"stale2":[{"version":"1.0","install_path":"$fake_root/stale2/1.0","installed":true,"active":%s}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n' "\$stale_active" "\$stale2_active"
 	;;
 "ls --prunable")
-	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":false}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":false}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n'
+	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":false}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":false}],"stale2":[{"version":"1.0","install_path":"$fake_root/stale2/1.0","installed":true,"active":false}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n'
 	;;
 "cache path")
 	printf '%s\n' "$tmp/cache"
@@ -124,6 +126,7 @@ case "\$1 \$2" in
 		fake@1.0) printf '[dryrun] remove %s\n' "$fake_root/fake/1.0" ;;
 		recent@1.0) printf '[dryrun] remove %s\n' "$fake_root/recent/1.0" ;;
 		stale@1.0) printf '[dryrun] remove %s\n' "$fake_root/stale/1.0" ;;
+		stale2@1.0) printf '[dryrun] remove %s\n' "$fake_root/stale2/1.0" ;;
 		missing@1.0) printf '[dryrun] remove %s\n' "$fake_root/missing/1.0" ;;
 		esac
 		;;
@@ -145,6 +148,7 @@ grep 'kept .*fake/1.0: active tool' "$tmp/tools"
 grep 'kept .*recent/1.0: recent install' "$tmp/tools"
 grep 'kept .*missing/1.0: install path missing' "$tmp/tools"
 grep '^delete .*stale/1.0' "$tmp/tools"
+grep '^delete .*stale2/1.0' "$tmp/tools"
 rm -f "$tmp/fake/count" "$tmp/prune.log"
 PATH="$tmp/fake/bin:$base_path"
 HOME="$tmp/tool-home" run_gc >"$tmp/tools-run"
@@ -155,8 +159,8 @@ rm -f "$tmp/fake/count"
 PATH="$tmp/fake/bin:$base_path"
 FAKE_MODE=flip HOME="$tmp/tool-home" run_gc >"$tmp/tools-flip"
 PATH=$base_path
-grep 'kept .*stale/1.0: active tool before pruning' "$tmp/tools-flip"
-if grep -q 'stale@1.0' "$tmp/prune.log"; then exit 1; fi
+grep 'kept .*stale2/1.0: active tool before pruning' "$tmp/tools-flip"
+if grep -q 'stale2@1.0' "$tmp/prune.log"; then exit 1; fi
 mkdir -p "$tmp/cache/flip-one" "$tmp/cache/flip-two"
 printf 'flip\n' >"$tmp/cache/flip-one/file"
 printf 'flip\n' >"$tmp/cache/flip-two/file"
