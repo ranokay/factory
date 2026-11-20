@@ -164,7 +164,9 @@ def cache_candidates():
         if 'pruning ' in line:
             candidate = line.split('pruning ', 1)[1].strip()
             if not (candidate.startswith('/') or candidate.startswith('~')):
-                continue
+                if candidate.startswith('old cache files'):
+                    continue
+                raise RuntimeError(f'unrecognized mise cache output: {line}')
             path = Path(candidate).expanduser().resolve()
             if root not in path.parents or path == root:
                 raise RuntimeError(f'unsafe cache path {path}')

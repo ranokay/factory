@@ -107,6 +107,10 @@ case "\$1 \$2" in
 	printf '%s\n' "$tmp/cache"
 	;;
 "cache prune")
+	if [ "\${CACHE_BAD:-}" = 1 ]; then
+		printf 'INFO  pruning unexpected cache message\n'
+		exit 0
+	fi
 	printf 'INFO  pruning old cache files, this behavior can be modified with the MISE_CACHE_PRUNE_AGE setting\n'
 	if [ "\${CACHE_FLIP:-}" = 1 ]; then
 		if [ -f "$tmp/cache-flip" ]; then
@@ -172,6 +176,10 @@ if CACHE_FLIP=1 HOME="$tmp/tool-home" run_gc >"$tmp/cache-flip-run" 2>&1; then e
 PATH=$base_path
 grep 'kept mise cache: candidates changed before pruning' "$tmp/cache-flip-run"
 test -f "$tmp/cache/flip-one/file"
+PATH="$tmp/fake/bin:$base_path"
+if CACHE_BAD=1 HOME="$tmp/tool-home" run_gc >"$tmp/cache-bad-run" 2>&1; then exit 1; fi
+PATH=$base_path
+grep 'unrecognized mise cache output' "$tmp/cache-bad-run"
 
 evidence_home="$tmp/evidence-home"
 mkdir -p "$evidence_home/.cache/factory/owner/repo/1" "$evidence_home/.cache/factory/owner/repo/2" "$tmp/evidence-bin"
