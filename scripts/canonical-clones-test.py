@@ -175,6 +175,11 @@ class ClonesTest(unittest.TestCase):
             result = clones.inventory([self.source, self.developer], self.developer)
         entry = result['repositories'][0]['duplicates'][0]
         self.assertIn('worktree inspection failed: fixture failure', entry['unpublished'])
+        with patch.object(clones, 'linked_worktrees', side_effect=inspect), patch.object(clones, 'work', side_effect=OSError('status failure')):
+            result = clones.inventory([self.source, self.developer], self.developer)
+        reasons = result['repositories'][0]['duplicates'][0]['unpublished']
+        self.assertIn('worktree inspection failed: fixture failure', reasons)
+        self.assertIn('inspection failed: status failure', reasons)
 
     def test_source_linked_worktree_and_report_move_parity(self):
         main = self.repo(self.source, 'repo')

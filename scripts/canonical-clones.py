@@ -113,12 +113,12 @@ def inventory(roots, developer):
             if path != selected:
                 try:
                     reasons = work(path)
-                    if str(path) in inspection_errors:
-                        reasons.append(inspection_errors[str(path)])
                     if clone_worktrees[str(path)]:
                         reasons.append('linked worktrees')
                 except (OSError, subprocess.SubprocessError) as error:
                     reasons = [f'inspection failed: {error}']
+                if str(path) in inspection_errors:
+                    reasons.append(inspection_errors[str(path)])
                 duplicates.append({'path': str(path), 'unpublished': reasons})
         entries.append({'identity': key, 'paths': [str(p) for p in paths], 'canonical': str(target), 'selected': str(selected) if selected else None,
                         'move': selected is not None and selected != target and reason is None, 'duplicates': duplicates, 'linked_worktrees': clone_worktrees, 'refusal': reason})
