@@ -96,10 +96,9 @@ case "\$1 \$2" in
 	[ -f "$tmp/fake/count" ] && count=\$(cat "$tmp/fake/count")
 	count=\$((count + 1))
 	printf '%s\n' "\$count" >"$tmp/fake/count"
-	stale_active=false
 	stale2_active=false
 	[ "\${FAKE_MODE:-}" = flip ] && [ "\$count" -ge 3 ] && stale2_active=true
-	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":true}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":%s}],"stale2":[{"version":"1.0","install_path":"$fake_root/stale2/1.0","installed":true,"active":%s}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n' "\$stale_active" "\$stale2_active"
+	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":true}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":false}],"stale2":[{"version":"1.0","install_path":"$fake_root/stale2/1.0","installed":true,"active":%s}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n' "\$stale2_active"
 	;;
 "ls --prunable")
 	printf '{"fake":[{"version":"1.0","install_path":"$fake_root/fake/1.0","installed":true,"active":false}],"recent":[{"version":"1.0","install_path":"$fake_root/recent/1.0","installed":true,"active":false}],"stale":[{"version":"1.0","install_path":"$fake_root/stale/1.0","installed":true,"active":false}],"stale2":[{"version":"1.0","install_path":"$fake_root/stale2/1.0","installed":true,"active":false}],"missing":[{"version":"1.0","install_path":"$fake_root/missing/1.0","installed":true,"active":false}]}\n'
@@ -154,12 +153,14 @@ PATH="$tmp/fake/bin:$base_path"
 HOME="$tmp/tool-home" run_gc >"$tmp/tools-run"
 PATH=$base_path
 grep 'stale@1.0' "$tmp/prune.log"
+grep 'stale2@1.0' "$tmp/prune.log"
 rm -f "$tmp/fake/count"
 : >"$tmp/prune.log"
 PATH="$tmp/fake/bin:$base_path"
 FAKE_MODE=flip HOME="$tmp/tool-home" run_gc >"$tmp/tools-flip"
 PATH=$base_path
 grep 'kept .*stale2/1.0: active tool before pruning' "$tmp/tools-flip"
+grep 'stale@1.0' "$tmp/prune.log"
 if grep -q 'stale2@1.0' "$tmp/prune.log"; then exit 1; fi
 mkdir -p "$tmp/cache/flip-one" "$tmp/cache/flip-two"
 printf 'flip\n' >"$tmp/cache/flip-one/file"
