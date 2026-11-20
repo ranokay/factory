@@ -45,7 +45,9 @@ copy_factory() {
 	mkdir -p "$target"
 	(cd "$root" && tar --exclude ./.git -cf - .) | (cd "$target" && tar -xf -)
 	while IFS= read -r name; do
-		[ -n "$name" ] || continue
+		case $name in
+		'' | '['*) continue ;;
+		esac
 		rm -rf "$target/skills/$name"
 	done <"$root/scripts/tool-skills.txt"
 }
@@ -115,8 +117,8 @@ run_discovery() {
 	run_command mise --cd "$factory" run bootstrap:check -- --home "$home"
 }
 
-run_python() {
-	run_command uv run --offline --no-project --no-config --python 3.13.18 python "$@"
+run_check_tool_skills() {
+	run_command mise --cd "$root" run bootstrap -- --check-tool-skills --root "$1"
 }
 
 run_hook() {
@@ -320,6 +322,22 @@ case_hooks() {
 	printf 'ok: the hook helpers still resolve and run\n'
 }
 
+case_repair() {
+	setup_case repair
+	fixture_dir=$case_dir/fixture
+	run_command python3 "$root/scripts/skills-sync-fixture.py" clean "$fixture_dir"
+	[ "$code" -eq 0 ] || fail "the fixture failed: $output"
+	cp "$fixture_dir/skills.lock" "$factory/skills.lock"
+	cp -R "$fixture_dir/skills/." "$factory/skills/"
+	printf 'hand edit\n' >>"$factory/skills/alpha/SKILL.md"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair a drifted vendored skill: $output"
+	expect_contains "$output" "skills:sync repaired the vendored skills"
+	[ "$(cat "$factory/skills/alpha/SKILL.md")" = "alpha" ] || fail "the vendored skill was not restored"
+	[ -f "$factory/skills/ardia/SKILL.md" ] || fail "the repair removed a tool-owned skill"
+	printf 'ok: bootstrap repairs a drifted vendored skill\n'
+}
+
 case_tracked() {
 	fixture=$test_root/tracked
 	mkdir -p "$fixture/skills/ardia"
@@ -332,18 +350,18 @@ case_tracked() {
 	git -C "$fixture" commit -qm "import ardia"
 	mkdir -p "$fixture/skills/new-tool"
 	printf '# new tool\n' >"$fixture/skills/new-tool/SKILL.md"
-	run_python "$root/scripts/bootstrap.py" --check-tool-skills --root "$fixture"
+	mkdir -p "$fixture/skills/rogue"
+	printf '# rogue\n' >"$fixture/skills/rogue/SKILL.md"
+	printf 'skills/rogue/\n' >"$fixture/.gitignore"
+	run_check_tool_skills "$fixture"
 	[ "$code" -ne 0 ] || fail "the tracked tool-owned skill passed"
 	expect_contains "$output" "skills/ardia/SKILL.md"
 	expect_contains "$output" "skills/new-tool/SKILL.md"
-	run_python "$root/scripts/bootstrap.py" --check-tool-skills --root "$root"
-	[ "$code" -eq 0 ] || fail "the Factory has a tracked tool-owned skill: $output"
-	expect_contains "$output" "no tool-owned skill is tracked"
-	while IFS= read -r name; do
-		[ -n "$name" ] || continue
-		git -C "$root" check-ignore -q "skills/$name/SKILL.md" || fail "skills/$name is not ignored"
-	done <"$root/scripts/tool-skills.txt"
-	printf 'ok: a tracked tool-owned skill fails the check\n'
+	expect_contains "$output" "ignored skill is not declared tool-owned: skills/rogue"
+	run_check_tool_skills "$root"
+	[ "$code" -eq 0 ] || fail "the Factory failed the tool-owned skill checks: $output"
+	expect_contains "$output" "tool-owned skill checks passed"
+	printf 'ok: tool-owned skill tracking and ignore drift are checked\n'
 }
 
 case_all() {
@@ -355,6 +373,7 @@ case_all() {
 	case_codex
 	case_env
 	case_hooks
+	case_repair
 	case_tracked
 }
 
@@ -367,6 +386,7 @@ sync) case_sync ;;
 codex) case_codex ;;
 env) case_env ;;
 hooks) case_hooks ;;
+repair) case_repair ;;
 tracked) case_tracked ;;
 all) case_all ;;
 *)

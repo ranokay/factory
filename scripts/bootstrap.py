@@ -112,13 +112,25 @@ def apply_links(changes: list[Link], home: Path) -> None:
         print(f"bootstrap: {action} {display(change.path, home)} -> {display(change.target, home)}")
 
 
-def read_tool_skills() -> list[str]:
-    names = []
+def read_tool_skill_groups() -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {}
+    current = None
     for line in TOOL_SKILLS_FILE.read_text().splitlines():
-        name = line.strip()
-        if name and not name.startswith("#"):
-            names.append(name)
-    return names
+        text = line.strip()
+        if not text:
+            continue
+        if text.startswith("[") and text.endswith("]"):
+            current = text[1:-1]
+            groups[current] = []
+        elif current is None:
+            raise SystemExit("bootstrap: tool-skills.txt has a name outside a group")
+        else:
+            groups[current].append(text)
+    return groups
+
+
+def read_tool_skills() -> list[str]:
+    return [name for names in read_tool_skill_groups().values() for name in names]
 
 
 def skill_present(name: str) -> bool:
@@ -149,18 +161,20 @@ def run_installer(label: str, argv: list[str], home: Path) -> None:
 
 def install_tool_skills(home: Path) -> list[str]:
     errors = []
-    names = read_tool_skills()
-    if not skill_present("ardia"):
-        run_installer("ardia", ["ardia", "skills", "install", "--target", "general", "--no-cua"], home)
-    if not skill_present("ardia"):
-        errors.append(f"ardia: {display(ROOT / 'skills' / 'ardia' / 'SKILL.md', home)} is missing")
-    cua_names = [name for name in names if name.startswith("cua-") or name == "gui-automation"]
-    if not all(skill_present(name) for name in cua_names):
-        run_installer("cua", ["cua", "connect", "setup", "--skills-only", "--agents", "claude", "-y"], home)
-    for name in cua_names:
-        if not skill_present(name):
-            errors.append(f"cua: {display(ROOT / 'skills' / name / 'SKILL.md', home)} is missing")
-    if not skill_present("find-docs"):
+    groups = read_tool_skill_groups()
+    installers = {
+        "ardia": ["ardia", "skills", "install", "--target", "general", "--no-cua"],
+        "cua": ["cua", "connect", "setup", "--skills-only", "--agents", "claude", "-y"],
+    }
+    for group, argv in installers.items():
+        names = groups.get(group, [])
+        if not all(skill_present(name) for name in names):
+            run_installer(group, argv, home)
+        for name in names:
+            if not skill_present(name):
+                errors.append(f"{group}: {display(ROOT / 'skills' / name / 'SKILL.md', home)} is missing")
+    ctx7_names = groups.get("ctx7", [])
+    if not all(skill_present(name) for name in ctx7_names):
         if shutil.which("ctx7"):
             run_installer("ctx7", ["ctx7", "setup", "--claude", "--cli", "-y"], home)
         else:
@@ -169,8 +183,9 @@ def install_tool_skills(home: Path) -> list[str]:
                 ["npx", "--yes", f"ctx7@{ctx7_version()}", "setup", "--claude", "--cli", "-y"],
                 home,
             )
-    if not skill_present("find-docs"):
-        errors.append(f"ctx7: {display(ROOT / 'skills' / 'find-docs' / 'SKILL.md', home)} is missing")
+    for name in ctx7_names:
+        if not skill_present(name):
+            errors.append(f"ctx7: {display(ROOT / 'skills' / name / 'SKILL.md', home)} is missing")
     if not errors:
         print("bootstrap: tool-owned skills are installed")
     return errors
@@ -322,22 +337,25 @@ def check_tool_skills(root: Path) -> int:
     for path in [line for line in untracked.stdout.splitlines() if line]:
         print(f"bootstrap: untracked skill is not declared as tool-owned: {path}", file=sys.stderr)
         problems = True
-    ignore_file = root / ".gitignore"
-    if ignore_file.is_file():
-        ignored = {
-            line.strip()[len("skills/") : -1]
-            for line in ignore_file.read_text().splitlines()
-            if line.strip().startswith("skills/") and line.strip().endswith("/")
-        }
-        for name in sorted(ignored - set(names)):
-            print(f"bootstrap: ignored skill is not declared tool-owned: skills/{name}", file=sys.stderr)
-            problems = True
-        for name in sorted(set(names) - ignored):
+    for name in names:
+        ignored = git(root, "check-ignore", "-q", f"skills/{name}/SKILL.md")
+        if ignored.returncode != 0:
             print(f"bootstrap: declared tool-owned skill is not ignored: skills/{name}", file=sys.stderr)
+            problems = True
+    ignored_files = git(
+        root, "ls-files", "--others", "--ignored", "--exclude-standard", "--", ":(glob)skills/*/SKILL.md"
+    )
+    if ignored_files.returncode != 0:
+        print(f"bootstrap: cannot list ignored files in {root}: {ignored_files.stderr.strip()}", file=sys.stderr)
+        return 1
+    for path in [line for line in ignored_files.stdout.splitlines() if line]:
+        name = Path(path).parts[1] if len(Path(path).parts) > 1 else path
+        if name not in names:
+            print(f"bootstrap: ignored skill is not declared tool-owned: skills/{name}", file=sys.stderr)
             problems = True
     if problems:
         return 1
-    print("bootstrap: no tool-owned skill is tracked")
+    print("bootstrap: tool-owned skill checks passed")
     return 0
 
 

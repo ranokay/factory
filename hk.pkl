@@ -262,6 +262,11 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "hooks" }
         expect { code = 0 }
       }
+      ["bootstrap repairs a drifted vendored skill"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "repair" }
+        expect { code = 0 }
+      }
       ["a tracked tool-owned skill fails the check"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "tracked" }

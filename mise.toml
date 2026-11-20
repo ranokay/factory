@@ -17,11 +17,11 @@ run = "uv run scripts/skills-sync.py"
 
 [tasks.bootstrap]
 description = "Link this Mac's harness config to the Factory and verify discovery"
-run = "uv run --offline --no-project --no-config --python 3.13.18 python scripts/bootstrap.py"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/bootstrap.py"
 
 [tasks."bootstrap:check"]
 description = "Verify every harness sees the Factory global instructions and skills"
-run = "uv run --offline --no-project --no-config --python 3.13.18 python scripts/bootstrap.py --check"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/bootstrap.py --check"
 
 [tasks."bootstrap:test"]
 description = "Run the bootstrap tests"
@@ -29,7 +29,7 @@ run = "hk test --step bootstrap"
 
 [tasks."tools:test"]
 description = "Run the agent hook helper tests"
-run = "uv run --offline --no-project --no-config --python 3.13.18 python -m unittest discover -s tools/tests"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python -m unittest discover -s tools/tests"
 
 [tasks.evidence]
 description = "Record Verification Evidence and post the single PR evidence comment"

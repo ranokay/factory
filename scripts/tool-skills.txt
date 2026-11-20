@@ -1,7 +1,12 @@
+[ardia]
 ardia
+
+[cua]
 cua-driver
 cua-sandboxes
 cua-spaces
 cua-volume
 gui-automation
+
+[ctx7]
 find-docs
