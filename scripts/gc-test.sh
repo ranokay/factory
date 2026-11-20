@@ -5,7 +5,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 export HOME="$tmp/home"
 mkdir -p "$HOME/.t3/worktrees/example" "$tmp/remote.git"
-git init -q --bare "$tmp/remote.git"
+git init -q --bare --initial-branch=main "$tmp/remote.git"
 git clone -q "$tmp/remote.git" "$tmp/repo"
 git -C "$tmp/repo" config user.name Test
 git -C "$tmp/repo" config user.email test@example.com
@@ -42,15 +42,15 @@ fi
 grep 'kept .*broken.*cannot inspect' "$tmp/broken"
 
 rmdir "$HOME/.t3/worktrees/example/broken"
-git -C "$tmp/repo" worktree add -qb badtime "$HOME/.t3/worktrees/example/badtime" origin/master
+git -C "$tmp/repo" worktree add -qb badtime "$HOME/.t3/worktrees/example/badtime" origin/main
 REAL_GIT=$(command -v git)
 export REAL_GIT
 mkdir "$tmp/bin"
 cat >"$tmp/bin/git" <<'STUB'
 #!/bin/sh
 if [ "$1" = show ]; then
-    printf 'invalid timestamp\n'
-    exit 0
+	printf 'invalid timestamp\n'
+	exit 0
 fi
 exec "$REAL_GIT" "$@"
 STUB
