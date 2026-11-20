@@ -121,6 +121,10 @@ run_check_tool_skills() {
 	run_command mise --cd "$root" run bootstrap -- --check-tool-skills --root "$1"
 }
 
+run_python() {
+	run_command uv run --offline --no-project --no-config --python "$(mise which python)" python "$@"
+}
+
 run_hook() {
 	payload=$1
 	tool=$2
@@ -325,7 +329,7 @@ case_hooks() {
 case_repair() {
 	setup_case repair
 	fixture_dir=$case_dir/fixture
-	run_command python3 "$root/scripts/skills-sync-fixture.py" clean "$fixture_dir"
+	run_python "$root/scripts/skills-sync-fixture.py" clean "$fixture_dir"
 	[ "$code" -eq 0 ] || fail "the fixture failed: $output"
 	cp "$fixture_dir/skills.lock" "$factory/skills.lock"
 	cp -R "$fixture_dir/skills/." "$factory/skills/"

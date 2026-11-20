@@ -23,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL_SKILLS_FILE = ROOT / "scripts" / "tool-skills.txt"
+REQUIRED_TOOL_GROUPS = ("ardia", "cua", "ctx7")
 CODEX_MANAGED_SKILLS = {".system"}
 
 
@@ -126,6 +127,12 @@ def read_tool_skill_groups() -> dict[str, list[str]]:
             raise SystemExit("bootstrap: tool-skills.txt has a name outside a group")
         else:
             groups[current].append(text)
+    missing = [group for group in REQUIRED_TOOL_GROUPS if group not in groups]
+    if missing:
+        raise SystemExit(f"bootstrap: tool-skills.txt is missing groups: {', '.join(missing)}")
+    empty = [group for group in REQUIRED_TOOL_GROUPS if not groups[group]]
+    if empty:
+        raise SystemExit(f"bootstrap: tool-skills.txt groups are empty: {', '.join(empty)}")
     return groups
 
 
