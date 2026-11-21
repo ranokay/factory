@@ -25,8 +25,8 @@ back to `babysit-pr`.
 - Pin forge operations to the PR's repository (`gh ... --repo owner/name`). Do
   not assume the working directory is that checkout; a scratch directory is
   enough for the merge itself.
-- Read the repository's agent entry point and the shared
-  `~/.agents/docs/WORKFLOW.md`. Repository merge method,
+- Read the repository's agent entry point and its declared Profiles.
+  Repository merge method,
   required checks and reviews, signing, and merge queue rules override these
   defaults. Apply the repository's merge preflight when it has one.
 - Read the repository's topics. `factory-upstream-fork` means upstream

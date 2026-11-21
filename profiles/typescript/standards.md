@@ -9,7 +9,7 @@
 ## Types
 
 - Parse external data into a typed value at the boundary. Inside the program, trust the type.
-- Use `unknown` for unvalidated input. A cast is a claim you must be able to defend in one line; `as any` is never the answer.
+- Use `unknown` for unvalidated input. A cast is a claim you must be able to defend in one line; `as any` is never the answer. Fix the underlying type relationship instead of wrapping a cast around it.
 - Model states as a discriminated union on a `type` or `kind` field, so an impossible combination does not compile.
 - Prefer `readonly` and `ReadonlyArray` for data that crosses a module boundary.
 - Derive a type from its source of truth (`typeof`, `satisfies`, schema inference) instead of restating the shape.
@@ -28,3 +28,4 @@
 
 - `public/assets/` conventions come from the web Profile when it is declared; do not invent a second asset layout.
 - Keep browser globals out of a module that Node also loads. Split the platform-specific part behind a narrow interface.
+

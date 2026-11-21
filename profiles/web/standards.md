@@ -23,3 +23,7 @@
 
 - Playwright (`npm:@playwright/test`) is the verification driver for `verify-<app>` skills: it runs reproducible browser checks in CI without a signed-in browser.
 - The Gate runs no browser. Browser tests run when you produce Verification Evidence, and the evidence shows the real page at the sizes the change affects.
+
+## New projects
+
+- For a new web project without an established stack, consider Convex, Tailwind, React and Vite with bun. For complex web or React Native apps, consider Zustand, React Query, TanStack Start, Clerk or self-hosted Better Auth, and ArkType or Zod when validation performance permits. Choose dependencies for the actual task.
