@@ -13,19 +13,19 @@ PROFILE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
 TAG = re.compile(r'^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$')
 PROFILE_PATH = re.compile(r'(?:^|/)profiles/([a-z0-9][a-z0-9-]*)/(?:mise\.toml|tasks\.toml|hk\.pkl)$')
 GIT_INCLUDE = re.compile(r'^git::(?P<repo>.+)//(?P<path>[^?]+)(?:\?ref=(?P<ref>[^&]+))?$')
-RAW_FACTORY = re.compile(
-    r'^https?://raw\.githubusercontent\.com/ranokay/factory/(?P<ref>[^/]+)/'
-    r'(?P<path>profiles/[a-z0-9][a-z0-9-]*/hk\.pkl)$'
+RAW_FACTORY = re.compile(r'^https?://raw\.githubusercontent\.com/ranokay/factory/(?P<ref>[^/]+)/')
+GITHUB_RAW = re.compile(r'^https?://github\.com/ranokay/factory/raw/(?P<ref>[^/]+)/')
+GITHUB_BLOB = re.compile(r'^https?://github\.com/ranokay/factory/blob/(?P<ref>[^/]+)/')
+GITHUB_TREE = re.compile(r'^https?://github\.com/ranokay/factory/tree/(?P<ref>[^/]+)/')
+REF_PATH = re.compile(
+    r'^https?://(?:raw\.githubusercontent\.com|github\.com)/ranokay/factory/refs/(?:heads|tags)/(?P<ref>[^/]+)/'
 )
-GITHUB_RAW = re.compile(
-    r'^https?://github\.com/ranokay/factory/raw/(?P<ref>[^/]+)/'
-    r'(?P<path>profiles/[a-z0-9][a-z0-9-]*/hk\.pkl)$'
-)
+FACTORY_REFERENCE = re.compile(r'(?:^|/)ranokay/factory(?:\.git)?(?:/|$)')
 FACTORY_REPO = re.compile(
     r'^(?:https?://github\.com/ranokay/factory(?:\.git)?|ssh://git@github\.com/ranokay/factory(?:\.git)?)/?$'
 )
 AMENDS = re.compile(r'^\s*amends\s+"([^"]+)"', re.MULTILINE)
-PROFILES_LINE = re.compile(r'^[ \t]*Profiles:[ \t]*(.*)$', re.MULTILINE)
+PROFILES_LINE = re.compile(r'^[ \t]*Profiles:[ \t]*(.*)$')
 
 
 def relative(root, path):
@@ -38,6 +38,23 @@ def relative(root, path):
 def profile_name(reference):
     match = PROFILE_PATH.search(reference)
     return match.group(1) if match else None
+
+
+def local_profile_name(reference):
+    if '::' in reference or '://' in reference:
+        return None
+    return profile_name(reference)
+
+
+def factory_ref(reference):
+    match = REF_PATH.match(reference)
+    if match is not None:
+        return match.group('ref')
+    for pattern in (RAW_FACTORY, GITHUB_RAW, GITHUB_BLOB, GITHUB_TREE):
+        match = pattern.match(reference)
+        if match is not None:
+            return match.group('ref')
+    return None
 
 
 def check_tag(manifest, kind, reference, ref, problems):
@@ -78,13 +95,12 @@ def parse_mise(path, root):
                 continue
             if not FACTORY_REPO.match(match.group('repo')):
                 continue
-            name = profile_name(match.group('path'))
-            if name is None:
-                continue
-            names.add(name)
             check_tag(manifest, 'include', entry, match.group('ref'), problems)
-        elif '::' not in entry and '://' not in entry:
-            name = profile_name(entry)
+            name = profile_name(match.group('path'))
+            if name is not None:
+                names.add(name)
+        else:
+            name = local_profile_name(entry)
             if name is not None:
                 names.add(name)
     return names, problems
@@ -99,21 +115,41 @@ def parse_hk(path, root):
     problems = []
     names = set()
     match = AMENDS.search(text)
-    reference = match.group(1) if match else None
-    if reference is None:
+    if match is None:
         return names, problems
-    name = profile_name(reference)
+    reference = match.group(1)
     if reference.startswith(('http://', 'https://')):
-        factory = RAW_FACTORY.match(reference) or GITHUB_RAW.match(reference)
-        if factory is None:
+        if not FACTORY_REFERENCE.search(reference):
             return names, problems
+        name = profile_name(reference)
         if name is not None:
             names.add(name)
-        check_tag(manifest, 'amends', reference, factory.group('ref'), problems)
-    elif '::' not in reference and '://' not in reference:
+        ref = factory_ref(reference)
+        if ref is None:
+            problems.append(f'{manifest}: amends {reference} does not name a Factory tag; pin a Factory tag such as v0.2.0')
+        else:
+            check_tag(manifest, 'amends', reference, ref, problems)
+    else:
+        name = local_profile_name(reference)
         if name is not None:
             names.add(name)
     return names, problems
+
+
+def profiles_entries(text):
+    entries = []
+    fenced = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(('```', '~~~')):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        match = PROFILES_LINE.match(line)
+        if match is not None:
+            entries.append(match.group(1))
+    return entries
 
 
 def parse_profiles(root, agents, problems):
@@ -123,14 +159,14 @@ def parse_profiles(root, agents, problems):
     except OSError as error:
         problems.append(f'{name}: cannot read: {error}')
         return None
-    matches = PROFILES_LINE.findall(text)
-    if not matches:
+    entries = profiles_entries(text)
+    if not entries:
         problems.append(f'{name}: has no Profiles line')
         return None
-    if len(matches) > 1:
+    if len(entries) > 1:
         problems.append(f'{name}: has more than one Profiles line')
         return None
-    names = [entry.strip() for entry in matches[0].split(',') if entry.strip()]
+    names = [entry.strip() for entry in entries[0].split(',') if entry.strip()]
     if not names:
         problems.append(f'{name}: has an empty Profiles line')
         return None
@@ -160,7 +196,7 @@ def discover(root):
     candidates = []
     for base, directories, files in os.walk(root):
         directories[:] = sorted(name for name in directories if name not in PRUNE and not name.startswith('.'))
-        if 'mise.toml' in files or 'hk.pkl' in files:
+        if 'mise.toml' in files or 'hk.pkl' in files or 'AGENTS.md' in files:
             candidates.append(Path(base))
     return candidates
 
@@ -170,8 +206,7 @@ def is_profile_definition(root, package):
     return bool(parts) and parts[0] == 'profiles'
 
 
-def check(root):
-    problems = []
+def collect(root, problems):
     provided = {}
     for package in discover(root):
         if is_profile_definition(root, package):
@@ -188,22 +223,35 @@ def check(root):
             if names:
                 manifests['hk.pkl'] = names
         provided[package] = manifests
+    return provided
+
+
+def compare(root, provided, problems):
+    declarations = {}
     for package, manifests in provided.items():
         agents = nearest_agents(package, root)
         if agents is None:
             problems.append(f'{relative(root, package)}: has no AGENTS.md above it')
             continue
-        agents_name = relative(root, agents)
-        declared = parse_profiles(root, agents, problems)
+        if agents not in declarations:
+            declarations[agents] = parse_profiles(root, agents, problems)
+        declared = declarations[agents]
         if declared is None:
             continue
         included = set().union(*manifests.values()) if manifests else set()
+        agents_name = relative(root, agents)
         for name in sorted(declared - included):
             problems.append(f'{agents_name} declares {name}, but no mise or hk include provides it')
         for name in sorted(included - declared):
             sources = ', '.join(sorted(manifest for manifest, names in manifests.items() if name in names))
             problems.append(f'{agents_name} does not declare {name}, which {sources} includes')
-    return list(provided), problems
+
+
+def check(root):
+    problems = []
+    provided = collect(root, problems)
+    compare(root, provided, problems)
+    return len(provided), problems
 
 
 def main():
@@ -214,12 +262,12 @@ def main():
     if not root.is_dir():
         print(f'profiles: {root} is not a directory', file=sys.stderr)
         return 2
-    packages, problems = check(root)
+    count, problems = check(root)
     if problems:
         for problem in problems:
             print(f'profiles: {problem}', file=sys.stderr)
         return 1
-    print(f'profiles: {len(packages)} checked; every Profiles line matches')
+    print(f'profiles: {count} checked; every Profiles line matches')
     return 0
 
 

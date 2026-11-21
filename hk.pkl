@@ -6,6 +6,12 @@ import "pkl:json"
 
 local lock = new json.Parser {}.parse(read("skills.lock"))
 local vendored = lock.skills.fold(List(), (acc, skill) -> acc.add("skills/\(skill.name)/**"))
+local const universalMise = """
+  include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
+  """
+local const universalHk = """
+  amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+  """
 
 steps {
   ["typos"] {
@@ -84,9 +90,7 @@ steps {
             [task_config]
             includes = ["git::https://github.com/ranokay/factory.git//profiles/python/tasks.toml?ref=v0.2.0"]
             """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
-            """
+          ["hk.pkl"] = universalHk
         }
         expect { code = 0 }
       }
@@ -101,9 +105,7 @@ steps {
               "git::https://github.com/other/shared.git//profiles/typescript/mise.toml?ref=main",
             ]
             """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
-            """
+          ["hk.pkl"] = universalHk
         }
         expect { code = 0 }
       }
@@ -118,9 +120,7 @@ steps {
               "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
             ]
             """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
-            """
+          ["hk.pkl"] = universalHk
         }
         expect {
           code = 1
@@ -132,12 +132,8 @@ steps {
         tmpdir = true
         write {
           ["AGENTS.md"] = "Profiles: universal, typescript\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
-            """
+          ["mise.toml"] = universalMise
+          ["hk.pkl"] = universalHk
         }
         expect {
           code = 1
@@ -152,9 +148,7 @@ steps {
           ["mise.toml"] = """
             include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=main"]
             """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
-            """
+          ["hk.pkl"] = universalHk
         }
         expect {
           code = 1
@@ -169,9 +163,7 @@ steps {
           ["mise.toml"] = """
             include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml"]
             """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
-            """
+          ["hk.pkl"] = universalHk
         }
         expect {
           code = 1
@@ -183,12 +175,43 @@ steps {
         tmpdir = true
         write {
           ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
-            """
+          ["mise.toml"] = universalMise
           ["hk.pkl"] = """
             amends "https://raw.githubusercontent.com/ranokay/factory/main/profiles/universal/hk.pkl"
             """
+        }
+        expect {
+          code = 1
+          stderr = "pin a Factory tag"
+        }
+      }
+      ["a branch in another Factory URL shape fails"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal\n"
+          ["mise.toml"] = universalMise
+          ["hk.pkl"] = """
+            amends "https://github.com/ranokay/factory/blob/main/profiles/universal/hk.pkl"
+            """
+        }
+        expect {
+          code = 1
+          stderr = "pin a Factory tag"
+        }
+      }
+      ["a Factory include outside profiles is still pinned"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal\n"
+          ["mise.toml"] = """
+            include = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//skills/evidence?ref=main",
+            ]
+            """
+          ["hk.pkl"] = universalHk
         }
         expect {
           code = 1
@@ -200,9 +223,7 @@ steps {
         tmpdir = true
         write {
           ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
-            """
+          ["mise.toml"] = universalMise
           ["packages/api/AGENTS.md"] = "Profiles: universal, python\n"
           ["packages/api/mise.toml"] = """
             include = [
@@ -218,9 +239,7 @@ steps {
         tmpdir = true
         write {
           ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
-            """
+          ["mise.toml"] = universalMise
           ["packages/api/AGENTS.md"] = "Profiles: universal\n"
           ["packages/api/mise.toml"] = """
             include = [
@@ -234,17 +253,44 @@ steps {
           stderr = "packages/api/AGENTS.md does not declare python"
         }
       }
+      ["an AGENTS.md-only package is checked"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal\n"
+          ["mise.toml"] = universalMise
+          ["packages/api/AGENTS.md"] = "Profiles: python\n"
+        }
+        expect {
+          code = 1
+          stderr = "packages/api/AGENTS.md declares python"
+        }
+      }
+      ["a fenced example is not a declaration"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = """
+            # repo
+
+            ```md
+            Profiles: typescript
+            ```
+
+            Profiles: universal
+            """
+          ["mise.toml"] = universalMise
+          ["hk.pkl"] = universalHk
+        }
+        expect { code = 0 }
+      }
       ["a package without a Profiles line fails"] {
         run = "check"
         tmpdir = true
         write {
           ["AGENTS.md"] = "# repo\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
-            """
+          ["mise.toml"] = universalMise
+          ["hk.pkl"] = universalHk
         }
         expect {
           code = 1

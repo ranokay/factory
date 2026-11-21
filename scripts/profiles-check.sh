@@ -3,5 +3,5 @@ set -eu
 
 script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$script_dir/.." && pwd)
-python=$(mise -C "$root" which python)
-exec "$python" "$root/scripts/profiles-check.py" --root "${1:-.}"
+uv=$(mise -C "$root" which uv)
+exec "$uv" run --offline --no-project --no-config "$root/scripts/profiles-check.py" --root "${1:-.}"
