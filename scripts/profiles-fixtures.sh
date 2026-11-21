@@ -13,7 +13,7 @@ fixture_env() {
 }
 
 mkdir -p "$tmp/profiles"
-for profile in universal typescript python web; do
+for profile in universal typescript python web swift apple go; do
 	cp -R "$root/profiles/$profile" "$tmp/profiles/$profile"
 done
 
@@ -23,6 +23,9 @@ cat >"$tmp/combined-tasks/mise.toml" <<EOF
 includes = [
 	"$tmp/profiles/typescript/tasks.toml",
 	"$tmp/profiles/python/tasks.toml",
+	"$tmp/profiles/swift/tasks.toml",
+	"$tmp/profiles/apple/tasks.toml",
+	"$tmp/profiles/go/tasks.toml",
 ]
 EOF
 (
@@ -54,5 +57,32 @@ run_fixture() {
 run_fixture typescript
 run_fixture python
 run_fixture web
+run_fixture swift
+for tool in swift conda:libxml2; do
+	uv run --offline --no-project --no-config --python "$python" python - "$tmp/profiles/swift" "$tool" <<'PY'
+import sys
+import tomllib
+from pathlib import Path
+
+profile = Path(sys.argv[1])
+path = profile / 'hk.pkl'
+text = path.read_text()
+version = tomllib.loads((profile / 'mise.toml').read_text())['tools'][sys.argv[2]]['version']
+old = 'mise where ' + sys.argv[2] + '@' + version
+if text.count(old) != 1: raise SystemExit(f'expected one {old}')
+path.write_text(text.replace(old, old + '0', 1))
+PY
+	if uv run --offline --no-project --no-config --python "$python" python "$script_dir/profiles-fixtures.py" swift "$tmp" "$tmp/swift-tools.json" "$tmp/swift-steps.json" >"$tmp/pin-check.out" 2>&1; then
+		echo "profiles:fixtures: expected $tool pin mismatch to fail" >&2
+		exit 1
+	fi
+	if ! grep -Fq 'Gate lookups do not match mise pins' "$tmp/pin-check.out"; then
+		cat "$tmp/pin-check.out" >&2
+		exit 1
+	fi
+	cp "$root/profiles/swift/hk.pkl" "$tmp/profiles/swift/hk.pkl"
+done
+run_fixture apple
+run_fixture go
 
 echo "profiles:fixtures: every fixture passed in isolation"

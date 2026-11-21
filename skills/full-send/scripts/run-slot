@@ -24,7 +24,14 @@ EOF
 }
 
 root=${RUN_SLOT_DIR:-"$HOME/.local/state/agent-tools/runs"}
-machine_root=$root/.machine
+case $root in
+-*) root=./$root ;;
+esac
+while [ "$root" != / ] && [ "${root%/}" != "$root" ]; do
+  root=${root%/}
+done
+root_prefix=${root%/}
+machine_root=$root_prefix/.machine
 
 fail() {
   printf 'run-slot: %s\n' "$1" >&2
@@ -36,7 +43,7 @@ normalize_repo() {
 }
 
 slot_for() {
-  printf '%s/%s\n' "$root" "$(normalize_repo "$1")"
+  printf '%s/%s\n' "$root_prefix" "$(normalize_repo "$1")"
 }
 
 write_value() {
@@ -80,6 +87,13 @@ release_machine() {
   done
 }
 
+repo_slots() (
+  CDPATH='' cd "$root"
+  find . -mindepth 2 -maxdepth 2 -type d ! -path './.machine/*' | while IFS= read -r repo_slot; do
+    printf '%s\n' "${repo_slot#./}"
+  done
+)
+
 prune_machine() {
   if [ ! -d "$machine_root" ]; then
     return 0
@@ -88,13 +102,14 @@ prune_machine() {
     [ -d "$candidate" ] || continue
     index=${candidate##*/}
     referenced=
-    while IFS= read -r repo_slot; do
+    while IFS= read -r relative; do
+      repo_slot=$root_prefix/$relative
       if [ -f "$repo_slot/machine" ] && [ "$(cat "$repo_slot/machine")" = "$index" ]; then
         referenced=1
         break
       fi
     done <<EOF
-$(find "$root" -mindepth 2 -maxdepth 2 -type d ! -path "$machine_root/*")
+$(repo_slots)
 EOF
     if [ -z "$referenced" ] && [ -n "$(find "$candidate" -maxdepth 0 -mmin +1 -print)" ]; then
       rm -f "$candidate/repo" "$candidate"/*.tmp
@@ -165,8 +180,8 @@ list() {
   if [ ! -d "$root" ]; then
     return 0
   fi
-  find "$root" -mindepth 2 -maxdepth 2 -type d ! -path "$machine_root/*" | sort | while IFS= read -r slot; do
-    relative=${slot#"$root"/}
+  repo_slots | sort | while IFS= read -r relative; do
+    slot=$root_prefix/$relative
     issue=-
     thread=-
     if [ -f "$slot/issue" ]; then

@@ -556,6 +556,19 @@
       ]
     },
     {
+      "name": "periphery-scan",
+      "source": "https://github.com/periphery-pro/skills.git",
+      "path": "skills/periphery-scan",
+      "commit": "6b6314077288a4673f97a53133a0f1e95a4cb4fd",
+      "patches": [],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "e568cadd0d3fec1acbde29a07eeaa792171a30082671a6d3923a464b18ea740b"
+        }
+      ]
+    },
+    {
       "name": "pick-ui-library",
       "source": "https://github.com/emilkowalski/skills.git",
       "path": "skills/pick-ui-library",

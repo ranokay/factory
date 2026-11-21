@@ -1,0 +1,86 @@
+amends "../universal/hk.pkl"
+
+steps {
+  ["swiftformat"] = new Step {
+    glob = "**/*.swift"
+    check = "swiftformat --lint {{files}}"
+    fix = "swiftformat {{files}}"
+    tests {
+      ["rejects unformatted Swift"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.swift"] = "let value=1\n" }
+        files = List("bad.swift")
+        expect { code = 1 }
+      }
+    }
+  }
+  ["swiftlint"] = new Step {
+    glob = "**/*.swift"
+    check = """
+      if [ "$(uname -s)" = Linux ]; then
+        swift_prefix=$(mise where swift@6.3.2) || exit 1
+        export LINUX_SOURCEKIT_LIB_PATH="$swift_prefix/usr/lib"
+        libxml_prefix=$(mise where conda:libxml2@2.13.9) || exit 1
+        export LD_LIBRARY_PATH="$libxml_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      fi
+      swiftlint lint --strict --quiet {{files}}
+      """
+    tests {
+      ["runs SourceKit-dependent rules"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.swift"] = "if true {\n    print(\"one\")\n}\nelse {\n    print(\"two\")\n}\n" }
+        files = List("bad.swift")
+        expect {
+          code = 2
+          stdout = "statement_position"
+        }
+      }
+      ["rejects a failed libxml lookup"] {
+        run = "check"
+        tmpdir = true
+        env { ["PATH"] = "./bin:/usr/bin:/bin" }
+        write {
+          ["bin/uname"] = "#!/bin/sh\nprintf 'Linux\\n'\n"
+          ["bin/swift"] = "#!/bin/sh\nexit 0\n"
+          ["bin/swiftlint"] = "#!/bin/sh\ntouch lint-invoked\nexit 0\n"
+          ["bad.swift"] = "let value = 1\n"
+          ["bin/mise"] = "#!/bin/sh\nif [ \"$2\" = \"swift@6.3.2\" ]; then pwd; else printf 'libxml lookup failed\\n' >&2; exit 1; fi\n"
+        }
+        before = "/bin/chmod +x bin/*"
+        after = "test ! -e lint-invoked"
+        files = List("bad.swift")
+        expect {
+          code = 1
+          stderr = "libxml lookup failed"
+        }
+      }
+      ["rejects a failed Swift lookup"] {
+        run = "check"
+        tmpdir = true
+        env { ["PATH"] = "./bin:/usr/bin:/bin" }
+        write {
+          ["bin/uname"] = "#!/bin/sh\nprintf 'Linux\\n'\n"
+          ["bin/swiftlint"] = "#!/bin/sh\ntouch lint-invoked\nexit 0\n"
+          ["bad.swift"] = "let value = 1\n"
+          ["bin/mise"] = "#!/bin/sh\nprintf 'Swift lookup failed\\n' >&2\nexit 1\n"
+        }
+        before = "/bin/chmod +x bin/*"
+        after = "test ! -e lint-invoked"
+        files = List("bad.swift")
+        expect {
+          code = 1
+          stderr = "Swift lookup failed"
+        }
+      }
+      ["rejects a forced cast"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.swift"] = "let value = something as! String\n" }
+        files = List("bad.swift")
+        expect { code = 2 }
+      }
+    }
+  }
+}

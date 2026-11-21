@@ -145,6 +145,58 @@ steps {
         }
         expect { code = 0 }
       }
+      ["a swift fixture matches its includes"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal, swift\n"
+          ["mise.toml"] = """
+            include = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/swift/mise.toml?ref=v0.2.0",
+            ]
+            """
+          ["hk.pkl"] = """
+            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/swift/hk.pkl"
+            """
+        }
+        expect { code = 0 }
+      }
+      ["a apple fixture matches its includes"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal, swift, apple\n"
+          ["mise.toml"] = """
+            include = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/swift/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/apple/mise.toml?ref=v0.2.0",
+            ]
+            """
+          ["hk.pkl"] = """
+            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/apple/hk.pkl"
+            """
+        }
+        expect { code = 0 }
+      }
+      ["a go fixture matches its includes"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal, go\n"
+          ["mise.toml"] = """
+            include = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/go/mise.toml?ref=v0.2.0",
+            ]
+            """
+          ["hk.pkl"] = """
+            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/go/hk.pkl"
+            """
+        }
+        expect { code = 0 }
+      }
       ["a web include the line does not declare fails"] {
         run = "check"
         tmpdir = true
@@ -569,6 +621,31 @@ steps {
       ["concurrent acquires admit exactly two"] {
         run = "check"
         env { ["RUN_SLOT_CASE"] = "concurrent" }
+        expect { code = 0 }
+      }
+      ["glob characters in the slot root are literal"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "glob_root" }
+        expect { code = 0 }
+      }
+      ["newlines preserve live slots"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "newline_root" }
+        expect { code = 0 }
+      }
+      ["trailing slashes preserve slot names"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "trailing_root" }
+        expect { code = 0 }
+      }
+      ["a leading dash in the slot root is literal"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "dash_root" }
+        expect { code = 0 }
+      }
+      ["relative slot roots ignore CDPATH"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "cdpath" }
         expect { code = 0 }
       }
       ["a crashed machine slot is pruned"] {

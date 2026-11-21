@@ -3,7 +3,9 @@
 
 import json
 import os
+import re
 import sys
+import tomllib
 from pathlib import Path
 
 COMMON_TOOLS = {
@@ -24,6 +26,9 @@ PROFILE_TOOLS = {
     'typescript': {'bun', 'node', 'npm:knip', 'npm:typescript', 'oxfmt', 'oxlint'},
     'python': {'ruff', 'ty', 'uv'},
     'web': {'npm:@playwright/test'},
+    'swift': {'github:nicklockwood/SwiftFormat', 'aqua:realm/SwiftLint'},
+    'apple': set(),
+    'go': {'go', 'aqua:golangci/golangci-lint', 'aqua:mvdan/gofumpt', 'go:golang.org/x/vuln/cmd/govulncheck'},
 }
 COMMON_STEPS = {
     'comment-ban',
@@ -43,11 +48,17 @@ PROFILE_STEPS = {
     'typescript': {'knip', 'oxfmt', 'oxlint', 'tsc'},
     'python': {'ruff', 'ruff-format', 'ty'},
     'web': {'web-assets'},
+    'swift': {'swiftformat', 'swiftlint'},
+    'apple': set(),
+    'go': {'golangci-lint', 'gofumpt', 'govulncheck'},
 }
 DECLARED = {
     'typescript': {'universal', 'typescript'},
     'python': {'universal', 'python'},
     'web': {'universal', 'typescript', 'web'},
+    'swift': {'universal', 'swift'},
+    'apple': {'universal', 'swift', 'apple'},
+    'go': {'universal', 'go'},
 }
 
 
@@ -68,6 +79,8 @@ def check_combined(path: Path) -> None:
     expected = {
         'typecheck:python': 'ty check',
         'typecheck:typescript': 'tsc --noEmit',
+        'build:swift': 'swift build',
+        'test:go': 'go test ./...',
     }
     missing = sorted(set(expected) - set(tasks))
     if missing:
@@ -83,6 +96,17 @@ def main() -> None:
         check_combined(Path(sys.argv[2]))
         return
     name, tmp, tools_path, steps_path = sys.argv[1:5]
+    if name == 'swift':
+        profile = Path(tmp) / 'profiles' / 'swift'
+        configured = tomllib.loads((profile / 'mise.toml').read_text())['tools']
+        gate = (profile / 'hk.pkl').read_text().split('["swiftlint"] =', 1)[1].split('tests {', 1)[0]
+        lookups = re.findall(r'^\s*(swift_prefix|libxml_prefix)=\$\(mise where ([^)]+)\)', gate, re.MULTILINE)
+        expected_lookups = [
+            ('swift_prefix', f"swift@{configured['swift']['version']}"),
+            ('libxml_prefix', f"conda:libxml2@{configured['conda:libxml2']['version']}"),
+        ]
+        if lookups != expected_lookups:
+            fail('swift: Gate lookups do not match mise pins')
     profiles = DECLARED[name]
     prefix = os.path.realpath(tmp) + os.sep
 
@@ -92,7 +116,10 @@ def main() -> None:
         for tool, entries in tools.items()
         if any(declared_root(prefix, entry.get('source', {})) for entry in entries)
     )
-    expected_tools = sorted(COMMON_TOOLS.union(*(PROFILE_TOOLS[profile] for profile in profiles)))
+    expected = COMMON_TOOLS.union(*(PROFILE_TOOLS[profile] for profile in profiles))
+    if 'swift' in profiles and sys.platform.startswith('linux'):
+        expected.update({'swift', 'conda:libxml2'})
+    expected_tools = sorted(expected)
     if declared_tools != expected_tools:
         missing = sorted(set(expected_tools) - set(declared_tools))
         extra = sorted(set(declared_tools) - set(expected_tools))
