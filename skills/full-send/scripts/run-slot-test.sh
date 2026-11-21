@@ -96,9 +96,23 @@ case_owner_permission() {
 }
 
 check_count() {
-	actual=$("$run_slot" list | wc -l | tr -d ' ')
+	slot_list=$("$run_slot" list)
+	if [ -n "$slot_list" ]; then
+		actual=$(printf '%s\n' "$slot_list" | wc -l | tr -d ' ')
+	else
+		actual=0
+	fi
 	if [ "$actual" -ne "$1" ]; then
 		printf 'expected %s slots, found %s\n' "$1" "$actual" >&2
+		printf 'run-slot list:\n%s\n' "$slot_list" >&2
+		printf 'slot directory tree:\n' >&2
+		find "$RUN_SLOT_DIR" -ls >&2
+		for error_file in "$work"/err1 "$work"/err2 "$work"/err3 "$work"/err4; do
+			if [ -f "$error_file" ]; then
+				printf 'stderr from %s:\n' "${error_file##*/}" >&2
+				cat "$error_file" >&2
+			fi
+		done
 		return 1
 	fi
 }
