@@ -1,0 +1,77 @@
+name: AI Review
+on:
+  workflow_call:
+    secrets:
+      OPENCODE_ZEN_API_KEY:
+        required: false
+permissions: {}
+jobs:
+  review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    steps:
+      - name: Require Console key
+        env:
+          ZEN_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+        run: |
+          if [ -z "$ZEN_KEY" ]; then
+            echo '::error::Missing OPENCODE_ZEN_API_KEY'
+            exit 1
+          fi
+      - name: Gather review context
+        id: context
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const query = `query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $number) {
+                  title body
+                  closingIssuesReferences(first: 100, after: $cursor) {
+                    nodes { number title body url }
+                    pageInfo { hasNextPage endCursor }
+                  }
+                }
+              }
+            }`;
+            let cursor = null;
+            let background = '';
+            do {
+              const data = await github.graphql(query, {owner: context.repo.owner, repo: context.repo.repo, number: context.issue.number, cursor});
+              const pr = data.repository.pullRequest;
+              if (!background) background = `PR: ${pr.title}\n${pr.body || ''}`;
+              for (const issue of pr.closingIssuesReferences.nodes) {
+                background += `\n\nIssue ${issue.url}: ${issue.title}\n${issue.body || ''}`;
+              }
+              cursor = pr.closingIssuesReferences.pageInfo.hasNextPage ? pr.closingIssuesReferences.pageInfo.endCursor : null;
+            } while (cursor);
+            core.setOutput('background', background);
+      - name: Review
+        id: review
+        uses: alibaba/open-code-review@d29ca2044a42ea297a7fa93692d0f5ac8f38d84e # v1.14.0
+        with:
+          ocr_version: 1.14.0
+          llm_url: https://opencode.ai/inference/openai/v1
+          llm_model: deepseek-v4.1-flash
+          llm_use_anthropic: 'false'
+          llm_protocol: openai
+          llm_auth_token: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+          llm_extra_headers: x-opencode-session=ses-${{ github.repository_id }}-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          background: ${{ steps.context.outputs.background }}
+          sticky_summary: 'true'
+          incremental: 'true'
+          upload_artifacts: 'false'
+      - name: Require published review
+        env:
+          SUMMARY: ${{ steps.review.outputs.summary_comment_url }}
+          FAILED: ${{ steps.review.outputs.comments_failed }}
+        run: |
+          if [ -z "$SUMMARY" ] || [ "$FAILED" != 0 ]; then
+            echo '::error::Review summary or inline publication failed'
+            exit 1
+          fi
