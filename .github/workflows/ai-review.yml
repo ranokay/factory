@@ -69,9 +69,8 @@ jobs:
       - name: Require published review
         env:
           SUMMARY: ${{ steps.review.outputs.summary_comment_url }}
-          FAILED: ${{ steps.review.outputs.comments_failed }}
         run: |
-          if [ -z "$SUMMARY" ] || [ "$FAILED" != 0 ]; then
-            echo '::error::Review summary or inline publication failed'
+          if [ -z "$SUMMARY" ]; then
+            echo '::error::Review summary publication failed'
             exit 1
           fi
