@@ -19,8 +19,8 @@ steps {
     glob = "**/*.swift"
     check = """
       if [ "$(uname -s)" = Linux ]; then
-        swift_path=$(command -v swift) || { printf '%s\n' 'swiftlint: Swift toolchain is unavailable' >&2; exit 1; }
-        export LINUX_SOURCEKIT_LIB_PATH="$(dirname "$(dirname "$swift_path")")/lib"
+        swift_prefix=$(mise where swift@6.3.2) || exit 1
+        export LINUX_SOURCEKIT_LIB_PATH="$swift_prefix/usr/lib"
         libxml_prefix=$(mise where conda:libxml2@2.13.9) || exit 1
         export LD_LIBRARY_PATH="$libxml_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
       fi
@@ -37,6 +37,24 @@ steps {
           stdout = "statement_position"
         }
       }
+      ["uses the pinned SourceKit when Swift is a shim"] {
+        run = "check"
+        tmpdir = true
+        env { ["PATH"] = "./bin:/usr/bin:/bin" }
+        write {
+          ["bin/uname"] = "#!/bin/sh\nprintf 'Linux\\n'\n"
+          ["bin/swift"] = "#!/bin/sh\nexit 0\n"
+          ["bin/mise"] = "#!/bin/sh\ncase \"$2\" in swift@6.3.2) printf '%s/pinned\\n' \"$PWD\" ;; conda:libxml2@2.13.9) printf '%s/xml\\n' \"$PWD\" ;; *) exit 1 ;; esac\n"
+          ["bin/swiftlint"] = "#!/bin/sh\n[ \"$LINUX_SOURCEKIT_LIB_PATH\" = \"$PWD/pinned/usr/lib\" ] || exit 9\n[ \"${LD_LIBRARY_PATH%%:*}\" = \"$PWD/xml/lib\" ] || exit 10\nprintf 'pinned SourceKit selected\\n'\n"
+          ["bad.swift"] = "let value = 1\n"
+        }
+        before = "/bin/chmod +x bin/*"
+        files = List("bad.swift")
+        expect {
+          code = 0
+          stdout = "pinned SourceKit selected"
+        }
+      }
       ["rejects a failed libxml lookup"] {
         run = "check"
         tmpdir = true
@@ -46,7 +64,7 @@ steps {
           ["bin/swift"] = "#!/bin/sh\nexit 0\n"
           ["bin/swiftlint"] = "#!/bin/sh\ntouch lint-invoked\nexit 0\n"
           ["bad.swift"] = "let value = 1\n"
-          ["bin/mise"] = "#!/bin/sh\nprintf 'libxml lookup failed\\n' >&2\nexit 1\n"
+          ["bin/mise"] = "#!/bin/sh\nif [ \"$2\" = \"swift@6.3.2\" ]; then pwd; else printf 'libxml lookup failed\\n' >&2; exit 1; fi\n"
         }
         before = "/bin/chmod +x bin/*"
         after = "test ! -e lint-invoked"
