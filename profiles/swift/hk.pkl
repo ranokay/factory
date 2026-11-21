@@ -56,6 +56,24 @@ steps {
           stderr = "libxml lookup failed"
         }
       }
+      ["rejects a failed Swift lookup"] {
+        run = "check"
+        tmpdir = true
+        env { ["PATH"] = "./bin:/usr/bin:/bin" }
+        write {
+          ["bin/uname"] = "#!/bin/sh\nprintf 'Linux\\n'\n"
+          ["bin/swiftlint"] = "#!/bin/sh\ntouch lint-invoked\nexit 0\n"
+          ["bad.swift"] = "let value = 1\n"
+          ["bin/mise"] = "#!/bin/sh\nprintf 'Swift lookup failed\\n' >&2\nexit 1\n"
+        }
+        before = "/bin/chmod +x bin/*"
+        after = "test ! -e lint-invoked"
+        files = List("bad.swift")
+        expect {
+          code = 1
+          stderr = "Swift lookup failed"
+        }
+      }
       ["rejects a forced cast"] {
         run = "check"
         tmpdir = true

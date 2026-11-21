@@ -4,6 +4,7 @@
 import json
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 COMMON_TOOLS = {
@@ -94,6 +95,14 @@ def main() -> None:
         check_combined(Path(sys.argv[2]))
         return
     name, tmp, tools_path, steps_path = sys.argv[1:5]
+    if name == 'swift':
+        profile = Path(__file__).resolve().parent.parent / 'profiles' / 'swift'
+        configured = tomllib.loads((profile / 'mise.toml').read_text())['tools']
+        gate = (profile / 'hk.pkl').read_text()
+        for tool in ('swift', 'conda:libxml2'):
+            version = configured[tool]['version']
+            if f'mise where {tool}@{version}' not in gate:
+                fail(f'swift: {tool} Gate lookup does not match its mise pin')
     profiles = DECLARED[name]
     prefix = os.path.realpath(tmp) + os.sep
 
