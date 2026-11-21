@@ -293,6 +293,11 @@ include_only = ["PATH"]'
 	[ "$code" -ne 0 ] || fail "a conflicting include_only passed"
 	expect_contains "$output" "CONTEXT7_API_KEY"
 	write_config codex '[shell_environment_policy]
+include_only = ["CONTEXT[7]_API_KEY"]'
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "a bracket expression was treated as a Codex wildcard"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy]
 exclude = ["*KEY*"]'
 	run_sync
 	[ "$code" -ne 0 ] || fail "a conflicting exclusion passed"

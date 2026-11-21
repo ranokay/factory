@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import fnmatch
 import json
 import os
 import re
@@ -254,8 +253,11 @@ def desired_codex(text: str, servers: dict, retired: list[str], home: Path) -> s
     if not isinstance(overrides, dict):
         raise SyncError("Codex shell environment set must be a table")
     for env in secret_references(servers):
-        matches = lambda patterns: any(fnmatch.fnmatchcase(env.upper(), pattern.upper()) for pattern in patterns)
-        if policy.get("inherit", "all") != "all" or matches(exclude) or (include and not matches(include)) or env in overrides:
+        matches = lambda patterns, flags=0: any(
+            re.fullmatch(re.escape(pattern).replace(r"\*", ".*").replace(r"\?", "."), env, flags)
+            for pattern in patterns
+        )
+        if policy.get("inherit", "all") != "all" or matches(exclude, re.IGNORECASE) or (include and not matches(include)) or env in overrides:
             raise SyncError(f"Codex shell environment policy blocks or overrides {env}; update shell_environment_policy")
     names = {name for name, spec in servers.items() if "codex" in spec["targets"]} | set(retired)
     body = strip_codex(text, names)
