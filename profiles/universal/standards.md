@@ -40,7 +40,7 @@ Write none, except:
 
 ## Contracts and changes
 
-- Read affected callers and tests; verify dependent behaviour. Validate external input at the boundary and derive local types where possible.
-- Test meaningful public behaviour and edge cases; keep fixtures simple. Review dependency maintenance, vulnerabilities and release notes before an update.
-- Inspect the checkout and index before Git changes. Respect ownership, use a branch named for the change, and stage only intended paths.
+- Read affected callers and tests; verify dependent behaviour. Validate external input and use explicit types at boundaries; derive local types where possible.
+- Test meaningful public behaviour and edge cases; keep fixtures simple. Review dependency maintenance, vulnerabilities and release notes before an update; avoid unrelated version churn.
+- Inspect the checkout and index before Git changes. Respect ownership, use a branch named for the change, stage only intended paths and keep commits atomic. Run rebases with `GIT_EDITOR=:` and `GIT_SEQUENCE_EDITOR=:` and resolve conflicts against intended behaviour.
 - Verify scanner findings against current source. A snippet result does not prove a project-wide analysis.

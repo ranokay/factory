@@ -26,4 +26,4 @@
 
 ## New projects
 
-- For a new web project without an established stack, consider Convex, Tailwind, React and Vite with bun. Choose dependencies for the actual task.
+- For a new web project without an established stack, consider Convex, Tailwind, React and Vite with bun. For complex web or React Native apps, consider Zustand, React Query, TanStack Start, Clerk or self-hosted Better Auth, and ArkType or Zod when validation performance permits. Choose dependencies for the actual task.
