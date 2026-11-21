@@ -69,8 +69,7 @@ path = profile / 'hk.pkl'
 text = path.read_text()
 version = tomllib.loads((profile / 'mise.toml').read_text())['tools'][sys.argv[2]]['version']
 old = 'mise where ' + sys.argv[2] + '@' + version
-if text.count(old) != 1:
-    raise SystemExit(f'expected one {old}')
+if text.count(old) != 1: raise SystemExit(f'expected one {old}')
 path.write_text(text.replace(old, old + '0', 1))
 PY
 	if uv run --offline --no-project --no-config --python "$python" python "$script_dir/profiles-fixtures.py" swift "$tmp" "$tmp/swift-tools.json" "$tmp/swift-steps.json" >"$tmp/pin-check.out" 2>&1; then
