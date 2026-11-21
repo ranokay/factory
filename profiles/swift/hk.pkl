@@ -24,14 +24,14 @@ steps {
         swift_path=$(command -v swift) || { printf '%s\n' 'swiftlint: Swift toolchain is unavailable' >&2; exit 1; }
         swift_path=$(readlink -f "$swift_path") || { printf '%s\n' 'swiftlint: cannot resolve Swift executable' >&2; exit 1; }
         case $swift_path in
-          "$swift_prefix"/*) ;;
+          "$swift_prefix/"*) ;;
           *) printf '%s\n' 'swiftlint: Swift executable is outside pinned toolchain' >&2; exit 1 ;;
         esac
         sourcekit="$(dirname "$(dirname "$swift_path")")/lib/libsourcekitdInProc.so"
         [ -f "$sourcekit" ] || { printf '%s\n' 'swiftlint: pinned SourceKit library is unavailable' >&2; exit 1; }
         sourcekit=$(readlink -f "$sourcekit") || { printf '%s\n' 'swiftlint: cannot resolve SourceKit library' >&2; exit 1; }
         case $sourcekit in
-          "$swift_prefix"/*) ;;
+          "$swift_prefix/"*) ;;
           *) printf '%s\n' 'swiftlint: SourceKit is outside pinned toolchain' >&2; exit 1 ;;
         esac
         export LINUX_SOURCEKIT_LIB_PATH="$(dirname "$sourcekit")"
@@ -41,7 +41,7 @@ steps {
         [ -f "$libxml" ] || { printf '%s\n' 'swiftlint: pinned libxml2 library is unavailable' >&2; exit 1; }
         libxml_target=$(readlink -f "$libxml") || { printf '%s\n' 'swiftlint: cannot resolve libxml2 library' >&2; exit 1; }
         case $libxml_target in
-          "$libxml_prefix"/*) ;;
+          "$libxml_prefix/"*) ;;
           *) printf '%s\n' 'swiftlint: libxml2 is outside pinned prefix' >&2; exit 1 ;;
         esac
         export LD_LIBRARY_PATH="$libxml_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
