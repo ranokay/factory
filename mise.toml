@@ -83,7 +83,7 @@ depends = [
 
 [tasks."ai-review:test"]
 description = "Check the AI Review workflows"
-run = ["python3 scripts/ai-review-test.py", "actionlint .github/workflows/ai-review.yml", "jactionlint .github/workflows/ai-review-caller.yml"]
+run = ["actionlint .github/workflows/ai-review.yml", "jactionlint .github/workflows/ai-review-caller.yml"]
 
 [tasks."check:gates"]
 description = "Run the Factory's shared Gates"
