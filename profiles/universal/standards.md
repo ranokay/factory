@@ -15,7 +15,7 @@ Write none, except:
 - a legally required licence header;
 - a doc comment on a published library API.
 
-`TODO`, `FIXME`, `HACK`, `XXX` and commented-out code fail Gates. Express intent through names, types and tests instead. The rule and exemptions are in `profiles/universal/scripts/comment-ban.sh --help`.
+`TODO`, `FIXME`, `HACK`, `XXX` and commented-out code fail Gates. Express intent through names, types and tests instead. The rule and exemptions live in the Profile's `comment-ban` step.
 
 ## Tests
 

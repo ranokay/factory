@@ -1,0 +1,10 @@
+include = [
+  "../profiles/universal/mise.toml",
+  "../profiles/typescript/mise.toml",
+]
+
+[task_config]
+includes = [
+  "../profiles/universal/tasks.toml",
+  "../profiles/typescript/tasks.toml",
+]

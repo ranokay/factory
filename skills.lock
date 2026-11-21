@@ -647,7 +647,12 @@
       "source": "https://github.com/mattpocock/skills.git",
       "path": "skills/engineering/prototype",
       "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
-      "patches": [],
+      "patches": [
+        {
+          "path": "0001-bun.patch",
+          "sha256": "9ca7972cc4bfb5e3cf09388e7da2ab93f886312ace495c63c77a3d4b1365a6a8"
+        }
+      ],
       "files": [
         {
           "path": "LOGIC.md",
@@ -655,7 +660,7 @@
         },
         {
           "path": "SKILL.md",
-          "sha256": "714de632d116bb73f65cdb5a882db15b9369a6713b9a47c0fad827848f0bfbe3"
+          "sha256": "65e5eaee1645f8e3cffe5ff7ce5d099d1d8416e804cde120bf78930268d9f51c"
         },
         {
           "path": "UI.md",

@@ -17,6 +17,9 @@ steps {
   ["typos"] {
     exclude = vendored
   }
+  ["comment-ban"] {
+    exclude = List("profiles/universal/tests/fixtures/**")
+  }
   ["gitleaks"] = (Builtins.gitleaks) {
     check = "sh {{root}}/scripts/gitleaks-check.sh"
     tests = new Mapping<String, Config.StepTest> {
@@ -93,6 +96,75 @@ steps {
           ["hk.pkl"] = universalHk
         }
         expect { code = 0 }
+      }
+      ["a typescript fixture matches its includes"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal, typescript\n"
+          ["mise.toml"] = """
+            include = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
+            ]
+
+            [task_config]
+            includes = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/typescript/tasks.toml?ref=v0.2.0",
+            ]
+            """
+          ["hk.pkl"] = """
+            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/typescript/hk.pkl"
+            """
+        }
+        expect { code = 0 }
+      }
+      ["a web fixture matches its includes"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal, typescript, web\n"
+          ["mise.toml"] = """
+            include = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=v0.2.0",
+            ]
+
+            [task_config]
+            includes = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/typescript/tasks.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/web/tasks.toml?ref=v0.2.0",
+            ]
+            """
+          ["hk.pkl"] = """
+            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/web/hk.pkl"
+            """
+        }
+        expect { code = 0 }
+      }
+      ["a web include the line does not declare fails"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal, typescript\n"
+          ["mise.toml"] = """
+            include = [
+              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
+              "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=v0.2.0",
+            ]
+            """
+          ["hk.pkl"] = """
+            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/typescript/hk.pkl"
+            """
+        }
+        expect {
+          code = 1
+          stderr = "does not declare web"
+        }
       }
       ["a non-Factory include is ignored"] {
         run = "check"

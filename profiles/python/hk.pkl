@@ -1,0 +1,68 @@
+amends "../universal/hk.pkl"
+
+import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+
+steps {
+  ["ruff"] = new Step {
+    types = List("python")
+    check = "ruff check {{files}}"
+    fix = "ruff check --fix {{files}}"
+    tests {
+      ["rejects an unused import"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.py"] = "import os\n\nvalue = 1\n" }
+        files = List("bad.py")
+        expect { code = 1 }
+      }
+      ["accepts clean source"] {
+        run = "check"
+        tmpdir = true
+        write { ["good.py"] = "value = 1\n" }
+        files = List("good.py")
+        expect { code = 0 }
+      }
+    }
+  }
+  ["ruff-format"] = new Step {
+    types = List("python")
+    check = "ruff format --check {{files}}"
+    fix = "ruff format {{files}}"
+    tests {
+      ["rejects a formatting violation"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.py"] = "value=1\n" }
+        files = List("bad.py")
+        expect { code = 1 }
+      }
+      ["accepts formatted source"] {
+        run = "check"
+        tmpdir = true
+        write { ["good.py"] = "value = 1\n" }
+        files = List("good.py")
+        expect { code = 0 }
+      }
+    }
+  }
+  ["ty"] = new Step {
+    types = List("python")
+    check = "ty check {{files}}"
+    tests {
+      ["rejects a type error"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.py"] = "value: int = \"text\"\n" }
+        files = List("bad.py")
+        expect { code = 1 }
+      }
+      ["accepts clean source"] {
+        run = "check"
+        tmpdir = true
+        write { ["good.py"] = "value: int = 1\n" }
+        files = List("good.py")
+        expect { code = 0 }
+      }
+    }
+  }
+}

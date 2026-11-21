@@ -1,0 +1,3 @@
+[typecheck]
+description = "Type-check the project with ty"
+run = "ty check"

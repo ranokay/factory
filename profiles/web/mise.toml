@@ -1,0 +1,2 @@
+[tools]
+"npm:@playwright/test" = "1.65.1"
