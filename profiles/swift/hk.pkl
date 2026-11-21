@@ -20,9 +20,24 @@ steps {
     check = """
       if [ "$(uname -s)" = Linux ]; then
         swift_path=$(command -v swift) || { printf '%s\n' 'swiftlint: Swift toolchain is unavailable' >&2; exit 1; }
+        swift_path=$(readlink -f "$swift_path") || { printf '%s\n' 'swiftlint: cannot resolve Swift toolchain' >&2; exit 1; }
         export LINUX_SOURCEKIT_LIB_PATH="$(dirname "$(dirname "$swift_path")")/lib"
+        sourcekit="$LINUX_SOURCEKIT_LIB_PATH/libsourcekitdInProc.so"
+        [ -f "$sourcekit" ] || { printf '%s\n' 'swiftlint: pinned SourceKit library is unavailable' >&2; exit 1; }
         libxml_prefix=$(mise where conda:libxml2@2.13.9) || exit 1
+        libxml="$libxml_prefix/lib/libxml2.so.2"
+        [ -f "$libxml" ] || { printf '%s\n' 'swiftlint: pinned libxml2 library is unavailable' >&2; exit 1; }
         export LD_LIBRARY_PATH="$libxml_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        swiftlint_path=$(command -v swiftlint) || { printf '%s\n' 'swiftlint: executable is unavailable' >&2; exit 1; }
+        dependencies=$(ldd "$swiftlint_path") || { printf '%s\n' 'swiftlint: cannot inspect dependencies' >&2; exit 1; }
+        case $dependencies in
+          *"libxml2.so.2 => $libxml "*) ;;
+          *) printf '%s\n' 'swiftlint: pinned libxml2 was not selected' >&2; exit 1 ;;
+        esac
+        sourcekit_dependencies=$(ldd "$sourcekit") || { printf '%s\n' 'swiftlint: cannot inspect SourceKit dependencies' >&2; exit 1; }
+        case $sourcekit_dependencies in
+          *"not found"*) printf '%s\n' 'swiftlint: SourceKit dependency is unavailable' >&2; exit 1 ;;
+        esac
       fi
       swiftlint lint --strict --quiet {{files}}
       """
@@ -35,6 +50,91 @@ steps {
         expect {
           code = 2
           stdout = "statement_position"
+        }
+      }
+      ["rejects a missing SourceKit library"] {
+        run = "check"
+        tmpdir = true
+        env { ["PATH"] = "./bin:/usr/bin:/bin" }
+        write {
+          ["bin/uname"] = "#!/bin/sh\nprintf 'Linux\\n'\n"
+          ["bin/readlink"] = "#!/bin/sh\nprintf '%s\\n' \"$2\"\n"
+          ["bin/swift"] = "#!/bin/sh\nexit 0\n"
+          ["bin/swiftlint"] = "#!/bin/sh\ntouch lint-invoked\nexit 0\n"
+          ["bad.swift"] = "let value = 1\n"
+          ["bin/mise"] = "#!/bin/sh\ntouch mise-invoked\nexit 1\n"
+        }
+        before = "/bin/chmod +x bin/*"
+        after = "test ! -e lint-invoked && test ! -e mise-invoked"
+        files = List("bad.swift")
+        expect {
+          code = 1
+          stderr = "pinned SourceKit library is unavailable"
+        }
+      }
+      ["rejects a failed libxml lookup"] {
+        run = "check"
+        tmpdir = true
+        env { ["PATH"] = "./bin:/usr/bin:/bin" }
+        write {
+          ["bin/uname"] = "#!/bin/sh\nprintf 'Linux\\n'\n"
+          ["bin/readlink"] = "#!/bin/sh\nprintf '%s\\n' \"$2\"\n"
+          ["bin/swift"] = "#!/bin/sh\nexit 0\n"
+          ["bin/swiftlint"] = "#!/bin/sh\ntouch lint-invoked\nexit 0\n"
+          ["bad.swift"] = "let value = 1\n"
+          ["lib/libsourcekitdInProc.so"] = "placeholder"
+          ["bin/mise"] = "#!/bin/sh\nprintf 'libxml lookup failed\\n' >&2\nexit 1\n"
+        }
+        before = "/bin/chmod +x bin/*"
+        after = "test ! -e lint-invoked"
+        files = List("bad.swift")
+        expect {
+          code = 1
+          stderr = "libxml lookup failed"
+        }
+      }
+      ["rejects a missing pinned libxml library"] {
+        run = "check"
+        tmpdir = true
+        env { ["PATH"] = "./bin:/usr/bin:/bin" }
+        write {
+          ["bin/uname"] = "#!/bin/sh\nprintf 'Linux\\n'\n"
+          ["bin/readlink"] = "#!/bin/sh\nprintf '%s\\n' \"$2\"\n"
+          ["bin/swift"] = "#!/bin/sh\nexit 0\n"
+          ["bin/swiftlint"] = "#!/bin/sh\ntouch lint-invoked\nexit 0\n"
+          ["bad.swift"] = "let value = 1\n"
+          ["lib/libsourcekitdInProc.so"] = "placeholder"
+          ["bin/mise"] = "#!/bin/sh\npwd\n"
+        }
+        before = "/bin/chmod +x bin/*"
+        after = "test ! -e lint-invoked"
+        files = List("bad.swift")
+        expect {
+          code = 1
+          stderr = "pinned libxml2 library is unavailable"
+        }
+      }
+      ["rejects system libxml fallback"] {
+        run = "check"
+        tmpdir = true
+        env { ["PATH"] = "./bin:/usr/bin:/bin" }
+        write {
+          ["bin/uname"] = "#!/bin/sh\nprintf 'Linux\\n'\n"
+          ["bin/readlink"] = "#!/bin/sh\nprintf '%s\\n' \"$2\"\n"
+          ["bin/swift"] = "#!/bin/sh\nexit 0\n"
+          ["bin/swiftlint"] = "#!/bin/sh\ntouch lint-invoked\nexit 0\n"
+          ["bad.swift"] = "let value = 1\n"
+          ["lib/libsourcekitdInProc.so"] = "placeholder"
+          ["lib/libxml2.so.2"] = "placeholder"
+          ["bin/mise"] = "#!/bin/sh\npwd\n"
+          ["bin/ldd"] = "#!/bin/sh\nprintf 'libxml2.so.2 => /usr/lib/libxml2.so.2 (0x0)\\n'\n"
+        }
+        before = "/bin/chmod +x bin/*"
+        after = "test ! -e lint-invoked"
+        files = List("bad.swift")
+        expect {
+          code = 1
+          stderr = "pinned libxml2 was not selected"
         }
       }
       ["rejects a forced cast"] {
