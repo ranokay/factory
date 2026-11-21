@@ -66,6 +66,26 @@ case_concurrent() {
 	printf 'ok: concurrent acquires admit exactly two\n'
 }
 
+case_pattern() {
+	RUN_SLOT_DIR=$(printf '%s\n%s' "$work/root[1]" 'newline')
+	export RUN_SLOT_DIR
+	"$run_slot" acquire a/one 1 >/dev/null
+	"$run_slot" acquire a/two 2 >/dev/null
+	check_count 2
+	touch -t 200001010000 "$RUN_SLOT_DIR/.machine/2"
+	RUN_SLOT_DIR=$RUN_SLOT_DIR///
+	export RUN_SLOT_DIR
+	check_count 2
+	expect_slot a/one 1 -
+	"$run_slot" release a/one
+	check_count 1
+	expect_slot a/two 2 -
+	"$run_slot" acquire a/three 3 >/dev/null
+	refused "2 Runs already active on this machine" "$run_slot" acquire a/four 4
+	check_count 2
+	printf 'ok: the slot root is treated as a literal path\n'
+}
+
 case_orphan() {
 	"$run_slot" acquire a/one 1 >/dev/null
 	mkdir "$work/.machine/2"
@@ -158,6 +178,7 @@ release) run_case case_release ;;
 traversal) run_case case_traversal ;;
 permission) run_case case_permission ;;
 concurrent) run_case case_concurrent ;;
+pattern) run_case case_pattern ;;
 orphan) run_case case_orphan ;;
 owner_permission) run_case case_owner_permission ;;
 all)
@@ -168,6 +189,7 @@ all)
 	run_case case_traversal
 	run_case case_permission
 	run_case case_concurrent
+	run_case case_pattern
 	run_case case_orphan
 	run_case case_owner_permission
 	;;

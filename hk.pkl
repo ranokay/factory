@@ -623,6 +623,11 @@ steps {
         env { ["RUN_SLOT_CASE"] = "concurrent" }
         expect { code = 0 }
       }
+      ["the slot root is treated as a literal path"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "pattern" }
+        expect { code = 0 }
+      }
       ["a crashed machine slot is pruned"] {
         run = "check"
         env { ["RUN_SLOT_CASE"] = "orphan" }
