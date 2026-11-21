@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -99,10 +100,13 @@ def main() -> None:
         profile = Path(tmp) / 'profiles' / 'swift'
         configured = tomllib.loads((profile / 'mise.toml').read_text())['tools']
         gate = (profile / 'hk.pkl').read_text().split('["swiftlint"] =', 1)[1].split('tests {', 1)[0]
-        for tool in ('swift', 'conda:libxml2'):
-            version = configured[tool]['version']
-            if f'mise where {tool}@{version})' not in gate:
-                fail(f'swift: {tool} Gate lookup does not match its mise pin')
+        lookups = re.findall(r'^\s*(swift_prefix|libxml_prefix)=\$\(mise where ([^)]+)\)', gate, re.MULTILINE)
+        expected_lookups = [
+            ('swift_prefix', f"swift@{configured['swift']['version']}"),
+            ('libxml_prefix', f"conda:libxml2@{configured['conda:libxml2']['version']}"),
+        ]
+        if lookups != expected_lookups:
+            fail('swift: Gate lookups do not match mise pins')
     profiles = DECLARED[name]
     prefix = os.path.realpath(tmp) + os.sep
 
