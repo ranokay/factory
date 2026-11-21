@@ -1,0 +1,3 @@
+["typecheck:typescript"]
+description = "Type-check the project with tsc"
+run = "tsc --noEmit"

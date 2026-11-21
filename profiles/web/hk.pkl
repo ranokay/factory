@@ -1,0 +1,51 @@
+amends "../typescript/hk.pkl"
+
+import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+
+local const webAssets = read("scripts/web-assets.sh").text
+
+steps {
+  ["web-assets"] = new Step {
+    glob = "public/assets/**"
+    env { ["WEB_ASSETS"] = webAssets }
+    check = new Command { argv = List("sh", "-c", "eval \"$WEB_ASSETS\"", "web-assets", "{{files}}") }
+    tests {
+      ["rejects an uppercase name"] {
+        run = "check"
+        tmpdir = true
+        write { ["public/assets/Hero.svg"] = "<svg></svg>\n" }
+        files = List("public/assets/Hero.svg")
+        expect { code = 1 }
+      }
+      ["rejects a photo that is not WebP or AVIF"] {
+        run = "check"
+        tmpdir = true
+        write { ["public/assets/photo.png"] = "png\n" }
+        files = List("public/assets/photo.png")
+        expect { code = 1 }
+      }
+      ["rejects a camelCase directory"] {
+        run = "check"
+        tmpdir = true
+        write { ["public/assets/Team/logo.svg"] = "<svg></svg>\n" }
+        files = List("public/assets/Team/logo.svg")
+        expect { code = 1 }
+      }
+      ["accepts kebab-case SVG, WebP and AVIF"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["public/assets/logo.svg"] = "<svg></svg>\n"
+          ["public/assets/hero-2.webp"] = "webp\n"
+          ["public/assets/hero-3.avif"] = "avif\n"
+        }
+        files = List(
+          "public/assets/logo.svg",
+          "public/assets/hero-2.webp",
+          "public/assets/hero-3.avif",
+        )
+        expect { code = 0 }
+      }
+    }
+  }
+}

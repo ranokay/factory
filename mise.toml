@@ -65,6 +65,7 @@ description = "Run every Gate"
 depends = [
   "skills:test",
   "profiles:test",
+  "profiles:fixtures",
   "run-slot:test",
   "block-issue:test",
   "file-promotion:test",
@@ -78,6 +79,10 @@ depends = [
   "tools:test",
 ]
 
+[tasks."check:gates"]
+description = "Run the Factory's shared Gates"
+run = ["hk check --all", "hk test --step comment-ban", "hk test --step pinact"]
+
 [tasks."skills:test"]
 description = "Run the skills:sync tests"
 run = "hk test --step skills-sync"
@@ -85,6 +90,10 @@ run = "hk test --step skills-sync"
 [tasks."profiles:test"]
 description = "Run the Profiles declaration tests"
 run = "hk test --step profiles"
+
+[tasks."profiles:fixtures"]
+description = "Run each Profile fixture in an isolated repository"
+run = "sh scripts/profiles-fixtures.sh"
 
 [tasks."run-slot:test"]
 description = "Run the full-send run-slot tests"

@@ -2,8 +2,10 @@ amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.
 import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtins.pkl"
 import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
 
-local const pinactScript = "{{root}}/profiles/universal/scripts/pinact.sh"
-local const pinactCmd = List(pinactScript, "run", "--verify-comment")
+// comment-ban's help contains ${#array[@]}, which Tera reads as a comment tag; see https://keats.github.io/tera/docs/#raw-blocks.
+local const commentBan = "{% raw %}" + read("scripts/comment-ban.sh").text + "{% endraw %}"
+local const pinactScript = read("scripts/pinact.sh").text
+local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")
 
 steps {
   ["editorconfig-checker"] = Builtins.editorconfig_checker
@@ -11,38 +13,48 @@ steps {
   ["gitleaks"] = Builtins.gitleaks
   ["comment-ban"] = new Step {
     types = List("text")
-    exclude = List("profiles/universal/tests/fixtures/**")
+    env { ["COMMENT_BAN"] = commentBan }
     check = new Command {
-      argv = List("{{root}}/profiles/universal/scripts/comment-ban.sh", "{{files}}")
+      argv = List("sh", "-c", "eval \"$COMMENT_BAN\"", "comment-ban", "{{files}}")
     }
     tests {
       ["rejects a TODO comment"] {
         run = "check"
-        files = List("{{root}}/profiles/universal/tests/fixtures/todo.sh")
+        tmpdir = true
+        write { ["todo.sh"] = read("tests/fixtures/todo.sh").text }
+        files = List("todo.sh")
         expect { code = 1 }
       }
       ["rejects a semicolon TODO comment"] {
         run = "check"
-        files = List("{{root}}/profiles/universal/tests/fixtures/todo.ini")
+        tmpdir = true
+        write { ["todo.ini"] = read("tests/fixtures/todo.ini").text }
+        files = List("todo.ini")
         expect { code = 1 }
       }
       ["rejects a block TODO comment"] {
         run = "check"
-        files = List("{{root}}/profiles/universal/tests/fixtures/todo.css")
+        tmpdir = true
+        write { ["todo.css"] = read("tests/fixtures/todo.css").text }
+        files = List("todo.css")
         expect { code = 1 }
       }
       ["accepts a clean file"] {
         run = "check"
-        files = List(
-          "{{root}}/profiles/universal/tests/fixtures/clean.sh",
-          "{{root}}/profiles/universal/tests/fixtures/clean.pkl",
-          "{{root}}/profiles/universal/tests/fixtures/clean.ini",
-        )
+        tmpdir = true
+        write {
+          ["clean.sh"] = read("tests/fixtures/clean.sh").text
+          ["clean.pkl"] = read("tests/fixtures/clean.pkl").text
+          ["clean.ini"] = read("tests/fixtures/clean.ini").text
+        }
+        files = List("clean.sh", "clean.pkl", "clean.ini")
         expect { code = 0 }
       }
       ["rejects commented-out code"] {
         run = "check"
-        files = List("{{root}}/profiles/universal/tests/fixtures/commented-code.sh")
+        tmpdir = true
+        write { ["commented-code.sh"] = read("tests/fixtures/commented-code.sh").text }
+        files = List("commented-code.sh")
         expect { code = 1 }
       }
       ["rejects a commented-out key line"] {
@@ -72,6 +84,7 @@ steps {
   ["jactionlint"] = Builtins.jactionlint
   ["zizmor"] = Builtins.zizmor
   ["pinact"] = (Builtins.pinact) {
+    env { ["PINACT_WRAPPER"] = pinactScript }
     check = new Config.CommandSpec {
       command = new Config.Command {
         argv = pinactCmd + List("--check", "{{files}}")
