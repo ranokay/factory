@@ -29,6 +29,9 @@ include = [
   "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=vX.Y.Z",
 ]
 
+[settings]
+experimental = true
+
 [task_config]
 includes = [
   "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=vX.Y.Z",
@@ -36,6 +39,8 @@ includes = [
   "git::https://github.com/ranokay/factory.git//profiles/web/tasks.toml?ref=vX.Y.Z",
 ]
 ```
+
+Mise refuses `settings` in a config include and gates remote `git::` task includes behind the experimental flag, so the root `mise.toml` sets it; a Profile fragment cannot carry it.
 
 ```pkl
 amends "https://raw.githubusercontent.com/ranokay/factory/vX.Y.Z/profiles/web/hk.pkl"
