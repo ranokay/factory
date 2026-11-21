@@ -1,6 +1,8 @@
 import os
+import json
 import re
 import subprocess
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -35,10 +37,12 @@ class AiReviewWorkflowTests(unittest.TestCase):
     def test_secret_jobs_allow_only_same_repository_pull_requests(self):
         caller = workflow("ai-review-caller.yml")
         reusable = workflow("ai-review.yml")
-        self.assertRegex(caller, r"(?m)^  pull_request:$")
+        triggers = caller.split("on:\n", 1)[1].split("permissions:", 1)[0]
+        self.assertEqual(re.findall(r"(?m)^  ([a-z_]+):", triggers), ["pull_request"])
         self.assertNotIn("pull_request_target:", caller + reusable)
         for source in (caller, reusable):
-            condition = re.search(r"(?m)^    if: (.+)$", source).group(1)
+            job = source.split("  review:\n", 1)[1]
+            condition = re.search(r"(?m)^    if: (.+)$", job).group(1)
             operands = re.split(r"\s*==\s*", condition)
             self.assertEqual(len(operands), 2)
             for head, expected in (("ranokay/factory", True), ("outside/fork", False)):
@@ -59,10 +63,21 @@ class AiReviewWorkflowTests(unittest.TestCase):
 
     def test_summary_check_does_not_fail_on_findings_that_could_not_be_inlined(self):
         check = step(workflow("ai-review.yml"), "Require published review")
-        self.assertNotEqual(run_step(check, {"SUMMARY": ""}).returncode, 0)
-        for failures in ("0", "1"):
-            result = run_step(check, {"SUMMARY": "https://example.test/comment", "FAILED": failures})
-            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SUMMARY: ${{ steps.review.outputs.summary_comment_url }}", check)
+        self.assertIn("RESULT_PATH: /tmp/ocr-result.json", check)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "result.json"
+            env = {"SUMMARY": "https://example.test/comment", "RESULT_PATH": str(path)}
+            for status in ("complete", "skipped"):
+                path.write_text(json.dumps({"status": status}))
+                for failures in ("0", "1"):
+                    result = run_step(check, {**env, "FAILED": failures})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+            path.write_text(json.dumps({"status": "failed"}))
+            self.assertNotEqual(run_step(check, env).returncode, 0)
+            path.write_text("invalid json")
+            self.assertNotEqual(run_step(check, env).returncode, 0)
+            self.assertNotEqual(run_step(check, {**env, "SUMMARY": ""}).returncode, 0)
 
 
 if __name__ == "__main__":

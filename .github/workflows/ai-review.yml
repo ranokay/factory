@@ -69,8 +69,10 @@ jobs:
       - name: Require published review
         env:
           SUMMARY: ${{ steps.review.outputs.summary_comment_url }}
+          RESULT_PATH: /tmp/ocr-result.json
         run: |
           if [ -z "$SUMMARY" ]; then
             echo '::error::Review summary publication failed'
             exit 1
           fi
+          python3 -c 'import json, os, sys; result = json.load(open(os.environ["RESULT_PATH"])); sys.exit(result.get("status") not in ("complete", "skipped"))'
