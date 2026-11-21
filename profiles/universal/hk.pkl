@@ -2,7 +2,7 @@ amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.
 import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtins.pkl"
 import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
 
-// The help text contains ${#array[@]}, which Tera would read as a comment tag.
+// comment-ban's help contains ${#array[@]}, which Tera reads as a comment tag; see https://keats.github.io/tera/docs/#raw-blocks.
 local const commentBan = "{% raw %}" + read("scripts/comment-ban.sh").text + "{% endraw %}"
 local const pinactScript = read("scripts/pinact.sh").text
 local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")

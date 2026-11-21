@@ -1,2 +1,1 @@
-// scripts/profiles-fixtures.sh copies profiles/ beside this fixture before it runs.
 amends "../profiles/web/hk.pkl"
