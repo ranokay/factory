@@ -247,17 +247,25 @@ def desired_codex(text: str, servers: dict, retired: list[str], home: Path) -> s
         raise SyncError("Codex shell_environment_policy must be a table")
     include = policy.get("include_only", [])
     exclude = policy.get("exclude", [])
+    filters = policy.get("filters")
+    if filters is not None:
+        if not isinstance(filters, dict) or "include_only" in policy or "exclude" in policy:
+            raise SyncError("Codex shell environment filters cannot mix with legacy lists")
+        if len({pattern.lower() for pattern in filters}) != len(filters) or any(action not in ("include", "exclude") for action in filters.values()):
+            raise SyncError("Codex shell environment filters are invalid")
+        include = [pattern for pattern, action in filters.items() if action == "include"]
+        exclude = [pattern for pattern, action in filters.items() if action == "exclude"]
     if not all(isinstance(patterns, list) and all(isinstance(p, str) for p in patterns) for patterns in (include, exclude)):
         raise SyncError("Codex shell environment filters must be lists of strings")
     overrides = policy.get("set", {})
     if not isinstance(overrides, dict):
         raise SyncError("Codex shell environment set must be a table")
     for env in secret_references(servers):
-        matches = lambda patterns, flags=0: any(
-            re.fullmatch(re.escape(pattern).replace(r"\*", ".*").replace(r"\?", "."), env, flags)
+        matches = lambda patterns: any(
+            re.fullmatch(re.escape(pattern).replace(r"\*", ".*").replace(r"\?", "."), env, re.IGNORECASE)
             for pattern in patterns
         )
-        if policy.get("inherit", "all") != "all" or matches(exclude, re.IGNORECASE) or (include and not matches(include)) or env in overrides:
+        if policy.get("inherit", "all") != "all" or matches(exclude) or (include and not matches(include)) or env in overrides:
             raise SyncError(f"Codex shell environment policy blocks or overrides {env}; update shell_environment_policy")
     names = {name for name, spec in servers.items() if "codex" in spec["targets"]} | set(retired)
     body = strip_codex(text, names)

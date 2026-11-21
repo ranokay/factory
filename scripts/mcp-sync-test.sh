@@ -307,6 +307,20 @@ inherit = "none"'
 	run_sync
 	[ "$code" -ne 0 ] || fail "inherit none passed"
 	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy.filters]
+"*KEY*" = "exclude"'
+	run_sync
+	[ "$code" -ne 0 ] || fail "a conflicting keyed exclusion passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy.filters]
+PATH = "include"'
+	run_sync
+	[ "$code" -ne 0 ] || fail "a conflicting keyed include passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy]
+include_only = ["context7_api_key"]'
+	run_sync
+	[ "$code" -eq 0 ] || fail "a case-insensitive Codex match was rejected: $output"
 	printf 'ok: conflicting Codex policies name blocked registry variables\n'
 }
 
