@@ -285,6 +285,26 @@ case_reference_check() {
 	printf 'ok: reference checks name missing tokens and unreadable items\n'
 }
 
+case_policy_conflict() {
+	setup_case policy-conflict
+	write_config codex '[shell_environment_policy]
+include_only = ["PATH"]'
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "a conflicting include_only passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy]
+exclude = ["*KEY*"]'
+	run_sync
+	[ "$code" -ne 0 ] || fail "a conflicting exclusion passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy]
+inherit = "none"'
+	run_sync
+	[ "$code" -ne 0 ] || fail "inherit none passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	printf 'ok: conflicting Codex policies name blocked registry variables\n'
+}
+
 case_env_check() {
 	setup_case env-check
 	make_stubs
@@ -364,6 +384,7 @@ case_all() {
 	case_env
 	case_env_fail
 	case_reference_check
+	case_policy_conflict
 	case_env_check
 	case_literal_header
 	case_no_references
