@@ -2,7 +2,7 @@
 
 <One sentence: what this is and who it is for.>
 
-Profiles: universal, <language>, <platform>
+Profiles: universal
 
 ## Commands
 

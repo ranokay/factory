@@ -1,4 +1,5 @@
 # Factory
+Profiles: universal
 
 You work in ranokay's Factory. Capitalised terms are defined in `~/.agents/GLOSSARY.md`; use them exactly.
 
