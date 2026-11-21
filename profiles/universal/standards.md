@@ -25,7 +25,7 @@ Verify assertions in permitted comments and update or remove them when behaviour
 - Test behaviour through public interfaces. Prefer a few integration-level tests over many unit tests.
 - Every bug fix carries a regression test that fails without the fix.
 - Never test private helpers or trivial mappings, mock the unit under test, keep snapshots nobody reads, or restate the implementation.
-- Test current behaviour, not deleted functionality. Name tests for behaviour, follow the project's test configuration and isolate external dependencies with test doubles where appropriate. Parameterize cases when it clarifies a shared contract; use coverage to find missing checks, not as proof of correctness.
+- Test current behaviour and meaningful edge cases, not deleted functionality. Keep fixtures simple. Name tests for behaviour, follow the project's test configuration and isolate external dependencies with test doubles where appropriate. Parameterize cases when it clarifies a shared contract; use coverage to find missing checks, not as proof of correctness.
 - No coverage targets.
 
 ## Dependencies
@@ -48,7 +48,7 @@ Verify assertions in permitted comments and update or remove them when behaviour
 
 - Inspect the checkout and index before Git changes. Respect ownership, use a branch named for the change without tool or agent prefixes, stage and commit explicit paths, preserve unrelated index entries, unstage only your changes and keep commits atomic. Coordinate with the author before reverting their work; quote paths that the shell could expand.
 - Run rebases with `GIT_EDITOR=:` and `GIT_SEQUENCE_EDITOR=:` and resolve conflicts against intended behaviour.
-- Before opening a PR, identify the integration branch and rebase onto its current head. Follow the repository's title and PR template; describe the problem, result, solution and validation. Mention a person only when they need to act; identify them through OWNERS or the team list, or ask if no owner is identifiable.
+- Before opening an ordinary PR, identify the integration branch and rebase onto its current head. Preserve upstream ancestry in Sync PRs. Follow the repository's title and PR template; describe the problem, result, solution and validation. Mention a person only when they need to act; identify them through OWNERS or the team list, or ask if no owner is identifiable.
 - For scanner analysis, use the correct project and branch, source language and complete context. Verify findings against current source; a stale remote finding does not verify a local fix, and a snippet result does not prove a project-wide analysis.
 
 ## Evidence
