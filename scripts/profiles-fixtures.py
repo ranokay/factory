@@ -4,6 +4,7 @@
 import json
 import os
 import sys
+from pathlib import Path
 
 COMMON_TOOLS = {
     'aqua:jdx/jactionlint',
@@ -50,22 +51,24 @@ DECLARED = {
 }
 
 
-def fail(message):
+def fail(message: str) -> None:
     print(f'profiles:fixtures: {message}', file=sys.stderr)
     raise SystemExit(1)
 
 
-def declared_root(prefix, source):
-    path = source.get('path') if isinstance(source, dict) else None
-    return bool(path) and os.path.realpath(path).startswith(prefix)
+def declared_root(prefix: str, source: object) -> bool:
+    if not isinstance(source, dict):
+        return False
+    path = source.get('path')
+    return isinstance(path, str) and os.path.realpath(path).startswith(prefix)
 
 
-def main():
+def main() -> None:
     name, tmp, tools_path, steps_path = sys.argv[1:5]
     profiles = DECLARED[name]
     prefix = os.path.realpath(tmp) + os.sep
 
-    tools = json.load(open(tools_path))
+    tools = json.loads(Path(tools_path).read_text())
     declared_tools = sorted(
         tool
         for tool, entries in tools.items()
@@ -77,7 +80,7 @@ def main():
         extra = sorted(set(declared_tools) - set(expected_tools))
         fail(f'{name}: tools mismatch; missing {missing}, extra {extra}')
 
-    text = open(steps_path).read()
+    text = Path(steps_path).read_text()
     plan = json.loads(text[text.index('{') :])
     steps = sorted(step['name'] for step in plan['steps'])
     expected_steps = COMMON_STEPS.union(*(PROFILE_STEPS[profile] for profile in profiles))

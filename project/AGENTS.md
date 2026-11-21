@@ -24,21 +24,23 @@ Profiles: universal, typescript, web
 
 ```toml
 include = [
-  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-  "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
-  "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=v0.2.0",
+  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=vX.Y.Z",
+  "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=vX.Y.Z",
+  "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=vX.Y.Z",
 ]
 
 [task_config]
 includes = [
-  "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0",
-  "git::https://github.com/ranokay/factory.git//profiles/typescript/tasks.toml?ref=v0.2.0",
-  "git::https://github.com/ranokay/factory.git//profiles/web/tasks.toml?ref=v0.2.0",
+  "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=vX.Y.Z",
+  "git::https://github.com/ranokay/factory.git//profiles/typescript/tasks.toml?ref=vX.Y.Z",
+  "git::https://github.com/ranokay/factory.git//profiles/web/tasks.toml?ref=vX.Y.Z",
 ]
 ```
 
 ```pkl
-amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/web/hk.pkl"
+amends "https://raw.githubusercontent.com/ranokay/factory/vX.Y.Z/profiles/web/hk.pkl"
 ```
+
+Replace `vX.Y.Z` with the Factory release that carries the Profiles you declare.
 
 Terms are in `GLOSSARY.md`; decisions are in `docs/adr/`.

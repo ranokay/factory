@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$script_dir/.." && pwd)
+python=$(mise -C "$root" which python)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-profiles.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
@@ -28,7 +29,7 @@ run_fixture() {
 		mise exec -- hk check --all --plan -a --json --no-progress >"$tmp/$name-steps.json"
 		mise ls --current --json >"$tmp/$name-tools.json"
 	)
-	python3 "$script_dir/profiles-fixtures.py" "$name" "$tmp" "$tmp/$name-tools.json" "$tmp/$name-steps.json"
+	uv run --offline --no-project --no-config --python "$python" python "$script_dir/profiles-fixtures.py" "$name" "$tmp" "$tmp/$name-tools.json" "$tmp/$name-steps.json"
 }
 
 run_fixture typescript
