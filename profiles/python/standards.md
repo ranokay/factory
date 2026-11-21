@@ -13,7 +13,7 @@
 - Use `collections.abc` types for parameters (`Sequence`, `Mapping`, `Iterable`) and concrete types for returns.
 - Use a dataclass or `NamedTuple` for structured data. A bare tuple is fine only while it stays inside one function.
 - Use `enum.Enum` for a closed set of values, not module-level strings.
-- Keep `Any` at the boundary. Convert it with validation before the rest of the code sees it.
+- Keep `Any` at the boundary. Convert it with validation before the rest of the code sees it. Use concrete types or protocols instead of `object` when the type is known.
 - Use `typing.Protocol` for a dependency you substitute in a test.
 
 ## Code
@@ -25,4 +25,3 @@
 - Package layout is `src/<package>/`; tests live in `tests/` and import the installed package.
 - Build strings with f-strings or `str.join`; never concatenate in a loop.
 
-- Use concrete types or protocols instead of `object` when the type is known.
