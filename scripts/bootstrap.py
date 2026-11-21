@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,8 @@ CODEX_MANAGED_SKILLS = {".system"}
 # Claude Code's claude.ai sync cache: skills/synced/<bucket>/<skill>/SKILL.md.
 SYNCED_SKILLS = "synced"
 SECRET_LABEL = "dev.factory.secrets"
+OP_TOKEN_REFERENCE = "op://Private/Service Account Auth Token: Factory/credential"
+OP_TOKEN_SERVICE = "dev.factory.op-service-account"
 SECRET_RETRY_SECONDS = 60
 SECRET_LOG = Path("Library") / "Logs" / "factory-secrets.log"
 GC_LABEL = "dev.factory.gc"
@@ -182,6 +185,32 @@ def mcp_sync(home: Path, *args: str) -> subprocess.CompletedProcess:
 
 def combined(result: subprocess.CompletedProcess) -> str:
     return "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+
+
+def provision_op_token(home: Path, rotate: bool) -> bool:
+    security = shutil.which("security") or "/usr/bin/security"
+    query = [security, "find-generic-password", "-a", "Factory", "-s", OP_TOKEN_SERVICE]
+    existing = subprocess.run([*query, "-w"], capture_output=True, text=True, check=False)
+    if existing.returncode == 0 and existing.stdout.strip() and not rotate:
+        return True
+    metadata = subprocess.run(query, capture_output=True, text=True, check=False)
+    if metadata.returncode == 0 and not rotate:
+        print("bootstrap: Keychain token exists but is inaccessible", file=sys.stderr)
+        return False
+    environment = dict(os.environ)
+    environment.pop("OP_SERVICE_ACCOUNT_TOKEN", None)
+    token = subprocess.run(["op", "read", "--no-newline", OP_TOKEN_REFERENCE], env=environment, capture_output=True, text=True, check=False)
+    if token.returncode or not token.stdout or "\n" in token.stdout or "\r" in token.stdout:
+        print("bootstrap: cannot read service account token", file=sys.stderr)
+        return False
+    escaped = token.stdout.replace("\\", "\\\\").replace('"', '\\"')
+    command = f'add-generic-password -U -a Factory -s {OP_TOKEN_SERVICE} -T /usr/bin/security -w "{escaped}" "{home}/Library/Keychains/login.keychain-db"\n'
+    result = subprocess.run([security, "-i"], input=command, capture_output=True, text=True, check=False)
+    verify = subprocess.run([*query, "-w"], capture_output=True, text=True, check=False)
+    if result.returncode or verify.returncode or verify.stdout.rstrip("\n") != token.stdout:
+        print("bootstrap: cannot store service account token in login Keychain", file=sys.stderr)
+        return False
+    return True
 
 
 def launchctl_binary() -> str | None:
@@ -540,7 +569,33 @@ def setup_github_ssh(home: Path) -> bool:
             print(f"bootstrap: cannot rewrite origin: {changed.stderr.strip()}", file=sys.stderr)
             return False
         print(f"bootstrap: origin is now {rewritten}")
+    push_url = f"https://github.com/{slug[0]}/{slug[1]}.git"
+    for arguments in (("remote", "set-url", "--push", "origin", push_url),
+                      ("config", "--local", "--replace-all", "credential.https://github.com.helper", ""),
+                      ("config", "--local", "--add", "credential.https://github.com.helper", "!gh auth git-credential")):
+        result = git(ROOT, *arguments)
+        if result.returncode:
+            print("bootstrap: cannot configure GitHub HTTPS pushes", file=sys.stderr)
+            return False
     return True
+
+
+def github_push_errors() -> list[str]:
+    origin = git(ROOT, "remote", "get-url", "origin")
+    if origin.returncode or github_slug(origin.stdout.strip()) is None:
+        return []
+    push = git(ROOT, "remote", "get-url", "--push", "--all", "origin")
+    if push.returncode or not push.stdout.splitlines() or any(not GITHUB_HTTPS.fullmatch(url) for url in push.stdout.splitlines()):
+        return ["GitHub origin push URL is not HTTPS"]
+    helper = git(ROOT, "config", "--get-all", "credential.https://github.com.helper")
+    if helper.returncode or helper.stdout.splitlines()[-2:] != ["", "!gh auth git-credential"]:
+        return ["GitHub credential helper is missing"]
+    environment = dict(os.environ)
+    environment.pop("SSH_AUTH_SOCK", None)
+    environment.update(GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/usr/bin/false")
+    check_ref = f"refs/heads/factory-push-check-{uuid.uuid4().hex}"
+    check = subprocess.run(["git", "-C", str(ROOT), "push", "--dry-run", "origin", f"HEAD:{check_ref}"], env=environment, capture_output=True, text=True, check=False)
+    return [] if check.returncode == 0 else ["GitHub HTTPS push dry-run failed without prompting"]
 
 
 def read_tool_skill_groups() -> dict[str, list[str]]:
@@ -718,6 +773,10 @@ def discovery(home: Path) -> int:
         return 1
     errors.extend(secret_agent_errors(home))
     errors.extend(gc_agent_errors(home))
+    errors.extend(github_push_errors())
+    reference_check = mcp_sync(home, "--check-references")
+    if reference_check.returncode != 0:
+        errors.append((reference_check.stderr or reference_check.stdout).strip())
     mcp_check = mcp_sync(home, "--check")
     if mcp_check.returncode != 0:
         errors.append(f"MCP configs are not in sync: {combined(mcp_check)}")
@@ -922,6 +981,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home", type=Path, default=Path.home(), help="home directory to bootstrap")
     parser.add_argument("--check", action="store_true", help="run only the discovery check")
+    parser.add_argument("--rotate-op-token", action="store_true", help="replace the Keychain service account token")
     parser.add_argument(
         "--adopt-existing",
         action="store_true",
@@ -958,6 +1018,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"bootstrap: {error}", file=sys.stderr)
         return 1
     apply_links(changes, home)
+    if not provision_op_token(home, args.rotate_op_token):
+        return 1
     if not render_mcp(home):
         return 1
     if not install_secret_agent(home):

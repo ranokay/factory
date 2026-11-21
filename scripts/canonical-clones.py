@@ -294,6 +294,18 @@ def main():
             except (OSError, subprocess.SubprocessError) as error:
                 result['actions'].append(f'could not add upstream for {canonical}: {error}')
                 failed = True
+        if args.action == 'move' and not entry['refusal'] and entry['selected']:
+            canonical = Path(entry['canonical'])
+            if canonical.is_dir() and entry['identity'].startswith('github.com/'):
+                try:
+                    git(canonical, 'remote', 'set-url', '--push', 'origin',
+                        'https://' + entry['identity'] + '.git')
+                    git(canonical, 'config', '--local', '--replace-all', 'credential.https://github.com.helper', '')
+                    git(canonical, 'config', '--local', '--add', 'credential.https://github.com.helper',
+                        '!gh auth git-credential')
+                except (OSError, subprocess.SubprocessError) as error:
+                    result['actions'].append(f'could not configure HTTPS pushes for {canonical}: {error}')
+                    failed = True
         if args.action == 'remove' and not entry['refusal']:
 
             for duplicate in entry['duplicates']:

@@ -90,10 +90,17 @@ run_sync() {
 
 make_stubs() {
 	mkdir -p "$bin"
+	cat >"$bin/security" <<'STUB'
+#!/bin/sh
+[ "${KEYCHAIN_MISSING:-0}" = 0 ] || exit 1
+printf 'fixture-service-token'
+STUB
 	cat >"$bin/op" <<'STUB'
 #!/bin/sh
 set -eu
 printf 'op %s\n' "$*" >>"$STUB_LOG"
+[ "${OP_SERVICE_ACCOUNT_TOKEN:-}" = fixture-service-token ] || exit 1
+case "${OP_EMPTY_SECOND:-}:$*" in 1:*Second*) exit 0 ;; esac
 if [ -n "${OP_FAIL:-}" ]; then
 	printf 'op: account is locked\n' >&2
 	exit 1
@@ -113,7 +120,7 @@ if [ "$1" = "getenv" ]; then
 fi
 exit 0
 STUB
-	chmod +x "$bin/op" "$bin/launchctl"
+	chmod +x "$bin/op" "$bin/launchctl" "$bin/security"
 }
 
 backup_count() {
@@ -132,6 +139,8 @@ case_fresh() {
 	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "the OpenCode header is not its env reference"
 	grep -q '^\[mcp_servers.context7\]$' "$home/.codex/config.toml" || fail "Codex has no context7 table"
 	grep -q '^bearer_token_env_var = "CONTEXT7_API_KEY"$' "$home/.codex/config.toml" || fail "Codex has no bearer token env var"
+	grep -q '^ignore_default_excludes = true$' "$home/.codex/config.toml" || fail "Codex excludes registry secrets from shells"
+	if grep -q OP_SERVICE_ACCOUNT_TOKEN "$home/.codex/config.toml"; then fail "service token leaked into config"; fi
 	[ "$(json_value "$home/.claude.json" mcpServers.cua-driver.command)" = "$home/.local/bin/cua-driver" ] || fail "the Claude cua-driver command is not expanded"
 	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.cua-driver.type')" = local ] || fail "OpenCode has no cua-driver server"
 	grep -q '^command = "'"$home"'/.local/bin/cua-driver"$' "$home/.codex/config.toml" || fail "Codex has no expanded cua-driver command"
@@ -246,7 +255,8 @@ case_env() {
 	[ "$code" -eq 0 ] || fail "setting the env failed: $output"
 	expect_not_contains "$output" "dummy-value"
 	grep -q 'launchctl setenv CONTEXT7_API_KEY dummy-value' "$log" || fail "launchctl did not receive the secret"
-	grep -q 'op read --no-newline op://Private/Context7 API/credential' "$log" || fail "op was not asked for the registry reference"
+	grep -q 'op read --no-newline op://factory/Context7 API/credential' "$log" || fail "op was not asked for the registry reference"
+	if grep -q 'fixture-service-token\|OP_SERVICE_ACCOUNT_TOKEN' "$log"; then fail "service token leaked"; fi
 	printf 'ok: the env mode reads the reference and sets only the name in output\n'
 }
 
@@ -261,6 +271,66 @@ case_env_fail() {
 	expect_not_contains "$output" "dummy-value"
 	if grep -q 'setenv' "$log"; then fail "launchctl was called after op failed"; fi
 	printf 'ok: an unreadable reference fails loudly and sets nothing\n'
+}
+
+case_reference_check() {
+	setup_case reference-check
+	make_stubs
+	KEYCHAIN_MISSING=1 run_sync --check-references
+	[ "$code" -ne 0 ] || fail "missing Keychain token passed"
+	expect_contains "$output" "missing or inaccessible Keychain token"
+	OP_FAIL=1 run_sync --check-references
+	[ "$code" -ne 0 ] || fail "unreadable item passed"
+	expect_contains "$output" "op://factory/Context7 API/credential"
+	expect_not_contains "$output" "fixture-service-token"
+	registry=$case_dir/two.json
+	printf '%s\n' '{"servers":{"a":{"transport":"http","url":"https://example.invalid","targets":["codex"],"headers":{"one":{"env":"FIRST_KEY","reference":"op://factory/First/credential"},"two":{"env":"SECOND_KEY","reference":"op://factory/Second/credential"}}}}}' >"$registry"
+	OP_FAIL=1 OP_EMPTY_SECOND=1 run_sync --check-references --registry "$registry"
+	[ "$code" -ne 0 ] || fail "unreadable items passed"
+	expect_contains "$output" "FIRST_KEY (op://factory/First/credential)"
+	expect_contains "$output" "SECOND_KEY (op://factory/Second/credential)"
+	expect_contains "$output" "is empty in 1Password"
+	grep -q 'op read --no-newline op://factory/Second/credential' "$log" || fail "second reference was not attempted"
+	printf 'ok: reference checks name missing tokens and unreadable items\n'
+}
+
+case_policy_conflict() {
+	setup_case policy-conflict
+	write_config codex '[shell_environment_policy]
+include_only = ["PATH"]'
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "a conflicting include_only passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy]
+include_only = ["CONTEXT[7]_API_KEY"]'
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "a bracket expression was treated as a Codex wildcard"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy]
+exclude = ["*KEY*"]'
+	run_sync
+	[ "$code" -ne 0 ] || fail "a conflicting exclusion passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy]
+inherit = "none"'
+	run_sync
+	[ "$code" -ne 0 ] || fail "inherit none passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy.filters]
+"*KEY*" = "exclude"'
+	run_sync
+	[ "$code" -ne 0 ] || fail "a conflicting keyed exclusion passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy.filters]
+PATH = "include"'
+	run_sync
+	[ "$code" -ne 0 ] || fail "a conflicting keyed include passed"
+	expect_contains "$output" "CONTEXT7_API_KEY"
+	write_config codex '[shell_environment_policy]
+include_only = ["context7_api_key"]'
+	run_sync
+	[ "$code" -eq 0 ] || fail "a case-insensitive Codex match was rejected: $output"
+	printf 'ok: conflicting Codex policies name blocked registry variables\n'
 }
 
 case_env_check() {
@@ -341,6 +411,8 @@ case_all() {
 	case_backup
 	case_env
 	case_env_fail
+	case_reference_check
+	case_policy_conflict
 	case_env_check
 	case_literal_header
 	case_no_references

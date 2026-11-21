@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -104,8 +105,10 @@ def load_registry(path: Path) -> tuple[dict, list[str]]:
                 raise SyncError(f"{path}: server {name} header {header} has unsupported scheme")
             if not isinstance(value.get("env"), str) or not value["env"]:
                 raise SyncError(f"{path}: server {name} header {header} is missing env")
-            if not str(value.get("reference", "")).startswith("op://"):
-                raise SyncError(f"{path}: server {name} header {header} needs an op:// reference")
+            if value["env"] == "OP_SERVICE_ACCOUNT_TOKEN":
+                raise SyncError(f"{path}: service account token cannot be a registry variable")
+            if not str(value.get("reference", "")).startswith("op://factory/"):
+                raise SyncError(f"{path}: server {name} header {header} needs an op://factory/ reference")
     return servers, retired
 
 
@@ -235,8 +238,46 @@ def managed_matches(document: dict, key: str, servers: dict, retired: list[str],
 
 
 def desired_codex(text: str, servers: dict, retired: list[str], home: Path) -> str:
+    try:
+        config = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        raise SyncError("Codex config is not valid TOML") from None
+    policy = config.get("shell_environment_policy", {})
+    if not isinstance(policy, dict):
+        raise SyncError("Codex shell_environment_policy must be a table")
+    include = policy.get("include_only", [])
+    exclude = policy.get("exclude", [])
+    filters = policy.get("filters")
+    if filters is not None:
+        if not isinstance(filters, dict) or "include_only" in policy or "exclude" in policy:
+            raise SyncError("Codex shell environment filters cannot mix with legacy lists")
+        if len({pattern.lower() for pattern in filters}) != len(filters) or any(action not in ("include", "exclude") for action in filters.values()):
+            raise SyncError("Codex shell environment filters are invalid")
+        include = [pattern for pattern, action in filters.items() if action == "include"]
+        exclude = [pattern for pattern, action in filters.items() if action == "exclude"]
+    if not all(isinstance(patterns, list) and all(isinstance(p, str) for p in patterns) for patterns in (include, exclude)):
+        raise SyncError("Codex shell environment filters must be lists of strings")
+    overrides = policy.get("set", {})
+    if not isinstance(overrides, dict):
+        raise SyncError("Codex shell environment set must be a table")
+    for env in secret_references(servers):
+        matches = lambda patterns: any(
+            re.fullmatch(re.escape(pattern).replace(r"\*", ".*").replace(r"\?", "."), env, re.IGNORECASE)
+            for pattern in patterns
+        )
+        if policy.get("inherit", "all") != "all" or matches(exclude) or (include and not matches(include)) or env in overrides:
+            raise SyncError(f"Codex shell environment policy blocks or overrides {env}; update shell_environment_policy")
     names = {name for name, spec in servers.items() if "codex" in spec["targets"]} | set(retired)
     body = strip_codex(text, names)
+    lines = body.splitlines()
+    policy = next((i for i, line in enumerate(lines) if line.strip() == "[shell_environment_policy]"), None)
+    if policy is None:
+        body = body.rstrip() + "\n\n[shell_environment_policy]\nignore_default_excludes = true\n"
+    else:
+        end = next((i for i in range(policy + 1, len(lines)) if HEADER.match(lines[i].strip())), len(lines))
+        lines[policy + 1:end] = [line for line in lines[policy + 1:end] if not re.match(r"\s*ignore_default_excludes\s*=", line)]
+        lines.insert(policy + 1, "ignore_default_excludes = true")
+        body = "\n".join(lines) + "\n"
     blocks = codex_blocks(servers, home)
     return (body.rstrip() + "\n\n" if body.strip() else "") + blocks
 
@@ -327,32 +368,50 @@ def launchctl_binary() -> str:
     raise SyncError("launchctl is not available; launchd env vars need macOS")
 
 
-def set_env(references: dict[str, str]) -> None:
-    op = op_binary()
-    launchctl = launchctl_binary()
+def read_references(references: dict[str, str]) -> dict[str, str]:
+    security = shutil.which("security") or "/usr/bin/security"
+    result = subprocess.run([security, "find-generic-password", "-a", "Factory", "-s", "dev.factory.op-service-account", "-w"], capture_output=True, text=True, check=False)
+    if result.returncode or not result.stdout.strip():
+        raise SyncError("missing or inaccessible Keychain token for dev.factory.op-service-account")
+    op_env = {**os.environ, "OP_SERVICE_ACCOUNT_TOKEN": result.stdout.rstrip("\n")}
+    values = {}
+    errors = []
     for env, reference in references.items():
         try:
             result = subprocess.run(
-                [op, "read", "--no-newline", reference],
+                [op_binary(), "read", "--no-newline", reference],
+                env=op_env,
                 capture_output=True,
                 text=True,
                 timeout=OP_TIMEOUT,
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            raise SyncError(
-                f"op read for {env} timed out after {OP_TIMEOUT}s; unlock 1Password and rerun bootstrap"
-            ) from None
+            errors.append(f"cannot read {env} ({reference}): timed out")
+            continue
         if result.returncode != 0:
-            detail = (result.stderr or result.stdout).strip().splitlines()
-            raise SyncError(f"cannot read {env} from 1Password: {detail[-1] if detail else 'op failed'}")
+            errors.append(f"cannot read {env} ({reference}) from 1Password")
+            continue
         if not result.stdout:
-            raise SyncError(f"{env} is empty in 1Password")
+            errors.append(f"{env} ({reference}) is empty in 1Password")
+            continue
+        values[env] = result.stdout
+    if errors:
+        raise SyncError("\n".join(errors))
+    return values
+
+
+def set_env(references: dict[str, str]) -> None:
+    values = read_references(references)
+    launchctl = launchctl_binary()
+    clean_env = dict(os.environ)
+    clean_env.pop("OP_SERVICE_ACCOUNT_TOKEN", None)
+    for env, value in values.items():
         applied = subprocess.run(
-            [launchctl, "setenv", env, result.stdout], capture_output=True, text=True, check=False
+            [launchctl, "setenv", env, value], env=clean_env, capture_output=True, text=True, check=False
         )
         if applied.returncode != 0:
-            raise SyncError(f"launchctl setenv {env} failed: {applied.stderr.strip()}")
+            raise SyncError(f"launchctl setenv {env} failed")
         print(f"mcp-sync: set {env}")
 
 
@@ -372,12 +431,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="report drift without writing")
     parser.add_argument("--env", action="store_true", help="set the secret env vars in launchd")
+    parser.add_argument("--check-references", action="store_true", help="check service account access to registry secrets")
     parser.add_argument("--home", type=Path, default=Path.home(), help="home directory to render into")
     parser.add_argument("--registry", type=Path, default=DEFAULT_REGISTRY, help="registry to read")
     args = parser.parse_args(argv)
     home = args.home.expanduser().resolve()
     try:
         servers, retired = load_registry(args.registry)
+        if args.check_references:
+            read_references(secret_references(servers))
+            print("mcp-sync: registry references are readable")
+            return 0
         if args.env:
             references = secret_references(servers)
             if not references:

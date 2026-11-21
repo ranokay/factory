@@ -7,7 +7,7 @@
         "Authorization": {
           "scheme": "Bearer",
           "env": "CONTEXT7_API_KEY",
-          "reference": "op://Private/Context7 API/credential"
+          "reference": "op://factory/Context7 API/credential"
         }
       },
       "targets": ["claude-code", "opencode", "codex"]
