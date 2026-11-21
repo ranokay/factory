@@ -623,9 +623,29 @@ steps {
         env { ["RUN_SLOT_CASE"] = "concurrent" }
         expect { code = 0 }
       }
-      ["the slot root is treated as a literal path"] {
+      ["glob characters in the slot root are literal"] {
         run = "check"
-        env { ["RUN_SLOT_CASE"] = "pattern" }
+        env { ["RUN_SLOT_CASE"] = "glob_root" }
+        expect { code = 0 }
+      }
+      ["newlines preserve live slots"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "newline_root" }
+        expect { code = 0 }
+      }
+      ["trailing slashes preserve slot names"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "trailing_root" }
+        expect { code = 0 }
+      }
+      ["a leading dash in the slot root is literal"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "dash_root" }
+        expect { code = 0 }
+      }
+      ["relative slot roots ignore CDPATH"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "cdpath" }
         expect { code = 0 }
       }
       ["a crashed machine slot is pruned"] {

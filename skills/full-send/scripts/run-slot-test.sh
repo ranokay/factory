@@ -66,25 +66,67 @@ case_concurrent() {
 	printf 'ok: concurrent acquires admit exactly two\n'
 }
 
-case_pattern() {
-	RUN_SLOT_DIR=$(printf '%s\n%s' "$work/root[1]" 'newline')
+case_glob_root() {
+	RUN_SLOT_DIR=$work/'root[1]'
+	export RUN_SLOT_DIR
+	"$run_slot" acquire a/one 1 >/dev/null
+	"$run_slot" acquire a/two 2 >/dev/null
+	check_count 2
+	printf 'ok: glob characters in the slot root are literal\n'
+}
+
+case_newline_root() {
+	RUN_SLOT_DIR=$(printf '%s\n%s' "$work/root" 'newline')
 	export RUN_SLOT_DIR
 	"$run_slot" acquire a/one 1 >/dev/null
 	"$run_slot" acquire a/two 2 >/dev/null
 	check_count 2
 	touch -t 200001010000 "$RUN_SLOT_DIR/.machine/2"
-	RUN_SLOT_DIR=$RUN_SLOT_DIR///
-	export RUN_SLOT_DIR
-	check_count 2
-	expect_slot a/one 1 -
 	"$run_slot" release a/one
 	check_count 1
 	expect_slot a/two 2 -
 	"$run_slot" acquire a/three 3 >/dev/null
 	refused "2 Runs already active on this machine" "$run_slot" acquire a/four 4
 	check_count 2
-	printf 'ok: the slot root is treated as a literal path\n'
+	printf 'ok: newlines preserve live slots\n'
 }
+
+case_trailing_root() {
+	RUN_SLOT_DIR=$work/root///
+	export RUN_SLOT_DIR
+	"$run_slot" acquire a/one 1 >/dev/null
+	"$run_slot" acquire a/two 2 >/dev/null
+	check_count 2
+	expect_slot a/one 1 -
+	printf 'ok: trailing slashes preserve slot names\n'
+}
+
+case_dash_root() (
+	CDPATH='' cd "$work"
+	RUN_SLOT_DIR=-slots
+	export RUN_SLOT_DIR
+	"$run_slot" acquire a/one 1 >/dev/null
+	check_count 1
+	expect_slot a/one 1 -
+	printf 'ok: a leading dash in the slot root is literal\n'
+)
+
+case_cdpath() (
+	CDPATH='' cd "$work"
+	mkdir -p foreign/slots
+	RUN_SLOT_DIR=slots
+	CDPATH=$work/foreign
+	export RUN_SLOT_DIR CDPATH
+	"$run_slot" acquire a/one 1 >/dev/null
+	"$run_slot" acquire a/two 2 >/dev/null
+	check_count 2
+	touch -t 200001010000 "$RUN_SLOT_DIR/.machine/2"
+	"$run_slot" release a/one
+	"$run_slot" acquire a/three 3 >/dev/null
+	refused "2 Runs already active on this machine" "$run_slot" acquire a/four 4
+	check_count 2
+	printf 'ok: relative slot roots ignore CDPATH\n'
+)
 
 case_orphan() {
 	"$run_slot" acquire a/one 1 >/dev/null
@@ -178,7 +220,11 @@ release) run_case case_release ;;
 traversal) run_case case_traversal ;;
 permission) run_case case_permission ;;
 concurrent) run_case case_concurrent ;;
-pattern) run_case case_pattern ;;
+glob_root) run_case case_glob_root ;;
+newline_root) run_case case_newline_root ;;
+trailing_root) run_case case_trailing_root ;;
+dash_root) run_case case_dash_root ;;
+cdpath) run_case case_cdpath ;;
 orphan) run_case case_orphan ;;
 owner_permission) run_case case_owner_permission ;;
 all)
@@ -189,7 +235,11 @@ all)
 	run_case case_traversal
 	run_case case_permission
 	run_case case_concurrent
-	run_case case_pattern
+	run_case case_glob_root
+	run_case case_newline_root
+	run_case case_trailing_root
+	run_case case_dash_root
+	run_case case_cdpath
 	run_case case_orphan
 	run_case case_owner_permission
 	;;

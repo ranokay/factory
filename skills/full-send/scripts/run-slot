@@ -24,6 +24,9 @@ EOF
 }
 
 root=${RUN_SLOT_DIR:-"$HOME/.local/state/agent-tools/runs"}
+case $root in
+  -*) root=./$root ;;
+esac
 while [ "$root" != / ] && [ "${root%/}" != "$root" ]; do
   root=${root%/}
 done
@@ -85,7 +88,7 @@ release_machine() {
 }
 
 repo_slots() (
-  cd "$root"
+  CDPATH='' cd "$root"
   find . -mindepth 2 -maxdepth 2 -type d ! -path './.machine/*' | while IFS= read -r repo_slot; do
     printf '%s\n' "${repo_slot#./}"
   done
