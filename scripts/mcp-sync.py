@@ -375,6 +375,7 @@ def read_references(references: dict[str, str]) -> dict[str, str]:
         raise SyncError("missing or inaccessible Keychain token for dev.factory.op-service-account")
     op_env = {**os.environ, "OP_SERVICE_ACCOUNT_TOKEN": result.stdout.rstrip("\n")}
     values = {}
+    errors = []
     for env, reference in references.items():
         try:
             result = subprocess.run(
@@ -386,14 +387,17 @@ def read_references(references: dict[str, str]) -> dict[str, str]:
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            raise SyncError(
-                f"op read for {env} timed out after {OP_TIMEOUT}s; unlock 1Password and rerun bootstrap"
-            ) from None
+            errors.append(f"cannot read {env} ({reference}): timed out")
+            continue
         if result.returncode != 0:
-            raise SyncError(f"cannot read {env} ({reference}) from 1Password")
+            errors.append(f"cannot read {env} ({reference}) from 1Password")
+            continue
         if not result.stdout:
-            raise SyncError(f"{env} is empty in 1Password")
+            errors.append(f"{env} ({reference}) is empty in 1Password")
+            continue
         values[env] = result.stdout
+    if errors:
+        raise SyncError("\n".join(errors))
     return values
 
 

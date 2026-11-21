@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -589,13 +590,11 @@ def github_push_errors() -> list[str]:
     helper = git(ROOT, "config", "--get-all", "credential.https://github.com.helper")
     if helper.returncode or helper.stdout.splitlines()[-2:] != ["", "!gh auth git-credential"]:
         return ["GitHub credential helper is missing"]
-    branch = git(ROOT, "symbolic-ref", "--quiet", "--short", "HEAD")
-    if branch.returncode:
-        return ["cannot check GitHub push from a detached HEAD"]
     environment = dict(os.environ)
     environment.pop("SSH_AUTH_SOCK", None)
     environment.update(GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/usr/bin/false")
-    check = subprocess.run(["git", "-C", str(ROOT), "push", "--dry-run", "origin", f"HEAD:refs/heads/{branch.stdout.strip()}"], env=environment, capture_output=True, text=True, check=False)
+    check_ref = f"refs/heads/factory-push-check-{uuid.uuid4().hex}"
+    check = subprocess.run(["git", "-C", str(ROOT), "push", "--dry-run", "origin", f"HEAD:{check_ref}"], env=environment, capture_output=True, text=True, check=False)
     return [] if check.returncode == 0 else ["GitHub HTTPS push dry-run failed without prompting"]
 
 

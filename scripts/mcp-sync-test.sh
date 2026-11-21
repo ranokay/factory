@@ -100,6 +100,7 @@ STUB
 set -eu
 printf 'op %s\n' "$*" >>"$STUB_LOG"
 [ "${OP_SERVICE_ACCOUNT_TOKEN:-}" = fixture-service-token ] || exit 1
+case "${OP_EMPTY_SECOND:-}:$*" in 1:*Second*) exit 0 ;; esac
 if [ -n "${OP_FAIL:-}" ]; then
 	printf 'op: account is locked\n' >&2
 	exit 1
@@ -282,6 +283,14 @@ case_reference_check() {
 	[ "$code" -ne 0 ] || fail "unreadable item passed"
 	expect_contains "$output" "op://factory/Context7 API/credential"
 	expect_not_contains "$output" "fixture-service-token"
+	registry=$case_dir/two.json
+	printf '%s\n' '{"servers":{"a":{"transport":"http","url":"https://example.invalid","targets":["codex"],"headers":{"one":{"env":"FIRST_KEY","reference":"op://factory/First/credential"},"two":{"env":"SECOND_KEY","reference":"op://factory/Second/credential"}}}}}' >"$registry"
+	OP_FAIL=1 OP_EMPTY_SECOND=1 run_sync --check-references --registry "$registry"
+	[ "$code" -ne 0 ] || fail "unreadable items passed"
+	expect_contains "$output" "FIRST_KEY (op://factory/First/credential)"
+	expect_contains "$output" "SECOND_KEY (op://factory/Second/credential)"
+	expect_contains "$output" "is empty in 1Password"
+	grep -q 'op read --no-newline op://factory/Second/credential' "$log" || fail "second reference was not attempted"
 	printf 'ok: reference checks name missing tokens and unreadable items\n'
 }
 

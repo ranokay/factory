@@ -173,6 +173,26 @@ class ClonesTest(unittest.TestCase):
         data = json.loads(self.cli('move', '--json').stdout)
         self.assertEqual(data['repoint'], [{'old': str(old), 'new': str(new)}])
 
+    def test_move_configures_github_pushes_without_changing_fetch_or_other_hosts(self):
+        moved_url = 'git@github.com:example/moved.git'
+        canonical_url = 'git@github.com:example/canonical.git'
+        other_url = 'https://gitlab.example/team/other.git'
+        self.repo(self.source, 'moved', moved_url)
+        canonical = self.repo(self.developer, 'canonical', canonical_url)
+        other = self.repo(self.developer, 'other', other_url)
+        self.cli('move')
+        moved = self.developer / 'moved'
+        for path, fetch, push in ((moved, moved_url, 'https://github.com/example/moved.git'),
+                                  (canonical, canonical_url, 'https://github.com/example/canonical.git')):
+            self.assertEqual(self.git(path, 'remote', 'get-url', 'origin'), fetch)
+            self.assertEqual(self.git(path, 'remote', 'get-url', '--push', 'origin'), push)
+            result = run('git', '-C', str(path), 'config', '--local', '--get-all', 'credential.https://github.com.helper')
+            self.assertEqual(result.stdout.splitlines(), ['', '!gh auth git-credential'])
+        self.assertEqual(self.git(other, 'remote', 'get-url', 'origin'), other_url)
+        self.assertEqual(self.git(other, 'remote', 'get-url', '--push', 'origin'), other_url)
+        result = run('git', '-C', str(other), 'config', '--local', '--get-all', 'credential.https://github.com.helper', check=False)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_failed_duplicate_worktree_inspection_is_not_clean(self):
         self.repo(self.developer, 'repo')
         duplicate = self.repo(self.source, 'copy')

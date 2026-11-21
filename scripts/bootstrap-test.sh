@@ -73,8 +73,11 @@ make_stubs() {
 	cat >"$bin/git" <<'STUB'
 #!/bin/sh
 if [ "${1:-}" = -C ] && [ "${3:-}" = push ]; then
-	[ "${GIT_TERMINAL_PROMPT:-}" = 0 ] && [ "${GIT_ASKPASS:-}" = /usr/bin/false ] && [ -z "${SSH_AUTH_SOCK:-}" ]
-	exit $?
+	[ "${GIT_TERMINAL_PROMPT:-}" = 0 ] && [ "${GIT_ASKPASS:-}" = /usr/bin/false ] && [ -z "${SSH_AUTH_SOCK:-}" ] || exit 1
+	if [ -n "${FIXTURE_PUSH_REMOTE:-}" ]; then
+		exec "$REAL_GIT" -C "$2" push --dry-run "$FIXTURE_PUSH_REMOTE" "$6"
+	fi
+	exit 0
 fi
 exec "$REAL_GIT" "$@"
 STUB
@@ -947,6 +950,57 @@ STUB
 	printf 'ok: token provisioning is idempotent and rotation is explicit\n'
 }
 
+case_push_history() {
+	setup_case push-history
+	baseline_repo "$factory"
+	branch=$(git -C "$factory" branch --show-current)
+	remote=$case_dir/remote.git
+	git init -q --bare "$remote"
+	git -C "$remote" config receive.denyNonFastForwards true
+	"$REAL_GIT" -C "$factory" push -q "$remote" "HEAD:refs/heads/$branch"
+	git clone -q "$remote" "$case_dir/advance"
+	git -C "$case_dir/advance" config user.name Fixture
+	git -C "$case_dir/advance" config user.email fixture@example.invalid
+	printf 'advanced\n' >"$case_dir/advance/advance"
+	git -C "$case_dir/advance" add advance
+	git -C "$case_dir/advance" commit -qm advanced
+	"$REAL_GIT" -C "$case_dir/advance" push -q origin "HEAD:refs/heads/$branch"
+	run_command "$REAL_GIT" -C "$factory" push --dry-run "$remote" "HEAD:refs/heads/$branch"
+	[ "$code" -ne 0 ] || fail "fixture remote did not reject the behind branch"
+	git -C "$factory" remote add origin https://github.com/example/factory.git
+	git -C "$factory" remote set-url --push origin https://github.com/example/factory.git
+	git -C "$factory" config --local --add credential.https://github.com.helper ''
+	git -C "$factory" config --local --add credential.https://github.com.helper '!gh auth git-credential'
+	export FIXTURE_PUSH_REMOTE="$remote"
+	run_command python3 -c 'import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]+"/scripts"); import bootstrap; bootstrap.ROOT=Path(sys.argv[2]); errors=bootstrap.github_push_errors(); print("\n".join(errors)); sys.exit(bool(errors))' "$factory" "$factory"
+	[ "$code" -eq 0 ] || fail "behind checkout push check failed: $output"
+	linked=$case_dir/linked
+	git -C "$factory" worktree add -q --detach "$linked" HEAD
+	run_command python3 -c 'import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]+"/scripts"); import bootstrap; bootstrap.ROOT=Path(sys.argv[2]); errors=bootstrap.github_push_errors(); print("\n".join(errors)); sys.exit(bool(errors))' "$factory" "$linked"
+	[ "$code" -eq 0 ] || fail "detached worktree push check failed: $output"
+	[ "$(git -C "$remote" for-each-ref --format='%(refname)' refs/heads | wc -l | tr -d ' ')" = 1 ] || fail "dry run created a remote ref"
+	printf 'ok: push check works behind remote and from detached worktree\n'
+}
+
+case_unreadable_references() {
+	setup_case unreadable-references
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "fixture bootstrap failed: $output"
+	cat >"$factory/mcp.json" <<'JSON'
+{"servers":{"a":{"transport":"http","url":"https://example.invalid","targets":["codex"],"headers":{"one":{"env":"FIRST_KEY","reference":"op://factory/First/credential"},"two":{"env":"SECOND_KEY","reference":"op://factory/Second/credential"}}}}}
+JSON
+	cat >"$bin/op" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+	chmod +x "$bin/op"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "unreadable items passed bootstrap check"
+	expect_contains "$output" "FIRST_KEY (op://factory/First/credential)"
+	expect_contains "$output" "SECOND_KEY (op://factory/Second/credential)"
+	printf 'ok: bootstrap check names every unreadable reference\n'
+}
+
 case_plist_interpreter() {
 	setup_case plist-interpreter
 	run_bootstrap
@@ -960,6 +1014,8 @@ case_plist_interpreter() {
 }
 
 case_all() {
+	case_unreadable_references
+	case_push_history
 	case_service_token
 	case_fresh
 	case_second
@@ -989,6 +1045,8 @@ case_all() {
 }
 
 case $case_name in
+unreadable-references) case_unreadable_references ;;
+push-history) case_push_history ;;
 service-token) case_service_token ;;
 fresh) case_fresh ;;
 second) case_second ;;
