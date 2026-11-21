@@ -140,16 +140,35 @@ case_diagnostics() (
 		printf 'expected a count mismatch\n' >&2
 		return 1
 	fi
-	grep -Fq './-slots' "$work/diagnostics"
-	grep -Fq 'captured acquire error' "$work/diagnostics"
+	grep -Fq './-slots' "$work/diagnostics" || return 1
+	grep -Fq 'captured acquire error' "$work/diagnostics" || return 1
 	RUN_SLOT_DIR=missing
 	export RUN_SLOT_DIR
 	if (check_count 1) 2>"$work/diagnostics"; then
 		printf 'expected a count mismatch\n' >&2
 		return 1
 	fi
-	grep -Fq 'slot directory unavailable' "$work/diagnostics"
-	grep -Fq 'captured acquire error' "$work/diagnostics"
+	grep -Fq 'slot directory unavailable' "$work/diagnostics" || return 1
+	grep -Fq 'captured acquire error' "$work/diagnostics" || return 1
+	printf 'unreadable error\n' >"$work/err1"
+	cat() {
+		case $1 in
+		*/err1) return 1 ;;
+		*) command cat "$@" ;;
+		esac
+	}
+	if (check_count 1) 2>"$work/diagnostics"; then
+		printf 'expected a count mismatch\n' >&2
+		return 1
+	fi
+	grep -Fq 'error file unavailable' "$work/diagnostics" || return 1
+	grep -Fq 'captured acquire error' "$work/diagnostics" || return 1
+	if (run_slot=$work/no-such-command check_count 1) 2>"$work/diagnostics"; then
+		printf 'expected a list failure\n' >&2
+		return 1
+	fi
+	grep -Fq 'run-slot list failed' "$work/diagnostics" || return 1
+	grep -Fq 'captured acquire error' "$work/diagnostics" || return 1
 	printf 'ok: failure diagnostics retain available evidence\n'
 )
 
