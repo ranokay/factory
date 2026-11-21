@@ -20,10 +20,22 @@ steps {
     check = """
       if [ "$(uname -s)" = Linux ]; then
         export LINUX_SOURCEKIT_LIB_PATH="$(dirname "$(dirname "$(command -v swift)")")/lib"
+        libxml_dir="$(mise where conda:libxml2@2.13.9)/lib"
+        export LD_LIBRARY_PATH="$libxml_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
       fi
       swiftlint lint --strict --quiet {{files}}
       """
     tests {
+      ["runs SourceKit-dependent rules"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.swift"] = "if true {\n    print(\"one\")\n}\nelse {\n    print(\"two\")\n}\n" }
+        files = List("bad.swift")
+        expect {
+          code = 2
+          stdout = "statement_position"
+        }
+      }
       ["rejects a forced cast"] {
         run = "check"
         tmpdir = true

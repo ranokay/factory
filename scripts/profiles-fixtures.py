@@ -105,7 +105,7 @@ def main() -> None:
     )
     expected = COMMON_TOOLS.union(*(PROFILE_TOOLS[profile] for profile in profiles))
     if 'swift' in profiles and sys.platform.startswith('linux'):
-        expected.add('swift')
+        expected.update({'swift', 'conda:libxml2'})
     expected_tools = sorted(expected)
     if declared_tools != expected_tools:
         missing = sorted(set(expected_tools) - set(declared_tools))
