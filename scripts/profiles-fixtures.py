@@ -96,12 +96,12 @@ def main() -> None:
         return
     name, tmp, tools_path, steps_path = sys.argv[1:5]
     if name == 'swift':
-        profile = Path(__file__).resolve().parent.parent / 'profiles' / 'swift'
+        profile = Path(tmp) / 'profiles' / 'swift'
         configured = tomllib.loads((profile / 'mise.toml').read_text())['tools']
-        gate = (profile / 'hk.pkl').read_text()
+        gate = (profile / 'hk.pkl').read_text().split('["swiftlint"] =', 1)[1].split('tests {', 1)[0]
         for tool in ('swift', 'conda:libxml2'):
             version = configured[tool]['version']
-            if f'mise where {tool}@{version}' not in gate:
+            if f'mise where {tool}@{version})' not in gate:
                 fail(f'swift: {tool} Gate lookup does not match its mise pin')
     profiles = DECLARED[name]
     prefix = os.path.realpath(tmp) + os.sep

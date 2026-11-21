@@ -58,6 +58,26 @@ run_fixture typescript
 run_fixture python
 run_fixture web
 run_fixture swift
+for tool in swift conda:libxml2; do
+	uv run --offline --no-project --no-config --python "$python" python - "$tmp/profiles/swift/hk.pkl" "$tool" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = 'swift@6.3.2' if sys.argv[2] == 'swift' else 'conda:libxml2@2.13.9'
+path.write_text(text.replace('mise where ' + old, 'mise where ' + old + '0', 1))
+PY
+	if uv run --offline --no-project --no-config --python "$python" python "$script_dir/profiles-fixtures.py" swift "$tmp" "$tmp/swift-tools.json" "$tmp/swift-steps.json" >"$tmp/pin-check.out" 2>&1; then
+		echo "profiles:fixtures: expected $tool pin mismatch to fail" >&2
+		exit 1
+	fi
+	if ! grep -Fq "$tool Gate lookup does not match its mise pin" "$tmp/pin-check.out"; then
+		cat "$tmp/pin-check.out" >&2
+		exit 1
+	fi
+	cp "$root/profiles/swift/hk.pkl" "$tmp/profiles/swift/hk.pkl"
+done
 run_fixture apple
 run_fixture go
 
