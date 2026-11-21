@@ -19,9 +19,10 @@ steps {
     glob = "**/*.swift"
     check = """
       if [ "$(uname -s)" = Linux ]; then
-        export LINUX_SOURCEKIT_LIB_PATH="$(dirname "$(dirname "$(command -v swift)")")/lib"
-        libxml_dir="$(mise where conda:libxml2@2.13.9)/lib"
-        export LD_LIBRARY_PATH="$libxml_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        swift_path=$(command -v swift) || { printf '%s\n' 'swiftlint: Swift toolchain is unavailable' >&2; exit 1; }
+        export LINUX_SOURCEKIT_LIB_PATH="$(dirname "$(dirname "$swift_path")")/lib"
+        libxml_prefix=$(mise where conda:libxml2@2.13.9) || exit 1
+        export LD_LIBRARY_PATH="$libxml_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
       fi
       swiftlint lint --strict --quiet {{files}}
       """
