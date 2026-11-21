@@ -408,6 +408,16 @@ steps {
         env { ["BOOTSTRAP_CASE"] = "launchd" }
         expect { code = 0 }
       }
+      ["no op:// reference puts a colon in its item segment"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "reference-syntax" }
+        expect { code = 0 }
+      }
+      ["the token lookup names zero, duplicate and malformed matches"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "token-lookup" }
+        expect { code = 0 }
+      }
     }
   }
 

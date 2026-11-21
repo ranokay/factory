@@ -12,6 +12,7 @@ Discovery paths come from the harness documentation:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import plistlib
 import re
@@ -33,7 +34,10 @@ CODEX_MANAGED_SKILLS = {".system"}
 # Claude Code's claude.ai sync cache: skills/synced/<bucket>/<skill>/SKILL.md.
 SYNCED_SKILLS = "synced"
 SECRET_LABEL = "dev.factory.secrets"
-OP_TOKEN_REFERENCE = "op://Private/Service Account Auth Token: Factory/credential"
+# 1Password rejects ':' in an op:// item segment: https://developer.1password.com/docs/cli/secret-references/
+OP_TOKEN_VAULT = "Private"
+OP_TOKEN_TITLE = "Service Account Auth Token: Factory"
+OP_TOKEN_FIELD = "credential"
 OP_TOKEN_SERVICE = "dev.factory.op-service-account"
 SECRET_RETRY_SECONDS = 60
 SECRET_LOG = Path("Library") / "Logs" / "factory-secrets.log"
@@ -187,6 +191,46 @@ def combined(result: subprocess.CompletedProcess) -> str:
     return "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
 
 
+def op_run(args: list[str], environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["op", *args], env=environment, capture_output=True, text=True, check=False)
+
+
+def read_op_field(vault: str, item_id: str, field: str, environment: dict[str, str]) -> str | None:
+    result = op_run(["read", "--no-newline", f"op://{vault}/{item_id}/{field}"], environment)
+    if result.returncode:
+        return None
+    value = result.stdout.removesuffix("\n")
+    if not value or "\n" in value or "\r" in value:
+        return None
+    return value
+
+
+def op_token_id(environment: dict[str, str]) -> str | None:
+    result = op_run(["item", "list", "--vault", OP_TOKEN_VAULT, "--format", "json"], environment)
+    if result.returncode:
+        print(f"bootstrap: cannot list the {OP_TOKEN_VAULT} 1Password vault", file=sys.stderr)
+        return None
+    try:
+        items = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        items = None
+    if not isinstance(items, list):
+        print(f"bootstrap: cannot parse the {OP_TOKEN_VAULT} 1Password vault listing", file=sys.stderr)
+        return None
+    matches = [item for item in items if isinstance(item, dict) and item.get("title") == OP_TOKEN_TITLE]
+    if not matches:
+        print(f"bootstrap: no 1Password item titled '{OP_TOKEN_TITLE}' in the {OP_TOKEN_VAULT} vault", file=sys.stderr)
+        return None
+    if len(matches) > 1:
+        print(f"bootstrap: {len(matches)} 1Password items are titled '{OP_TOKEN_TITLE}' in the {OP_TOKEN_VAULT} vault", file=sys.stderr)
+        return None
+    item_id = matches[0].get("id")
+    if not isinstance(item_id, str) or not item_id:
+        print(f"bootstrap: the item titled '{OP_TOKEN_TITLE}' in the {OP_TOKEN_VAULT} vault has no ID", file=sys.stderr)
+        return None
+    return item_id
+
+
 def provision_op_token(home: Path, rotate: bool) -> bool:
     security = shutil.which("security") or "/usr/bin/security"
     query = [security, "find-generic-password", "-a", "Factory", "-s", OP_TOKEN_SERVICE]
@@ -199,15 +243,18 @@ def provision_op_token(home: Path, rotate: bool) -> bool:
         return False
     environment = dict(os.environ)
     environment.pop("OP_SERVICE_ACCOUNT_TOKEN", None)
-    token = subprocess.run(["op", "read", "--no-newline", OP_TOKEN_REFERENCE], env=environment, capture_output=True, text=True, check=False)
-    if token.returncode or not token.stdout or "\n" in token.stdout or "\r" in token.stdout:
+    item_id = op_token_id(environment)
+    if item_id is None:
+        return False
+    token = read_op_field(OP_TOKEN_VAULT, item_id, OP_TOKEN_FIELD, environment)
+    if token is None:
         print("bootstrap: cannot read service account token", file=sys.stderr)
         return False
-    escaped = token.stdout.replace("\\", "\\\\").replace('"', '\\"')
+    escaped = token.replace("\\", "\\\\").replace('"', '\\"')
     command = f'add-generic-password -U -a Factory -s {OP_TOKEN_SERVICE} -T /usr/bin/security -w "{escaped}" "{home}/Library/Keychains/login.keychain-db"\n'
     result = subprocess.run([security, "-i"], input=command, capture_output=True, text=True, check=False)
     verify = subprocess.run([*query, "-w"], capture_output=True, text=True, check=False)
-    if result.returncode or verify.returncode or verify.stdout.rstrip("\n") != token.stdout:
+    if result.returncode or verify.returncode or verify.stdout.rstrip("\n") != token:
         print("bootstrap: cannot store service account token in login Keychain", file=sys.stderr)
         return False
     return True

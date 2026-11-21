@@ -148,7 +148,17 @@ STUB
 #!/bin/sh
 set -eu
 printf 'op %s\n' "$*" >>"$STUB_LOG"
-printf 'dummy-value'
+case "$*" in
+*'read --no-newline'*'Service Account Auth Token'*)
+	printf 'bootstrap-test: op rejects a title in a secret reference\n' >&2
+	exit 1
+	;;
+esac
+if [ "$1 $2" = "item list" ]; then
+	printf '[{"id":"fixture-token","title":"Service Account Auth Token: Factory"}]\n'
+else
+	printf 'dummy-value'
+fi
 STUB
 	cat >"$bin/security" <<'STUB'
 #!/bin/sh
@@ -230,6 +240,10 @@ run_hook() {
 
 count_lines() {
 	grep -c "$1" "$2" || true
+}
+
+count_calls() {
+	grep -Fxc "op $1" "$log" || true
 }
 
 json_value() {
@@ -937,17 +951,118 @@ fi
 case " $* " in *' -w '*) cat "$KEYCHAIN_FIXTURE" ;; esac
 STUB
 	chmod +x "$bin/security"
+	list_call='item list --vault Private --format json'
+	read_call='read --no-newline op://Private/fixture-token/credential'
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "initial token provisioning failed: $output"
 	expect_not_contains "$output" "dummy-value"
-	[ "$(grep -c 'op read --no-newline op://Private/Service Account Auth Token: Factory/credential' "$log")" = 1 ] || fail "initial token read missing"
+	[ "$(count_calls "$list_call")" = 1 ] || fail "initial token title lookup missing"
+	[ "$(count_calls "$read_call")" = 1 ] || fail "initial token read missing"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "idempotent token provisioning failed: $output"
-	[ "$(grep -c 'op read --no-newline op://Private/Service Account Auth Token: Factory/credential' "$log")" = 1 ] || fail "token read repeated"
+	[ "$(count_calls "$list_call")" = 1 ] || fail "token title lookup repeated"
+	[ "$(count_calls "$read_call")" = 1 ] || fail "token read repeated"
 	run_bootstrap --rotate-op-token
 	[ "$code" -eq 0 ] || fail "token rotation failed: $output"
-	[ "$(grep -c 'op read --no-newline op://Private/Service Account Auth Token: Factory/credential' "$log")" = 2 ] || fail "rotation did not read token"
+	[ "$(count_calls "$list_call")" = 2 ] || fail "rotation did not look up the token title"
+	[ "$(count_calls "$read_call")" = 2 ] || fail "rotation did not read token"
 	printf 'ok: token provisioning is idempotent and rotation is explicit\n'
+}
+
+case_token_lookup() {
+	setup_case token-lookup
+	export KEYCHAIN_FIXTURE="$case_dir/keychain"
+	cat >"$bin/security" <<'STUB'
+#!/bin/sh
+if [ "$1" = -i ]; then cat >/dev/null; printf dummy-value >"$KEYCHAIN_FIXTURE"; exit 0; fi
+[ -f "$KEYCHAIN_FIXTURE" ] || exit 1
+case " $* " in *' -w '*) cat "$KEYCHAIN_FIXTURE" ;; esac
+STUB
+	export OP_ITEM_LIST_FILE="$case_dir/item-list.json"
+	cat >"$bin/op" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'op %s\n' "$*" >>"$STUB_LOG"
+if [ "$1 $2" = "item list" ]; then cat "$OP_ITEM_LIST_FILE"; exit 0; fi
+printf 'dummy-value\n'
+STUB
+	chmod +x "$bin/security" "$bin/op"
+	printf '%s\n' '[]' >"$OP_ITEM_LIST_FILE"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap passed with no matching token item"
+	expect_contains "$output" "no 1Password item titled 'Service Account Auth Token: Factory' in the Private vault"
+	printf '%s\n' '[{"id":"one","title":"Service Account Auth Token: Factory"},{"id":"two","title":"Service Account Auth Token: Factory"}]' >"$OP_ITEM_LIST_FILE"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap passed with two matching token items"
+	expect_contains "$output" "2 1Password items are titled 'Service Account Auth Token: Factory' in the Private vault"
+	[ "$(grep -c '^op read ' "$log" || true)" = 0 ] || fail "token was read without a unique item"
+	[ ! -f "$KEYCHAIN_FIXTURE" ] || fail "a token was stored without a unique item"
+	printf '%s\n' '{"title":"Service Account Auth Token: Factory"}' >"$OP_ITEM_LIST_FILE"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap passed with a malformed vault listing"
+	expect_contains "$output" "cannot parse the Private 1Password vault listing"
+	printf '%s\n' '[{"title":"Service Account Auth Token: Factory"}]' >"$OP_ITEM_LIST_FILE"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap passed with an item that has no ID"
+	expect_contains "$output" "the item titled 'Service Account Auth Token: Factory' in the Private vault has no ID"
+	[ "$(grep -c '^op read ' "$log" || true)" = 0 ] || fail "token was read without an item ID"
+	[ ! -f "$KEYCHAIN_FIXTURE" ] || fail "a token was stored without an item ID"
+	printf 'ok: the token lookup names zero, duplicate and malformed matches\n'
+}
+
+reference_scan() {
+	run_python - "$1" <<'PY'
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+terminator = re.compile(r"""["'`\n]""")
+bad = set()
+tracked = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True).stdout
+for name in tracked.decode().split("\0"):
+	if not name:
+		continue
+	text = (root / name).read_text(errors="replace")
+	for match in re.finditer("op://", text):
+		rest = text[match.end():]
+		stop = terminator.search(rest)
+		reference = "op://" + (rest[:stop.start()] if stop else rest)
+		parts = reference.removeprefix("op://").split("/")
+		if len(parts) > 1 and parts[0] and ":" in parts[1]:
+			bad.add(f"{name}: {reference}")
+if bad:
+	print("\n".join(sorted(bad)), file=sys.stderr)
+	raise SystemExit(1)
+PY
+}
+
+case_reference_syntax() {
+	setup_case reference-syntax
+	reference_scan "$root"
+	[ "$code" -eq 0 ] || fail "an op:// reference puts a colon in its item segment: $output"
+	bad=$case_dir/bad
+	mkdir -p "$bad"
+	printf '{"reference":"op://factory/Bad%s Item/credential"}\n' ':' >"$bad/registry.json"
+	init_git "$bad"
+	git -C "$bad" add -A
+	git -C "$bad" commit -qm baseline
+	reference_scan "$bad"
+	[ "$code" -ne 0 ] || fail "the reference check accepted a colon in the item segment"
+	printf 'op read --no-newline op://factory/Bad%sItem/credential\n' ':' >"$bad/unquoted.sh"
+	git -C "$bad" add -A
+	git -C "$bad" commit -qm unquoted
+	reference_scan "$bad"
+	[ "$code" -ne 0 ] || fail "the reference check accepted an unquoted colon in the item segment"
+	expect_contains "$output" "unquoted.sh"
+	printf "grep -c 'op read --no-newline op://Private/Service Account Auth Token%s Factory/credential' \"\$log\"\n" ':' >"$bad/legacy.sh"
+	git -C "$bad" add -A
+	git -C "$bad" commit -qm legacy
+	reference_scan "$bad"
+	[ "$code" -ne 0 ] || fail "the reference check accepted the legacy title inside a quoted command"
+	expect_contains "$output" "legacy.sh"
+	printf 'ok: no op:// reference puts a colon in its item segment\n'
 }
 
 case_push_history() {
@@ -1017,6 +1132,8 @@ case_all() {
 	case_unreadable_references
 	case_push_history
 	case_service_token
+	case_token_lookup
+	case_reference_syntax
 	case_fresh
 	case_second
 	case_broken
@@ -1048,6 +1165,8 @@ case $case_name in
 unreadable-references) case_unreadable_references ;;
 push-history) case_push_history ;;
 service-token) case_service_token ;;
+token-lookup) case_token_lookup ;;
+reference-syntax) case_reference_syntax ;;
 fresh) case_fresh ;;
 second) case_second ;;
 broken) case_broken ;;
