@@ -30,7 +30,7 @@ EOF
 	fixture_env mise trust -q mise.toml
 	fixture_env mise tasks --json >"$tmp/combined-tasks.json"
 )
-uv run --offline --no-project --no-config --python "$python" python "$script_dir/profiles-fixtures.py" combined "$tmp/combined-tasks.json"
+uv run --offline --no-project --no-config --python "$python" python "$script_dir/profiles-fixtures.py" --combined "$tmp/combined-tasks.json"
 
 run_fixture() {
 	name=$1

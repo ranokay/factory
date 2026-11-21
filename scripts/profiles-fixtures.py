@@ -64,16 +64,22 @@ def declared_root(prefix: str, source: object) -> bool:
 
 
 def check_combined(path: Path) -> None:
-    tasks = {task['name'] for task in json.loads(path.read_text())}
-    expected = {'typecheck:python', 'typecheck:typescript'}
-    missing = expected - tasks
+    tasks = {task['name']: task for task in json.loads(path.read_text())}
+    expected = {
+        'typecheck:python': 'ty check',
+        'typecheck:typescript': 'tsc --noEmit',
+    }
+    missing = sorted(set(expected) - set(tasks))
     if missing:
-        fail(f'combined tasks missing {sorted(missing)}')
+        fail(f'combined tasks missing {missing}')
+    wrong = sorted(name for name, command in expected.items() if tasks[name].get('run') != [command])
+    if wrong:
+        fail(f'combined tasks have the wrong command: {wrong}')
     print(f'profiles:fixtures: combined: tasks: {", ".join(sorted(expected))}')
 
 
 def main() -> None:
-    if sys.argv[1] == 'combined':
+    if sys.argv[1] == '--combined':
         check_combined(Path(sys.argv[2]))
         return
     name, tmp, tools_path, steps_path = sys.argv[1:5]
