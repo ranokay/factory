@@ -129,6 +129,30 @@ case_cdpath() (
 	printf 'ok: relative slot roots ignore CDPATH\n'
 )
 
+case_diagnostics() (
+	CDPATH='' cd "$work"
+	# shellcheck disable=SC2030 # The case deliberately confines its environment to this subshell.
+	RUN_SLOT_DIR=-slots
+	export RUN_SLOT_DIR
+	mkdir -- "$RUN_SLOT_DIR"
+	printf 'captured acquire error\n' >"$work/err4"
+	if (check_count 1) 2>"$work/diagnostics"; then
+		printf 'expected a count mismatch\n' >&2
+		return 1
+	fi
+	grep -Fq './-slots' "$work/diagnostics"
+	grep -Fq 'captured acquire error' "$work/diagnostics"
+	RUN_SLOT_DIR=missing
+	export RUN_SLOT_DIR
+	if (check_count 1) 2>"$work/diagnostics"; then
+		printf 'expected a count mismatch\n' >&2
+		return 1
+	fi
+	grep -Fq 'slot directory unavailable' "$work/diagnostics"
+	grep -Fq 'captured acquire error' "$work/diagnostics"
+	printf 'ok: failure diagnostics retain available evidence\n'
+)
+
 case_orphan() {
 	"$run_slot" acquire a/one 1 >/dev/null
 	mkdir "$work/.machine/2"
@@ -159,8 +183,10 @@ case_owner_permission() {
 }
 
 check_count() {
-	slot_list=$("$run_slot" list)
-	if [ -n "$slot_list" ]; then
+	if ! slot_list=$("$run_slot" list); then
+		printf 'run-slot list failed\n' >&2
+		actual=-1
+	elif [ -n "$slot_list" ]; then
 		actual=$(printf '%s\n' "$slot_list" | wc -l | tr -d ' ')
 	else
 		actual=0
@@ -179,7 +205,7 @@ check_count() {
 		for error_file in "$work"/err1 "$work"/err2 "$work"/err3 "$work"/err4; do
 			if [ -f "$error_file" ]; then
 				printf 'stderr from %s:\n' "${error_file##*/}" >&2
-				cat "$error_file" >&2
+				cat "$error_file" >&2 || printf 'error file unavailable: %s\n' "$error_file" >&2
 			fi
 		done
 		return 1
@@ -232,6 +258,7 @@ newline_root) run_case case_newline_root ;;
 trailing_root) run_case case_trailing_root ;;
 dash_root) run_case case_dash_root ;;
 cdpath) run_case case_cdpath ;;
+diagnostics) run_case case_diagnostics ;;
 orphan) run_case case_orphan ;;
 owner_permission) run_case case_owner_permission ;;
 all)
@@ -247,6 +274,7 @@ all)
 	run_case case_trailing_root
 	run_case case_dash_root
 	run_case case_cdpath
+	run_case case_diagnostics
 	run_case case_orphan
 	run_case case_owner_permission
 	;;

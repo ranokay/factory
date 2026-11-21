@@ -648,6 +648,11 @@ steps {
         env { ["RUN_SLOT_CASE"] = "cdpath" }
         expect { code = 0 }
       }
+      ["failure diagnostics retain available evidence"] {
+        run = "check"
+        env { ["RUN_SLOT_CASE"] = "diagnostics" }
+        expect { code = 0 }
+      }
       ["a crashed machine slot is pruned"] {
         run = "check"
         env { ["RUN_SLOT_CASE"] = "orphan" }
