@@ -33,6 +33,9 @@ class AiReviewTest < Minitest::Test
     steps = workflow('ai-review.yml').fetch('jobs').fetch('review').fetch('steps')
     check = steps.first
     assert_equal 'Require Console key', check.fetch('name')
+    assert_equal '${{ secrets.OPENCODE_ZEN_API_KEY }}', check.fetch('env').fetch('ZEN_KEY')
+    refute check.fetch('continue-on-error', false)
+    assert_operator steps.index { |step| step['id'] == 'review' }, :>, 0
     _, _, missing = Open3.capture3({'ZEN_KEY' => ''}, 'bash', '-c', check.fetch('run'))
     _, _, present = Open3.capture3({'ZEN_KEY' => 'fixture'}, 'bash', '-c', check.fetch('run'))
     refute missing.success?
