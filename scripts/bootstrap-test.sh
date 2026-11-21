@@ -4,6 +4,8 @@ set -eu
 script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(CDPATH='' cd "$script_dir/.." && pwd)
 base_path=$PATH
+REAL_GIT=$(command -v git)
+export REAL_GIT
 case_name=${BOOTSTRAP_CASE:-all}
 tilde='~'
 
@@ -68,6 +70,15 @@ baseline_repo() {
 make_stubs() {
 	bin=$1
 	mkdir -p "$bin"
+	cat >"$bin/git" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = -C ] && [ "${3:-}" = push ]; then
+	[ "${GIT_TERMINAL_PROMPT:-}" = 0 ] && [ "${GIT_ASKPASS:-}" = /usr/bin/false ] && [ -z "${SSH_AUTH_SOCK:-}" ]
+	exit $?
+fi
+exec "$REAL_GIT" "$@"
+STUB
+	chmod +x "$bin/git"
 
 	cat >"$bin/ardia" <<'STUB'
 #!/bin/sh
@@ -136,6 +147,11 @@ set -eu
 printf 'op %s\n' "$*" >>"$STUB_LOG"
 printf 'dummy-value'
 STUB
+	cat >"$bin/security" <<'STUB'
+#!/bin/sh
+if [ "$1" = -i ]; then cat >/dev/null; exit 0; fi
+printf 'dummy-value'
+STUB
 
 	cat >"$bin/launchctl" <<'STUB'
 #!/bin/sh
@@ -151,7 +167,7 @@ fi
 exit 0
 STUB
 
-	chmod +x "$bin/ardia" "$bin/cua" "$bin/ctx7" "$bin/npx" "$bin/rea" "$bin/gh" "$bin/op" "$bin/launchctl"
+	chmod +x "$bin/ardia" "$bin/cua" "$bin/ctx7" "$bin/npx" "$bin/rea" "$bin/gh" "$bin/op" "$bin/launchctl" "$bin/security"
 }
 
 setup_case() {
@@ -281,12 +297,12 @@ case_second() {
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "first bootstrap failed: $output"
 	before=$(snapshot)
-	installers_before=$(cat "$log")
+	installers_before=$(grep -v '^op ' "$log" || true)
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
 	expect_contains "$output" "Already bootstrapped: no changes."
 	[ "$(snapshot)" = "$before" ] || fail "the second run changed the tree or symlink targets"
-	[ "$(cat "$log")" = "$installers_before" ] || fail "the second run invoked an installer again"
+	[ "$(grep -v '^op ' "$log" || true)" = "$installers_before" ] || fail "the second run invoked an installer again"
 	printf 'ok: the second run changes nothing and says so\n'
 }
 
@@ -727,6 +743,18 @@ case_ssh_agent() {
 	[ -n "$backup" ] || fail "the ssh config was not backed up"
 	grep -q '^Host example$' "$backup" || fail "the ssh config backup lost the original"
 	[ "$(git -C "$factory" remote get-url origin)" = "git@github.com:example/factory.git" ] || fail "the origin was not rewritten to SSH"
+	[ "$(git -C "$factory" remote get-url --push origin)" = "https://github.com/example/factory.git" ] || fail "push URL is not HTTPS"
+	git -C "$factory" config --local --unset-all credential.https://github.com.helper
+	run_discovery
+	[ "$code" -ne 0 ] || fail "missing GitHub helper passed"
+	expect_contains "$output" "GitHub credential helper is missing"
+	git -C "$factory" config --local --add credential.https://github.com.helper ''
+	git -C "$factory" config --local --add credential.https://github.com.helper '!gh auth git-credential'
+	git -C "$factory" remote set-url --push origin git@github.com:example/factory.git
+	run_discovery
+	[ "$code" -ne 0 ] || fail "SSH push URL passed"
+	expect_contains "$output" "GitHub origin push URL is not HTTPS"
+	git -C "$factory" remote set-url --push origin https://github.com/example/factory.git
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
 	[ "$(count_lines '^# Factory: github.com' "$home/.ssh/config")" -eq 1 ] || fail "the ssh block was written twice"
@@ -879,7 +907,7 @@ case_launchd() {
 	run_command env HOME="$home" MISE_DATA_DIR="$HOME/.local/share/mise" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$factory/scripts/bootstrap.py" --home "$home"
 	[ "$code" -eq 0 ] || fail "bootstrap with a temp HOME failed: $output"
 	expect_contains "$output" "MCP configs are in sync"
-	grep -q 'op read --no-newline op://Private/Context7 API/credential' "$log" || fail "the agent did not read the 1Password reference"
+	grep -q 'op read --no-newline op://factory/Context7 API/credential' "$log" || fail "the agent did not read the 1Password reference"
 	grep -q 'launchctl setenv CONTEXT7_API_KEY dummy-value' "$log" || fail "the agent did not set the launchd variable"
 	grep -q 'launchctl bootstrap gui/' "$log" || fail "bootstrap did not load the secrets agent"
 	run_command env HOME="$home" MISE_DATA_DIR="$HOME/.local/share/mise" UV_CACHE_DIR="$HOME/.cache/uv" "$uv_bin" run --offline --no-project --no-config --python "$python_bin" python "$factory/scripts/bootstrap.py" --check --home "$home"
@@ -889,6 +917,34 @@ case_launchd() {
 	expect_contains "$output" "the launchd secret check failed"
 	expect_contains "$output" "CONTEXT7_API_KEY"
 	printf 'ok: bootstrap loads the agent and the check catches an unset launchd secret\n'
+}
+
+case_service_token() {
+	setup_case service-token
+	export KEYCHAIN_FIXTURE="$case_dir/keychain"
+	cat >"$bin/security" <<'STUB'
+#!/bin/sh
+if [ "$1" = -i ]; then
+	input=$(cat)
+	case $input in *'-T /usr/bin/security'*'-w "dummy-value"'*) ;; *) exit 1 ;; esac
+	printf dummy-value >"$KEYCHAIN_FIXTURE"
+	exit 0
+fi
+[ -f "$KEYCHAIN_FIXTURE" ] || exit 1
+case " $* " in *' -w '*) cat "$KEYCHAIN_FIXTURE" ;; esac
+STUB
+	chmod +x "$bin/security"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "initial token provisioning failed: $output"
+	expect_not_contains "$output" "dummy-value"
+	[ "$(grep -c 'op read --no-newline op://Private/Service Account Auth Token: Factory/credential' "$log")" = 1 ] || fail "initial token read missing"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "idempotent token provisioning failed: $output"
+	[ "$(grep -c 'op read --no-newline op://Private/Service Account Auth Token: Factory/credential' "$log")" = 1 ] || fail "token read repeated"
+	run_bootstrap --rotate-op-token
+	[ "$code" -eq 0 ] || fail "token rotation failed: $output"
+	[ "$(grep -c 'op read --no-newline op://Private/Service Account Auth Token: Factory/credential' "$log")" = 2 ] || fail "rotation did not read token"
+	printf 'ok: token provisioning is idempotent and rotation is explicit\n'
 }
 
 case_plist_interpreter() {
@@ -904,6 +960,7 @@ case_plist_interpreter() {
 }
 
 case_all() {
+	case_service_token
 	case_fresh
 	case_second
 	case_broken
@@ -932,6 +989,7 @@ case_all() {
 }
 
 case $case_name in
+service-token) case_service_token ;;
 fresh) case_fresh ;;
 second) case_second ;;
 broken) case_broken ;;

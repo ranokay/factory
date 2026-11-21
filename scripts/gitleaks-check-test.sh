@@ -73,7 +73,7 @@ JSON
 	cat >"$test_root/references/codex.toml" <<'TOML'
 bearer_token_env_var = "CONTEXT7_API_KEY"
 TOML
-	printf '{"reference":"op://Private/Context7 API/credential"}\n' >"$test_root/references/registry.json"
+	printf '{"reference":"op://factory/Context7 API/credential"}\n' >"$test_root/references/registry.json"
 	run_scan "$test_root/references"
 	[ "$code" -eq 0 ] || fail "the env references were reported as a leak: $output"
 	expect_not_contains "$output" "$fake"
