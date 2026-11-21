@@ -37,3 +37,10 @@ Write none, except:
 - Write an ADR only for a decision that is hard to reverse, surprising without context, and the result of a real trade-off.
 - Never commit scratch, generated reports, evidence or temporary files.
 - `mise run check` is the only Gate command. Never bypass hooks.
+
+## Contracts and changes
+
+- Read affected callers and tests; verify dependent behaviour. Validate external input at the boundary and derive local types where possible.
+- Test meaningful public behaviour and edge cases; keep fixtures simple. Review dependency maintenance, vulnerabilities and release notes before an update.
+- Inspect the checkout and index before Git changes. Respect ownership, use a branch named for the change, and stage only intended paths.
+- Verify scanner findings against current source. A snippet result does not prove a project-wide analysis.

@@ -1,0 +1,3 @@
+["build:swift"]
+description = "Build the Swift package"
+run = "swift build"

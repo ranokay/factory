@@ -13,7 +13,7 @@ fixture_env() {
 }
 
 mkdir -p "$tmp/profiles"
-for profile in universal typescript python web; do
+for profile in universal typescript python web swift apple go; do
 	cp -R "$root/profiles/$profile" "$tmp/profiles/$profile"
 done
 
@@ -23,6 +23,9 @@ cat >"$tmp/combined-tasks/mise.toml" <<EOF
 includes = [
 	"$tmp/profiles/typescript/tasks.toml",
 	"$tmp/profiles/python/tasks.toml",
+	"$tmp/profiles/swift/tasks.toml",
+	"$tmp/profiles/apple/tasks.toml",
+	"$tmp/profiles/go/tasks.toml",
 ]
 EOF
 (
@@ -54,5 +57,8 @@ run_fixture() {
 run_fixture typescript
 run_fixture python
 run_fixture web
+run_fixture swift
+run_fixture apple
+run_fixture go
 
 echo "profiles:fixtures: every fixture passed in isolation"

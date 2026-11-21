@@ -1,0 +1,36 @@
+amends "../universal/hk.pkl"
+
+steps {
+  ["swiftformat"] = new Step {
+    glob = "**/*.swift"
+    check = "swiftformat --lint {{files}}"
+    fix = "swiftformat {{files}}"
+    tests {
+      ["rejects unformatted Swift"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.swift"] = "let value=1\n" }
+        files = List("bad.swift")
+        expect { code = 1 }
+      }
+    }
+  }
+  ["swiftlint"] = new Step {
+    glob = "**/*.swift"
+    check = """
+      if [ "$(uname -s)" = Linux ]; then
+        export LINUX_SOURCEKIT_LIB_PATH="$(dirname "$(dirname "$(command -v swift)")")/lib"
+      fi
+      swiftlint lint --strict --quiet {{files}}
+      """
+    tests {
+      ["rejects a forced cast"] {
+        run = "check"
+        tmpdir = true
+        write { ["bad.swift"] = "let value = something as! String\n" }
+        files = List("bad.swift")
+        expect { code = 2 }
+      }
+    }
+  }
+}

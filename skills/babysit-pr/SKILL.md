@@ -25,10 +25,8 @@ authorize writes in response to an exploratory or read-only request.
   actual checkout, PR head repository and branch, full head SHA, base branch,
   working tree, index, and worktree ownership before editing. Preserve unrelated
   work and staged changes.
-- Read the repository's agent entry point and workflow. Read the shared
-  `~/.agents/docs/WORKFLOW.md`, the `~/.agents/docs/CODING_STANDARDS.md` for
-  code changes, and `~/.agents/docs/agent-environment.md` when running gates or
-  preparing a merge. Repository-specific merge methods, independent reviews,
+- Read the repository's agent entry point, workflow and declared Profiles.
+  Repository-specific merge methods, independent reviews,
   exact-head checks, signing, and test isolation remain requirements.
 - Preserve restrictions separately for each PR. For example, permission to merge
   one PR does not override a "do not push until I test it" restriction on another.

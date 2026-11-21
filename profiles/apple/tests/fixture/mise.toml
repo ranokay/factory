@@ -1,0 +1,12 @@
+include = [
+  "../profiles/universal/mise.toml",
+  "../profiles/swift/mise.toml",
+  "../profiles/apple/mise.toml",
+]
+
+[task_config]
+includes = [
+  "../profiles/universal/tasks.toml",
+  "../profiles/swift/tasks.toml",
+  "../profiles/apple/tasks.toml",
+]
