@@ -180,6 +180,9 @@ class ClonesTest(unittest.TestCase):
         self.repo(self.source, 'moved', moved_url)
         canonical = self.repo(self.developer, 'canonical', canonical_url)
         other = self.repo(self.developer, 'other', other_url)
+        other_push = 'ssh://git@gitlab.example/team/other.git'
+        self.git(other, 'remote', 'set-url', '--push', 'origin', other_push)
+        self.git(other, 'config', '--local', 'credential.https://github.com.helper', '!custom-helper')
         self.cli('move')
         moved = self.developer / 'moved'
         for path, fetch, push in ((moved, moved_url, 'https://github.com/example/moved.git'),
@@ -189,9 +192,9 @@ class ClonesTest(unittest.TestCase):
             result = run('git', '-C', str(path), 'config', '--local', '--get-all', 'credential.https://github.com.helper')
             self.assertEqual(result.stdout.splitlines(), ['', '!gh auth git-credential'])
         self.assertEqual(self.git(other, 'remote', 'get-url', 'origin'), other_url)
-        self.assertEqual(self.git(other, 'remote', 'get-url', '--push', 'origin'), other_url)
+        self.assertEqual(self.git(other, 'remote', 'get-url', '--push', 'origin'), other_push)
         result = run('git', '-C', str(other), 'config', '--local', '--get-all', 'credential.https://github.com.helper', check=False)
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.splitlines(), ['!custom-helper'])
 
     def test_failed_duplicate_worktree_inspection_is_not_clean(self):
         self.repo(self.developer, 'repo')
