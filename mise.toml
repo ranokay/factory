@@ -52,6 +52,14 @@ run = "uv run --offline --no-project --no-config --python \"$(mise which python)
 description = "Run GC fixture tests"
 run = "hk test --step gc"
 
+[tasks."canonical-clones"]
+description = "Report or migrate canonical clones"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/canonical-clones.py"
+
+[tasks."canonical-clones:test"]
+description = "Run canonical clone fixture tests"
+run = "hk test --step canonical-clones"
+
 [tasks.check]
 description = "Run every Gate"
 depends = [
@@ -63,6 +71,7 @@ depends = [
   "evidence:test",
   "bootstrap:test",
   "gc:test",
+  "canonical-clones:test",
   "mcp:test",
   "gitleaks:test",
   "tools:test",
