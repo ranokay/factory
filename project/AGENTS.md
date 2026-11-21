@@ -41,6 +41,6 @@ includes = [
 amends "https://raw.githubusercontent.com/ranokay/factory/vX.Y.Z/profiles/web/hk.pkl"
 ```
 
-Replace `vX.Y.Z` with the Factory release that carries the Profiles you declare. The `v0.2.0` pins in `mise.toml` and `hk.pkl` predate the universal fragments becoming self-contained: re-pin both files to the release that carries this fix before running `mise run check` in a new repo. Re-pin them together when you declare a Profile set from a newer release.
+Replace `vX.Y.Z` with the Factory release that carries the Profiles you declare. The `v0.2.0` pins in `mise.toml` and `hk.pkl` predate the universal fragments becoming self-contained: re-pin both files to that release before running `mise run check` in a new repo.
 
 Terms are in `GLOSSARY.md`; decisions are in `docs/adr/`.

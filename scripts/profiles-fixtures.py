@@ -63,7 +63,19 @@ def declared_root(prefix: str, source: object) -> bool:
     return isinstance(path, str) and os.path.realpath(path).startswith(prefix)
 
 
+def check_combined(path: Path) -> None:
+    tasks = {task['name'] for task in json.loads(path.read_text())}
+    expected = {'typecheck:python', 'typecheck:typescript'}
+    missing = expected - tasks
+    if missing:
+        fail(f'combined tasks missing {sorted(missing)}')
+    print(f'profiles:fixtures: combined: tasks: {", ".join(sorted(expected))}')
+
+
 def main() -> None:
+    if sys.argv[1] == 'combined':
+        check_combined(Path(sys.argv[2]))
+        return
     name, tmp, tools_path, steps_path = sys.argv[1:5]
     profiles = DECLARED[name]
     prefix = os.path.realpath(tmp) + os.sep
