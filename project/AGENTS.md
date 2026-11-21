@@ -41,6 +41,6 @@ includes = [
 amends "https://raw.githubusercontent.com/ranokay/factory/vX.Y.Z/profiles/web/hk.pkl"
 ```
 
-Replace `vX.Y.Z` with the Factory release that carries the Profiles you declare.
+Replace `vX.Y.Z` with the Factory release that carries the Profiles you declare. The pins in `mise.toml` and `hk.pkl` are the current release; re-pin all three files together when you declare a Profile set from a newer release.
 
 Terms are in `GLOSSARY.md`; decisions are in `docs/adr/`.

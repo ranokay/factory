@@ -2,6 +2,5 @@ min_version = "2026.11.10"
 
 include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
 
-[tasks.check]
-description = "Run every Gate"
-run = "hk check --all"
+[task_config]
+includes = ["git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"]
