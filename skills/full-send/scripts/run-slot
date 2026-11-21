@@ -25,7 +25,7 @@ EOF
 
 root=${RUN_SLOT_DIR:-"$HOME/.local/state/agent-tools/runs"}
 case $root in
-  -*) root=./$root ;;
+-*) root=./$root ;;
 esac
 while [ "$root" != / ] && [ "${root%/}" != "$root" ]; do
   root=${root%/}
