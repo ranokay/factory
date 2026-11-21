@@ -16,7 +16,7 @@ Profiles: universal
 
 ## Profiles
 
-The `Profiles:` line and the includes must agree; the `profiles` Gate checks them. To add a Language or Platform Profile, add its pinned mise and task includes and amend its hk file. A web app, for example:
+The `Profiles:` line and the includes must agree. The Factory's `profiles` Gate checks the Factory's own packages; keep a consuming repo's line and includes aligned the same way. To add a Language or Platform Profile, add its pinned mise and task includes and amend its hk file. A web app, for example:
 
 ```md
 Profiles: universal, typescript, web

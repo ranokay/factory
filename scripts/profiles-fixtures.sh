@@ -29,6 +29,7 @@ run_fixture() {
 		mise exec -- hk check --all --plan -a --json --no-progress >"$tmp/$name-steps.json"
 		mise ls --current --json >"$tmp/$name-tools.json"
 	)
+	uv run --offline --no-project --no-config --python "$python" "$root/scripts/profiles-check.py" --root "$repo"
 	uv run --offline --no-project --no-config --python "$python" python "$script_dir/profiles-fixtures.py" "$name" "$tmp" "$tmp/$name-tools.json" "$tmp/$name-steps.json"
 }
 

@@ -79,6 +79,10 @@ depends = [
   "tools:test",
 ]
 
+[tasks."check:gates"]
+description = "Run the Factory's shared Gates"
+run = ["hk check --all", "hk test --step comment-ban", "hk test --step pinact"]
+
 [tasks."skills:test"]
 description = "Run the skills:sync tests"
 run = "hk test --step skills-sync"
