@@ -170,7 +170,12 @@ check_count() {
 		printf 'run-slot list:\n%s\n' "$slot_list" >&2
 		printf 'slot directory tree:\n' >&2
 		# shellcheck disable=SC2031 # Each case supplies its own exported slot directory.
-		find "$RUN_SLOT_DIR" -ls >&2
+		diagnostic_root=$RUN_SLOT_DIR
+		case $diagnostic_root in
+		/*) ;;
+		*) diagnostic_root=./$diagnostic_root ;;
+		esac
+		find "$diagnostic_root" -ls >&2 || printf 'slot directory unavailable\n' >&2
 		for error_file in "$work"/err1 "$work"/err2 "$work"/err3 "$work"/err4; do
 			if [ -f "$error_file" ]; then
 				printf 'stderr from %s:\n' "${error_file##*/}" >&2
