@@ -77,6 +77,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
             self.assertNotEqual(run_step(check, env).returncode, 0)
             path.write_text("invalid json")
             self.assertNotEqual(run_step(check, env).returncode, 0)
+            path.write_text(json.dumps({"status": "complete"}))
             self.assertNotEqual(run_step(check, {**env, "SUMMARY": ""}).returncode, 0)
 
 
