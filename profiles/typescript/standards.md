@@ -28,3 +28,5 @@
 
 - `public/assets/` conventions come from the web Profile when it is declared; do not invent a second asset layout.
 - Keep browser globals out of a module that Node also loads. Split the platform-specific part behind a narrow interface.
+
+- Fix the underlying type relationship instead of wrapping a cast around it.

@@ -44,3 +44,14 @@ Write none, except:
 - Test meaningful public behaviour and edge cases; keep fixtures simple. Review dependency maintenance, vulnerabilities and release notes before an update; avoid unrelated version churn.
 - Inspect the checkout and index before Git changes. Respect ownership, use a branch named for the change, stage only intended paths and keep commits atomic. Run rebases with `GIT_EDITOR=:` and `GIT_SEQUENCE_EDITOR=:` and resolve conflicts against intended behaviour.
 - Verify scanner findings against current source. A snippet result does not prove a project-wide analysis.
+
+## Review and evidence
+
+- Avoid abstractions for hypothetical callers. Record the commands and results of required checks, including checks that could not run.
+- Verify assertions in permitted comments and update or remove them when behaviour changes.
+- Test current behaviour, not deleted functionality. Follow the project's test configuration; parameterize cases when it clarifies a shared contract. Use coverage to find missing checks, not as proof of correctness.
+- Before selecting a new dependency, check its maintenance and known vulnerabilities. Update dependencies for a concrete need and verify affected behaviour.
+- Stage and commit explicit paths, preserve unrelated index entries, and unstage only your own changes. Coordinate with the author before reverting their work; quote paths that the shell could expand.
+- Before opening a PR, identify the integration branch and reconcile with its current head. Follow the repository's title and PR template, and mention a person only when they need to act.
+- Preserve test isolation and sequencing. Report actual exit status; a dirty run or a before-and-after snapshot does not prove a clean frozen Gate.
+- For scanner analysis, use the correct project and branch, source language and complete context. A stale remote finding does not verify a local fix; reread instructions that have changed.

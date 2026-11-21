@@ -24,3 +24,5 @@
 - Prefer a comprehension or generator expression to manual accumulation.
 - Package layout is `src/<package>/`; tests live in `tests/` and import the installed package.
 - Build strings with f-strings or `str.join`; never concatenate in a loop.
+
+- Use concrete types or protocols instead of `object` when the type is known.
