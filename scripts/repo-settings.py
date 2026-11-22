@@ -124,7 +124,7 @@ def ruleset(codacy_check, personal_fork=False):
 
 
 def review_ruleset():
-    return {"name": "Factory review rules", "target": "branch", "enforcement": "active", "bypass_actors": [CONFIG["fork_bypass_actor"]], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [rule for rule in CONFIG["branch_rules"] if rule["type"] in {"required_signatures", "pull_request"}]}
+    return {"name": CONFIG["review_ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [CONFIG["fork_bypass_actor"]], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [rule for rule in CONFIG["branch_rules"] if rule["type"] in {"required_signatures", "pull_request"}]}
 
 
 def codacy_check_seen(base, branch):
@@ -204,6 +204,11 @@ def main():
         if any(private_settings.get(k) != v for k, v in private_desired.items()):
             change(f"private fork workflows: {json.dumps(private_settings, sort_keys=True)} -> {json.dumps(private_desired, sort_keys=True)}", "PUT", private_path, private_desired)
     if upstream:
+        review_rules = [item for item in gh(base + "/rulesets?per_page=100", paginate=True) if item["name"] == CONFIG["review_ruleset_name"]]
+        if len(review_rules) > 1:
+            raise RuntimeError(f"multiple rulesets have the name {CONFIG['review_ruleset_name']}")
+        if review_rules:
+            change(f"ruleset {CONFIG['review_ruleset_name']}: delete", "DELETE", base + "/rulesets/" + str(review_rules[0]["id"]))
         print("drift:")
         for description, _, _, _ in changes:
             print("  " + description)
@@ -297,6 +302,10 @@ def main():
         if not current or not matches(current, target):
             before = {key: current.get(key) for key in target} if current else None
             change(f"ruleset {target['name']}: {json.dumps(before, sort_keys=True)} -> {json.dumps(target, sort_keys=True)}", "PUT" if current else "POST", base + "/rulesets" + ("/" + str(current["id"]) if current else ""), target)
+    if not personal_fork:
+        stale_review = find_ruleset(CONFIG["review_ruleset_name"])
+        if stale_review:
+            change(f"ruleset {CONFIG['review_ruleset_name']}: delete", "DELETE", base + "/rulesets/" + str(stale_review["id"]))
     secret_pages = json.loads(command(["gh", "api", "--paginate", "--slurp", base + "/actions/secrets?per_page=100"]))
     secrets = [secret for page in secret_pages for secret in page["secrets"]]
     secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)

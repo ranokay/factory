@@ -1,6 +1,7 @@
 {
   "factory_authors": ["ranokay", "renovate[bot]"],
   "ruleset_name": "Factory default branch",
+  "review_ruleset_name": "Factory review rules",
   "required_checks": [
     {"context": "Gates / Gates", "integration_id": 15368},
     {"context": "review / review", "integration_id": 15368}

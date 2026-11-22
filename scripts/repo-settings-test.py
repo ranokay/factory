@@ -78,14 +78,18 @@ else:
             body["default"] = False
             s["labels"].append(body)
         elif key.startswith("/rulesets"):
-            body["id"] = int(key.rsplit("/", 1)[1]) if method == "PUT" else max((item["id"] for item in s["rulesets"]), default=0) + 1
-            body["source"] = s["name"]
-            for rule in body["rules"]:
-                if rule["type"] == "required_status_checks":
-                    rule["parameters"]["do_not_enforce_on_create"] = False
-                    for check in rule["parameters"]["required_status_checks"]:
-                        if "integration_id" not in check: check["integration_id"] = None
-            s["rulesets"] = [item for item in s["rulesets"] if item["id"] != body["id"]] + [body]
+            s.setdefault("ruleset_requests", []).append({"method": method, "path": key, "body": json.loads(json.dumps(body))})
+            if method == "DELETE":
+                s["rulesets"] = [item for item in s["rulesets"] if item["id"] != int(key.rsplit("/", 1)[1])]
+            else:
+                body["id"] = int(key.rsplit("/", 1)[1]) if method == "PUT" else max((item["id"] for item in s["rulesets"]), default=0) + 1
+                body["source"] = s["name"]
+                for rule in body["rules"]:
+                    if rule["type"] == "required_status_checks":
+                        rule["parameters"]["do_not_enforce_on_create"] = False
+                        for check in rule["parameters"]["required_status_checks"]:
+                            if "integration_id" not in check: check["integration_id"] = None
+                s["rulesets"] = [item for item in s["rulesets"] if item["id"] != body["id"]] + [body]
         elif key == "/actions/permissions/fork-pr-contributor-approval": s["approval"] = body
         elif key == "/actions/permissions/fork-pr-workflows-private-repos": s["private_settings"] = body
 json.dump(s, open(path, "w"))
@@ -261,14 +265,64 @@ class RepoSettings(unittest.TestCase):
         state["topics"]["names"] = ["factory-personal-fork"]
         state["rulesets"][0]["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}]
         state["writes"] = []
+        state["ruleset_requests"] = []
         self.write(state)
         result = self.run_command("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(self.path.read_text())
         self.assertEqual([write for write in state["writes"] if "/rulesets" in write], ["POST /rulesets", "PUT /rulesets/1"])
+        review_request, protection_request = [item["body"] for item in state["ruleset_requests"]]
+        self.assertEqual(review_request["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
+        self.assertEqual({rule["type"] for rule in review_request["rules"]}, {"required_signatures", "pull_request"})
+        self.assertEqual(protection_request["bypass_actors"], [])
+        self.assertIn("required_status_checks", {rule["type"] for rule in protection_request["rules"]})
         rulesets = {item["name"]: item for item in state["rulesets"]}
         self.assertEqual(rulesets["Factory default branch"]["bypass_actors"], [])
         self.assertEqual({rule["type"] for rule in rulesets["Factory review rules"]["rules"]}, {"required_signatures", "pull_request"})
+
+    def test_personal_fork_to_project_removes_review_bypass(self):
+        state = json.loads(self.path.read_text())
+        state["repo"].update({"fork": True, "private": True})
+        state["topics"]["names"] = ["factory-personal-fork"]
+        self.write(state)
+        self.assertEqual(self.run_command("--apply").returncode, 0)
+        state = json.loads(self.path.read_text())
+        state["repo"]["fork"] = False
+        state["topics"]["names"] = []
+        state["writes"] = []
+        self.write(state)
+        dry_run = self.run_command()
+        self.assertEqual(dry_run.returncode, 0, dry_run.stderr)
+        self.assertIn("ruleset Factory review rules: delete", dry_run.stdout)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], [])
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.path.read_text())
+        self.assertEqual(len(state["rulesets"]), 1)
+        self.assertEqual(state["rulesets"][0]["name"], "Factory default branch")
+        self.assertEqual(state["rulesets"][0]["bypass_actors"], [])
+        self.assertEqual({rule["type"] for rule in state["rulesets"][0]["rules"]}, {"deletion", "non_fast_forward", "required_signatures", "pull_request", "required_status_checks"})
+        state["writes"] = []
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no changes", result.stdout)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], [])
+
+    def test_personal_fork_to_upstream_removes_review_bypass(self):
+        state = json.loads(self.path.read_text())
+        state["repo"].update({"fork": True, "private": True})
+        state["topics"]["names"] = ["factory-personal-fork"]
+        self.write(state)
+        self.assertEqual(self.run_command("--apply").returncode, 0)
+        state = json.loads(self.path.read_text())
+        state["writes"] = []
+        self.write(state)
+        result = self.run_command("--apply", "--fork-kind", "upstream")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.path.read_text())
+        self.assertEqual([item for item in state["writes"] if "/rulesets" in item], ["DELETE /rulesets/1"])
+        self.assertFalse(any(item["name"] == "Factory review rules" for item in state["rulesets"]))
 
     def test_personal_project_ruleset_keeps_no_bypass(self):
         state = json.loads(self.path.read_text())

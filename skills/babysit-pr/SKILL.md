@@ -112,8 +112,8 @@ Supervisor thread stands in for the Supervisor's confirmation.
   and execute only the command it prints. The command exits nonzero if any verdict
   is missing or any check run or commit status on the head is not successful;
   `skipped` and `neutral` pass only for a check the ruleset does not require. Its
-  `--admin` flag stands in only for the Personal Fork's `Factory review rules`.
-  `Factory default branch` holds required checks without a bypass. It does not
+  `--admin` flag stands in only for the Personal Fork's `review_ruleset_name` in
+  `repo-settings.json`. The configured `ruleset_name` holds required checks without a bypass. It does not
   inspect review threads; resolve them first.
 - Before readiness, a Sync PR passes
   `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;
