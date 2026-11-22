@@ -43,10 +43,11 @@ mirror.
 <this skill's directory>/scripts/sync-upstream install-files --check
 ```
 
-`--template DIR` points the installer at a template other than `project/`; any file
-it has no merge rule for stops the run. If the check reports a change, run it without
-`--check` on an ordinary branch, commit, open a normal PR and squash-merge it. Do not
-mix these changes into a Sync PR: the Sync PR carries upstream changes only.
+`--template DIR` points the installer at a template other than `project/`; any
+existing file it has no merge rule for stops the run. If the check reports a change,
+run it without `--check` on an ordinary branch, commit, open a normal PR and
+squash-merge it. Do not mix these changes into a Sync PR: the Sync PR carries upstream
+changes only.
 
 `install-files` copies the Project Template where the upstream has no such file. Where
 upstream already has one, it adds only what the matching `project/` file requires:

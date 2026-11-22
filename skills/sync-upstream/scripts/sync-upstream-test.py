@@ -345,7 +345,7 @@ class SyncUpstream(unittest.TestCase):
     def test_install_files_scopes_coderabbit_enabled_to_auto_review(self):
         template = self.root / "template"
         template.mkdir()
-        (template / ".coderabbit.yaml").write_text("reviews:\n  auto_review:\n    enabled: false\n")
+        (template / ".coderabbit.yaml").write_text("reviews:\n  tools:\n    enabled: true\n  auto_review:\n    enabled: false\n")
         target = self.target({".coderabbit.yaml": "reviews:\n  auto_review:\n    other: true\n  tools:\n    enabled: true\n"})
         self.cli("install-files", "--target", str(target), "--template", str(template))
         text = (target / ".coderabbit.yaml").read_text()

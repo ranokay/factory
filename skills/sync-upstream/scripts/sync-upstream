@@ -479,32 +479,38 @@ def merge_greptile(existing, template):
     return json.dumps(data, indent=2) + "\n"
 
 
+def yaml_block_end(lines, index, end, indent):
+    for later in range(index + 1, end):
+        line = lines[later]
+        if line and len(line) - len(line.lstrip()) <= indent:
+            return later
+    return end
+
+
+def child_indent(lines, start, end):
+    for index in range(start, end):
+        line = lines[index]
+        if line.strip():
+            return len(line) - len(line.lstrip())
+    return None
+
+
 def find_yaml_block(lines, key, start, end, indent):
     pattern = re.compile(rf"^{' ' * indent}{re.escape(key)}:\s*(#.*)?$")
     for index in range(start, end):
         if pattern.match(lines[index]):
-            block_end = end
-            for later in range(index + 1, end):
-                line = lines[later]
-                if line and len(line) - len(line.lstrip()) <= indent:
-                    block_end = later
-                    break
-            return index, block_end
+            return index, yaml_block_end(lines, index, end, indent)
     return None, None
 
 
 def coderabbit_auto_review(lines, start, end):
+    indent = child_indent(lines, start, end)
+    if indent is None:
+        return None, None
+    pattern = re.compile(rf"^{' ' * indent}auto_review:\s*(#.*)?$")
     for index in range(start, end):
-        match = re.match(r"^(\s+)auto_review:\s*(#.*)?$", lines[index])
-        if match:
-            indent = len(match.group(1))
-            block_end = end
-            for later in range(index + 1, end):
-                line = lines[later]
-                if line and len(line) - len(line.lstrip()) <= indent:
-                    block_end = later
-                    break
-            return index, block_end
+        if pattern.match(lines[index]):
+            return index, yaml_block_end(lines, index, end, indent)
     return None, None
 
 
@@ -516,8 +522,12 @@ def coderabbit_enabled(template):
     auto, auto_end = coderabbit_auto_review(lines, reviews + 1, reviews_end)
     if auto is None:
         raise SyncError("project/.coderabbit.yaml has no auto_review block")
+    indent = child_indent(lines, auto + 1, auto_end)
+    if indent is None:
+        raise SyncError("project/.coderabbit.yaml has no enabled value")
+    pattern = re.compile(rf"^{' ' * indent}enabled:\s*(\S+)")
     for index in range(auto + 1, auto_end):
-        match = re.match(r"^\s+enabled:\s*(\S+)", lines[index])
+        match = pattern.match(lines[index])
         if match:
             return match.group(1)
     raise SyncError("project/.coderabbit.yaml has no enabled value")
@@ -539,13 +549,16 @@ def merge_coderabbit(existing, template):
                 raise SyncError(".coderabbit.yaml auto_review must be a block")
         lines[reviews + 1:reviews + 1] = ["  auto_review:", f"    enabled: {value}"]
         return "\n".join(lines) + "\n"
+    indent = child_indent(lines, auto + 1, auto_end)
+    if indent is None:
+        indent = len(lines[auto]) - len(lines[auto].lstrip()) + 2
+    pattern = re.compile(rf"^{' ' * indent}enabled:\s*(.*)$")
     for index in range(auto + 1, auto_end):
-        match = re.match(r"^(\s+)enabled:\s*(.*)$", lines[index])
+        match = pattern.match(lines[index])
         if match:
-            lines[index] = f"{match.group(1)}enabled: {value}"
+            lines[index] = f"{' ' * indent}enabled: {value}"
             return "\n".join(lines) + "\n"
-    indent = len(lines[auto]) - len(lines[auto].lstrip())
-    lines.insert(auto + 1, f"{' ' * (indent + 2)}enabled: {value}")
+    lines.insert(auto + 1, f"{' ' * indent}enabled: {value}")
     return "\n".join(lines) + "\n"
 
 
@@ -573,6 +586,8 @@ def merge_text(path, template_root, existing, template):
 
 def install_files(args):
     template = Path(args.template) if args.template else template_dir()
+    if not template.exists():
+        raise SyncError(f"{template} does not exist")
     if not template.is_dir():
         raise SyncError(f"{template} is not a directory")
     target = Path(args.target)
