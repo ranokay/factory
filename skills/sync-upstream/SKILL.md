@@ -1,6 +1,8 @@
 ---
 name: sync-upstream
 description: "Reconcile a fork with upstream. A Personal Fork gets a Sync PR that merges upstream with one verdict per upstream change and a merge commit; an Upstream Fork only fast-forwards. Also installs the Project Template with the smallest diff."
+metadata:
+  author: ranokay
 ---
 
 # Sync a fork with upstream

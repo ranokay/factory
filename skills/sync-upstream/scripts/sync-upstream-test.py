@@ -1,51 +1,18 @@
 import json
 import os
-import subprocess
+import shutil
+import subprocess  # nosec B404 -- the fixture runs local executables
 import sys
 import tempfile
 import tomllib
 import unittest
-from collections import namedtuple
 from pathlib import Path
+
+from sync_upstream_fixtures import GH, ForkPair
 
 SCRIPT = Path(__file__).resolve().with_name("sync-upstream")
 ROOT = SCRIPT.parents[3]
-ForkPair = namedtuple("ForkPair", "origin_seed base origin upstream upstream_seed ahead")
-GH = '''#!/usr/bin/env python3
-import json, os, sys
-state = json.load(open(os.environ["FAKE_REPO"]))
-args = sys.argv[1:]
-if args[:2] == ["api", "repos/" + state["name"]]:
-    print(json.dumps(state["info"]))
-elif args[:2] == ["repo", "view"]:
-    print(state.get("view", state["name"]))
-elif args[:2] == ["pr", "view"]:
-    field = args[args.index("--json") + 1] if "--json" in args else "body"
-    if field == "headRefOid":
-        print(state["head"])
-    elif field == "baseRefName":
-        print(state.get("base", "main"))
-    else:
-        print(state["body"])
-elif args[0] == "api":
-    endpoint = next(x for x in args if x.startswith("repos/"))
-    key = endpoint.split("?", 1)[0]
-    if key.startswith("repos/" + state["name"] + "/rules/branches/"):
-        print(json.dumps([state.get("applied_rules", [])]))
-    elif key.endswith("/check-runs"):
-        head = key.split("/commits/")[1].removesuffix("/check-runs")
-        print(json.dumps([{"check_runs": state.get("check_runs", {}).get(head, [])}]))
-    elif key.endswith("/status"):
-        print(json.dumps({"state": "success", "statuses": state.get("statuses", [])}))
-    elif key.endswith("/statuses"):
-        print(json.dumps(state.get("status_pages", [state.get("statuses", [])])))
-    else:
-        print("unexpected gh api call: " + " ".join(args), file=sys.stderr)
-        sys.exit(1)
-else:
-    print("unexpected gh call: " + " ".join(args), file=sys.stderr)
-    sys.exit(1)
-'''
+GIT = shutil.which("git") or "git"
 
 
 class SyncUpstream(unittest.TestCase):
@@ -66,13 +33,13 @@ class SyncUpstream(unittest.TestCase):
         self.repo_file.write_text(json.dumps({"name": name, "info": {"fork": fork, "default_branch": default, "parent": {"full_name": parent, "default_branch": parent_default}, "topics": topics}}))
 
     def cli(self, *args, cwd=None, check=True):
-        result = subprocess.run([sys.executable, str(SCRIPT), *args], cwd=cwd or self.root, env=self.env, capture_output=True, text=True)
+        result = subprocess.run([sys.executable, str(SCRIPT), *args], cwd=cwd or self.root, env=self.env, capture_output=True, text=True)  # nosec B603 -- the fixture runs the skill under test
         if check and result.returncode:
             self.fail(result.stderr)
         return result
 
     def git(self, cwd, *args, check=True):
-        result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True)
+        result = subprocess.run([GIT, "-C", str(cwd), *args], capture_output=True, text=True)  # nosec B603 B607 -- the fixture controls its own repositories
         if check and result.returncode:
             self.fail(result.stderr)
         return result
@@ -80,7 +47,7 @@ class SyncUpstream(unittest.TestCase):
     def init(self, name):
         path = self.root / name
         path.mkdir()
-        self.git(path, "init", "-q")
+        self.git(path, "init", "-q", "-b", "main")
         self.git(path, "config", "user.name", "Fixture")
         self.git(path, "config", "user.email", "fixture@example.com")
         return path
@@ -95,7 +62,7 @@ class SyncUpstream(unittest.TestCase):
 
     def bare(self, name, seed, branch="main"):
         path = self.root / f"{name}.git"
-        self.git(self.root, "init", "--bare", "-q", str(path))
+        self.git(self.root, "init", "--bare", "-q", "-b", "main", str(path))
         self.git(seed, "push", "-q", str(path), f"HEAD:refs/heads/{branch}")
         return path
 
