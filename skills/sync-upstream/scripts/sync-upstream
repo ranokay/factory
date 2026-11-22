@@ -748,7 +748,7 @@ def merge_coderabbit(existing, template):
         match = pattern.match(lines[index])
         if match:
             before, spacing, old, comment, ending = match.groups()
-            if old.strip() not in ("", "true", "false") or any(
+            if (comment and not (old[-1:].isspace() or (not old and spacing))) or old.strip() not in ("", "true", "false") or any(
                 line.strip() and not line.lstrip().startswith("#") and len(line) - len(line.lstrip()) > indent
                 for line in lines[index + 1:yaml_block_end(lines, index, auto_end, indent)]
             ):

@@ -192,7 +192,7 @@ class SyncUpstreamFiles(SyncFixture):
         (template / ".coderabbit.yaml").write_text("reviews:\n  auto_review:\n    enabled: false\n")
         target = self.target({".coderabbit.yaml": ""})
         path = target / ".coderabbit.yaml"
-        for value in ("|\n      text", ">\n      text", "&review_enabled true\n  other: *review_enabled", "\n      nested: value"):
+        for value in ("|\n      text", ">\n      text", "&review_enabled true\n  other: *review_enabled", "\n      nested: value", "true#suffix"):
             with self.subTest(value=value):
                 original = f"reviews:\n  auto_review:\n    enabled: {value}\n"
                 path.write_text(original)
