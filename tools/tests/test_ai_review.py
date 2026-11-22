@@ -94,6 +94,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
 
     def test_automatic_review_event_routing(self):
         caller = workflow("ai-review-caller.yml")
+        self.assertIn("run-name: AI Review PR ${{ github.event.pull_request.number }}", caller)
         match = re.search(r"(?m)^    types: \[([^]]+)\]$", caller)
         actions = {action.strip() for action in match.group(1).split(",")}
         for action, starts in (
@@ -110,17 +111,12 @@ class AiReviewWorkflowTests(unittest.TestCase):
         triggers = caller.split("on:\n", 1)[1].split("permissions:", 1)[0]
         self.assertEqual(re.findall(r"(?m)^  ([a-z_]+):", triggers), ["pull_request"])
         self.assertNotIn("pull_request_target:", caller + reusable)
-        for source in (caller, reusable):
-            job = source.split("  review:\n", 1)[1]
-            condition = re.search(r"(?m)^    if: (.+)$", job).group(1)
-            operands = re.split(r"\s*==\s*", condition)
-            self.assertEqual(len(operands), 2)
-            for head, expected in (("ranokay/factory", True), ("outside/fork", False)):
-                context = {
-                    "github.event.pull_request.head.repo.full_name": head,
-                    "github.repository": "ranokay/factory",
-                }
-                self.assertEqual(context[operands[0]] == context[operands[1]], expected)
+        self.assertNotIn("if", yaml.safe_load(caller)["jobs"]["review"])
+        authors = json.loads((ROOT / "repo-settings.json").read_text())["factory_authors"]
+        job = reusable.split("  review:\n", 1)[1]
+        condition = re.search(r"(?m)^    if: (.+)$", job).group(1)
+        self.assertTrue(condition.startswith("github.event.pull_request.head.repo.full_name == github.repository"))
+        self.assertEqual(re.findall(r"pull_request\.user\.login == '([^']+)'", condition), authors)
 
     def test_missing_key_fails_before_review(self):
         source = workflow("ai-review.yml")

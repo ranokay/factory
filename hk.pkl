@@ -14,6 +14,45 @@ local const universalHk = """
   """
 
 steps {
+  ["codacy-gate-test"] = new Step {
+    check = "python3 {{root}}/scripts/codacy-gate-test.py"
+    tests {
+      ["runs private analysis and rejects zero tools"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+  ["repo-settings-test"] = new Step {
+    check = "python3 {{root}}/scripts/repo-settings-test.py"
+    tests {
+      ["reconciles repository settings idempotently"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+  ["workflow-invariant"] = new Step {
+    check = "python3 {{root}}/scripts/workflow-invariant.py {{root}}/.github/workflows"
+  }
+  ["workflow-invariant-test"] = new Step {
+    check = "python3 {{root}}/scripts/workflow-invariant-test.py"
+    tests {
+      ["rejects an unsafe fork workflow"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+  ["advisory-review-requests"] = new Step {
+    check = "python3 {{root}}/skills/babysit-pr/scripts/request-advisory-reviews-test.py"
+    tests {
+      ["requests once and requires outside contributor approval"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
   ["typos"] {
     exclude = vendored
   }

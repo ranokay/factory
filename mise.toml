@@ -44,6 +44,10 @@ run = "./tools/run tests"
 description = "Record Verification Evidence and post the single PR evidence comment"
 run = "./skills/evidence/scripts/evidence"
 
+[tasks.repo-settings]
+description = "Compare or reconcile repository settings"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/repo-settings.py"
+
 [tasks.gc]
 description = "Prune stale Factory data and tool caches"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/gc.py --notify"
@@ -63,6 +67,7 @@ run = "hk test --step canonical-clones"
 [tasks.check]
 description = "Run every Gate"
 depends = [
+  "check:codacy",
   "skills:test",
   "profiles:test",
   "profiles:fixtures",
@@ -77,11 +82,27 @@ depends = [
   "mcp:test",
   "gitleaks:test",
   "tools:test",
+  "workflow-invariant:test",
+  "advisory-review-requests:test",
+  "repo-settings:test",
+  "codacy-gate:test",
 ]
 
 [tasks."check:gates"]
 description = "Run the Factory's shared Gates"
 run = ["hk check --all", "hk test --step comment-ban", "hk test --step pinact"]
+
+[tasks."workflow-invariant:test"]
+run = "hk test --step workflow-invariant-test"
+
+[tasks."advisory-review-requests:test"]
+run = "hk test --step advisory-review-requests"
+
+[tasks."repo-settings:test"]
+run = "hk test --step repo-settings-test"
+
+[tasks."codacy-gate:test"]
+run = "hk test --step codacy-gate-test"
 
 [tasks."skills:test"]
 description = "Run the skills:sync tests"

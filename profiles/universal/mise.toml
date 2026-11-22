@@ -1,4 +1,8 @@
 [tools]
+"npm:@codacy/analysis-cli" = "0.32.0"
+node = "26.13.1"
+gh = "2.105.0"
+"aqua:mikefarah/yq" = "4.54.3"
 editorconfig-checker = "4.0.2"
 gitleaks = "8.30.1"
 hk = "2.13.0"

@@ -1,0 +1,36 @@
+{
+  "factory_authors": ["ranokay", "renovate[bot]"],
+  "ruleset_name": "Factory default branch",
+  "required_checks": [
+    {"context": "Gates / Gates", "integration_id": 15368},
+    {"context": "review / review", "integration_id": 15368}
+  ],
+  "public_check": {"context": "Codacy Static Code Analysis"},
+  "merge_settings": {"allow_squash_merge": true, "allow_merge_commit": true, "allow_rebase_merge": false},
+  "fork_approval": "all_external_contributors",
+  "private_fork_settings": {"run_workflows_from_fork_pull_requests": true, "send_write_tokens_to_workflows": false, "send_secrets_and_variables": false, "require_approval_for_fork_pr_workflows": true},
+  "vendor_files": {
+    ".coderabbit.yaml": {"reviews": {"auto_review": {"enabled": false}}},
+    ".greptile/config.json": {"autoReview": [], "statusCheck": false}
+  },
+  "branch_rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {"type": "required_signatures"},
+    {"type": "pull_request", "parameters": {"required_approving_review_count": 0, "dismiss_stale_reviews_on_push": false, "require_code_owner_review": false, "require_last_push_approval": false, "required_review_thread_resolution": true}}
+  ],
+  "review_secret": "op://factory/qrrsnuyzxc7ckjkbpppxln4q4y/credential",
+  "codacy_token": "op://factory/iejbxwg6nfbqxccnunlsitcu64/credential",
+  "labels": {
+    "needs-triage": ["ededed", "Needs initial triage"],
+    "needs-info": ["fbca04", "Needs more information"],
+    "ready-for-agent": ["0e8a16", "Ready for an agent"],
+    "ready-for-human": ["1d76db", "Needs a human"],
+    "wontfix": ["ffffff", "This will not be worked on"],
+    "bug": ["d73a4a", "Something is not working"],
+    "enhancement": ["a2eeef", "New feature or request"],
+    "blocked": ["b60205", "Waiting for an unblock"],
+    "promotion": ["5319e7", "Make a correction enforceable"],
+    "protected": ["e99695", "Requires approval before merge"]
+  }
+}

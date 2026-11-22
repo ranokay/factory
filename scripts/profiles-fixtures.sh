@@ -9,13 +9,33 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-profiles.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 fixture_env() {
-	MISE_CEILING_PATHS="$tmp" MISE_IGNORED_CONFIG_PATHS="$ignored" "$@"
+	PATH="$tmp/fake-gh/bin:$PATH" MISE_CEILING_PATHS="$tmp" MISE_IGNORED_CONFIG_PATHS="$ignored" "$@"
 }
 
 mkdir -p "$tmp/profiles"
 for profile in universal typescript python web swift apple go; do
 	cp -R "$root/profiles/$profile" "$tmp/profiles/$profile"
 done
+
+mkdir -p "$tmp/fake-gh/bin"
+cat >"$tmp/fake-gh/bin/gh" <<'EOF'
+#!/bin/sh
+if [ "$1" = repo ] && [ "$2" = view ]; then
+	printf '%s\n' false
+	exit 0
+fi
+exit 1
+EOF
+chmod +x "$tmp/fake-gh/bin/gh"
+uv run --offline --no-project --no-config --python "$python" python - "$tmp/profiles/universal/mise.toml" "$tmp/fake-gh" <<'PY'
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+text = path.read_text()
+old = 'gh = "2.105.0"'
+if text.count(old) != 1: raise SystemExit('expected one gh pin')
+path.write_text(text.replace(old, f'gh = "path:{sys.argv[2]}"'))
+PY
 
 mkdir -p "$tmp/combined-tasks"
 cat >"$tmp/combined-tasks/mise.toml" <<EOF

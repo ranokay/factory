@@ -38,6 +38,13 @@ authorize writes in response to an exploratory or read-only request.
 This step is complete when the target, action scope, and required gates are known.
 Discover available facts before asking the user to supply them.
 
+After AI Review has completed on the current head, run
+`python3 ~/.agents/skills/babysit-pr/scripts/request-advisory-reviews OWNER/REPO PR`.
+The script requests each Advisory Reviewer once and requires ranokay's approval
+for an Outside Contributor PR. It identifies the run by the caller's
+`AI Review PR <number>` run name, which the caller must set from the event's
+pull request number; an unidentifiable run does not permit requests.
+
 ## Inspect and act on the current state
 
 Read checks, mergeability, review decisions, review bodies, issue comments, and
