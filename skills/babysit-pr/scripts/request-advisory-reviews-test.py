@@ -24,6 +24,8 @@ elif "/actions/runs?" in endpoint:
         result["workflow_runs"].append({"name": "AI Review", "display_title": "AI Review PR 1", "head_sha": "abc", "status": "completed", "conclusion": "success", "id": 41})
 elif "/reviews?" in endpoint:
     result = [s.get("reviews", [])]
+elif "/pulls/" in endpoint and "/comments?" in endpoint:
+    result = [s.get("inline_comments", [])]
 elif "/comments?" in endpoint:
     result = [s.get("comments", [])]
 elif "/timeline?" in endpoint:
@@ -115,6 +117,13 @@ class ReviewRequests(unittest.TestCase):
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 3)
+
+    def test_bot_inline_comment_counts_as_activity(self):
+        state = {"inline_comments": [{"user": {"login": "greptile-apps[bot]"}, "body": "review finding"}]}
+        result, writes = self.invoke(state)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(writes), 2)
+        self.assertFalse(any("@greptileai" in str(write) for write in writes))
 
 
 if __name__ == "__main__":
