@@ -397,13 +397,19 @@ def factory_files(args):
     return 0
 
 
-def find_profiles_line(text):
+def unfenced_lines(lines):
     fenced = False
-    for line in text.splitlines():
+    for index, line in enumerate(lines):
         if line.strip().startswith(("```", "~~~")):
             fenced = not fenced
             continue
-        if not fenced and PROFILES_LINE.match(line):
+        if not fenced:
+            yield index, line
+
+
+def find_profiles_line(text):
+    for _, line in unfenced_lines(text.splitlines()):
+        if PROFILES_LINE.match(line):
             return line.strip()
     return None
 
@@ -419,12 +425,15 @@ def with_profiles_line(text, template):
     if find_profiles_line(text) is not None:
         return text, False
     profiles = template_profiles_line(template)
-    lines = text.splitlines()
-    for index, line in enumerate(lines):
+    lines = text.splitlines(keepends=True)
+    newline = "\r\n" if "\r\n" in text else "\n"
+    for index, line in unfenced_lines(lines):
         if HEADING.match(line):
-            lines[index + 1:index + 1] = ["", profiles]
-            return "\n".join(lines) + "\n", True
-    return "\n".join([profiles, ""] + lines) + "\n", True
+            if not line.endswith("\n"):
+                lines[index] += newline
+            lines[index + 1:index + 1] = [newline, profiles + newline]
+            return "".join(lines), True
+    return profiles + newline + newline + text, True
 
 
 def toml_boundary(lines, index):

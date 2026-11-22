@@ -89,6 +89,17 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not exist", result.stderr)
 
+    def test_install_files_places_profiles_after_heading_outside_fence(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "AGENTS.md").write_text("# Factory\n\nProfiles: universal\n")
+        target = self.target({"AGENTS.md": ""})
+        original = b"```text\r\n# comment\r\n```\r\n# Title\r\nExisting instructions.\r\n"
+        (target / "AGENTS.md").write_bytes(original)
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        expected = original.replace(b"# Title\r\n", b"# Title\r\n\r\nProfiles: universal\r\n")
+        self.assertEqual((target / "AGENTS.md").read_bytes(), expected)
+
     def test_install_files_scopes_coderabbit_enabled_to_auto_review(self):
         template = self.root / "template"
         template.mkdir()
