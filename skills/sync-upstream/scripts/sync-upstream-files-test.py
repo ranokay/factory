@@ -146,6 +146,20 @@ class SyncUpstreamFiles(SyncFixture):
         expected = original.replace(b"  auto_review:\r\n", b"  auto_review:\r\n    enabled: false\r\n")
         self.assertEqual((target / ".coderabbit.yaml").read_bytes(), expected)
 
+    def test_install_files_updates_coderabbit_after_blank_lines_and_empty_values(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / ".coderabbit.yaml").write_text("reviews:\n  auto_review:\n    enabled: false\n")
+        target = self.target({".coderabbit.yaml": ""})
+        path = target / ".coderabbit.yaml"
+        for newline in ("\n", "\r\n"):
+            for old, new in (("enabled: true", "enabled: false"), ("enabled:", "enabled: false"), ("enabled: # preserve", "enabled: false # preserve")):
+                with self.subTest(newline=newline, old=old):
+                    original = newline.join(("reviews:", "  auto_review:", "", "    " + old, ""))
+                    path.write_bytes(original.encode())
+                    self.cli("install-files", "--target", str(target), "--template", str(template))
+                    self.assertEqual(path.read_bytes(), original.replace(old, new).encode())
+
     def test_install_files_preserves_inline_array_and_comment(self):
         template = self.root / "template"
         template.mkdir()

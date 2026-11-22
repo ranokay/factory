@@ -290,6 +290,7 @@ class RepoSettings(unittest.TestCase):
         state["repo"]["fork"] = False
         state["topics"]["names"] = []
         state["writes"] = []
+        state["ruleset_requests"] = []
         self.write(state)
         dry_run = self.run_command()
         self.assertEqual(dry_run.returncode, 0, dry_run.stderr)
@@ -298,6 +299,10 @@ class RepoSettings(unittest.TestCase):
         result = self.run_command("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(self.path.read_text())
+        requests = state["ruleset_requests"]
+        self.assertEqual([request["method"] for request in requests], ["PUT", "DELETE"])
+        self.assertEqual(requests[0]["body"]["bypass_actors"], [])
+        self.assertIn("required_status_checks", {rule["type"] for rule in requests[0]["body"]["rules"]})
         self.assertEqual(len(state["rulesets"]), 1)
         self.assertEqual(state["rulesets"][0]["name"], "Factory default branch")
         self.assertEqual(state["rulesets"][0]["bypass_actors"], [])

@@ -654,7 +654,7 @@ def merge_greptile(existing, template):
 def yaml_block_end(lines, index, end, indent):
     for later in range(index + 1, end):
         line = lines[later]
-        if line and len(line) - len(line.lstrip()) <= indent:
+        if line.strip() and not line.lstrip().startswith("#") and len(line) - len(line.lstrip()) <= indent:
             return later
     return end
 
@@ -728,11 +728,15 @@ def merge_coderabbit(existing, template):
     indent = child_indent(lines, auto + 1, auto_end)
     if indent is None:
         indent = len(lines[auto]) - len(lines[auto].lstrip()) + 2
-    pattern = re.compile(rf"^{' ' * indent}enabled:\s*(.*)$")
+    pattern = re.compile(rf"^({' ' * indent}enabled:)([ \t]*)([^#\r\n]*)(#[^\r\n]*)?(\r?\n)?$")
     for index in range(auto + 1, auto_end):
         match = pattern.match(lines[index])
         if match:
-            lines[index] = re.sub(r"(enabled:\s*)\S+", rf"\g<1>{value}", lines[index], count=1)
+            before, spacing, old, comment, ending = match.groups()
+            trailing = old[len(old.rstrip()):]
+            if comment and not trailing:
+                trailing = " "
+            lines[index] = before + (spacing or " ") + value + trailing + (comment or "") + (ending or "")
             return "".join(lines)
     if not lines[auto].endswith("\n"):
         lines[auto] += newline
