@@ -109,22 +109,24 @@ transitions below, which are part of completing an authorized merge.
 
 Refresh the live head, base, checks, and review state immediately before merging.
 Use the repository's merge method; use squash when none is specified, and a merge
-commit for a Sync PR. Merge a Sync PR with
-`gh pr merge <n> --merge --match-head-commit <sha> --admin`; `--admin` is reserved
-for Sync PRs and matches the admin RepositoryRole bypass actor on the Personal Fork
-ruleset, whose reservation the promotion at
-https://github.com/ranokay/factory/issues/104 enforces. Bind every merge to the
-verified head with `--match-head-commit <sha>` or the forge's equivalent guard.
-Apply the repository merge preflight and execute only its printed, head-pinned
-command. Do not pass a
+commit for a Sync PR. For a Sync PR, run
+`~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n>`
+and execute only the command it prints. The command exits nonzero if any verdict is
+missing or any check run or commit status on the head is not successful; `skipped`
+and `neutral` pass only for a check the ruleset does not require. Its `--admin` flag
+stands in only for the Personal Fork ruleset's signature and unattributed-author
+rules, never for Gates or AI Review. Bind every merge to the verified head with
+`--match-head-commit <sha>` or the forge's equivalent guard. Apply the repository
+merge preflight and execute only its printed, head-pinned command. Do not pass a
 branch-deletion option to the merge command; all deletions happen in Clean up
 after their guards. If a repository's printed command includes one, omit it or
 report it. Changed state returns to verification once; a head that keeps moving
 means another session is active, so report instead of racing it.
 
 Respect branch protections, required approvals, and merge queues. Never bypass
-them, force a merge, or weaken a check to finish, except the Personal Fork ruleset
-bypass actor that a Sync PR's recorded `--admin` merge uses.
+them, force a merge, or weaken a check to finish, except the signature and
+unattributed-author bypass that a Sync PR's printed `--admin` command uses. Gates
+and AI Review are never bypassed.
 
 Verify that the forge reports the PR merged on the verified head and record the
 merge commit. A queued merge, enabled auto-merge, or an open PR after the command

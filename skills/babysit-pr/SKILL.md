@@ -107,11 +107,13 @@ Supervisor thread stands in for the Supervisor's confirmation.
   every upstream change. If you cannot tell whether the PR is a Sync PR, inside a
   Run send the `stopped` notice to the notice thread with the question so the
   Dispatcher parks the issue; otherwise report the question to the user. Do not
-  wake the Supervisor and do not guess. Once identified, merge a Sync PR with
-  `gh pr merge <n> --merge --match-head-commit <sha> --admin`; `--admin` is
-  reserved for Sync PRs and matches the admin RepositoryRole bypass actor on the
-  Personal Fork ruleset, whose reservation the promotion at
-  https://github.com/ranokay/factory/issues/104 enforces.
+  wake the Supervisor and do not guess. Once identified, run
+  `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n>`
+  and execute only the command it prints. The command exits nonzero if any verdict
+  is missing or any check run or commit status on the head is not successful;
+  `skipped` and `neutral` pass only for a check the ruleset does not require. Its
+  `--admin` flag stands in only for the Personal Fork ruleset's signature and
+  unattributed-author rules, never for Gates or AI Review.
 - Before readiness, a Sync PR passes
   `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;
   a missing verdict is a blocking finding. An Upstream Fork PR passes
@@ -171,9 +173,7 @@ quota-limited, or unavailable bot reviews are incomplete coverage, even when a
 badge is green. A success badge without evidence of a completed review is also
 incomplete; a completed review explicitly reporting no findings is valid coverage.
 Report incomplete optional coverage without blocking. If the forge enforces a
-bot check, report the external blocker instead of bypassing protection; the only
-exception is the Personal Fork ruleset bypass that a Sync PR's recorded `--admin`
-merge uses.
+bot check, report the external blocker instead of bypassing protection.
 
 Inside a Run, readiness includes the Supervisor's `supervise · merge` for this
 head, which follows the final Definition of Done check. Without it, the PR is not
@@ -188,14 +188,16 @@ actually ran. Every field is required.
 
 Once readiness is verified, merge as part of the default babysitting request,
 subject to the merge policy above. Use the repository's merge method, or squash
-when none is specified, and a merge commit for a Sync PR. Refresh the live head,
-base, checks, and review state immediately before merging. Bind the merge to the
-verified head, using `--match-head-commit` with `gh pr merge` or an equivalent
-supported guard. Apply any repository merge preflight. Changed state returns to
+when none is specified, and a merge commit for a Sync PR. For a Sync PR, run
+`~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n>`
+and execute only the command it prints; do not construct `--admin` yourself.
+Refresh the live head, base, checks, and review state immediately before merging.
+Bind the merge to the verified head, using `--match-head-commit` with `gh pr merge`
+or an equivalent supported guard. Apply any repository merge preflight. Changed state returns to
 inspection and validation. Respect branch protections, approval requirements,
 and merge queues. Never bypass them, force a merge, or weaken a check to finish the
-task, except the Personal Fork ruleset bypass actor that a Sync PR's recorded
-`--admin` merge uses.
+task, except the signature and unattributed-author bypass that a Sync PR's printed
+`--admin` command uses. Gates and AI Review are never bypassed.
 
 Verify that GitHub reports the PR merged and record the merge commit before
 cleanup. A queued merge or enabled auto-merge is still pending. If permissions

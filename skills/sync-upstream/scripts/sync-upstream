@@ -217,7 +217,7 @@ def verdict_rows(text):
     return rows
 
 
-def verdicts(args):
+def verdicts(args, quiet=False):
     if not args.first or not args.last:
         fork_default, upstream_default = default_branches(repo_info(reponame(args.repo)))
         args.first = args.first or f"origin/{fork_default}"
@@ -253,7 +253,52 @@ def verdicts(args):
         for problem in problems:
             print(f"verdicts: {problem}", file=sys.stderr)
         return 1
-    print(f"verdicts: {len(first_parent)} first-parent upstream changes, {len(first_parent)} verdicts")
+    if not quiet:
+        print(f"verdicts: {len(first_parent)} first-parent upstream changes, {len(first_parent)} verdicts")
+    return 0
+
+
+def merge_command(args):
+    repo = reponame(args.repo)
+    info = repo_info(repo)
+    head = gh("pr", "view", str(args.pr), "--repo", repo, "--json", "headRefOid", "--jq", ".headRefOid")
+    problems = []
+    if verdicts(argparse.Namespace(first=None, last=None, body_file=None, pr=args.pr, repo=repo), quiet=True):
+        problems.append("verdicts failed")
+    rules_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/rules/branches/{info['default_branch']}"]).stdout)
+    rules = [rule for page in rules_pages for rule in page]
+    required = set()
+    for rule in rules:
+        if rule.get("type") == "required_status_checks":
+            for check in rule.get("parameters", {}).get("required_status_checks", []):
+                if check.get("context"):
+                    required.add(check["context"])
+    check_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/commits/{head}/check-runs?per_page=100"]).stdout)
+    checks = [check for page in check_pages for check in page.get("check_runs", [])]
+    statuses = json.loads(gh("api", f"repos/{repo}/commits/{head}/status")).get("statuses", [])
+    for check in checks:
+        name = check.get("name", "")
+        conclusion = check.get("conclusion")
+        if check.get("status") != "completed" or conclusion is None:
+            problems.append(f"check {name} is pending")
+        elif conclusion == "success":
+            continue
+        elif conclusion in ("skipped", "neutral") and name not in required:
+            continue
+        else:
+            problems.append(f"check {name} concluded {conclusion}")
+    for status in statuses:
+        context = status.get("context", "")
+        if status.get("state") != "success":
+            problems.append(f"status {context} is {status.get('state')}")
+    for context in sorted(required):
+        if not any(check.get("name") == context for check in checks) and not any(status.get("context") == context for status in statuses):
+            problems.append(f"required check {context} has no result")
+    if problems:
+        for problem in problems:
+            print(f"merge-command: {problem}", file=sys.stderr)
+        return 1
+    print(f"gh pr merge {args.pr} -R {repo} --merge --match-head-commit {head} --admin")
     return 0
 
 
@@ -641,6 +686,10 @@ def main():
     verdict_parser.add_argument("--pr", type=int)
     verdict_parser.add_argument("--repo")
 
+    merge = commands.add_parser("merge-command", help="print the Sync PR merge command only when verdicts and checks pass")
+    merge.add_argument("--pr", type=int, required=True)
+    merge.add_argument("--repo")
+
     files = commands.add_parser("factory-files", help="fail when an Upstream Fork branch adds or edits Factory files")
     files.add_argument("--from", dest="first", required=True)
     files.add_argument("--head", default="HEAD")
@@ -678,6 +727,8 @@ def main():
         return 0
     if args.command == "verdicts":
         return verdicts(args)
+    if args.command == "merge-command":
+        return merge_command(args)
     if args.command == "factory-files":
         return factory_files(args)
     if args.command == "install-files":

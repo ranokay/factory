@@ -20,7 +20,24 @@ if args[:2] == ["api", "repos/" + state["name"]]:
 elif args[:2] == ["repo", "view"]:
     print(state.get("view", state["name"]))
 elif args[:2] == ["pr", "view"]:
-    print(state["body"])
+    field = args[args.index("--json") + 1] if "--json" in args else "body"
+    if field == "headRefOid":
+        print(state["head"])
+    else:
+        print(state["body"])
+elif args[0] == "api":
+    endpoint = next(x for x in args if x.startswith("repos/"))
+    key = endpoint.split("?", 1)[0]
+    if key.startswith("repos/" + state["name"] + "/rules/branches/"):
+        print(json.dumps([state.get("applied_rules", [])]))
+    elif key.endswith("/check-runs"):
+        head = key.split("/commits/")[1].removesuffix("/check-runs")
+        print(json.dumps([{"check_runs": state.get("check_runs", {}).get(head, [])}]))
+    elif key.endswith("/status"):
+        print(json.dumps({"state": "success", "statuses": state.get("statuses", [])}))
+    else:
+        print("unexpected gh api call: " + " ".join(args), file=sys.stderr)
+        sys.exit(1)
 else:
     print("unexpected gh call: " + " ".join(args), file=sys.stderr)
     sys.exit(1)
@@ -266,6 +283,62 @@ class SyncUpstream(unittest.TestCase):
         self.assertIn("unknown verdict", self.verdicts(repo, base, merge, unknown).stderr)
         outside = "## Verdicts\n\n- `deadbee` adopt — no such commit\n" + f"- `{first[:8]}` adopt — applies\n- `{merge[:8]}` adopt — merge\n"
         self.assertIn("names no commit", self.verdicts(repo, base, merge, outside).stderr)
+
+    def command_fixture(self, check_runs=None, statuses=None, body=None):
+        repo = self.init("command")
+        base = self.commit(repo, "file.txt", "base\n", "base")
+        self.git(repo, "update-ref", "refs/remotes/origin/main", base)
+        head = self.commit(repo, "upstream.txt", "upstream\n", "upstream change")
+        self.git(repo, "update-ref", "refs/remotes/upstream/main", head)
+        state = json.loads(self.repo_file.read_text())
+        state["head"] = head
+        state["body"] = body if body is not None else f"## Verdicts\n\n- `{head[:8]}` adopt — upstream change\n"
+        state["check_runs"] = {head: check_runs if check_runs is not None else [{"name": "Gates / Gates", "status": "completed", "conclusion": "success"}]}
+        state["statuses"] = statuses if statuses is not None else []
+        state["applied_rules"] = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Gates / Gates"}]}}]
+        self.repo_file.write_text(json.dumps(state))
+        return repo, head
+
+    def merge_command(self, repo, pr=7):
+        return self.cli("merge-command", "--repo", "o/r", "--pr", str(pr), cwd=repo, check=False)
+
+    def test_merge_command_prints_only_when_green(self):
+        repo, head = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "success"}, {"name": "CodeRabbit", "status": "completed", "conclusion": "skipped"}], statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}])
+        result = self.merge_command(repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"gh pr merge 7 -R o/r --merge --match-head-commit {head} --admin\n")
+
+    def test_merge_command_blocks_a_failing_check(self):
+        repo, _ = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "failure"}])
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Gates / Gates concluded failure", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_merge_command_blocks_a_pending_check(self):
+        repo, _ = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "in_progress", "conclusion": None}])
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Gates / Gates is pending", result.stderr)
+
+    def test_merge_command_blocks_a_missing_verdict(self):
+        repo, head = self.command_fixture(body="## Verdicts\n\n")
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(head, result.stderr)
+        self.assertIn("has no verdict", result.stderr)
+
+    def test_merge_command_blocks_a_required_skipped_check(self):
+        repo, _ = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "skipped"}])
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Gates / Gates concluded skipped", result.stderr)
+
+    def test_merge_command_blocks_a_failed_status(self):
+        repo, _ = self.command_fixture(statuses=[{"context": "Codacy Static Code Analysis", "state": "failure"}])
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Codacy Static Code Analysis is failure", result.stderr)
 
     def factory_repo(self):
         repo = self.init("factory")
