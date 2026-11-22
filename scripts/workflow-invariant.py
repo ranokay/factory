@@ -9,6 +9,15 @@ SECRET = re.compile(r"\bsecrets\b", re.IGNORECASE)
 AI_REVIEW = ("ai-review-caller.yml", "ai-review.yml")
 
 
+def triggers(workflow):
+    on = workflow.get("on")
+    if isinstance(on, dict):
+        return set(on)
+    if isinstance(on, str):
+        return {on}
+    return set(on or [])
+
+
 def main(directory, config_path):
     authors = json.loads(Path(config_path).read_text())["factory_authors"]
     if not authors or any(not re.fullmatch(r"[A-Za-z0-9-]+(?:\[bot\])?", name) for name in authors):
@@ -22,8 +31,10 @@ def main(directory, config_path):
     for path in paths:
         result = subprocess.run(["yq", "-o=json", ".", str(path)], capture_output=True, text=True, check=True)
         workflow = json.loads(result.stdout)
-        triggers = workflow.get("on", {})
-        names = set(triggers) if isinstance(triggers, dict) else ({triggers} if isinstance(triggers, str) else set(triggers))
+        names = triggers(workflow)
+        if not names:
+            failures.append(f"{path}: no workflow trigger")
+            continue
         target = "pull_request_target" in names
         if target:
             failures.append(f"{path}: pull_request_target is not permitted")
@@ -37,7 +48,7 @@ def main(directory, config_path):
             for guard in guards:
                 if guard != guard_required:
                     failures.append(f"{path}: AI Review author guard does not match factory_authors")
-        if not {"pull_request", "pull_request_target", "workflow_call"} & names:
+        if not {"pull_request", "pull_request_target", "workflow_run"} & names:
             continue
         for name, job in workflow.get("jobs", {}).items():
             guard = str(job.get("if", "")).strip().removeprefix("${{").removesuffix("}}").strip()

@@ -78,6 +78,14 @@ class WorkflowInvariant(unittest.TestCase):
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("has secrets without a same-repository guard", result.stderr)
+            path.write_text("name: release\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("no workflow trigger", result.stderr)
+            path.write_text('name: after\non:\n  workflow_run:\n    workflows: [Gates]\n    types: [completed]\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        env:\n          TOKEN: ${{ secrets.TOKEN }}\n')
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("has secrets without a same-repository guard", result.stderr)
 
 
 if __name__ == "__main__":

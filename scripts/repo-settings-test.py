@@ -181,7 +181,8 @@ class RepoSettings(unittest.TestCase):
         self.assertEqual(ruleset["bypass_actors"], [])
         self.assertEqual(ruleset["conditions"], {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}})
         rules = {rule["type"]: rule.get("parameters", {}) for rule in ruleset["rules"]}
-        self.assertEqual(list(rules), ["deletion", "non_fast_forward", "required_signatures", "pull_request", "required_status_checks"])
+        self.assertEqual(len(ruleset["rules"]), 5)
+        self.assertEqual(set(rules), {"deletion", "non_fast_forward", "required_signatures", "pull_request", "required_status_checks"})
         self.assertEqual(rules["pull_request"]["required_approving_review_count"], 0)
         self.assertTrue(rules["pull_request"]["required_review_thread_resolution"])
         self.assertNotIn("required_reviewers", rules["pull_request"])
