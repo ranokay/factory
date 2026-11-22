@@ -167,6 +167,48 @@ class RepoSettings(unittest.TestCase):
         self.assertIn("needs PR: .coderabbit.yaml: unreadable", result.stdout)
         self.assertIn("codacy", json.loads(self.path.read_text())["writes"])
 
+    def test_ruleset_body_matches_the_contract(self):
+        state = json.loads(self.path.read_text())
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ruleset = json.loads(self.path.read_text())["rulesets"][0]
+        self.assertEqual(ruleset["name"], "Factory default branch")
+        self.assertEqual(ruleset["target"], "branch")
+        self.assertEqual(ruleset["enforcement"], "active")
+        self.assertEqual(ruleset["bypass_actors"], [])
+        self.assertEqual(ruleset["conditions"], {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}})
+        rules = {rule["type"]: rule.get("parameters", {}) for rule in ruleset["rules"]}
+        self.assertEqual(list(rules), ["deletion", "non_fast_forward", "required_signatures", "pull_request", "required_status_checks"])
+        self.assertEqual(rules["pull_request"]["required_approving_review_count"], 0)
+        self.assertTrue(rules["pull_request"]["required_review_thread_resolution"])
+        self.assertNotIn("required_reviewers", rules["pull_request"])
+        self.assertNotIn("copilot_code_review", rules)
+        checks = rules["required_status_checks"]["required_status_checks"]
+        self.assertEqual([check["context"] for check in checks], ["Gates / Gates", "review / review", "Codacy Static Code Analysis"])
+        self.assertEqual([check["integration_id"] for check in checks[:2]], [15368, 15368])
+
+    def test_secret_is_set_only_when_missing_or_rotated(self):
+        state = json.loads(self.path.read_text())
+        state["secrets"] = [{"name": "OPENCODE_ZEN_API_KEY"}]
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("OPENCODE_ZEN_API_KEY", result.stdout)
+        result = self.run_command("--rotate-secret")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Actions secret OPENCODE_ZEN_API_KEY: set from 1Password", result.stdout)
+        self.assertNotIn("fixture-secret", result.stdout + result.stderr)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], [])
+        result = self.run_command("--apply", "--rotate-secret")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("secret", json.loads(self.path.read_text())["writes"])
+        self.assertNotIn("fixture-secret", result.stdout + result.stderr)
+
     def test_fork_refusal_and_private_split(self):
         state = json.loads(self.path.read_text())
         state["repo"].update({"fork": True, "private": True})

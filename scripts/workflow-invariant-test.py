@@ -67,5 +67,18 @@ class WorkflowInvariant(unittest.TestCase):
             self.assertIn("AI Review job has no author guard", result.stderr)
 
 
+    def test_secret_workflow_without_pull_request_trigger_is_allowed(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "release.yml"
+            path.write_text('name: release\non:\n  push:\n    tags: ["v*"]\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        env:\n          TOKEN: ${{ secrets.TOKEN }}\n')
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path.write_text('name: release\non: [push, pull_request]\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        env:\n          TOKEN: ${{ secrets.TOKEN }}\n')
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("has secrets without a same-repository guard", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
