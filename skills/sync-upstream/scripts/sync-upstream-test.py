@@ -342,15 +342,15 @@ class SyncUpstream(unittest.TestCase):
         self.assertIn("no merge rule", result.stderr)
         self.assertEqual((target / "extra.txt").read_text(), "upstream\n")
 
-    def test_install_files_reads_enabled_from_auto_review(self):
+    def test_install_files_scopes_coderabbit_enabled_to_auto_review(self):
         template = self.root / "template"
         template.mkdir()
-        (template / ".coderabbit.yaml").write_text("reviews:\n  tools:\n    enabled: true\n  auto_review:\n    enabled: false\n")
-        target = self.target({".coderabbit.yaml": "reviews:\n  auto_review:\n"})
+        (template / ".coderabbit.yaml").write_text("reviews:\n  auto_review:\n    enabled: false\n")
+        target = self.target({".coderabbit.yaml": "reviews:\n  auto_review:\n    other: true\n  tools:\n    enabled: true\n"})
         self.cli("install-files", "--target", str(target), "--template", str(template))
         text = (target / ".coderabbit.yaml").read_text()
-        self.assertIn("enabled: false", text)
-        self.assertNotIn("enabled: true", text)
+        self.assertIn("auto_review:\n    enabled: false\n    other: true", text)
+        self.assertIn("tools:\n    enabled: true", text)
 
     def test_sync_rejects_a_local_upstream_that_is_not_the_parent(self):
         pair = self.fork_pair()

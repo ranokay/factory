@@ -43,10 +43,10 @@ mirror.
 <this skill's directory>/scripts/sync-upstream install-files --check
 ```
 
-`--template DIR` installs a different template; the default is `project/`. If the
-check reports a change, run it without `--check` on an ordinary branch, commit, open
-a normal PR and squash-merge it. Do not mix these changes into a Sync PR: the Sync
-PR carries upstream changes only.
+`--template DIR` points the installer at a template other than `project/`; any file
+it has no merge rule for stops the run. If the check reports a change, run it without
+`--check` on an ordinary branch, commit, open a normal PR and squash-merge it. Do not
+mix these changes into a Sync PR: the Sync PR carries upstream changes only.
 
 `install-files` copies the Project Template where the upstream has no such file. Where
 upstream already has one, it adds only what the matching `project/` file requires:
@@ -55,7 +55,8 @@ upstream already has one, it adds only what the matching `project/` file require
 - `mise.toml`: the Factory includes and settings from `project/mise.toml`;
 - `renovate.json`: each Factory `extends` entry from `project/renovate.json`;
 - `.greptile/config.json`: each missing key from `project/.greptile/config.json`;
-- `.coderabbit.yaml`: the missing `enabled` value from `project/.coderabbit.yaml`;
+- `.coderabbit.yaml`: the `enabled` value from `project/.coderabbit.yaml`, set when
+  missing or different;
 - an existing `hk.pkl` is untouched and reports
   `hk.pkl: upstream has its own; Factory Gates not amended`.
 
