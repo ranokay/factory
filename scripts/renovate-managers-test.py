@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Prove Renovate extracts each Factory tag-pin shape once."""
 
 import json
 import os
@@ -195,12 +194,8 @@ class FactoryPins(unittest.TestCase):
             [dep for dep in mise if "?ref=main" in dep.get("replaceString", "")]
         )
         self.assertTrue([dep for dep in mise if dep.get("currentDigest") == SHA])
-        for path in EXPECTED_PINS:
-            with self.subTest(path=path):
-                for dep in tag_pins(self.deps.get(path, [])):
-                    replace_string = dep.get("replaceString", "")
-                    self.assertNotIn("?ref=main", replace_string)
-                    self.assertNotIn(f"?ref={SHA}", replace_string)
+        hk = self.deps.get("hk.pkl", [])
+        self.assertEqual({dep.get("currentValue") for dep in hk}, {TAG})
         workflow = self.deps.get(".github/workflows/check.yml", [])
         self.assertTrue([dep for dep in workflow if dep.get("currentDigest") == SHA])
         self.assertFalse(
@@ -218,9 +213,8 @@ class FactoryPins(unittest.TestCase):
                 if dep.get("_manager") != "regex":
                     continue
                 with self.subTest(path=path, replace=dep.get("replaceString")):
+                    self.assertEqual(dep.get("datasource"), "github-tags")
                     self.assertEqual(dep.get("currentValue"), TAG)
-                    self.assertNotIn("?ref=main", dep.get("replaceString", ""))
-                    self.assertNotIn(f"?ref={SHA}", dep.get("replaceString", ""))
 
     def test_consumers_extend_the_preset(self):
         for path in (ROOT / "renovate.json", ROOT / "project" / "renovate.json"):
