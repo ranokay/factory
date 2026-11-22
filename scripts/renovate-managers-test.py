@@ -68,8 +68,8 @@ EXPECTED_PINS = {
 def renovate_binary():
     override = os.environ.get("RENOVATE_BINARY")
     if override:
-        if not Path(override).exists():
-            raise AssertionError(f"RENOVATE_BINARY points to a missing path: {override}")
+        if not os.access(override, os.X_OK):
+            raise AssertionError(f"RENOVATE_BINARY is not executable: {override}")
         return override
     mise = shutil.which("mise")
     if mise is None:

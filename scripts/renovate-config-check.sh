@@ -29,7 +29,7 @@ if grep -q 'RE2 not usable' "$output"; then
 	printf '%s\n' 'RE2 failed to load; the Gate must evaluate regexes with RE2' >&2
 	exit 1
 fi
-if [ "$status" -ge 123 ]; then
+if [ "$status" -eq 126 ] || [ "$status" -eq 127 ]; then
 	cat "$output"
 	printf '%s\n' 'renovate-config-validator could not run' >&2
 	exit "$status"
