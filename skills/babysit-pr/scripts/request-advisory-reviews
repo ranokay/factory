@@ -23,9 +23,13 @@ def main():
     head = pr["head"]["sha"]
     checks = [check for page in pages(f"{prefix}/commits/{head}/check-runs?per_page=100") for check in page["check_runs"]]
     runs = [run for page in pages(f"{prefix}/actions/runs?event=pull_request&head_sha={head}&per_page=100") for run in page["workflow_runs"]]
-    completed = {str(r["id"]) for r in runs if r["name"] == "AI Review" and r["head_sha"] == head and r["status"] == "completed"}
-    if not any(c["status"] == "completed" and any(f"/actions/runs/{run}/" in (c.get("details_url") or "") for run in completed) for c in checks):
+    candidates = [r for r in runs if r["name"] == "AI Review" and r["head_sha"] == head]
+    latest = candidates[0] if candidates else None
+    matching = [c for c in checks if latest and f"/actions/runs/{latest['id']}/" in (c.get("details_url") or "")]
+    if not latest or latest["status"] != "completed" or not matching or any(c["status"] != "completed" for c in matching):
         raise ValueError("AI Review has not completed on the PR head")
+    conclusions = ", ".join(sorted({str(c.get("conclusion")) for c in matching}))
+    print(f"AI Review completed: workflow={latest.get('conclusion')}, checks={conclusions}")
     reviews = [item for page in pages(f"{prefix}/pulls/{number}/reviews?per_page=100") for item in page]
     config = json.loads((Path(__file__).resolve().parents[3] / "repo-settings.json").read_text())
     outside = pr["head"]["repo"] is None or pr["head"]["repo"]["full_name"].lower() != repo.lower() or pr["user"]["login"].lower() not in {name.lower() for name in config["factory_authors"]}

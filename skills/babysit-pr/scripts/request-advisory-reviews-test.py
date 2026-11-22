@@ -83,9 +83,16 @@ class ReviewRequests(unittest.TestCase):
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 3)
+        self.assertIn("workflow=skipped", result.stdout)
         result, writes = self.invoke({"head_repo": "other/r"})
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(writes, [])
+
+    def test_failed_review_conclusion_is_visible(self):
+        result, writes = self.invoke({"conclusion": "failure"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("workflow=failure", result.stdout)
+        self.assertEqual(len(writes), 3)
 
 
 if __name__ == "__main__":
