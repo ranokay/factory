@@ -111,10 +111,12 @@ class AiReviewWorkflowTests(unittest.TestCase):
         triggers = caller.split("on:\n", 1)[1].split("permissions:", 1)[0]
         self.assertEqual(re.findall(r"(?m)^  ([a-z_]+):", triggers), ["pull_request"])
         self.assertNotIn("pull_request_target:", caller + reusable)
+        authors = json.loads((ROOT / "repo-settings.json").read_text())["factory_authors"]
         for source in (caller, reusable):
             job = source.split("  review:\n", 1)[1]
             condition = re.search(r"(?m)^    if: (.+)$", job).group(1)
-            self.assertEqual(condition, "github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.user.login == 'ranokay' || github.event.pull_request.user.login == 'renovate[bot]')")
+            self.assertTrue(condition.startswith("github.event.pull_request.head.repo.full_name == github.repository"))
+            self.assertEqual(re.findall(r"pull_request\.user\.login == '([^']+)'", condition), authors)
 
     def test_missing_key_fails_before_review(self):
         source = workflow("ai-review.yml")

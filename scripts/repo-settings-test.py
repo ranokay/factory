@@ -158,6 +158,15 @@ class RepoSettings(unittest.TestCase):
         self.assertIn("no changes", result.stdout)
         self.assertEqual(json.loads(self.path.read_text())["writes"], [])
 
+    def test_unreadable_vendor_file_is_reported_and_other_drift_applies(self):
+        state = json.loads(self.path.read_text())
+        state["files"][".coderabbit.yaml"] = "reviews: [\n"
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("needs PR: .coderabbit.yaml: unreadable", result.stdout)
+        self.assertIn("codacy", json.loads(self.path.read_text())["writes"])
+
     def test_fork_refusal_and_private_split(self):
         state = json.loads(self.path.read_text())
         state["repo"].update({"fork": True, "private": True})

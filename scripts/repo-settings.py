@@ -69,7 +69,7 @@ def optional_gh(endpoint):
     return json.loads(result.stdout)
 
 
-def advisory_name(value):
+def is_advisory(value):
     return any(name in str(value).lower() for name in ("coderabbit", "copilot", "greptile", "devin"))
 
 
@@ -99,13 +99,13 @@ def advisory_drift(policy, rule):
     if isinstance(checks, dict):
         checks = checks.get("checks", []) + [{"context": c} for c in checks.get("contexts", [])]
     for check in checks:
-        if advisory_name(check.get("context", "")):
+        if is_advisory(check.get("context", "")):
             found.append(f"{policy}: required check {check['context']}")
     for item in params.get("required_reviewers", []):
         if item.get("minimum_approvals", 1) == 0:
             continue
         name = reviewer_name(item.get("reviewer", item))
-        if advisory_name(name):
+        if is_advisory(name):
             found.append(f"{policy}: required reviewer {name}")
     return found
 
@@ -225,8 +225,9 @@ def main():
             continue
         try:
             parsed = json.loads(command(["yq", "-o=json", ".", "-"], content))
-        except (RuntimeError, ValueError):
-            parsed = None
+        except (RuntimeError, ValueError) as error:
+            needs_pr.append(f"{path}: unreadable ({error}); expected {json.dumps(expected, sort_keys=True)}")
+            continue
         if not matches(parsed, expected):
             needs_pr.append(f"{path}: {json.dumps(parsed, sort_keys=True)} -> {json.dumps(expected, sort_keys=True)}")
 
