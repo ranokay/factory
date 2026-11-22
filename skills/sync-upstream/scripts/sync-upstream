@@ -402,12 +402,20 @@ def unfenced_lines(lines):
     comment = False
     inline = None
     in_list = False
+    list_indent = 0
+    fence_min_indent = 0
+    fence_max_indent = 3
     for index, line in enumerate(lines):
         raw = line.rstrip("\r\n")
+        indentation = len(raw) - len(raw.lstrip(" \t"))
         list_item = re.match(r"^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+", raw)
+        if fence is not None and fence_min_indent and raw.strip() and indentation < fence_min_indent:
+            fence = None
+            in_list = False
         if fence is None and not comment and inline is None:
             if list_item:
                 in_list = True
+                list_indent = list_item.end()
             elif raw.strip() and not raw.startswith((" ", "\t")):
                 in_list = False
             opening = re.match(r"^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+(`{3,}|~{3,})(.*)$", raw) if list_item else re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", raw)
@@ -415,10 +423,12 @@ def unfenced_lines(lines):
                 opening = re.match(r"^[ \t]+(`{3,}|~{3,})(.*)$", raw)
             if opening and not (opening.group(1)[0] == "`" and "`" in opening.group(2)):
                 fence = opening.group(1)
+                fence_min_indent = list_indent if in_list else 0
+                fence_max_indent = list_indent + 3 if in_list else 3
                 continue
         if fence is not None:
             closing = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", raw)
-            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence) and not closing.group(2).strip():
+            if closing and indentation <= fence_max_indent and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence) and not closing.group(2).strip():
                 fence = None
             continue
         visible = line
@@ -453,7 +463,12 @@ def unfenced_lines(lines):
                         offset = end
                     else:
                         offset += len(run)
-                        later = "".join(lines[index + 1:])
+                        paragraph = []
+                        for following in lines[index + 1:]:
+                            if not following.strip() or HEADING.match(following):
+                                break
+                            paragraph.append(following)
+                        later = "".join(paragraph)
                         if re.search(rf"(?<!`)`{{{len(run)}}}(?!`)", later):
                             inline = run
                             visible += " " * len(run)
@@ -462,7 +477,7 @@ def unfenced_lines(lines):
                 else:
                     visible += line[offset]
                     offset += 1
-        yield index, visible, comment
+        yield index, visible, comment or inline is not None
 
 
 def find_profiles_line(text):
