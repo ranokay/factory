@@ -15,6 +15,12 @@ ROOT = SCRIPT.parents[3]
 GIT = shutil.which("git") or "git"
 
 
+def run_process(args, cwd, env=None):
+    process = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 B607 -- the fixture runs local executables
+    stdout, stderr = process.communicate()
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
+
 class SyncUpstream(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -33,13 +39,13 @@ class SyncUpstream(unittest.TestCase):
         self.repo_file.write_text(json.dumps({"name": name, "info": {"fork": fork, "default_branch": default, "parent": {"full_name": parent, "default_branch": parent_default}, "topics": topics}}))
 
     def cli(self, *args, cwd=None, check=True):
-        result = subprocess.run([sys.executable, str(SCRIPT), *args], cwd=cwd or self.root, env=self.env, capture_output=True, text=True)  # nosec B603 -- the fixture runs the skill under test
+        result = run_process([sys.executable, str(SCRIPT), *args], cwd or self.root, self.env)
         if check and result.returncode:
             self.fail(result.stderr)
         return result
 
     def git(self, cwd, *args, check=True):
-        result = subprocess.run([GIT, "-C", str(cwd), *args], capture_output=True, text=True)  # nosec B603 B607 -- the fixture controls its own repositories
+        result = run_process([GIT, "-C", str(cwd), *args], None)
         if check and result.returncode:
             self.fail(result.stderr)
         return result
