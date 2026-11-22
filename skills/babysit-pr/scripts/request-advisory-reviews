@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -13,23 +12,6 @@ def gh(*args):
 
 def pages(endpoint):
     return gh("api", "--paginate", "--slurp", endpoint)
-
-
-def contains_command(body, pattern):
-    fence = None
-    for line in body.splitlines():
-        stripped = line.lstrip()
-        if fence:
-            if re.fullmatch(re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*", stripped):
-                fence = None
-            continue
-        opening = re.match(r"(`{3,}|~{3,})", stripped)
-        if opening:
-            fence = opening.group(1)
-            continue
-        if not line.startswith(("    ", "\t")) and not stripped.startswith(">") and re.match(pattern, stripped, re.IGNORECASE):
-            return True
-    return False
 
 
 def main():
@@ -61,12 +43,11 @@ def main():
     reviewed = any("copilot" in r["user"]["login"].lower() for r in reviews)
     if not requested and not reviewed:
         subprocess.run(["gh", "pr", "edit", number, "--repo", repo, "--add-reviewer", "@copilot"], check=True)
-    for bot, command, pattern, reviewers in (("coderabbit", "@coderabbitai review", r"@coderabbitai\s+(?:full\s+)?review\s*$", {"coderabbitai[bot]"}), ("greptile", "@greptileai", r"@greptile(?:ai)?(?:\s+(?:please\s+)?review(?:\s+this(?:\s+at\s+(?:apex|plus))?)?)?\s*$", {"greptile-apps[bot]", "greptile[bot]"})):
+    for bot, command, reviewers in (("coderabbit", "@coderabbitai review", {"coderabbitai[bot]"}), ("greptile", "@greptileai", {"greptile-apps[bot]", "greptile[bot]"})):
         marker = f"<!-- factory:advisory-review:{bot} -->"
-        requested_in_comment = any(contains_command(comment.get("body") or "", pattern) for comment in comments)
-        trusted_marker = any(contains_command(comment.get("body") or "", re.escape(marker) + r"\s*$") and (comment.get("user") or {}).get("login", "").lower() in {author.lower() for author in config["factory_authors"]} for comment in comments)
-        has_review = any((review.get("user") or {}).get("login", "").lower() in reviewers for review in reviews)
-        if not requested_in_comment and not trusted_marker and not has_review:
+        marked = any(marker in (comment.get("body") or "") for comment in comments)
+        has_activity = any((item.get("user") or {}).get("login", "").lower() in reviewers for item in [*reviews, *comments])
+        if not marked and not has_activity:
             subprocess.run(["gh", "pr", "comment", number, "--repo", repo, "--body", f"{command}\n\n{marker}"], check=True)
 
 

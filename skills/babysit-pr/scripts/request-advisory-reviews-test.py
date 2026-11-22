@@ -65,7 +65,7 @@ class ReviewRequests(unittest.TestCase):
         self.assertEqual(len(writes), 3)
 
     def test_partial_requests_and_timeline_are_respected(self):
-        state = {"timeline": [{"event": "review_requested", "requested_reviewer": {"login": "copilot-pull-request-reviewer[bot]"}}], "comments": [{"body": "@coderabbitai review"}]}
+        state = {"timeline": [{"event": "review_requested", "requested_reviewer": {"login": "copilot-pull-request-reviewer[bot]"}}], "comments": [{"body": "<!-- factory:advisory-review:coderabbit -->"}]}
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 1)
@@ -103,25 +103,15 @@ class ReviewRequests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(writes, [])
 
-    def test_manual_greptile_and_coderabbit_requests_are_not_repeated(self):
-        state = {"comments": [{"body": "@coderabbitai full review"}, {"body": "@greptile please review"}]}
+    def test_bot_review_and_comment_prevent_new_requests(self):
+        state = {"reviews": [{"user": {"login": "coderabbitai[bot]"}, "state": "COMMENTED"}], "comments": [{"user": {"login": "greptile-apps[bot]"}, "body": "reviewed"}]}
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 1)
         self.assertIn("@copilot", writes[0])
 
-    def test_quoted_comments_do_not_suppress_requests_but_trusted_marker_does(self):
-        state = {"comments": [{"body": "```\n@coderabbitai review\n```"}, {"body": "Discussing @greptile in this thread"}, {"body": "@coderabbitai review was discussed as an option"}, {"user": {"login": "ranokay"}, "body": "```\n<!-- factory:advisory-review:coderabbit -->\n```"}]}
-        result, writes = self.invoke(state)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(writes), 3)
-        state["comments"].append({"user": {"login": "ranokay"}, "body": "edited\n<!-- factory:advisory-review:coderabbit -->"})
-        result, writes = self.invoke(state)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(writes), 2)
-
-    def test_discussion_and_mismatched_fence_do_not_hide_requests(self):
-        state = {"comments": [{"body": "@greptile review was discussed as an option"}, {"user": {"login": "ranokay"}, "body": "```\n~~~\n<!-- factory:advisory-review:coderabbit -->\n```"}]}
+    def test_human_mentions_do_not_count_as_factory_requests(self):
+        state = {"comments": [{"user": {"login": "ranokay"}, "body": "@coderabbitai review"}, {"user": {"login": "ranokay"}, "body": "@greptile please review"}]}
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 3)
