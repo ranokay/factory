@@ -116,6 +116,10 @@ def extract(fixture):
         text=True,
         timeout=180,
     )
+    if "RE2 not usable" in result.stdout + result.stderr:
+        raise AssertionError(
+            "Renovate could not load RE2; the Gate would evaluate regexes with RegExp"
+        )
     if result.returncode:
         raise AssertionError(
             f"renovate extract exited {result.returncode}\n{result.stderr[-4000:]}"

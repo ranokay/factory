@@ -8,8 +8,8 @@ uv = "0.11.27"
 ffmpeg = "9.0.2"
 "npm:ctx7" = "0.12.2"
 "npm:rea-agents" = "6.5.0"
-# @yarnpkg/libzip@3.2.2 is a Yarn-published transitive without provenance; keep the exemption to that version (https://github.com/yarnpkg/berry).
-"npm:renovate" = { version = "44.257.9", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2"] }
+# re2's native module must build so the Gate evaluates regexes with RE2, and @yarnpkg/libzip@3.2.2 is a Yarn-published transitive without provenance (https://github.com/yarnpkg/berry).
+"npm:renovate" = { version = "44.257.9", allow_builds = ["re2"], trust_policy_excludes = ["@yarnpkg/libzip@3.2.2"] }
 
 [task_config]
 includes = ["profiles/universal/tasks.toml"]
