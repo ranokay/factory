@@ -293,7 +293,8 @@ def merge_command(args):
                     required.add(check["context"])
     check_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/commits/{head}/check-runs?per_page=100"]).stdout)
     checks = [check for page in check_pages for check in page.get("check_runs", [])]
-    statuses = json.loads(gh("api", f"repos/{repo}/commits/{head}/status")).get("statuses", [])
+    status_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/commits/{head}/statuses?per_page=100"]).stdout)
+    statuses = [status for page in status_pages for status in page]
     for check in checks:
         name = check.get("name", "")
         conclusion = check.get("conclusion")

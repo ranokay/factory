@@ -37,6 +37,8 @@ elif args[0] == "api":
         print(json.dumps([{"check_runs": state.get("check_runs", {}).get(head, [])}]))
     elif key.endswith("/status"):
         print(json.dumps({"state": "success", "statuses": state.get("statuses", [])}))
+    elif key.endswith("/statuses"):
+        print(json.dumps(state.get("status_pages", [state.get("statuses", [])])))
     else:
         print("unexpected gh api call: " + " ".join(args), file=sys.stderr)
         sys.exit(1)
@@ -385,6 +387,15 @@ class SyncUpstream(unittest.TestCase):
         result = self.merge_command(repo)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Codacy Static Code Analysis is failure", result.stderr)
+
+    def test_merge_command_reads_statuses_past_the_first_page(self):
+        repo, _ = self.command_fixture()
+        state = json.loads(self.repo_file.read_text())
+        state["status_pages"] = [[{"context": "early", "state": "success"}], [{"context": "late", "state": "failure"}]]
+        self.repo_file.write_text(json.dumps(state))
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("late is failure", result.stderr)
 
     def factory_repo(self):
         repo = self.init("factory")
