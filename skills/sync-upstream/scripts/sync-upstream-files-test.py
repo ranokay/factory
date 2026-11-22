@@ -101,18 +101,27 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertEqual((target / "AGENTS.md").read_bytes(), expected)
         self.cli("install-files", "--target", str(target), "--template", str(template), "--check")
 
+    def test_install_files_preserves_existing_profiles_line(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "AGENTS.md").write_text("# Factory\n\nProfiles: universal\n")
+        original = "# Title\n\nProfiles: custom\n"
+        target = self.target({"AGENTS.md": original})
+        self.cli("install-files", "--target", str(target), "--template", str(template), "--check")
+        self.assertEqual((target / "AGENTS.md").read_text(), original)
+
     def test_install_files_refuses_nonstandard_agents_preambles_without_writing(self):
         template = self.root / "template"
         template.mkdir()
         (template / "0.txt").write_text("new\n")
         (template / "AGENTS.md").write_text("# Factory\n\nProfiles: universal\n")
         target = self.target({"AGENTS.md": ""})
-        for original in ("```\n# comment\n```\n# Title\n", "<pre>\n# comment\n</pre>\n# Title\n", "    code\n# Title\n", "  # Title\n", "Title\n=====\n", "---\ntitle: Example\n---\n# Title\n", "text\n# Title\n", "\n"):
+        for original in ("```\n# comment\n```\n# Title\n", "<pre>\n# comment\n</pre>\n# Title\n", "    code\n# Title\n", "  # Title\n", "#\tTitle\n", "Title\n=====\n", "---\ntitle: Example\n---\n# Title\n", "text\n# Title\n", "\n"):
             with self.subTest(original=original):
                 (target / "AGENTS.md").write_text(original)
                 result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("install-files: AGENTS.md must begin with a # heading", result.stderr)
+                self.assertIn('install-files: AGENTS.md does not start with a "# " heading; add the Profiles line by hand', result.stderr)
                 self.assertEqual((target / "AGENTS.md").read_text(), original)
                 self.assertFalse((target / "0.txt").exists())
 

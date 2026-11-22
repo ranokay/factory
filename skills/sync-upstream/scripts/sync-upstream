@@ -412,8 +412,8 @@ def with_profiles_line(text, template):
     profiles = template_profiles_line(template)
     lines = text.splitlines(keepends=True)
     first = next((index for index, line in enumerate(lines) if line.strip()), None)
-    if first is None or not re.match(r"^#\s+\S", lines[first]):
-        raise SyncError("install-files: AGENTS.md must begin with a # heading; add the Profiles line by hand")
+    if first is None or not re.match(r"^# +\S", lines[first]):
+        raise SyncError('install-files: AGENTS.md does not start with a "# " heading; add the Profiles line by hand')
     newline = "\r\n" if "\r\n" in text else "\n"
     if not lines[first].endswith("\n"):
         lines[first] += newline
