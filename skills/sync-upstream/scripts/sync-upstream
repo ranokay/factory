@@ -1,0 +1,608 @@
+#!/usr/bin/env python3
+import argparse
+import datetime
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+FACTORY_ROOT = Path(__file__).resolve().parents[3]
+FORK_TOPICS = {"factory-personal-fork": "personal", "factory-upstream-fork": "upstream"}
+FACTORY_MARKERS = ("ranokay/factory",)
+PROFILES_LINE = re.compile(r"^\s*Profiles:")
+VERDICT_LINE = re.compile(r"^[-*]\s+`?([0-9a-fA-F]{7,40})`?\s+(\S+)")
+VERDICT_SECTION = re.compile(r"^##\s+Verdicts\s*$", re.IGNORECASE)
+SECTION = re.compile(r"^##\s+")
+HEADING = re.compile(r"^#\s+")
+VERDICTS = ("adopt", "keep-ours", "entangled")
+EXIT_MISSING_TOPIC = 3
+
+
+class SyncError(Exception):
+    def __init__(self, message, code=1):
+        super().__init__(message)
+        self.code = code
+
+
+def run(args, cwd=None, check=True):
+    result = subprocess.run(args, cwd=cwd or Path.cwd(), capture_output=True, text=True, errors="replace")
+    if check and result.returncode:
+        raise SyncError(f"{' '.join(args)} failed: {result.stderr.strip()}")
+    return result
+
+
+def git(*args, cwd=None, check=True):
+    return run(["git", *args], cwd=cwd, check=check)
+
+
+def gh(*args):
+    return run(["gh", *args]).stdout.strip()
+
+
+def reponame(repo):
+    if repo:
+        return repo
+    name = gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner")
+    if not name:
+        raise SyncError("cannot identify the repository; pass --repo OWNER/NAME")
+    return name
+
+
+def repo_info(repo):
+    return json.loads(gh("api", f"repos/{repo}"))
+
+
+def fork_kind(info, repo):
+    topics = set(info.get("topics") or [])
+    found = [topic for topic in FORK_TOPICS if topic in topics]
+    if not info.get("fork"):
+        return "personal-project"
+    if len(found) == 2:
+        raise SyncError(f"{repo} carries both fork topics; keep exactly one", 2)
+    if not found:
+        print(f"sync-upstream: {repo} has no fork topic.", file=sys.stderr)
+        print("Ask ranokay once, then record it from the Factory checkout:", file=sys.stderr)
+        print(f"  uv run scripts/repo-settings.py {repo} --fork-kind personal --apply", file=sys.stderr)
+        print(f"  uv run scripts/repo-settings.py {repo} --fork-kind upstream --apply", file=sys.stderr)
+        raise SyncError("", EXIT_MISSING_TOPIC)
+    return FORK_TOPICS[found[0]]
+
+
+def remote_identity(url):
+    value = url.strip()
+    for prefix in ("git@github.com:", "ssh://git@github.com/", "https://github.com/", "http://github.com/", "git://github.com/"):
+        if value.startswith(prefix):
+            value = value[len(prefix):]
+            break
+    if value.endswith(".git"):
+        value = value[:-4]
+    return value.strip("/").lower()
+
+
+def ensure_upstream(parent, dry_run):
+    existing = git("remote", "get-url", "upstream", check=False)
+    if existing.returncode == 0:
+        url = existing.stdout.strip()
+        if "github.com" in url and remote_identity(url) != parent.lower():
+            raise SyncError(f"remote upstream points at {remote_identity(url)}, not {parent.lower()}; fix it before syncing")
+        return
+    if dry_run:
+        print(f"git remote add upstream https://github.com/{parent}.git")
+        return
+    git("remote", "add", "upstream", f"https://github.com/{parent}.git")
+
+
+def sync_personal(default, date, dry_run):
+    if git("status", "--porcelain").stdout.strip():
+        raise SyncError("the worktree has uncommitted changes; commit or stash them before syncing")
+    base = f"origin/{default}"
+    if git("rev-parse", "--verify", base, check=False).returncode:
+        raise SyncError(f"{base} does not exist; fetch origin first")
+    branch = f"sync/upstream-{date}"
+    if git("rev-parse", "--verify", f"refs/heads/{branch}", check=False).returncode == 0:
+        if dry_run:
+            print(f"git switch {branch}")
+        else:
+            git("switch", branch)
+    elif git("rev-parse", "--verify", f"refs/remotes/origin/{branch}", check=False).returncode == 0:
+        if dry_run:
+            print(f"git switch -c {branch} --track origin/{branch}")
+        else:
+            git("switch", "-c", branch, "--track", f"origin/{branch}")
+    elif dry_run:
+        print(f"git switch -c {branch} {base}")
+    else:
+        git("switch", "-c", branch, base)
+    upstream = f"upstream/{default}"
+    if git("merge-base", "--is-ancestor", upstream, "HEAD", check=False).returncode == 0:
+        print(f"sync-upstream: {branch} already contains {upstream}")
+        return
+    message = f"Merge {upstream} into {default}"
+    if dry_run:
+        print(f"git merge --no-ff --no-edit -m '{message}' {upstream}")
+        return
+    result = git("merge", "--no-ff", "--no-edit", "-m", message, upstream, check=False)
+    if result.returncode:
+        conflicts = git("diff", "--name-only", "--diff-filter=U", check=False).stdout.strip()
+        print(f"sync-upstream: {branch} has conflicts", file=sys.stderr)
+        for path in conflicts.splitlines():
+            print(f"  {path}", file=sys.stderr)
+        print("Resolve them from the verdicts; never rebase or squash the merge.", file=sys.stderr)
+        raise SyncError("merge conflicted", 1)
+    print(f"sync-upstream: {branch} merges {upstream} into {default}")
+    print(f"next: sync-upstream body --from origin/{default} --to {upstream} > body.md")
+
+
+def sync_upstream(default, dry_run):
+    origin_ref = f"origin/{default}"
+    upstream_ref = f"upstream/{default}"
+    for ref in (origin_ref, upstream_ref):
+        if git("rev-parse", "--verify", ref, check=False).returncode:
+            raise SyncError(f"{ref} does not exist; fetch origin and upstream first")
+    if git("merge-base", "--is-ancestor", upstream_ref, origin_ref, check=False).returncode == 0:
+        print(f"sync-upstream: {origin_ref} already contains {upstream_ref}")
+        return
+    if git("merge-base", "--is-ancestor", origin_ref, upstream_ref, check=False).returncode != 0:
+        print(f"sync-upstream: {origin_ref} is not an ancestor of {upstream_ref}; refusing a non-fast-forward push", file=sys.stderr)
+        for line in git("log", "--left-right", "--oneline", f"{origin_ref}...{upstream_ref}").stdout.splitlines():
+            print(f"  {line}", file=sys.stderr)
+        raise SyncError("non-fast-forward", 1)
+    if dry_run:
+        print(f"git push origin {upstream_ref}:refs/heads/{default}")
+        return
+    git("push", "origin", f"{upstream_ref}:refs/heads/{default}")
+    print(f"sync-upstream: {default} fast-forwarded to {upstream_ref}")
+
+
+def first_parent_commits(first, last):
+    output = git("log", "--first-parent", "--reverse", "--format=%H%x09%s", f"{first}..{last}").stdout
+    return [tuple(line.split("\t", 1)) for line in output.splitlines() if line]
+
+
+def all_commits(first, last):
+    output = git("log", "--reverse", "--format=%H%x09%s", f"{first}..{last}").stdout
+    return [tuple(line.split("\t", 1)) for line in output.splitlines() if line]
+
+
+def body(args):
+    rows = first_parent_commits(args.first, args.last)
+    print("## Sync PR")
+    print()
+    print(f"Merges `{args.last}` into `{args.first}` with a real merge commit. Every first-parent upstream change has a verdict: `adopt` takes upstream's version, `keep-ours` keeps ours, `entangled` needs a hand resolution.")
+    print()
+    print("## Verdicts")
+    print()
+    for sha, subject in rows:
+        print(f"- `{sha[:8]}` <verdict> — {subject}")
+    if not rows:
+        print("No upstream changes.")
+
+
+def read_body(args):
+    if args.body_file:
+        return Path(args.body_file).read_text()
+    if args.pr is not None:
+        repo = reponame(args.repo)
+        return gh("pr", "view", str(args.pr), "--repo", repo, "--json", "body", "--jq", ".body")
+    raise SyncError("pass --body-file or --pr")
+
+
+def verdict_rows(text):
+    rows = []
+    inside = False
+    for line in text.splitlines():
+        if VERDICT_SECTION.match(line):
+            inside = True
+            continue
+        if inside and SECTION.match(line):
+            break
+        if not inside:
+            continue
+        match = VERDICT_LINE.match(line)
+        if match:
+            rows.append((match.group(1).lower(), match.group(2)))
+    return rows
+
+
+def verdicts(args):
+    if not args.first or not args.last:
+        info = repo_info(reponame(args.repo))
+        default = info["default_branch"]
+        args.first = args.first or f"origin/{default}"
+        args.last = args.last or f"upstream/{default}"
+    first_parent = first_parent_commits(args.first, args.last)
+    everything = all_commits(args.first, args.last)
+    rows = verdict_rows(read_body(args))
+    problems = []
+    accepted = {}
+    for prefix, verdict in rows:
+        if verdict == "<verdict>":
+            problems.append(f"{prefix} still has the <verdict> placeholder")
+            continue
+        if verdict not in VERDICTS:
+            problems.append(f"{prefix} has unknown verdict {verdict}")
+            continue
+        matches = [sha for sha, _ in everything if sha.startswith(prefix)]
+        if not matches:
+            problems.append(f"{prefix} names no commit in {args.first}..{args.last}")
+            continue
+        if len(matches) > 1:
+            problems.append(f"{prefix} is an ambiguous commit prefix")
+            continue
+        sha = matches[0]
+        if sha in accepted and accepted[sha] != verdict:
+            problems.append(f"{sha[:8]} has more than one verdict")
+            continue
+        accepted[sha] = verdict
+    missing = [(sha, subject) for sha, subject in first_parent if sha not in accepted]
+    for sha, subject in missing:
+        problems.append(f"{sha} {subject} has no verdict")
+    if problems:
+        for problem in problems:
+            print(f"verdicts: {problem}", file=sys.stderr)
+        return 1
+    print(f"verdicts: {len(first_parent)} first-parent upstream changes, {len(first_parent)} verdicts")
+    return 0
+
+
+def changed_files(first, last):
+    output = git("diff", "--name-status", "--no-renames", f"{first}...{last}").stdout
+    rows = []
+    for line in output.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 2:
+            rows.append((parts[0], parts[1]))
+    return rows
+
+
+def added_lines(first, last, path):
+    output = git("diff", "--unified=0", f"{first}...{last}", "--", path).stdout
+    return [line[1:] for line in output.splitlines() if line.startswith("+") and not line.startswith("+++")]
+
+
+def factory_paths():
+    template = FACTORY_ROOT / "project"
+    if not template.is_dir():
+        raise SyncError(f"{template} is missing")
+    paths = {str(path.relative_to(template)) for path in template.rglob("*") if path.is_file()}
+    paths.update({"CLAUDE.md", "GLOSSARY.md"})
+    return paths, template
+
+
+def is_workflow(path):
+    parts = Path(path).parts
+    return len(parts) == 3 and parts[0] == ".github" and parts[1] == "workflows" and parts[2].endswith(".yml")
+
+
+def factory_files(args):
+    paths, _ = factory_paths()
+    problems = []
+    for status, path in changed_files(args.first, args.head):
+        lines = added_lines(args.first, args.head, path) if status != "D" else []
+        if path in paths:
+            if status == "A":
+                problems.append(f"{path}: added Factory file")
+                continue
+            if status == "D":
+                continue
+            if any(marker in line for line in lines for marker in FACTORY_MARKERS):
+                problems.append(f"{path}: adds ranokay/factory")
+            if any(PROFILES_LINE.match(line) for line in lines):
+                problems.append(f"{path}: adds a Profiles: line")
+        elif is_workflow(path):
+            if any(marker in line for line in lines for marker in FACTORY_MARKERS):
+                problems.append(f"{path}: adds ranokay/factory")
+    for problem in problems:
+        print(f"factory-files: {problem}", file=sys.stderr)
+    if problems:
+        return 1
+    print("factory-files: none")
+    return 0
+
+
+def with_profiles_line(text):
+    fenced = False
+    for line in text.splitlines():
+        if line.strip().startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if not fenced and PROFILES_LINE.match(line):
+            return text, False
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if HEADING.match(line):
+            lines[index + 1:index + 1] = ["", "Profiles: universal"]
+            return "\n".join(lines) + "\n", True
+    return "\n".join(["Profiles: universal", ""] + lines) + "\n", True
+
+
+def section_bounds(lines, section):
+    if section is None:
+        for index, line in enumerate(lines):
+            if re.match(r"^\s*\[", line):
+                return 0, index
+        return 0, len(lines)
+    for index, line in enumerate(lines):
+        if re.match(rf"^\s*\[{re.escape(section)}\]\s*$", line):
+            end = len(lines)
+            for later in range(index + 1, len(lines)):
+                if re.match(r"^\s*\[", lines[later]):
+                    end = later
+                    break
+            return index + 1, end
+    return None, None
+
+
+def add_array_entry(text, key, value, section=None):
+    lines = text.splitlines()
+    start, end = section_bounds(lines, section)
+    if start is None:
+        return text.rstrip("\n") + f'\n\n[{section}]\n{key} = [{json.dumps(value)}]\n'
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*\[")
+    for index in range(start, end):
+        if pattern.match(lines[index]):
+            if "]" in lines[index].split("[", 1)[1]:
+                prefix = lines[index].split("=", 1)[0].rstrip()
+                values = tomllib.loads(text)
+                for name in (section.split(".") if section else []):
+                    values = values[name]
+                entries = values[key]
+                block = [f"{prefix} = ["]
+                block.extend(f'  {json.dumps(entry)},' for entry in entries)
+                block.append(f'  {json.dumps(value)},')
+                block.append("]")
+                lines[index:index + 1] = block
+            else:
+                lines.insert(index + 1, f'  {json.dumps(value)},')
+            return "\n".join(lines) + "\n"
+    insert = f'{key} = [{json.dumps(value)}]'
+    if section is None:
+        lines.insert(start, insert)
+        if start < len(lines) - 1 and lines[start + 1].strip() != "":
+            lines.insert(start + 1, "")
+    else:
+        lines.insert(start, insert)
+    return "\n".join(lines) + "\n"
+
+
+def ensure_settings(text):
+    data = tomllib.loads(text)
+    if (data.get("settings") or {}).get("experimental") is True:
+        return text
+    lines = text.splitlines()
+    start, end = section_bounds(lines, "settings")
+    if start is None:
+        return text.rstrip("\n") + "\n\n[settings]\nexperimental = true\n"
+    for index in range(start, end):
+        if re.match(r"^\s*experimental\s*=", lines[index]):
+            prefix = lines[index].split("=", 1)[0].rstrip()
+            lines[index] = f"{prefix} = true"
+            return "\n".join(lines) + "\n"
+    lines.insert(start, "experimental = true")
+    return "\n".join(lines) + "\n"
+
+
+def merge_mise(existing, template):
+    template_data = tomllib.loads(template)
+    data = tomllib.loads(existing)
+    text = existing
+    for url in template_data.get("include", []):
+        if url not in data.get("include", []):
+            text = add_array_entry(text, "include", url)
+    for url in (template_data.get("task_config") or {}).get("includes", []):
+        if url not in (data.get("task_config") or {}).get("includes", []):
+            text = add_array_entry(text, "includes", url, "task_config")
+    text = ensure_settings(text)
+    tomllib.loads(text)
+    return text
+
+
+def merge_renovate(existing, template):
+    data = json.loads(existing)
+    if not isinstance(data, dict):
+        raise SyncError("renovate.json must be an object")
+    wanted = "github>ranokay/factory"
+    extends = data.get("extends")
+    if extends is None:
+        data["extends"] = [wanted]
+    elif isinstance(extends, str):
+        if extends == wanted:
+            return existing
+        data["extends"] = [extends, wanted]
+    elif isinstance(extends, list):
+        if wanted in extends:
+            return existing
+        extends.append(wanted)
+    else:
+        raise SyncError("renovate.json extends must be a string or a list")
+    return json.dumps(data, indent=2) + "\n"
+
+
+def merge_greptile(existing, template):
+    data = json.loads(existing)
+    if not isinstance(data, dict):
+        raise SyncError(".greptile/config.json must be an object")
+    if "autoReview" in data and "statusCheck" in data:
+        return existing
+    data.setdefault("autoReview", [])
+    data.setdefault("statusCheck", False)
+    return json.dumps(data, indent=2) + "\n"
+
+
+def merge_coderabbit(existing, template):
+    lines = existing.splitlines()
+    reviews = None
+    for index, line in enumerate(lines):
+        if re.match(r"^reviews:\s*(#.*)?$", line):
+            reviews = index
+            break
+        if re.match(r"^reviews:\s*\S", line):
+            raise SyncError(".coderabbit.yaml reviews must be a block")
+    if reviews is None:
+        return existing.rstrip("\n") + "\nreviews:\n  auto_review:\n    enabled: false\n"
+    end = len(lines)
+    for index in range(reviews + 1, len(lines)):
+        if lines[index] and not lines[index].startswith((" ", "\t")):
+            end = index
+            break
+    auto = None
+    for index in range(reviews + 1, end):
+        match = re.match(r"^(\s+)auto_review:\s*(#.*)?$", lines[index])
+        if match:
+            auto = index
+            break
+        if re.match(r"^\s+auto_review:\s*\S", lines[index]):
+            raise SyncError(".coderabbit.yaml auto_review must be a block")
+    if auto is None:
+        lines[reviews + 1:reviews + 1] = ["  auto_review:", "    enabled: false"]
+        return "\n".join(lines) + "\n"
+    auto_end = end
+    for index in range(auto + 1, end):
+        if lines[index] and not lines[index].startswith((" ", "\t")):
+            auto_end = index
+            break
+    for index in range(auto + 1, auto_end):
+        match = re.match(r"^(\s+)enabled:\s*(.*)$", lines[index])
+        if match:
+            lines[index] = f"{match.group(1)}enabled: false"
+            return "\n".join(lines) + "\n"
+    lines.insert(auto + 1, "    enabled: false")
+    return "\n".join(lines) + "\n"
+
+
+def merge_text(path, template_root, existing, template):
+    name = path.relative_to(template_root).as_posix()
+    if name == "AGENTS.md":
+        return with_profiles_line(existing)
+    if name == "mise.toml":
+        merged = merge_mise(existing, template)
+        return merged, merged != existing
+    if name == "hk.pkl":
+        print("hk.pkl: upstream has its own; Factory Gates not amended")
+        return existing, False
+    if name == "renovate.json":
+        merged = merge_renovate(existing, template)
+        return merged, merged != existing
+    if name == ".greptile/config.json":
+        merged = merge_greptile(existing, template)
+        return merged, merged != existing
+    if name == ".coderabbit.yaml":
+        merged = merge_coderabbit(existing, template)
+        return merged, merged != existing
+    print(f"{name}: upstream has its own; not replaced")
+    return existing, False
+
+
+def install_files(args):
+    template = Path(args.template) if args.template else FACTORY_ROOT / "project"
+    if not template.is_dir():
+        raise SyncError(f"{template} is missing")
+    target = Path(args.target)
+    changed = False
+    for source in sorted(path for path in template.rglob("*") if path.is_file()):
+        destination = target / source.relative_to(template)
+        name = destination.relative_to(target).as_posix()
+        content = source.read_text()
+        if not destination.exists():
+            changed = True
+            if args.check:
+                print(f"would create: {name}")
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+                print(f"created: {name}")
+            continue
+        merged, differs = merge_text(source, template, destination.read_text(), content)
+        if not differs:
+            continue
+        changed = True
+        if args.check:
+            print(f"would change: {name}")
+        else:
+            destination.write_text(merged)
+            print(f"changed: {name}")
+    if args.check and changed:
+        return 1
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Reconcile a fork with its upstream, or check the rules that keep it safe.")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    kind = commands.add_parser("kind", help="print the fork kind recorded in the repository topic")
+    kind.add_argument("--repo")
+
+    sync = commands.add_parser("sync", help="prepare a Personal Fork Sync PR or fast-forward an Upstream Fork")
+    sync.add_argument("--repo")
+    sync.add_argument("--date", default=datetime.date.today().isoformat())
+    sync.add_argument("--dry-run", action="store_true")
+
+    body_parser = commands.add_parser("body", help="draft a Sync PR body with a verdict row per first-parent upstream commit")
+    body_parser.add_argument("--from", dest="first", required=True)
+    body_parser.add_argument("--to", dest="last", required=True)
+
+    verdict_parser = commands.add_parser("verdicts", help="require a verdict for every first-parent upstream change")
+    verdict_parser.add_argument("--from", dest="first")
+    verdict_parser.add_argument("--to", dest="last")
+    verdict_parser.add_argument("--body-file")
+    verdict_parser.add_argument("--pr", type=int)
+    verdict_parser.add_argument("--repo")
+
+    files = commands.add_parser("factory-files", help="fail when an Upstream Fork branch adds or edits Factory files")
+    files.add_argument("--from", dest="first", required=True)
+    files.add_argument("--head", default="HEAD")
+
+    install = commands.add_parser("install-files", help="install the Project Template with the smallest diff")
+    install.add_argument("--target", default=".")
+    install.add_argument("--template")
+    install.add_argument("--check", action="store_true")
+
+    args = parser.parse_args()
+    if args.command == "kind":
+        repo = reponame(args.repo)
+        print(fork_kind(repo_info(repo), repo))
+        return 0
+    if args.command == "sync":
+        repo = reponame(args.repo)
+        info = repo_info(repo)
+        kind = fork_kind(info, repo)
+        if kind == "personal-project":
+            raise SyncError(f"{repo} is not a fork; there is no upstream to sync", 2)
+        parent = (info.get("parent") or {}).get("full_name")
+        if not parent:
+            raise SyncError(f"{repo} does not name its upstream parent", 2)
+        ensure_upstream(parent, args.dry_run)
+        if not args.dry_run:
+            git("fetch", "origin")
+            git("fetch", "upstream")
+        if kind == "personal":
+            sync_personal(info["default_branch"], args.date, args.dry_run)
+        else:
+            sync_upstream(info["default_branch"], args.dry_run)
+        return 0
+    if args.command == "body":
+        body(args)
+        return 0
+    if args.command == "verdicts":
+        return verdicts(args)
+    if args.command == "factory-files":
+        return factory_files(args)
+    if args.command == "install-files":
+        return install_files(args)
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except SyncError as error:
+        if str(error):
+            print(f"sync-upstream: {error}", file=sys.stderr)
+        sys.exit(error.code)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError, tomllib.TOMLDecodeError) as error:
+        print(f"sync-upstream: {error}", file=sys.stderr)
+        sys.exit(1)

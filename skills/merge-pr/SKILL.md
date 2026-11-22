@@ -52,7 +52,12 @@ Outside Contributor PR never auto-merges. If you cannot tell whether the PR is a
 Sync PR, report the question to the user and stop. A PR that touches a Protected
 Surface but lacks the `protected` label is not ready: report it and stop. Inside
 a Run, readiness includes the Supervisor's `supervise · merge` for this head;
-without it, report that the PR needs `babysit-pr` and stop.
+without it, report that the PR needs `babysit-pr` and stop. A Sync PR is ready
+only after `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream
+verdicts --pr <n>` passes; an Upstream Fork PR only after
+`~/Developer/factory/skills/sync-upstream/scripts/sync-upstream factory-files
+--from upstream/<default>` reports none. A failure is a concrete blocker: report
+it and stop.
 
 ## Verify readiness
 

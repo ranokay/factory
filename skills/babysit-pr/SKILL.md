@@ -108,6 +108,11 @@ Supervisor thread stands in for the Supervisor's confirmation.
   Run send the `stopped` notice to the notice thread with the question so the
   Dispatcher parks the issue; otherwise report the question to the user. Do not
   wake the Supervisor and do not guess.
+- Before readiness, a Sync PR passes
+  `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;
+  a missing verdict is a blocking finding. An Upstream Fork PR passes
+  `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream factory-files
+  --from upstream/<default>`; a hit is a blocking finding and the PR never merges.
 
 Repository merge rules still win over these defaults.
 
