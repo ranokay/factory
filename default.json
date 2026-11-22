@@ -37,7 +37,7 @@
       "description": "Update the Factory Profile that an hk config amends at a release tag.",
       "managerFilePatterns": ["/(^|/)hk\\.pkl$/"],
       "matchStrings": [
-        "https://raw\\.githubusercontent\\.com/ranokay/factory/(?<currentValue>v\\d+\\.\\d+\\.\\d+)/profiles/"
+        "(?:^|\\n)amends\\s+\"https://raw\\.githubusercontent\\.com/ranokay/factory/(?<currentValue>v\\d+\\.\\d+\\.\\d+)/profiles/"
       ],
       "depNameTemplate": "ranokay/factory",
       "datasourceTemplate": "github-tags",

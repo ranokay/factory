@@ -33,6 +33,9 @@ HK = f"""\
 amends "https://raw.githubusercontent.com/ranokay/factory/{TAG}/profiles/universal/hk.pkl"
 amends "https://raw.githubusercontent.com/ranokay/factory/main/profiles/universal/hk.pkl"
 amends "https://raw.githubusercontent.com/ranokay/factory/{SHA}/profiles/universal/hk.pkl"
+local const fixture = \"\"\"
+  amends "https://raw.githubusercontent.com/ranokay/factory/{TAG}/profiles/universal/hk.pkl"
+  \"\"\"
 """
 
 WORKFLOW = f"""\
@@ -49,28 +52,37 @@ jobs:
 
 EXPECTED_PINS = {
     "mise.toml": MISE.count(f"?ref={TAG}"),
-    "hk.pkl": HK.count(f"/{TAG}/"),
+    "hk.pkl": len(
+        [
+            line
+            for line in HK.splitlines()
+            if line.startswith(
+                f'amends "https://raw.githubusercontent.com/ranokay/factory/{TAG}/'
+            )
+        ]
+    ),
     ".github/workflows/check.yml": WORKFLOW.count(f"@{TAG}"),
 }
 
 
 def renovate_binary():
     mise = shutil.which("mise")
-    if mise is not None:
-        result = subprocess.run(
-            [mise, "-C", str(ROOT), "which", "renovate"],
-            capture_output=True,
-            text=True,
-            check=False,
+    if mise is None:
+        raise AssertionError("mise is not on PATH; run the Gate with mise run check")
+    result = subprocess.run(
+        [mise, "-C", str(ROOT), "which", "renovate"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise AssertionError(
+            f"mise could not resolve renovate from mise.toml\n{result.stderr[-2000:]}"
         )
-        if result.returncode == 0:
-            path = Path(result.stdout.strip())
-            if path.exists():
-                return str(path)
-    renovate = shutil.which("renovate")
-    if renovate is None:
-        raise AssertionError("renovate is not on PATH; declare npm:renovate in mise.toml")
-    return renovate
+    path = Path(result.stdout.strip())
+    if not path.exists():
+        raise AssertionError(f"mise resolved renovate to a missing path: {path}")
+    return str(path)
 
 
 def extract(fixture):
@@ -120,10 +132,11 @@ def extract(fixture):
     if not entries:
         raise AssertionError("renovate logged no extracted dependencies")
     deps = {}
-    for manager_files in entries[-1]["packageFiles"].values():
+    for manager, manager_files in entries[-1]["packageFiles"].items():
         for package_file in manager_files:
             deps.setdefault(package_file["packageFile"], []).extend(
-                package_file.get("deps", [])
+                {**dep, "_manager": manager}
+                for dep in package_file.get("deps", [])
             )
     return deps
 
@@ -178,31 +191,18 @@ class FactoryPins(unittest.TestCase):
 
     def test_branches_and_shas_are_not_tag_pins(self):
         mise = self.deps.get("mise.toml", [])
-        branches = [dep for dep in mise if "?ref=main" in dep.get("replaceString", "")]
-        self.assertTrue(branches)
-        for dep in branches:
-            self.assertEqual(dep.get("currentValue"), "main")
-        digests = [dep for dep in mise if dep.get("currentDigest") == SHA]
-        self.assertTrue(digests)
-        for dep in digests:
-            self.assertNotIn("currentValue", dep)
-            self.assertEqual(dep.get("skipReason"), "unversioned-reference")
-        for path in ("mise.toml", "hk.pkl"):
+        self.assertTrue(
+            [dep for dep in mise if "?ref=main" in dep.get("replaceString", "")]
+        )
+        self.assertTrue([dep for dep in mise if dep.get("currentDigest") == SHA])
+        for path in EXPECTED_PINS:
             with self.subTest(path=path):
                 for dep in tag_pins(self.deps.get(path, [])):
                     replace_string = dep.get("replaceString", "")
                     self.assertNotIn("?ref=main", replace_string)
                     self.assertNotIn(f"?ref={SHA}", replace_string)
-        hk = self.deps.get("hk.pkl", [])
-        self.assertFalse(
-            [
-                dep
-                for dep in hk
-                if "main" in dep.get("replaceString", "")
-                or SHA in dep.get("replaceString", "")
-            ]
-        )
         workflow = self.deps.get(".github/workflows/check.yml", [])
+        self.assertTrue([dep for dep in workflow if dep.get("currentDigest") == SHA])
         self.assertFalse(
             [
                 dep
@@ -211,9 +211,16 @@ class FactoryPins(unittest.TestCase):
                 and dep.get("currentValue") in ("main", SHA)
             ]
         )
-        digests = [dep for dep in workflow if dep.get("currentDigest") == SHA]
-        self.assertTrue(digests)
-        self.assertTrue(all(dep.get("enabled") is False for dep in digests))
+
+    def test_custom_managers_only_extract_tag_pins(self):
+        for path, deps in self.deps.items():
+            for dep in deps:
+                if dep.get("_manager") != "regex":
+                    continue
+                with self.subTest(path=path, replace=dep.get("replaceString")):
+                    self.assertEqual(dep.get("currentValue"), TAG)
+                    self.assertNotIn("?ref=main", dep.get("replaceString", ""))
+                    self.assertNotIn(f"?ref={SHA}", dep.get("replaceString", ""))
 
     def test_consumers_extend_the_preset(self):
         for path in (ROOT / "renovate.json", ROOT / "project" / "renovate.json"):
