@@ -48,14 +48,13 @@ a normal PR and squash-merge it. Do not mix these changes into a Sync PR: the Sy
 PR carries upstream changes only.
 
 `install-files` copies the Project Template where the upstream has no such file. Where
-upstream already has one, it adds only what the Factory needs:
+upstream already has one, it adds only what the matching `project/` file requires:
 
-- `AGENTS.md`: a missing `Profiles:` line;
-- `mise.toml`: the Factory include, `[settings] experimental = true`, and the Factory
-  task include;
-- `renovate.json`: `github>ranokay/factory` in `extends`;
-- `.greptile/config.json`: missing `autoReview` and `statusCheck`;
-- `.coderabbit.yaml`: missing `reviews.auto_review.enabled: false`;
+- `AGENTS.md`: the missing `Profiles:` line from `project/AGENTS.md`;
+- `mise.toml`: the Factory includes and settings from `project/mise.toml`;
+- `renovate.json`: each Factory `extends` entry from `project/renovate.json`;
+- `.greptile/config.json`: each missing key from `project/.greptile/config.json`;
+- `.coderabbit.yaml`: the missing `enabled` value from `project/.coderabbit.yaml`;
 - an existing `hk.pkl` is untouched and reports
   `hk.pkl: upstream has its own; Factory Gates not amended`.
 
@@ -122,9 +121,10 @@ merges its PR.
 <this skill's directory>/scripts/sync-upstream sync
 ```
 
-This reads the topic and pushes `upstream/<default>` to `<default>` only when
-`origin/<default>` is an ancestor. A non-fast-forward prints the divergent commits
-and stops; change the branch by an ordinary PR instead, never by a force-push.
+This reads the topic and pushes upstream's default branch to the fork's default
+branch only when the fork's default is an ancestor. The two defaults may differ; each
+is read from GitHub. A non-fast-forward prints the divergent commits and stops; change
+the branch by an ordinary PR instead, never by a force-push.
 
 ### 2. A Run from an Upstream Fork
 
@@ -154,4 +154,6 @@ Stop and report rather than working around any of these:
   `entangled` verdict and stop if the resolution needs a decision only ranokay can make.
 - `verdicts` fails: every upstream change needs a verdict before the PR is ready.
 - `factory-files` fails on an Upstream Fork: remove the Factory change from the branch.
+- `install-files` finds an existing Factory file with no merge rule: add the rule,
+  never replace the file.
 - The repository's Gate fails: it is a real finding, not a flake to bypass.

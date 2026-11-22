@@ -67,7 +67,9 @@ def repo_info(repo):
 
 def default_branches(info):
     fork_default = info["default_branch"]
-    upstream_default = (info.get("parent") or {}).get("default_branch") or fork_default
+    upstream_default = (info.get("parent") or {}).get("default_branch")
+    if not upstream_default:
+        raise SyncError("the repository has no upstream parent; pass --from and --to")
     return fork_default, upstream_default
 
 
@@ -105,8 +107,14 @@ def ensure_upstream(parent):
         if "github.com" in url:
             if remote_identity(url) != parent.lower():
                 raise SyncError(f"remote upstream points at {remote_identity(url)}, not {parent.lower()}; fix it before syncing")
-        elif not Path(url.removeprefix("file://")).exists():
+            return
+        path = Path(url.removeprefix("file://"))
+        if not path.exists():
             raise SyncError(f"remote upstream points at {url}, not {parent}; fix it before syncing")
+        gitdir = path / ".git" if (path / ".git").is_dir() else path
+        origin = git("--git-dir", str(gitdir), "config", "--get", "remote.origin.url", check=False)
+        if origin.returncode or remote_identity(origin.stdout) != parent.lower():
+            raise SyncError(f"remote upstream points at {url}, which is not a mirror of {parent}; fix it before syncing")
         return
     git("remote", "add", "upstream", f"https://github.com/{parent}.git")
 
@@ -309,25 +317,27 @@ def factory_files(args):
     return 0
 
 
-def template_profiles_line(template):
-    fenced = False
-    for line in template.splitlines():
-        if line.strip().startswith(("```", "~~~")):
-            fenced = not fenced
-            continue
-        if not fenced and PROFILES_LINE.match(line):
-            return line.strip()
-    raise SyncError("project/AGENTS.md has no Profiles line")
-
-
-def with_profiles_line(text, template):
+def find_profiles_line(text):
     fenced = False
     for line in text.splitlines():
         if line.strip().startswith(("```", "~~~")):
             fenced = not fenced
             continue
         if not fenced and PROFILES_LINE.match(line):
-            return text, False
+            return line.strip()
+    return None
+
+
+def template_profiles_line(template):
+    line = find_profiles_line(template)
+    if line is None:
+        raise SyncError("project/AGENTS.md has no Profiles line")
+    return line
+
+
+def with_profiles_line(text, template):
+    if find_profiles_line(text) is not None:
+        return text, False
     profiles = template_profiles_line(template)
     lines = text.splitlines()
     for index, line in enumerate(lines):
@@ -470,8 +480,28 @@ def merge_greptile(existing, template):
 
 
 def coderabbit_enabled(template):
-    for line in template.splitlines():
-        match = re.match(r"^\s+enabled:\s*(\S+)", line)
+    lines = template.splitlines()
+    reviews = None
+    for index, line in enumerate(lines):
+        if re.match(r"^reviews:\s*(#.*)?$", line):
+            reviews = index
+            break
+    if reviews is None:
+        raise SyncError("project/.coderabbit.yaml has no reviews block")
+    end = len(lines)
+    for index in range(reviews + 1, len(lines)):
+        if lines[index] and not lines[index].startswith((" ", "\t")):
+            end = index
+            break
+    auto = None
+    for index in range(reviews + 1, end):
+        if re.match(r"^\s+auto_review:\s*(#.*)?$", lines[index]):
+            auto = index
+            break
+    if auto is None:
+        raise SyncError("project/.coderabbit.yaml has no auto_review block")
+    for index in range(auto + 1, end):
+        match = re.match(r"^\s+enabled:\s*(\S+)", lines[index])
         if match:
             return match.group(1)
     raise SyncError("project/.coderabbit.yaml has no enabled value")

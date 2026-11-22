@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import subprocess
@@ -5,10 +6,16 @@ import sys
 import tempfile
 import tomllib
 import unittest
+from collections import namedtuple
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().with_name("sync-upstream")
 ROOT = SCRIPT.parents[3]
+LOADER = SourceFileLoader("sync_upstream", str(SCRIPT))
+sync_upstream = importlib.util.module_from_spec(importlib.util.spec_from_loader("sync_upstream", LOADER))
+LOADER.exec_module(sync_upstream)
+ForkPair = namedtuple("ForkPair", "origin_seed base origin upstream upstream_seed ahead")
 GH = '''#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_REPO"]))
@@ -99,7 +106,11 @@ class SyncUpstream(unittest.TestCase):
         self.clone(origin, upstream_seed)
         ahead = self.commit(upstream_seed, "upstream.txt", "upstream\n", "upstream change")
         upstream = self.bare("upstream", upstream_seed)
-        return origin_seed, base, origin, upstream, upstream_seed, ahead
+        self.mirror(upstream)
+        return ForkPair(origin_seed, base, origin, upstream, upstream_seed, ahead)
+
+    def mirror(self, path):
+        self.git(self.root, "--git-dir", str(path), "config", "remote.origin.url", "https://github.com/up/stream.git")
 
     def test_kind_comes_from_the_topic(self):
         result = self.cli("kind", "--repo", "o/r")
@@ -133,16 +144,16 @@ class SyncUpstream(unittest.TestCase):
         self.assertIn("--fork-kind personal --apply", result.stderr)
 
     def test_personal_sync_merges_upstream_with_a_merge_commit(self):
-        _, base, origin, upstream, _, _ = self.fork_pair()
-        work = self.clone(origin, self.root / "work")
-        self.git(work, "remote", "add", "upstream", str(upstream))
+        pair = self.fork_pair()
+        work = self.clone(pair.origin, self.root / "work")
+        self.git(work, "remote", "add", "upstream", str(pair.upstream))
         result = self.cli("sync", "--repo", "o/r", "--date", "2026-11-22", cwd=work)
         self.assertIn("sync/upstream-2026-11-22", result.stdout)
         self.assertEqual(self.git(work, "branch", "--show-current").stdout.strip(), "sync/upstream-2026-11-22")
         parents = self.git(work, "rev-list", "--parents", "-n", "1", "HEAD").stdout.split()
         self.assertEqual(len(parents), 3)
         self.assertEqual(self.git(work, "merge-base", "--is-ancestor", "upstream/main", "HEAD", check=False).returncode, 0)
-        self.assertEqual(self.git(work, "rev-parse", "origin/main").stdout.strip(), base)
+        self.assertEqual(self.git(work, "rev-parse", "origin/main").stdout.strip(), pair.base)
         self.git(work, "push", "-q", "origin", "HEAD:refs/heads/sync/upstream-2026-11-22")
         rerun = self.cli("sync", "--repo", "o/r", "--date", "2026-11-22", cwd=work)
         self.assertIn("already contains", rerun.stdout)
@@ -166,6 +177,7 @@ class SyncUpstream(unittest.TestCase):
         self.commit(upstream_seed, "upstream.txt", "upstream\n", "upstream change")
         upstream_sha = self.git(upstream_seed, "rev-parse", "HEAD").stdout.strip()
         upstream = self.bare("upstream", upstream_seed)
+        self.mirror(upstream)
         work = self.clone(origin, self.root / "work")
         self.git(work, "remote", "add", "upstream", str(upstream))
         self.write_repo("o/r", ["factory-personal-fork"], "trunk", parent_default="main")
@@ -180,18 +192,18 @@ class SyncUpstream(unittest.TestCase):
         self.assertEqual(self.git(work, "rev-parse", "origin/trunk").stdout.strip(), base)
 
     def test_upstream_sync_fast_forwards_and_refuses_a_divergence(self):
-        origin_seed, _, origin, upstream, _, ahead = self.fork_pair()
-        work = self.clone(origin, self.root / "work")
-        self.git(work, "remote", "add", "upstream", str(upstream))
+        pair = self.fork_pair()
+        work = self.clone(pair.origin, self.root / "work")
+        self.git(work, "remote", "add", "upstream", str(pair.upstream))
         self.write_repo("o/r", ["factory-upstream-fork"], "main")
         result = self.cli("sync", "--repo", "o/r", cwd=work)
         self.assertIn("fast-forwarded", result.stdout)
-        self.assertEqual(self.git(origin, "rev-parse", "refs/heads/main").stdout.strip(), ahead)
-        divergent_seed = self.clone(origin_seed, self.root / "divergent-seed")
+        self.assertEqual(self.git(pair.origin, "rev-parse", "refs/heads/main").stdout.strip(), pair.ahead)
+        divergent_seed = self.clone(pair.origin_seed, self.root / "divergent-seed")
         self.commit(divergent_seed, "fork.txt", "fork\n", "fork change")
         divergent = self.bare("divergent", divergent_seed)
         fork_work = self.clone(divergent, self.root / "fork-work")
-        self.git(fork_work, "remote", "add", "upstream", str(upstream))
+        self.git(fork_work, "remote", "add", "upstream", str(pair.upstream))
         fork_head = self.git(divergent, "rev-parse", "refs/heads/main").stdout.strip()
         result = self.cli("sync", "--repo", "o/r", cwd=fork_work, check=False)
         self.assertNotEqual(result.returncode, 0)
@@ -324,6 +336,16 @@ class SyncUpstream(unittest.TestCase):
             self.assertTrue((target / name).is_file(), name)
         again = self.cli("install-files", "--target", str(target), "--check")
         self.assertIn("hk.pkl: upstream has its own; Factory Gates not amended", again.stdout)
+
+    def test_unsupported_existing_factory_file_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            template = root / "project"
+            template.mkdir()
+            source = template / "extra.txt"
+            source.write_text("factory\n")
+            with self.assertRaises(sync_upstream.SyncError):
+                sync_upstream.merge_text(source, template, "upstream\n", "factory\n")
 
     def test_install_files_extends_existing_files(self):
         target = self.target({
