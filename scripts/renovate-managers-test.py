@@ -54,10 +54,27 @@ EXPECTED_PINS = {
 }
 
 
-def extract(fixture):
+def renovate_binary():
+    mise = shutil.which("mise")
+    if mise is not None:
+        result = subprocess.run(
+            [mise, "-C", str(ROOT), "which", "renovate"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            path = Path(result.stdout.strip())
+            if path.exists():
+                return str(path)
     renovate = shutil.which("renovate")
     if renovate is None:
         raise AssertionError("renovate is not on PATH; declare npm:renovate in mise.toml")
+    return renovate
+
+
+def extract(fixture):
+    renovate = renovate_binary()
     env = {
         key: value
         for key, value in os.environ.items()
@@ -160,15 +177,31 @@ class FactoryPins(unittest.TestCase):
         self.assertEqual(pins[0].get("versioning"), "github-actions")
 
     def test_branches_and_shas_are_not_tag_pins(self):
+        mise = self.deps.get("mise.toml", [])
+        branches = [dep for dep in mise if "?ref=main" in dep.get("replaceString", "")]
+        self.assertTrue(branches)
+        for dep in branches:
+            self.assertEqual(dep.get("currentValue"), "main")
+        digests = [dep for dep in mise if dep.get("currentDigest") == SHA]
+        self.assertTrue(digests)
+        for dep in digests:
+            self.assertNotIn("currentValue", dep)
+            self.assertEqual(dep.get("skipReason"), "unversioned-reference")
         for path in ("mise.toml", "hk.pkl"):
             with self.subTest(path=path):
                 for dep in tag_pins(self.deps.get(path, [])):
                     replace_string = dep.get("replaceString", "")
                     self.assertNotIn("?ref=main", replace_string)
                     self.assertNotIn(f"?ref={SHA}", replace_string)
-        hk_values = [dep.get("currentValue") for dep in self.deps.get("hk.pkl", [])]
-        self.assertNotIn("main", hk_values)
-        self.assertNotIn(SHA, hk_values)
+        hk = self.deps.get("hk.pkl", [])
+        self.assertFalse(
+            [
+                dep
+                for dep in hk
+                if "main" in dep.get("replaceString", "")
+                or SHA in dep.get("replaceString", "")
+            ]
+        )
         workflow = self.deps.get(".github/workflows/check.yml", [])
         self.assertFalse(
             [
