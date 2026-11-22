@@ -9,12 +9,19 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 cat >"$tmp/validator" <<'STUB'
 #!/bin/sh
 printf '%s\n' 'RE2 not usable, falling back to RegExp'
+exit 1
 STUB
 chmod +x "$tmp/validator"
 if RENOVATE_CONFIG_VALIDATOR="$tmp/validator" sh "$root/scripts/renovate-config-check.sh" >"$tmp/validator.log" 2>&1; then
 	printf '%s\n' 'validator accepted the RE2 fallback' >&2
 	exit 1
+else
+	status=$?
 fi
+[ "$status" -eq 1 ] || {
+	printf '%s\n' "validator returned $status for the RE2 fallback" >&2
+	exit 1
+}
 grep -q 'RE2 failed to load' "$tmp/validator.log" || {
 	printf '%s\n' 'validator failed for an unexpected reason' >&2
 	exit 1

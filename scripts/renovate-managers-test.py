@@ -13,14 +13,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PRESET = ROOT / "default.json"
 TAG = "v0.2.0"
-SHA = "91cc9539fd82101c0cc9062810d4cdb9cdaef55a"
+FIXTURE_SHA = "91cc9539fd82101c0cc9062810d4cdb9cdaef55a"
 BLOCKED_PROXY = "http://127.0.0.1:9"
 
 MISE = f"""\
 include = [
   "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref={TAG}",
   "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=main",
-  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref={SHA}",
+  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref={FIXTURE_SHA}",
 ]
 
 [task_config]
@@ -32,7 +32,7 @@ includes = [
 HK = f"""\
 amends "https://raw.githubusercontent.com/ranokay/factory/{TAG}/profiles/universal/hk.pkl"
 amends "https://raw.githubusercontent.com/ranokay/factory/main/profiles/universal/hk.pkl"
-amends "https://raw.githubusercontent.com/ranokay/factory/{SHA}/profiles/universal/hk.pkl"
+amends "https://raw.githubusercontent.com/ranokay/factory/{FIXTURE_SHA}/profiles/universal/hk.pkl"
 local const fixture = \"\"\"
   amends "https://raw.githubusercontent.com/ranokay/factory/{TAG}/profiles/universal/hk.pkl"
   \"\"\"
@@ -47,7 +47,7 @@ jobs:
   branch:
     uses: ranokay/factory/.github/workflows/gates.yml@main
   sha:
-    uses: ranokay/factory/.github/workflows/gates.yml@{SHA}
+    uses: ranokay/factory/.github/workflows/gates.yml@{FIXTURE_SHA}
 """
 
 EXPECTED_PINS = {
@@ -72,7 +72,7 @@ def renovate_binary():
     mise = shutil.which("mise")
     if mise is None:
         raise AssertionError("mise is not on PATH; run the Gate with mise run check")
-    result = subprocess.run(  # nosec B603 -- fixed mise command
+    result = subprocess.run(  # nosec B603  # nosemgrep -- fixed mise command
         [mise, "-C", str(ROOT), "which", "renovate"],
         capture_output=True,
         text=True,
@@ -186,7 +186,7 @@ class FactoryPins(unittest.TestCase):
                 self.assertEqual(len(replacements), len(set(replacements)))
                 for dep in pins:
                     self.assertEqual(
-                        dep.get("packageName") or dep["depName"], "ranokay/factory"
+                        dep.get("packageName") or dep.get("depName"), "ranokay/factory"
                     )
                     self.assertEqual(dep["currentValue"], TAG)
 
@@ -207,17 +207,17 @@ class FactoryPins(unittest.TestCase):
         self.assertTrue(
             [dep for dep in mise if "?ref=main" in dep.get("replaceString", "")]
         )
-        self.assertTrue([dep for dep in mise if dep.get("currentDigest") == SHA])
+        self.assertTrue([dep for dep in mise if dep.get("currentDigest") == FIXTURE_SHA])
         hk = self.deps.get("hk.pkl", [])
         self.assertEqual({dep.get("currentValue") for dep in hk}, {TAG})
         workflow = self.deps.get(".github/workflows/check.yml", [])
-        self.assertTrue([dep for dep in workflow if dep.get("currentDigest") == SHA])
+        self.assertTrue([dep for dep in workflow if dep.get("currentDigest") == FIXTURE_SHA])
         self.assertFalse(
             [
                 dep
                 for dep in workflow
                 if dep.get("datasource") == "github-tags"
-                and dep.get("currentValue") in ("main", SHA)
+                and dep.get("currentValue") in ("main", FIXTURE_SHA)
             ]
         )
 
@@ -256,6 +256,7 @@ class FactoryPins(unittest.TestCase):
     def test_tool_declaration_builds_re2(self):
         config = tomllib.loads((ROOT / "mise.toml").read_text())
         tool = config["tools"]["npm:renovate"]
+        self.assertIsInstance(tool, dict)
         self.assertIn("re2", tool.get("allow_builds", []))
 
     def test_consumers_extend_the_preset(self):
