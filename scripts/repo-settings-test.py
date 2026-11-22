@@ -34,6 +34,12 @@ else:
         sys.exit(0)
     if key.startswith("/commits/") and key.endswith("/check-runs"):
         head = key.removeprefix("/commits/").removesuffix("/check-runs")
+        if head in s.get("unavailable_heads", []):
+            print("HTTP 404", file=sys.stderr)
+            sys.exit(1)
+        if head in s.get("denied_heads", []):
+            print("HTTP 403", file=sys.stderr)
+            sys.exit(1)
         print(json.dumps([{"check_runs": s.get("check_runs", {}).get(head, [])}]))
         sys.exit(0)
     if key == "/pulls":
@@ -241,6 +247,61 @@ class RepoSettings(unittest.TestCase):
         self.assertNotIn("codacy", state["writes"])
         checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
         self.assertNotIn("Codacy Static Code Analysis", [check["context"] for check in checks])
+
+    def test_existing_codacy_requirement_is_preserved_without_recent_evidence(self):
+        state = json.loads(self.path.read_text())
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.path.read_text())
+        state["check_runs"] = {}
+        state["rulesets"][0]["enforcement"] = "disabled"
+        checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
+        next(check for check in checks if check["context"] == "Codacy Static Code Analysis")["integration_id"] = 42
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("manual: Codacy check not yet reporting", result.stdout)
+        state = json.loads(self.path.read_text())
+        checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
+        self.assertIn({"context": "Codacy Static Code Analysis", "integration_id": 42}, checks)
+        self.assertEqual(state["rulesets"][0]["enforcement"], "active")
+
+    def test_unavailable_pr_head_does_not_hide_later_check(self):
+        state = json.loads(self.path.read_text())
+        state["enrolled"] = True
+        state["pulls"] = [{"head": {"sha": "missing"}}, {"head": {"sha": "available"}}]
+        state["unavailable_heads"] = ["missing"]
+        state["check_runs"] = {"available": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.path.read_text())
+        checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
+        self.assertIn("Codacy Static Code Analysis", [check["context"] for check in checks])
+
+    def test_inaccessible_pr_head_without_evidence_still_applies_other_settings(self):
+        state = json.loads(self.path.read_text())
+        state["enrolled"] = True
+        state["pulls"] = [{"head": {"sha": "missing"}}]
+        state["unavailable_heads"] = ["missing"]
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("manual: Codacy check not yet reporting", result.stdout)
+        self.assertIn("POST /rulesets", json.loads(self.path.read_text())["writes"])
+
+    def test_check_api_access_errors_do_not_count_as_missing_evidence(self):
+        state = json.loads(self.path.read_text())
+        state["enrolled"] = True
+        state["denied_heads"] = ["main"]
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not read check runs", result.stderr)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], [])
 
 
 if __name__ == "__main__":

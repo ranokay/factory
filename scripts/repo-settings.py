@@ -116,8 +116,8 @@ def codacy(path, token, body=None):
         return json.load(response)
 
 
-def ruleset(codacy_ready):
-    checks = CONFIG["required_checks"] + ([CONFIG["public_check"]] if codacy_ready else [])
+def ruleset(codacy_check):
+    checks = CONFIG["required_checks"] + ([codacy_check] if codacy_check else [])
     return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*CONFIG["branch_rules"], {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
 
 
@@ -126,7 +126,12 @@ def codacy_check_seen(base, branch):
     heads = [branch, *[pull["head"]["sha"] for pull in pulls if pull.get("head", {}).get("sha")]]
     for head in dict.fromkeys(heads):
         endpoint = base + "/commits/" + urllib.parse.quote(head, safe="") + "/check-runs?per_page=100"
-        pages = json.loads(command(["gh", "api", "--paginate", "--slurp", endpoint]))
+        result = subprocess.run(["gh", "api", "--paginate", "--slurp", endpoint], capture_output=True, check=False)
+        if result.returncode:
+            if head != branch and b"HTTP 404" in result.stderr:
+                continue
+            raise RuntimeError(f"could not read check runs for {head}")
+        pages = json.loads(result.stdout)
         if any(check["name"] == CONFIG["public_check"]["context"] for page in pages for check in page["check_runs"]):
             return True
     return False
@@ -259,11 +264,18 @@ def main():
         codacy_ready = enrolled and codacy_check_seen(base, repo["default_branch"])
         if not codacy_ready:
             manual_drift.append("Codacy check not yet reporting")
-    desired = ruleset(codacy_ready)
-    matching = [r for r in gh(base + "/rulesets?per_page=100", paginate=True) if r["name"] == desired["name"]]
+    matching = [r for r in gh(base + "/rulesets?per_page=100", paginate=True) if r["name"] == CONFIG["ruleset_name"]]
     if len(matching) > 1:
         raise RuntimeError("multiple rulesets have the Factory name")
     live = gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
+    existing_codacy = None
+    if live and not repo["private"]:
+        for rule in live.get("rules", []):
+            if rule.get("type") == "required_status_checks":
+                for check in rule.get("parameters", {}).get("required_status_checks", []):
+                    if check.get("context") == CONFIG["public_check"]["context"]:
+                        existing_codacy = {key: check[key] for key in ("context", "integration_id") if check.get(key) is not None}
+    desired = ruleset(existing_codacy or (CONFIG["public_check"] if codacy_ready else None))
     if not live or not matches(live, desired):
         before = {key: live.get(key) for key in desired} if live else None
         change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)
