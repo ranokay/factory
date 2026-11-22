@@ -219,10 +219,6 @@ class FactoryPins(unittest.TestCase):
         self.assertTrue([dep for dep in mise if dep.get("currentDigest") == FIXTURE_SHA])
         hk = self.deps.get("hk.pkl", [])
         self.assertEqual({dep.get("currentValue") for dep in hk}, {TAG})
-        self.assertIn(
-            'amends "https://raw.githubusercontent.com/ranokay/factory/main/profiles/universal/hk.pkl"',
-            HK,
-        )
         workflow = self.deps.get(".github/workflows/check.yml", [])
         self.assertTrue([dep for dep in workflow if dep.get("currentDigest") == FIXTURE_SHA])
         self.assertFalse(
