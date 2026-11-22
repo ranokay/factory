@@ -108,12 +108,13 @@ Run the repository's documented Gate on the merge commit. The PR must pass its
 required checks and AI Review.
 
 Hand the green PR to `babysit-pr`. It recognises a Sync PR by the verdict body and
-runs `<this skill's directory>/scripts/sync-upstream merge-command --pr <n>`,
+runs `<this skill's directory>/scripts/sync-upstream merge-command --pr <n> --repo <owner>/<repo>`,
 executing only the command that prints. The command exits nonzero if any verdict is
 missing or any check run or commit status on the head is not successful; `skipped`
 and `neutral` pass only for a check the ruleset does not require. Its `--admin` flag
-stands in only for the Personal Fork ruleset's signature and unattributed-author
-rules, never for Gates or AI Review. The promotion at
+stands in only for the Personal Fork ruleset's signature and authorship
+rules, never for Gates or AI Review. The command gates verdicts and checks; resolve
+review threads before running it. The promotion at
 https://github.com/ranokay/factory/issues/105 tracks the guard that enforces this.
 
 Never merge a Sync PR whose verdicts fail. Never force-push its branch.

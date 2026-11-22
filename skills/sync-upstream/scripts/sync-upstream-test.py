@@ -23,6 +23,8 @@ elif args[:2] == ["pr", "view"]:
     field = args[args.index("--json") + 1] if "--json" in args else "body"
     if field == "headRefOid":
         print(state["head"])
+    elif field == "baseRefName":
+        print(state.get("base", "main"))
     else:
         print(state["body"])
 elif args[0] == "api":
@@ -288,11 +290,16 @@ class SyncUpstream(unittest.TestCase):
         repo = self.init("command")
         base = self.commit(repo, "file.txt", "base\n", "base")
         self.git(repo, "update-ref", "refs/remotes/origin/main", base)
-        head = self.commit(repo, "upstream.txt", "upstream\n", "upstream change")
-        self.git(repo, "update-ref", "refs/remotes/upstream/main", head)
+        self.git(repo, "switch", "-q", "-c", "upstream-side")
+        upstream_tip = self.commit(repo, "upstream.txt", "upstream\n", "upstream change")
+        self.git(repo, "update-ref", "refs/remotes/upstream/main", upstream_tip)
+        self.git(repo, "switch", "-q", "main")
+        self.git(repo, "merge", "--no-ff", "-q", "upstream-side", "-m", "sync merge")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
         state = json.loads(self.repo_file.read_text())
         state["head"] = head
-        state["body"] = body if body is not None else f"## Verdicts\n\n- `{head[:8]}` adopt — upstream change\n"
+        state["base"] = "main"
+        state["body"] = body if body is not None else f"## Verdicts\n\n- `{upstream_tip[:8]}` adopt — upstream change\n"
         state["check_runs"] = {head: check_runs if check_runs is not None else [{"name": "Gates / Gates", "status": "completed", "conclusion": "success"}]}
         state["statuses"] = statuses if statuses is not None else []
         state["applied_rules"] = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Gates / Gates"}]}}]
@@ -320,19 +327,58 @@ class SyncUpstream(unittest.TestCase):
         result = self.merge_command(repo)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Gates / Gates is pending", result.stderr)
+        self.assertEqual(result.stdout, "")
 
     def test_merge_command_blocks_a_missing_verdict(self):
-        repo, head = self.command_fixture(body="## Verdicts\n\n")
+        repo, _ = self.command_fixture(body="## Verdicts\n\n")
+        upstream_tip = self.git(repo, "rev-parse", "refs/remotes/upstream/main").stdout.strip()
         result = self.merge_command(repo)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(head, result.stderr)
+        self.assertIn(upstream_tip, result.stderr)
         self.assertIn("has no verdict", result.stderr)
 
-    def test_merge_command_blocks_a_required_skipped_check(self):
-        repo, _ = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "skipped"}])
+    def test_merge_command_blocks_a_required_neutral_check(self):
+        repo, _ = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "neutral"}])
         result = self.merge_command(repo)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Gates / Gates concluded skipped", result.stderr)
+        self.assertIn("Gates / Gates concluded neutral", result.stderr)
+
+    def test_merge_command_blocks_a_missing_required_check(self):
+        repo, _ = self.command_fixture(check_runs=[])
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("required check Gates / Gates has no result", result.stderr)
+
+    def test_merge_command_blocks_a_pending_status(self):
+        repo, _ = self.command_fixture(statuses=[{"context": "Codacy Static Code Analysis", "state": "pending"}])
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Codacy Static Code Analysis is pending", result.stderr)
+
+    def test_merge_command_blocks_a_stale_checkout(self):
+        repo, _ = self.command_fixture()
+        base = self.git(repo, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+        self.git(repo, "switch", "-q", "--detach", base)
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("HEAD is not the PR head", result.stderr)
+
+    def test_merge_command_blocks_stale_upstream_refs(self):
+        repo, _ = self.command_fixture()
+        base = self.git(repo, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+        self.git(repo, "update-ref", "refs/remotes/upstream/main", base)
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not upstream/main", result.stderr)
+
+    def test_merge_command_blocks_a_non_default_base(self):
+        repo, _ = self.command_fixture()
+        state = json.loads(self.repo_file.read_text())
+        state["base"] = "release"
+        self.repo_file.write_text(json.dumps(state))
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PR base release is not main", result.stderr)
 
     def test_merge_command_blocks_a_failed_status(self):
         repo, _ = self.command_fixture(statuses=[{"context": "Codacy Static Code Analysis", "state": "failure"}])

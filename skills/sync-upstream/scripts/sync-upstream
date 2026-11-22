@@ -262,9 +262,27 @@ def merge_command(args):
     repo = reponame(args.repo)
     info = repo_info(repo)
     head = gh("pr", "view", str(args.pr), "--repo", repo, "--json", "headRefOid", "--jq", ".headRefOid")
+    base = gh("pr", "view", str(args.pr), "--repo", repo, "--json", "baseRefName", "--jq", ".baseRefName")
+    fork_default, upstream_default = default_branches(info)
     problems = []
-    if verdicts(argparse.Namespace(first=None, last=None, body_file=None, pr=args.pr, repo=repo), quiet=True):
-        problems.append("verdicts failed")
+    if base != info["default_branch"]:
+        problems.append(f"PR base {base} is not {info['default_branch']}")
+    current = git("rev-parse", "HEAD", check=False)
+    if current.returncode or current.stdout.strip() != head:
+        problems.append(f"HEAD is not the PR head {head}")
+    parents = git("rev-list", "--parents", "-n1", head, check=False)
+    if parents.returncode or len(parents.stdout.split()) != 3:
+        problems.append(f"PR head {head} is not a two-parent Sync merge in this checkout")
+    else:
+        _, fork_base, upstream_tip = parents.stdout.split()
+        for ref, parent in ((f"origin/{fork_default}", fork_base), (f"upstream/{upstream_default}", upstream_tip)):
+            present = git("rev-parse", "--verify", ref, check=False)
+            if present.returncode:
+                problems.append(f"{ref} is missing from this checkout")
+            elif present.stdout.strip() != parent:
+                problems.append(f"PR head parent {parent[:8]} is not {ref}")
+        if verdicts(argparse.Namespace(first=fork_base, last=upstream_tip, body_file=None, pr=args.pr, repo=repo), quiet=True):
+            problems.append("verdicts failed")
     rules_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/rules/branches/{info['default_branch']}"]).stdout)
     rules = [rule for page in rules_pages for rule in page]
     required = set()

@@ -24,7 +24,8 @@ back to `babysit-pr`.
   PR so a dependent later PR is not landed out of order.
 - Pin forge operations to the PR's repository (`gh ... --repo owner/name`). Do
   not assume the working directory is that checkout; a scratch directory is
-  enough for the merge itself.
+  enough for an ordinary merge, but a Sync PR's `merge-command` verdict gate reads
+  the PR checkout's local refs.
 - Read the repository's agent entry point and its declared Profiles.
   Repository merge method,
   required checks and reviews, signing, and merge queue rules override these
@@ -109,23 +110,24 @@ transitions below, which are part of completing an authorized merge.
 
 Refresh the live head, base, checks, and review state immediately before merging.
 Use the repository's merge method; use squash when none is specified, and a merge
-commit for a Sync PR. For a Sync PR, run
-`~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n>`
+commit for a Sync PR. For a Sync PR, in the PR's checkout run
+`~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n> --repo <owner>/<repo>`
 and execute only the command it prints. The command exits nonzero if any verdict is
 missing or any check run or commit status on the head is not successful; `skipped`
 and `neutral` pass only for a check the ruleset does not require. Its `--admin` flag
-stands in only for the Personal Fork ruleset's signature and unattributed-author
-rules, never for Gates or AI Review. Bind every merge to the verified head with
-`--match-head-commit <sha>` or the forge's equivalent guard. Apply the repository
-merge preflight and execute only its printed, head-pinned command. Do not pass a
-branch-deletion option to the merge command; all deletions happen in Clean up
-after their guards. If a repository's printed command includes one, omit it or
+stands in only for the Personal Fork ruleset's signature and authorship rules,
+never for Gates or AI Review. It does not inspect review threads; resolve them
+first. Bind every merge to the verified head with `--match-head-commit <sha>` or
+the forge's equivalent guard. For an ordinary PR, apply the repository merge
+preflight and execute only its printed, head-pinned command; a Sync PR executes
+only the command from `merge-command`. Do not pass a branch-deletion option to the
+merge command; all deletions happen in Clean up after their guards. If a repository's printed command includes one, omit it or
 report it. Changed state returns to verification once; a head that keeps moving
 means another session is active, so report instead of racing it.
 
 Respect branch protections, required approvals, and merge queues. Never bypass
 them, force a merge, or weaken a check to finish, except the signature and
-unattributed-author bypass that a Sync PR's printed `--admin` command uses. Gates
+authorship bypass that a Sync PR's printed `--admin` command uses. Gates
 and AI Review are never bypassed.
 
 Verify that the forge reports the PR merged on the verified head and record the

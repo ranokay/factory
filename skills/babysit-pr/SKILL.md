@@ -107,13 +107,14 @@ Supervisor thread stands in for the Supervisor's confirmation.
   every upstream change. If you cannot tell whether the PR is a Sync PR, inside a
   Run send the `stopped` notice to the notice thread with the question so the
   Dispatcher parks the issue; otherwise report the question to the user. Do not
-  wake the Supervisor and do not guess. Once identified, run
-  `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n>`
+  wake the Supervisor and do not guess. Once identified, in the PR's checkout run
+  `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n> --repo <owner>/<repo>`
   and execute only the command it prints. The command exits nonzero if any verdict
   is missing or any check run or commit status on the head is not successful;
   `skipped` and `neutral` pass only for a check the ruleset does not require. Its
   `--admin` flag stands in only for the Personal Fork ruleset's signature and
-  unattributed-author rules, never for Gates or AI Review.
+  authorship rules, never for Gates or AI Review. It does not inspect review
+  threads; resolve them first.
 - Before readiness, a Sync PR passes
   `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;
   a missing verdict is a blocking finding. An Upstream Fork PR passes
@@ -188,15 +189,16 @@ actually ran. Every field is required.
 
 Once readiness is verified, merge as part of the default babysitting request,
 subject to the merge policy above. Use the repository's merge method, or squash
-when none is specified, and a merge commit for a Sync PR. For a Sync PR, run
-`~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n>`
+when none is specified, and a merge commit for a Sync PR. For a Sync PR, in the
+PR's checkout run
+`~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n> --repo <owner>/<repo>`
 and execute only the command it prints; do not construct `--admin` yourself.
 Refresh the live head, base, checks, and review state immediately before merging.
 Bind the merge to the verified head, using `--match-head-commit` with `gh pr merge`
 or an equivalent supported guard. Apply any repository merge preflight. Changed state returns to
 inspection and validation. Respect branch protections, approval requirements,
 and merge queues. Never bypass them, force a merge, or weaken a check to finish the
-task, except the signature and unattributed-author bypass that a Sync PR's printed
+task, except the signature and authorship bypass that a Sync PR's printed
 `--admin` command uses. Gates and AI Review are never bypassed.
 
 Verify that GitHub reports the PR merged and record the merge commit before

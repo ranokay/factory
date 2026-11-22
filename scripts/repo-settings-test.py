@@ -205,6 +205,7 @@ class RepoSettings(unittest.TestCase):
         self.assertEqual(set(rules), {"deletion", "non_fast_forward", "required_signatures", "pull_request", "required_status_checks"})
         self.assertEqual(rules["pull_request"]["required_approving_review_count"], 0)
         self.assertTrue(rules["pull_request"]["required_review_thread_resolution"])
+        self.assertTrue(rules["pull_request"]["require_extra_approval_for_unattributed_changes"])
         self.assertNotIn("required_reviewers", rules["pull_request"])
         self.assertNotIn("copilot_code_review", rules)
         checks = rules["required_status_checks"]["required_status_checks"]
