@@ -47,6 +47,15 @@ steps {
       }
     }
   }
+  ["renovate-re2-test"] = new Step {
+    check = "sh {{root}}/scripts/renovate-re2-test.sh"
+    tests {
+      ["both Renovate steps reject the RE2 fallback"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
   ["workflow-invariant-test"] = new Step {
     check = "python3 {{root}}/scripts/workflow-invariant-test.py"
     tests {

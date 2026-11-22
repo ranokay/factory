@@ -65,6 +65,9 @@ EXPECTED_PINS = {
 
 
 def renovate_binary():
+    override = os.environ.get("RENOVATE_BINARY")
+    if override:
+        return override
     mise = shutil.which("mise")
     if mise is None:
         raise AssertionError("mise is not on PATH; run the Gate with mise run check")
@@ -118,7 +121,8 @@ def extract(fixture):
     )
     if "RE2 not usable" in result.stdout + result.stderr:
         raise AssertionError(
-            "Renovate could not load RE2; the Gate would evaluate regexes with RegExp"
+            "Renovate could not load RE2; the Gate would evaluate regexes with RegExp\n"
+            + (result.stdout + result.stderr)[-2000:]
         )
     if result.returncode:
         raise AssertionError(

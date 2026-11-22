@@ -9,10 +9,17 @@ files=$(mktemp "${TMPDIR:-/tmp}/factory-renovate.XXXXXX")
 output=$(mktemp "${TMPDIR:-/tmp}/factory-renovate-output.XXXXXX")
 trap 'rm -f "$files" "$output"' EXIT HUP INT TERM
 find . \( -name .git -o -name node_modules -o -name .venv -o -name venv \) -prune -o -name renovate.json -print0 >"$files"
-validator=$(mise -C "$root" which renovate-config-validator)
-if ! xargs -0 "$validator" --strict --no-global default.json <"$files" >"$output" 2>&1; then
+if [ -n "${RENOVATE_CONFIG_VALIDATOR:-}" ]; then
+	validator=$RENOVATE_CONFIG_VALIDATOR
+else
+	validator=$(mise -C "$root" which renovate-config-validator)
+fi
+if xargs -0 "$validator" --strict --no-global default.json <"$files" >"$output" 2>&1; then
+	:
+else
+	status=$?
 	cat "$output"
-	exit 1
+	exit "$status"
 fi
 cat "$output"
 if grep -q 'RE2 not usable' "$output"; then
