@@ -19,9 +19,9 @@ endpoint = a[-1]
 if "/check-runs?" in endpoint:
     result = {"check_runs": [{"status": "completed", "conclusion": s.get("conclusion", "success"), "details_url": "https://github.com/o/r/actions/runs/42/job/1"}]}
 elif "/actions/runs?" in endpoint:
-    result = {"workflow_runs": [{"name": "AI Review", "display_title": "AI Review PR #" + str(s.get("run_pr", 1)), "head_sha": "abc", "status": "completed" if s.get("complete", True) else "in_progress", "conclusion": s.get("conclusion", "success"), "id": 42}]}
+    result = {"workflow_runs": [{"name": "AI Review", "display_title": "AI Review PR " + str(s.get("run_pr", 1)), "head_sha": "abc", "status": "completed" if s.get("complete", True) else "in_progress", "conclusion": s.get("conclusion", "success"), "id": 42}]}
     if s.get("older_completed"):
-        result["workflow_runs"].append({"name": "AI Review", "display_title": "AI Review PR #1", "head_sha": "abc", "status": "completed", "conclusion": "success", "id": 41})
+        result["workflow_runs"].append({"name": "AI Review", "display_title": "AI Review PR 1", "head_sha": "abc", "status": "completed", "conclusion": "success", "id": 41})
 elif "/reviews?" in endpoint:
     result = [s.get("reviews", [])]
 elif "/comments?" in endpoint:
@@ -104,11 +104,21 @@ class ReviewRequests(unittest.TestCase):
                 self.assertEqual(writes, [])
 
     def test_manual_greptile_and_coderabbit_requests_are_not_repeated(self):
-        state = {"comments": [{"body": "@coderabbitai full review"}, {"body": "@greptile please review"}]}
+        state = {"comments": [{"body": "@coderabbitai full review"}, {"body": "@greptile review"}]}
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 1)
         self.assertIn("@copilot", writes[0])
+
+    def test_quoted_comments_do_not_suppress_requests_but_trusted_marker_does(self):
+        state = {"comments": [{"body": "```\n@coderabbitai review\n```"}, {"body": "Discussing @greptile in this thread"}]}
+        result, writes = self.invoke(state)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(writes), 3)
+        state["comments"].append({"user": {"login": "ranokay"}, "body": "edited\n<!-- factory:advisory-review:coderabbit -->"})
+        result, writes = self.invoke(state)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(writes), 2)
 
 
 if __name__ == "__main__":

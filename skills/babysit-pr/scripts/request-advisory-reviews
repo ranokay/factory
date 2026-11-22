@@ -15,6 +15,18 @@ def pages(endpoint):
     return gh("api", "--paginate", "--slurp", endpoint)
 
 
+def contains_command(body, pattern):
+    fenced = False
+    for line in body.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if not fenced and not line.startswith(("    ", "\t")) and not stripped.startswith(">") and re.match(pattern, stripped, re.IGNORECASE):
+            return True
+    return False
+
+
 def main():
     if len(sys.argv) != 3 or "/" not in sys.argv[1] or not sys.argv[2].isdigit():
         raise ValueError("usage: request-advisory-reviews OWNER/REPO PR")
@@ -24,7 +36,7 @@ def main():
     head = pr["head"]["sha"]
     checks = [check for page in pages(f"{prefix}/commits/{head}/check-runs?per_page=100") for check in page["check_runs"]]
     runs = [run for page in pages(f"{prefix}/actions/runs?event=pull_request&head_sha={head}&per_page=100") for run in page["workflow_runs"]]
-    candidates = [r for r in runs if r["name"] == "AI Review" and r["head_sha"] == head and r.get("display_title") == f"AI Review PR #{number}"]
+    candidates = [r for r in runs if r["name"] == "AI Review" and r["head_sha"] == head and r.get("display_title") == f"AI Review PR {number}"]
     latest = candidates[0] if candidates else None
     matching = [c for c in checks if latest and f"/actions/runs/{latest['id']}/" in (c.get("details_url") or "")]
     if not latest or latest["status"] != "completed" or not matching or any(c["status"] != "completed" for c in matching):
@@ -44,11 +56,12 @@ def main():
     reviewed = any("copilot" in r["user"]["login"].lower() for r in reviews)
     if not requested and not reviewed:
         subprocess.run(["gh", "pr", "edit", number, "--repo", repo, "--add-reviewer", "@copilot"], check=True)
-    for bot, command, pattern, reviewers in (("coderabbit", "@coderabbitai review", r"@coderabbitai\s+(?:full\s+)?review\b", {"coderabbitai[bot]"}), ("greptile", "@greptileai", r"@greptile(?:ai)?\b", {"greptile-apps[bot]", "greptile[bot]"})):
+    for bot, command, pattern, reviewers in (("coderabbit", "@coderabbitai review", r"@coderabbitai\s+(?:full\s+)?review(?:\s|$)", {"coderabbitai[bot]"}), ("greptile", "@greptileai", r"@greptile(?:ai)?(?:\s+review\b.*)?\s*$", {"greptile-apps[bot]", "greptile[bot]"})):
         marker = f"<!-- factory:advisory-review:{bot} -->"
-        requested_in_comment = any(re.search(pattern, comment.get("body") or "", re.IGNORECASE) for comment in comments)
+        requested_in_comment = any(contains_command(comment.get("body") or "", pattern) for comment in comments)
+        trusted_marker = any(marker in (comment.get("body") or "") and (comment.get("user") or {}).get("login", "").lower() in {author.lower() for author in config["factory_authors"]} for comment in comments)
         has_review = any((review.get("user") or {}).get("login", "").lower() in reviewers for review in reviews)
-        if not requested_in_comment and not has_review:
+        if not requested_in_comment and not trusted_marker and not has_review:
             subprocess.run(["gh", "pr", "comment", number, "--repo", repo, "--body", f"{command}\n\n{marker}"], check=True)
 
 
