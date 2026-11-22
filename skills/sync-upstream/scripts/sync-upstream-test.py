@@ -16,7 +16,7 @@ args = sys.argv[1:]
 if args[:2] == ["api", "repos/" + state["name"]]:
     print(json.dumps(state["info"]))
 elif args[:2] == ["repo", "view"]:
-    print(state["name"])
+    print(state.get("view", state["name"]))
 elif args[:2] == ["pr", "view"]:
     print(state["body"])
 else:
@@ -116,6 +116,15 @@ class SyncUpstream(unittest.TestCase):
         self.assertEqual(self.cli("kind", "--repo", "o/r", check=False).returncode, 2)
         self.write_repo("o/r", [], "main", fork=False)
         self.assertEqual(self.cli("kind", "--repo", "o/r").stdout.strip(), "personal-project")
+
+    def test_repo_name_comes_from_origin_not_ghs_parent(self):
+        work = self.init("remote-work")
+        self.git(work, "remote", "add", "origin", "https://github.com/o/r.git")
+        state = json.loads(self.repo_file.read_text())
+        state["view"] = "up/stream"
+        self.repo_file.write_text(json.dumps(state))
+        result = self.cli("kind", cwd=work)
+        self.assertEqual(result.stdout.strip(), "personal")
 
     def test_sync_refuses_a_missing_topic(self):
         self.write_repo("o/r", [], "main")

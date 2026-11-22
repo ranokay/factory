@@ -50,6 +50,11 @@ def gh(*args):
 def reponame(repo):
     if repo:
         return repo
+    remote = git("remote", "get-url", "origin", check=False)
+    if remote.returncode == 0 and "github.com" in remote.stdout:
+        name = remote_identity(remote.stdout)
+        if name.count("/") == 1:
+            return name
     name = gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner")
     if not name:
         raise SyncError("cannot identify the repository; pass --repo OWNER/NAME")
@@ -83,7 +88,7 @@ def fork_kind(info, repo):
 
 
 def remote_identity(url):
-    value = url.strip()
+    value = url.strip().rstrip("/")
     for prefix in ("git@github.com:", "ssh://git@github.com/", "https://github.com/", "http://github.com/", "git://github.com/"):
         if value.startswith(prefix):
             value = value[len(prefix):]
