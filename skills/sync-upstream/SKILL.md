@@ -108,8 +108,9 @@ Run the repository's documented Gate on the merge commit. The PR must pass its
 required checks and AI Review.
 
 Hand the green PR to `babysit-pr`. It recognises a Sync PR by the verdict body and
-merges it with a **merge commit**, never a squash. At merge readiness it runs
-`verdicts --pr <n>`; a missing verdict is a blocking finding.
+merges it with `gh pr merge <n> --merge --admin`, never a squash. `--admin` is
+reserved for Sync PRs and matches the bypass actor on the Personal Fork ruleset. At
+merge readiness it runs `verdicts --pr <n>`; a missing verdict is a blocking finding.
 
 Never merge a Sync PR whose verdicts fail. Never force-push its branch.
 

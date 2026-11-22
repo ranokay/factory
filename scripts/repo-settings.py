@@ -116,9 +116,9 @@ def codacy(path, token, body=None):
         return json.load(response)
 
 
-def ruleset(codacy_check):
+def ruleset(codacy_check, bypass_actor=None):
     checks = CONFIG["required_checks"] + ([codacy_check] if codacy_check else [])
-    return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*CONFIG["branch_rules"], {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
+    return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [bypass_actor] if bypass_actor else [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*CONFIG["branch_rules"], {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
 
 
 def codacy_check_seen(base, branch):
@@ -182,6 +182,7 @@ def main():
         changes.append((description, method, endpoint, body))
 
     upstream = "factory-upstream-fork" in desired_topics
+    personal_fork = repo["fork"] and "factory-personal-fork" in desired_topics
     if desired_topics != topics:
         change(f"topics: {sorted(topics)} -> {sorted(desired_topics)}", "PUT", base + "/topics", {"names": sorted(desired_topics)})
     approval_path = base + "/actions/permissions/fork-pr-contributor-approval"
@@ -276,7 +277,7 @@ def main():
                 for check in rule.get("parameters", {}).get("required_status_checks", []):
                     if check.get("context") == CONFIG["public_check"]["context"]:
                         existing_codacy = {key: check[key] for key in ("context", "integration_id") if check.get(key) is not None}
-    desired = ruleset(existing_codacy or (CONFIG["public_check"] if codacy_ready else None))
+    desired = ruleset(existing_codacy or (CONFIG["public_check"] if codacy_ready else None), CONFIG["fork_bypass_actor"] if personal_fork else None)
     if not live or not matches(live, desired):
         before = {key: live.get(key) for key in desired} if live else None
         change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)

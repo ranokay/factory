@@ -21,7 +21,7 @@ else:
     method = a[a.index("--method") + 1] if "--method" in a else "GET"
     endpoint = next(x for x in a if x.startswith("repos/"))
     body = json.load(sys.stdin) if "--input" in a else None
-    key = endpoint.split("?", 1)[0].removeprefix("repos/o/r")
+    key = endpoint.split("?", 1)[0].removeprefix("repos/" + s["name"])
     if key.startswith("/contents/"):
         value = s["files"].get(key.removeprefix("/contents/"))
         if value is None:
@@ -79,7 +79,7 @@ else:
             s["labels"].append(body)
         elif key.startswith("/rulesets"):
             body["id"] = 1
-            body["source"] = "o/r"
+            body["source"] = s["name"]
             for rule in body["rules"]:
                 if rule["type"] == "required_status_checks":
                     rule["parameters"]["do_not_enforce_on_create"] = False
@@ -107,7 +107,7 @@ def fake(request, timeout):
         json.dump(state, open(os.environ["FAKE_STATE"], "w"))
         r.data = {}
     else:
-        r.data = {"data": [{"name": "r"}] if state.get("enrolled") else [], "pagination": {}}
+        r.data = {"data": [{"name": state["name"].split("/")[-1]}] if state.get("enrolled") else [], "pagination": {}}
     return r
 urllib.request.urlopen = fake
 '''
@@ -124,13 +124,13 @@ class RepoSettings(unittest.TestCase):
         (self.root / "sitecustomize.py").write_text(SITE)
         self.path = self.root / "state"
         self.env = dict(os.environ, PATH=f"{self.root}:{os.environ['PATH']}", PYTHONPATH=str(self.root), FAKE_STATE=str(self.path), OP_SERVICE_ACCOUNT_TOKEN="fixture-token")
-        self.write({"repo": {"private": False, "fork": False, "default_branch": "main", "allow_squash_merge": False, "allow_merge_commit": False, "allow_rebase_merge": True, "allow_auto_merge": True}, "files": {".coderabbit.yaml": "reviews:\n  auto_review:\n    enabled: false\n", ".greptile/config.json": '{"autoReview": [], "statusCheck": false}'}, "topics": {"names": []}, "labels": [{"name": "documentation", "color": "0075ca", "description": "", "default": True}, {"name": "accessibility", "color": "f143ab", "description": "", "default": True}, {"name": "custom", "color": "123456", "description": "keep", "default": False}], "rulesets": [], "approval": {"approval_policy": "first_time_contributors"}, "private_settings": {"run_workflows_from_fork_pull_requests": False}, "secrets": [], "writes": []})
+        self.write({"name": "o/r", "repo": {"private": False, "fork": False, "default_branch": "main", "allow_squash_merge": False, "allow_merge_commit": False, "allow_rebase_merge": True, "allow_auto_merge": True}, "files": {".coderabbit.yaml": "reviews:\n  auto_review:\n    enabled: false\n", ".greptile/config.json": '{"autoReview": [], "statusCheck": false}'}, "topics": {"names": []}, "labels": [{"name": "documentation", "color": "0075ca", "description": "", "default": True}, {"name": "accessibility", "color": "f143ab", "description": "", "default": True}, {"name": "custom", "color": "123456", "description": "keep", "default": False}], "rulesets": [], "approval": {"approval_policy": "first_time_contributors"}, "private_settings": {"run_workflows_from_fork_pull_requests": False}, "secrets": [], "writes": []})
 
     def write(self, state):
         self.path.write_text(json.dumps(state))
 
-    def run_command(self, *args):
-        return subprocess.run(["python3", str(ROOT / "scripts/repo-settings.py"), "o/r", *args], env=self.env, capture_output=True, text=True)
+    def run_command(self, *args, repo="o/r"):
+        return subprocess.run(["python3", str(ROOT / "scripts/repo-settings.py"), repo, *args], env=self.env, capture_output=True, text=True)
 
     def test_dry_run_apply_and_second_run(self):
         result = self.run_command()
@@ -211,6 +211,35 @@ class RepoSettings(unittest.TestCase):
         self.assertEqual([check["context"] for check in checks], ["Gates / Gates", "review / review", "Codacy Static Code Analysis"])
         self.assertEqual([check["integration_id"] for check in checks[:2]], [15368, 15368])
 
+    def test_personal_fork_ruleset_gets_the_pull_request_bypass(self):
+        state = json.loads(self.path.read_text())
+        state["repo"].update({"fork": True, "private": True})
+        state["topics"]["names"] = ["factory-personal-fork"]
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ruleset = json.loads(self.path.read_text())["rulesets"][0]
+        self.assertEqual(ruleset["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
+
+    def test_personal_project_ruleset_keeps_no_bypass(self):
+        state = json.loads(self.path.read_text())
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.path.read_text())["rulesets"][0]["bypass_actors"], [])
+
+    def test_factory_repository_keeps_no_bypass(self):
+        state = json.loads(self.path.read_text())
+        state["name"] = "ranokay/factory"
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply", repo="ranokay/factory")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(self.path.read_text())["rulesets"][0]["bypass_actors"], [])
+
     def test_secret_lookup_reads_every_page(self):
         state = json.loads(self.path.read_text())
         state["secrets"] = [{"name": "OTHER"}, {"name": "OPENCODE_ZEN_API_KEY"}]
@@ -275,6 +304,7 @@ class RepoSettings(unittest.TestCase):
         state = json.loads(self.path.read_text())
         self.assertEqual(state["topics"]["names"], ["factory-upstream-fork"])
         self.assertEqual(set(state["writes"]), {"PUT /topics", "PUT /actions/permissions/fork-pr-contributor-approval", "PUT /actions/permissions/fork-pr-workflows-private-repos"})
+        self.assertFalse(any("/rulesets" in entry for entry in state["writes"]))
         self.assertFalse(state["private_settings"]["run_workflows_from_fork_pull_requests"])
         state["writes"] = []
         self.write(state)

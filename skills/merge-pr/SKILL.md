@@ -109,7 +109,9 @@ transitions below, which are part of completing an authorized merge.
 
 Refresh the live head, base, checks, and review state immediately before merging.
 Use the repository's merge method; use squash when none is specified, and a merge
-commit for a Sync PR. Bind the merge to the verified head with
+commit for a Sync PR. Merge a Sync PR with `gh pr merge <n> --merge --admin`;
+`--admin` is reserved for Sync PRs and matches the bypass actor on the Personal
+Fork ruleset. Bind the merge to the verified head with
 `--match-head-commit <sha>` or the forge's equivalent guard. Apply the repository
 merge preflight and execute only its printed, head-pinned command. Do not pass a
 branch-deletion option to the merge command; all deletions happen in Clean up

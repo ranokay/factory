@@ -107,7 +107,9 @@ Supervisor thread stands in for the Supervisor's confirmation.
   every upstream change. If you cannot tell whether the PR is a Sync PR, inside a
   Run send the `stopped` notice to the notice thread with the question so the
   Dispatcher parks the issue; otherwise report the question to the user. Do not
-  wake the Supervisor and do not guess.
+  wake the Supervisor and do not guess. Merge a Sync PR with
+  `gh pr merge <n> --merge --admin`; `--admin` is reserved for Sync PRs and
+  matches the bypass actor on the Personal Fork ruleset.
 - Before readiness, a Sync PR passes
   `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;
   a missing verdict is a blocking finding. An Upstream Fork PR passes
