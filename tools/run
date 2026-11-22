@@ -14,7 +14,7 @@ command_guard | environment_check)
   exec uv run --offline --no-project --no-config --python 3.13.18 python "$tool_dir/$tool.py" "$@"
   ;;
 tests)
-  exec uv run --offline --no-project --no-config --python 3.13.18 python -m unittest discover -s "$tool_dir/tests" "$@"
+  exec uv run --no-project --no-config --python 3.13.18 --with PyYAML==6.0.3 python -m unittest discover -s "$tool_dir/tests" "$@"
   ;;
 *)
   echo "Unknown agent tool: $tool" >&2
