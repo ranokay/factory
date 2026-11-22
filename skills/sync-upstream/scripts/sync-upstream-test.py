@@ -180,6 +180,11 @@ class SyncUpstream(SyncFixture):
         result = self.verdicts(repo, base, merge, unclosed)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unclosed fenced block", result.stderr)
+        for indent in ("    ", "\t"):
+            body = "## Verdicts\n```\n" + indent + "```\n" + row + merge_row
+            result = self.verdicts(repo, base, merge, body)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unclosed fenced block", result.stderr)
         valid = "## Verdicts\n```\nexample\n```\n" + row + merge_row
         self.assertEqual(self.verdicts(repo, base, merge, valid).returncode, 0)
         generated = self.cli("body", "--from", base, "--to", merge, cwd=repo)

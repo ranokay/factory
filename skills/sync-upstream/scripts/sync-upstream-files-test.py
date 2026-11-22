@@ -186,6 +186,21 @@ class SyncUpstreamFiles(SyncFixture):
         self.cli("install-files", "--target", str(target), "--template", str(template))
         self.assertEqual((target / ".coderabbit.yaml").read_text(), "reviews:\n    auto_review:\n      enabled: false\n    tools:\n        enabled: true\n")
 
+    def test_install_files_refuses_complex_coderabbit_enabled_values(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / ".coderabbit.yaml").write_text("reviews:\n  auto_review:\n    enabled: false\n")
+        target = self.target({".coderabbit.yaml": ""})
+        path = target / ".coderabbit.yaml"
+        for value in ("|\n      text", ">\n      text", "&review_enabled true\n  other: *review_enabled", "\n      nested: value"):
+            with self.subTest(value=value):
+                original = f"reviews:\n  auto_review:\n    enabled: {value}\n"
+                path.write_text(original)
+                result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("auto_review.enabled has an unsupported value", result.stderr)
+                self.assertEqual(path.read_text(), original)
+
     def test_install_files_merges_multiple_mise_entries(self):
         template = self.root / "template"
         template.mkdir()

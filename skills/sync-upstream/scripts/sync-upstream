@@ -216,7 +216,7 @@ def verdict_rows(text):
     inside = False
     fence = None
     for line in text.splitlines():
-        marker = re.match(r'^\s*(`{3,}|~{3,})', line)
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})', line)
         if marker:
             token = marker.group(1)
             if fence is None:
@@ -748,6 +748,11 @@ def merge_coderabbit(existing, template):
         match = pattern.match(lines[index])
         if match:
             before, spacing, old, comment, ending = match.groups()
+            if old.strip() not in ("", "true", "false") or any(
+                line.strip() and not line.lstrip().startswith("#") and len(line) - len(line.lstrip()) > indent
+                for line in lines[index + 1:yaml_block_end(lines, index, auto_end, indent)]
+            ):
+                raise SyncError("install-files: .coderabbit.yaml auto_review.enabled has an unsupported value; change it by hand")
             trailing = old[len(old.rstrip()):]
             if comment and not trailing:
                 trailing = " "
