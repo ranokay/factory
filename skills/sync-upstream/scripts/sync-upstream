@@ -420,7 +420,7 @@ def section_bounds(lines, section):
                 return 0, index
         return 0, len(lines)
     for index, line in enumerate(lines):
-        if re.match(rf"^\s*\[{re.escape(section)}\]\s*$", line):
+        if re.match(rf"^\s*\[{re.escape(section)}\]\s*(?:#.*)?$", line):
             end = len(lines)
             for later in range(index + 1, len(lines)):
                 if re.match(r"^\s*\[", lines[later]):
@@ -431,10 +431,11 @@ def section_bounds(lines, section):
 
 
 def add_array_entry(text, key, value, section=None):
-    lines = text.splitlines()
+    lines = text.splitlines(keepends=True)
+    newline = "\r\n" if "\r\n" in text else "\n"
     start, end = section_bounds(lines, section)
     if start is None:
-        return text.rstrip("\n") + f'\n\n[{section}]\n{key} = [{json.dumps(value)}]\n'
+        return text.rstrip("\r\n") + f'{newline}{newline}[{section}]{newline}{key} = [{json.dumps(value)}]{newline}'
     pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*\[")
     for index in range(start, end):
         if pattern.match(lines[index]):
@@ -451,33 +452,39 @@ def add_array_entry(text, key, value, section=None):
                 separator = " " if before.rstrip().endswith(",") else ", " if not before.rstrip().endswith("[") else ""
                 lines[index] = before + separator + json.dumps(value) + lines[index][closing:]
             else:
-                lines.insert(index + 1, f'  {json.dumps(value)},')
-            return "\n".join(lines) + "\n"
-    insert = f'{key} = [{json.dumps(value)}]'
+                bracket = lines[index].index("[") + 1
+                remainder = lines[index][bracket:].lstrip()
+                if remainder and not remainder.startswith("#"):
+                    lines[index] = lines[index][:bracket] + newline + f'  {json.dumps(value)},{newline}' + lines[index][bracket:]
+                else:
+                    lines.insert(index + 1, f'  {json.dumps(value)},{newline}')
+            return "".join(lines)
+    insert = f'{key} = [{json.dumps(value)}]{newline}'
     if section is None:
         lines.insert(start, insert)
         if start < len(lines) - 1 and lines[start + 1].strip() != "":
-            lines.insert(start + 1, "")
+            lines.insert(start + 1, newline)
     else:
         lines.insert(start, insert)
-    return "\n".join(lines) + "\n"
+    return "".join(lines)
 
 
 def ensure_settings(text):
     data = tomllib.loads(text)
     if (data.get("settings") or {}).get("experimental") is True:
         return text
-    lines = text.splitlines()
+    lines = text.splitlines(keepends=True)
+    newline = "\r\n" if "\r\n" in text else "\n"
     start, end = section_bounds(lines, "settings")
     if start is None:
-        return text.rstrip("\n") + "\n\n[settings]\nexperimental = true\n"
+        return text.rstrip("\r\n") + f"{newline}{newline}[settings]{newline}experimental = true{newline}"
     for index in range(start, end):
         if re.match(r"^\s*experimental\s*=", lines[index]):
             prefix = lines[index].split("=", 1)[0].rstrip()
-            lines[index] = f"{prefix} = true"
-            return "\n".join(lines) + "\n"
-    lines.insert(start, "experimental = true")
-    return "\n".join(lines) + "\n"
+            lines[index] = f"{prefix} = true{newline}"
+            return "".join(lines)
+    lines.insert(start, f"experimental = true{newline}")
+    return "".join(lines)
 
 
 def merge_mise(existing, template):
@@ -681,14 +688,17 @@ def install_files(args):
                 shutil.copyfile(source, destination)
                 print(f"created: {name}")
             continue
-        merged, differs = merge_text(source, template, destination.read_text(), content)
+        with destination.open(newline="") as existing_file:
+            existing = existing_file.read()
+        merged, differs = merge_text(source, template, existing, content)
         if not differs:
             continue
         changed = True
         if args.check:
             print(f"would change: {name}")
         else:
-            destination.write_text(merged)
+            with destination.open("w", newline="") as destination_file:
+                destination_file.write(merged)
             print(f"changed: {name}")
     if args.check and changed:
         return 1

@@ -287,6 +287,16 @@ class SyncUpstream(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, f"gh pr merge 7 -R o/r --merge --match-head-commit {head} --admin\n")
 
+    def test_merge_command_accepts_null_ruleset_parameters(self):
+        repo, _ = self.command_fixture()
+        state = json.loads(self.repo_file.read_text())
+        for parameters in (None, {"required_status_checks": None}):
+            with self.subTest(parameters=parameters):
+                state["applied_rules"] = [{"type": "required_status_checks", "parameters": parameters}]
+                self.repo_file.write_text(json.dumps(state))
+                result = self.merge_command(repo)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_merge_command_blocks_a_failing_check(self):
         repo, _ = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "failure"}])
         result = self.merge_command(repo)
@@ -516,6 +526,17 @@ class SyncUpstream(unittest.TestCase):
         self.cli("install-files", "--target", str(target), "--template", str(template))
         expected = original.replace('include = [ # existing ] comment\n', 'include = [ # existing ] comment\n  "factory",\n').replace('includes = [\n', 'includes = [\n  "factory-tasks",\n')
         self.assertEqual((target / "mise.toml").read_text(), expected + '\n[settings]\nexperimental = true\n')
+
+    def test_install_files_preserves_crlf_and_commented_table_headers(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
+        original = b'include = ["old" # keep\r\n]\r\n[task_config] # keep\r\nincludes = ["tasks"] # keep\r\n[settings] # keep\r\nexperimental = true\r\n'
+        target = self.target({"mise.toml": ""})
+        (target / "mise.toml").write_bytes(original)
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        expected = original.replace(b'include = [', b'include = [\r\n  "factory",\r\n', 1).replace(b'"tasks"]', b'"tasks", "factory-tasks"]')
+        self.assertEqual((target / "mise.toml").read_bytes(), expected)
 
     def test_install_files_adds_missing_task_and_settings_tables(self):
         template = self.root / "template"
