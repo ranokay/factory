@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -138,7 +139,7 @@ class RepoSettings(unittest.TestCase):
         self.path.write_text(json.dumps(state))
 
     def run_command(self, *args, repo="o/r"):
-        return subprocess.run(["python3", str(ROOT / "scripts/repo-settings.py"), repo, *args], env=self.env, capture_output=True, text=True)
+        return subprocess.run([sys.executable, str(ROOT / "scripts/repo-settings.py"), repo, *args], env=self.env, capture_output=True, text=True)  # nosec B603  # nosemgrep -- the fixture runs a local script
 
     def test_dry_run_apply_and_second_run(self):
         result = self.run_command()
