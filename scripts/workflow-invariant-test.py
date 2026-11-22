@@ -61,6 +61,34 @@ class WorkflowInvariant(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("caller.yml: review has secrets without a same-repository guard", result.stderr)
 
+    def test_dangling_subdirectory_and_non_reusable_callees_fail(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            caller = root / "caller.yml"
+            caller.write_text("name: caller\non: pull_request\njobs:\n  review:\n    uses: $/.github/workflows/missing.yml\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing.yml does not exist", result.stderr)
+            caller.write_text("name: caller\non: pull_request\njobs:\n  review:\n    uses: $/.github/workflows/sub/missing.yml\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("is not a workflow directly in .github/workflows", result.stderr)
+            caller.write_text("name: caller\non: pull_request\njobs:\n  review:\n    uses: $/.github/workflows/missing.yml\n")
+            (root / "missing.yml").write_text("name: other\non: push\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing.yml is not a reusable workflow", result.stderr)
+
+    def test_external_caller_cannot_hide_a_required_context(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "caller.yml"
+            path.write_text("name: caller\non: pull_request\njobs:\n  review:\n    if: always()\n    uses: other/repo/.github/workflows/review.yml@v1\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("guards an external reusable workflow at the caller", result.stderr)
+
     def test_required_check_cannot_be_guarded_at_the_caller(self):
         script = ROOT / "scripts/workflow-invariant.py"
         guard = "github.event.pull_request.head.repo.full_name == github.repository"

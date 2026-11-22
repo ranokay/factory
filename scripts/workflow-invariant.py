@@ -43,15 +43,23 @@ def main(directory, config_path):
             cache[path] = json.loads(result.stdout)
         return cache[path]
 
-    def called_jobs(job):
+    def called_jobs(caller, job):
         uses = str(job.get("uses") or "")
         if not (uses.startswith("$/") or uses.startswith("./")):
             return {}
-        path = root / Path(uses).name
-        return load(path).get("jobs", {}) if path.is_file() else {}
+        relative = Path(uses[2:])
+        if relative.parts[:2] != (".github", "workflows") or len(relative.parts) != 3:
+            raise ValueError(f"{caller}: {uses} is not a workflow directly in .github/workflows")
+        path = root / relative.name
+        if not path.is_file():
+            raise ValueError(f"{caller}: {uses} does not exist")
+        called = load(path)
+        if "workflow_call" not in triggers(called):
+            raise ValueError(f"{caller}: {uses} is not a reusable workflow")
+        return called.get("jobs", {})
 
-    def called_guarded(job, guard):
-        callees = called_jobs(job)
+    def called_guarded(caller, job, guard):
+        callees = called_jobs(caller, job)
         return bool(callees) and all(condition(called.get("if")) == guard for called in callees.values())
 
     failures = []
@@ -72,7 +80,7 @@ def main(directory, config_path):
         if workflow.get("name") == "AI Review":
             guards = [condition(job.get("if")) for job in jobs.values()]
             for job in jobs.values():
-                guards.extend(condition(called.get("if")) for called in called_jobs(job).values())
+                guards.extend(condition(called.get("if")) for called in called_jobs(path, job).values())
             guards = [guard for guard in guards if "pull_request.user.login" in guard]
             if not guards:
                 failures.append(f"{path}: AI Review job has no author guard")
@@ -80,16 +88,19 @@ def main(directory, config_path):
                 if guard != guard_required:
                     failures.append(f"{path}: AI Review author guard does not match factory_authors")
         for job_id, job in jobs.items():
-            for called_id, called in called_jobs(job).items():
+            callees = called_jobs(path, job)
+            for called_id, called in callees.items():
                 context = f"{job_name(job_id, job)} / {job_name(called_id, called)}"
                 if context in required and condition(job.get("if")):
                     failures.append(f"{path}: {job_id} guards required check {context} at the caller")
+            if not callees and "uses" in job and condition(job.get("if")):
+                failures.append(f"{path}: {job_id} guards an external reusable workflow at the caller")
         if not {"pull_request", "pull_request_target", "workflow_run"} & names:
             continue
         expected = guard_required if names & {"pull_request", "pull_request_target"} else run_guard
         for name, job in jobs.items():
             guard = condition(job.get("if"))
-            if not SECRET.search(json.dumps(job)) or guard == expected or called_guarded(job, expected):
+            if not SECRET.search(json.dumps(job)) or guard == expected or called_guarded(path, job, expected):
                 continue
             failures.append(f"{path}: {name} has secrets without a same-repository guard")
     if failures:

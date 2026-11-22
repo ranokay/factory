@@ -111,8 +111,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
         triggers = caller.split("on:\n", 1)[1].split("permissions:", 1)[0]
         self.assertEqual(re.findall(r"(?m)^  ([a-z_]+):", triggers), ["pull_request"])
         self.assertNotIn("pull_request_target:", caller + reusable)
-        caller_job = caller.split("  review:\n", 1)[1]
-        self.assertNotIn("    if:", caller_job.split("    permissions:", 1)[0])
+        self.assertNotIn("if", yaml.safe_load(caller)["jobs"]["review"])
         authors = json.loads((ROOT / "repo-settings.json").read_text())["factory_authors"]
         job = reusable.split("  review:\n", 1)[1]
         condition = re.search(r"(?m)^    if: (.+)$", job).group(1)
