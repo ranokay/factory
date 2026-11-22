@@ -7,6 +7,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -33,7 +35,75 @@ def run_step(source, environment):
     )
 
 
+def assert_review_permissions(test, source):
+    parsed = yaml.safe_load(source)
+    test.assertEqual(parsed["permissions"], {})
+    test.assertEqual(set(parsed["jobs"]), {"review"})
+    test.assertEqual(parsed["jobs"]["review"]["permissions"], {
+        "contents": "read", "issues": "read", "pull-requests": "write",
+    })
+
+
+def assert_failure_propagation(test, source):
+    jobs = yaml.safe_load(source)["jobs"]
+    test.assertEqual(set(jobs), {"review"})
+    for job in jobs.values():
+        for item in [job, *job.get("steps", [])]:
+            test.assertNotIn("continue-on-error", item)
+            if "if" in item:
+                test.assertIsInstance(item["if"], str)
+                test.assertNotRegex(item["if"], r"(?i)\b(?:always|failure)\s*\(")
+
+
 class AiReviewWorkflowTests(unittest.TestCase):
+    def test_review_permissions_are_least_privilege(self):
+        for name in ("ai-review.yml", "ai-review-caller.yml"):
+            with self.subTest(workflow=name):
+                source = workflow(name)
+                assert_review_permissions(self, source)
+                assert_review_permissions(self, source.replace("permissions: {}", "permissions: {} # deny defaults"))
+                mutated = source.replace("      contents: read\n", "      actions: write\n      contents: read\n")
+                self.assertNotEqual(mutated, source)
+                with self.assertRaises(AssertionError):
+                    assert_review_permissions(self, mutated)
+
+    def test_review_failures_propagate(self):
+        for name in ("ai-review.yml", "ai-review-caller.yml"):
+            with self.subTest(workflow=name):
+                assert_failure_propagation(self, workflow(name))
+        source = workflow("ai-review.yml")
+        mutated = source.replace("      - name: Review\n", "      - name: Review\n        continue-on-error: true\n")
+        self.assertNotEqual(mutated, source)
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+        mutated = source.replace("      - name: Review\n", "      - name: Review\n        'continue-on-error': true\n")
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+        mutated = source.replace("  review:\n", "  review:\n    continue-on-error: true\n")
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+        mutated = re.sub(r"(?m)^    if: .+$", "    if: always()", source)
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+        mutated = source.replace("      - name: Require published review\n", "      - name: Require published review\n        if: failure()\n")
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+        mutated = source.replace("      - name: Require published review\n", "      - name: Require published review\n        if: >+\n          ${{ failure() }}\n")
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+
+    def test_automatic_review_event_routing(self):
+        caller = workflow("ai-review-caller.yml")
+        match = re.search(r"(?m)^    types: \[([^]]+)\]$", caller)
+        actions = {action.strip() for action in match.group(1).split(",")}
+        for action, starts in (
+            ("opened", True), ("reopened", True),
+            ("ready_for_review", True), ("synchronize", True),
+            ("closed", False), ("edited", False),
+        ):
+            with self.subTest(action=action):
+                self.assertEqual(action in actions, starts)
+
     def test_secret_jobs_allow_only_same_repository_pull_requests(self):
         caller = workflow("ai-review-caller.yml")
         reusable = workflow("ai-review.yml")
