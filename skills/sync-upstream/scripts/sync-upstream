@@ -400,7 +400,27 @@ def factory_files(args):
 def unfenced_lines(lines):
     fence = None
     comment = False
+    inline = None
+    in_list = False
     for index, line in enumerate(lines):
+        raw = line.rstrip("\r\n")
+        list_item = re.match(r"^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+", raw)
+        if fence is None and not comment and inline is None:
+            if list_item:
+                in_list = True
+            elif raw.strip() and not raw.startswith((" ", "\t")):
+                in_list = False
+            opening = re.match(r"^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+(`{3,}|~{3,})(.*)$", raw) if list_item else re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", raw)
+            if opening is None and in_list:
+                opening = re.match(r"^[ \t]+(`{3,}|~{3,})(.*)$", raw)
+            if opening and not (opening.group(1)[0] == "`" and "`" in opening.group(2)):
+                fence = opening.group(1)
+                continue
+        if fence is not None:
+            closing = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", raw)
+            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence) and not closing.group(2).strip():
+                fence = None
+            continue
         visible = line
         if fence is None:
             visible = ""
@@ -412,6 +432,15 @@ def unfenced_lines(lines):
                         break
                     comment = False
                     offset = end + 3
+                elif inline is not None:
+                    closing = re.match(rf"`{{{len(inline)}}}(?!`)", line[offset:])
+                    if closing:
+                        visible += " " * len(inline)
+                        offset += len(inline)
+                        inline = None
+                    else:
+                        visible += "\n" if line[offset] == "\n" else " "
+                        offset += 1
                 elif line.startswith("<!--", offset):
                     comment = True
                     offset += 4
@@ -420,25 +449,20 @@ def unfenced_lines(lines):
                     closing = re.search(rf"(?<!`)`{{{len(run)}}}(?!`)", line[offset + len(run):])
                     if closing:
                         end = offset + len(run) + closing.end()
-                        visible += line[offset:end]
+                        visible += " " * (end - offset)
                         offset = end
                     else:
-                        visible += run
                         offset += len(run)
+                        later = "".join(lines[index + 1:])
+                        if re.search(rf"(?<!`)`{{{len(run)}}}(?!`)", later):
+                            inline = run
+                            visible += " " * len(run)
+                        else:
+                            visible += run
                 else:
                     visible += line[offset]
                     offset += 1
-        prefix = r"(?:[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+)?" if fence is None else ""
-        match = re.match(rf"^{prefix}[ \t]*(`{{3,}}|~{{3,}})(.*)$", visible.rstrip("\r\n"))
-        if fence is None and match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
-            fence = match.group(1)
-            continue
-        if fence is not None:
-            if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
-                fence = None
-            continue
-        if fence is None:
-            yield index, visible, comment
+        yield index, visible, comment
 
 
 def find_profiles_line(text):
