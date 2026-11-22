@@ -153,7 +153,7 @@ class SyncUpstreamFiles(SyncFixture):
         target = self.target({".coderabbit.yaml": ""})
         path = target / ".coderabbit.yaml"
         for newline in ("\n", "\r\n"):
-            for old, new in (("enabled: true", "enabled: false"), ("enabled:", "enabled: false"), ("enabled: # preserve", "enabled: false # preserve")):
+            for old, new in (("enabled: true", "enabled: false"), ("enabled: True", "enabled: false"), ("enabled: TRUE # preserve", "enabled: false # preserve"), ("enabled: False", "enabled: false"), ("enabled: FALSE", "enabled: false"), ("enabled:", "enabled: false"), ("enabled: # preserve", "enabled: false # preserve")):
                 with self.subTest(newline=newline, old=old):
                     original = newline.join(("reviews:", "  auto_review:", "", "    " + old, ""))
                     path.write_bytes(original.encode())
