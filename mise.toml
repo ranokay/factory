@@ -8,6 +8,7 @@ uv = "0.11.27"
 ffmpeg = "9.0.2"
 "npm:ctx7" = "0.12.2"
 "npm:rea-agents" = "6.5.0"
+# @yarnpkg/libzip@3.2.2 is a Yarn-published transitive without provenance; keep the exemption to that version (https://github.com/yarnpkg/berry).
 "npm:renovate" = { version = "44.257.9", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2"] }
 
 [task_config]
