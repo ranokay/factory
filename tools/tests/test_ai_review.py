@@ -7,6 +7,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -34,28 +36,23 @@ def run_step(source, environment):
 
 
 def assert_review_permissions(test, source):
-    top = re.findall(r"(?m)^permissions:[ \t]*(.*)$", source)
-    test.assertEqual(top, ["{}"])
-    jobs = source.split("\njobs:\n", 1)[1]
-    test.assertEqual(re.findall(r"(?m)^  ([\w-]+):\s*$", jobs), ["review"])
-    blocks = re.findall(r"(?m)^    permissions:\s*\n((?:^      [^\n]+\n)+)", jobs)
-    test.assertEqual(len(blocks), 1)
-    entries = re.findall(r"(?m)^      ([\w-]+):\s*(\w+)\s*$", blocks[0])
-    test.assertEqual(len(entries), 3)
-    test.assertEqual(len(blocks[0].splitlines()), len(entries))
-    test.assertEqual(dict(entries), {
+    parsed = yaml.safe_load(source)
+    test.assertEqual(parsed["permissions"], {})
+    test.assertEqual(set(parsed["jobs"]), {"review"})
+    test.assertEqual(parsed["jobs"]["review"]["permissions"], {
         "contents": "read", "issues": "read", "pull-requests": "write",
     })
 
 
 def assert_failure_propagation(test, source):
-    jobs = source.split("\njobs:\n", 1)[1]
-    test.assertEqual(re.findall(r"(?m)^  ([\w-]+):\s*$", jobs), ["review"])
-    test.assertNotRegex(jobs, r"(?m)^(?: {4}| {6}- | {8})continue-on-error\s*:")
-    conditions = re.findall(r"(?m)^ {4,8}(?:- )?if:\s*(.*)$", jobs)
-    for condition in conditions:
-        test.assertNotIn(condition.strip(), ("", "|", ">", "|-", ">-"))
-        test.assertNotRegex(condition, r"(?i)\b(?:always|failure)\s*\(")
+    jobs = yaml.safe_load(source)["jobs"]
+    test.assertEqual(set(jobs), {"review"})
+    for job in jobs.values():
+        for item in [job, *job.get("steps", [])]:
+            test.assertNotIn("continue-on-error", item)
+            if "if" in item:
+                test.assertIsInstance(item["if"], str)
+                test.assertNotRegex(item["if"], r"(?i)\b(?:always|failure)\s*\(")
 
 
 class AiReviewWorkflowTests(unittest.TestCase):
@@ -64,6 +61,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 source = workflow(name)
                 assert_review_permissions(self, source)
+                assert_review_permissions(self, source.replace("permissions: {}", "permissions: {} # deny defaults"))
                 mutated = source.replace("      contents: read\n", "      actions: write\n      contents: read\n")
                 self.assertNotEqual(mutated, source)
                 with self.assertRaises(AssertionError):
@@ -78,11 +76,19 @@ class AiReviewWorkflowTests(unittest.TestCase):
         self.assertNotEqual(mutated, source)
         with self.assertRaises(AssertionError):
             assert_failure_propagation(self, mutated)
-        for injected in ("    continue-on-error: true\n", "    if: always()\n"):
-            mutated = source.replace("  review:\n", "  review:\n" + injected)
-            with self.assertRaises(AssertionError):
-                assert_failure_propagation(self, mutated)
+        mutated = source.replace("      - name: Review\n", "      - name: Review\n        'continue-on-error': true\n")
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+        mutated = source.replace("  review:\n", "  review:\n    continue-on-error: true\n")
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+        mutated = re.sub(r"(?m)^    if: .+$", "    if: always()", source)
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
         mutated = source.replace("      - name: Require published review\n", "      - name: Require published review\n        if: failure()\n")
+        with self.assertRaises(AssertionError):
+            assert_failure_propagation(self, mutated)
+        mutated = source.replace("      - name: Require published review\n", "      - name: Require published review\n        if: >+\n          ${{ failure() }}\n")
         with self.assertRaises(AssertionError):
             assert_failure_propagation(self, mutated)
 
