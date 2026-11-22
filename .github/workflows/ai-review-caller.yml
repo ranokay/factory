@@ -1,0 +1,18 @@
+name: AI Review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions: {}
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    uses: $/.github/workflows/ai-review.yml
+    secrets:
+      OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
