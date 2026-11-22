@@ -19,9 +19,9 @@ endpoint = a[-1]
 if "/check-runs?" in endpoint:
     result = {"check_runs": [{"status": "completed", "conclusion": s.get("conclusion", "success"), "details_url": "https://github.com/o/r/actions/runs/42/job/1"}]}
 elif "/actions/runs?" in endpoint:
-    result = {"workflow_runs": [{"name": "AI Review", "display_title": "AI Review PR " + str(s.get("run_pr", 1)), "head_sha": "abc", "status": "completed" if s.get("complete", True) else "in_progress", "conclusion": s.get("conclusion", "success"), "id": 42}]}
+    result = {"workflow_runs": [{"name": "AI Review PR " + str(s.get("run_pr", 1)), "display_title": "AI Review PR " + str(s.get("run_pr", 1)), "head_sha": "abc", "status": "completed" if s.get("complete", True) else "in_progress", "conclusion": s.get("conclusion", "success"), "id": 42}]}
     if s.get("older_completed"):
-        result["workflow_runs"].append({"name": "AI Review", "display_title": "AI Review PR 1", "head_sha": "abc", "status": "completed", "conclusion": "success", "id": 41})
+        result["workflow_runs"].append({"name": "AI Review PR 1", "display_title": "AI Review PR 1", "head_sha": "abc", "status": "completed", "conclusion": "success", "id": 41})
 elif "/reviews?" in endpoint:
     result = [s.get("reviews", [])]
 elif "/pulls/" in endpoint and "/comments?" in endpoint:
