@@ -101,15 +101,17 @@ Supervisor thread stands in for the Supervisor's confirmation.
   or workflow, or a dependency manifest in a major bump. If the PR touches one
   and lacks the `protected` label, add the label, send
   `supervise · wake · protected <PR URL>`, and do not merge.
-- Squash-merge, except a Sync PR, which merges with a merge commit. Merge a Sync PR
-  with `gh pr merge <n> --merge --match-head-commit <sha> --admin`; `--admin` is
+- Squash-merge, except a Sync PR, which merges with a merge commit. Identify a
+  Sync PR by what it is, never by a branch-name convention: it merges upstream's
+  default branch into a Personal Fork's `main` and its body carries a verdict for
+  every upstream change. If you cannot tell whether the PR is a Sync PR, inside a
+  Run send the `stopped` notice to the notice thread with the question so the
+  Dispatcher parks the issue; otherwise report the question to the user. Do not
+  wake the Supervisor and do not guess. Once identified, merge a Sync PR with
+  `gh pr merge <n> --merge --match-head-commit <sha> --admin`; `--admin` is
   reserved for Sync PRs and matches the admin RepositoryRole bypass actor on the
-  Personal Fork ruleset. Identify a Sync PR by what it is, never by a branch-name
-  convention: it merges upstream's default branch into a Personal Fork's `main` and
-  its body carries a verdict for every upstream change. If you cannot tell whether
-  the PR is a Sync PR, inside a Run send the `stopped` notice to the notice thread
-  with the question so the Dispatcher parks the issue; otherwise report the question
-  to the user. Do not wake the Supervisor and do not guess.
+  Personal Fork ruleset, whose reservation the promotion at
+  https://github.com/ranokay/factory/issues/104 enforces.
 - Before readiness, a Sync PR passes
   `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;
   a missing verdict is a blocking finding. An Upstream Fork PR passes
@@ -169,7 +171,9 @@ quota-limited, or unavailable bot reviews are incomplete coverage, even when a
 badge is green. A success badge without evidence of a completed review is also
 incomplete; a completed review explicitly reporting no findings is valid coverage.
 Report incomplete optional coverage without blocking. If the forge enforces a
-bot check, report the external blocker instead of bypassing protection.
+bot check, report the external blocker instead of bypassing protection; the only
+exception is the Personal Fork ruleset bypass that a Sync PR's recorded `--admin`
+merge uses.
 
 Inside a Run, readiness includes the Supervisor's `supervise · merge` for this
 head, which follows the final Definition of Done check. Without it, the PR is not

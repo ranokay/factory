@@ -112,8 +112,9 @@ Use the repository's merge method; use squash when none is specified, and a merg
 commit for a Sync PR. Merge a Sync PR with
 `gh pr merge <n> --merge --match-head-commit <sha> --admin`; `--admin` is reserved
 for Sync PRs and matches the admin RepositoryRole bypass actor on the Personal Fork
-ruleset. Bind every merge to the verified head with `--match-head-commit <sha>` or
-the forge's equivalent guard. Apply the repository
+ruleset, whose reservation the promotion at
+https://github.com/ranokay/factory/issues/104 enforces. Bind every merge to the
+verified head with `--match-head-commit <sha>` or the forge's equivalent guard. Apply the repository
 merge preflight and execute only its printed, head-pinned command. Do not pass a
 branch-deletion option to the merge command; all deletions happen in Clean up
 after their guards. If a repository's printed command includes one, omit it or
