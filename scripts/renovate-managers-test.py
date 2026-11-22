@@ -219,6 +219,7 @@ class FactoryPins(unittest.TestCase):
     def test_preset_keeps_the_update_policy(self):
         config = json.loads(PRESET.read_text())
         self.assertEqual(config["schedule"], ["before 6am on monday"])
+        self.assertFalse(config["automerge"])
         self.assertTrue(config["platformAutomerge"])
         self.assertEqual(config["automergeType"], "pr")
         self.assertEqual(config["automergeStrategy"], "squash")
