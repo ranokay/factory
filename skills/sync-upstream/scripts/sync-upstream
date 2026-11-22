@@ -194,7 +194,7 @@ def body(args):
 
 def read_body(args):
     if args.body_file:
-        return Path(args.body_file).read_text()
+        return Path(args.body_file).read_text(encoding="utf-8")
     if args.pr is not None:
         repo = reponame(args.repo)
         return gh("pr", "view", str(args.pr), "--repo", repo, "--json", "body", "--jq", ".body")
@@ -360,7 +360,7 @@ def factory_paths():
 
 def is_workflow(path):
     parts = Path(path).parts
-    return len(parts) == 3 and parts[0] == ".github" and parts[1] == "workflows" and parts[2].endswith(".yml")
+    return len(parts) == 3 and parts[0] == ".github" and parts[1] == "workflows" and parts[2].endswith((".yml", ".yaml"))
 
 
 def factory_files(args):
@@ -434,7 +434,7 @@ def section_bounds(lines, section):
                 return 0, index
         return 0, len(lines)
     for index, line in enumerate(lines):
-        if re.match(rf"^\s*\[{re.escape(section)}\]\s*(?:#.*)?$", line) and toml_boundary(lines, index):
+        if re.match(rf"^\s*\[\s*{re.escape(section)}\s*\]\s*(?:#.*)?$", line) and toml_boundary(lines, index):
             end = len(lines)
             for later in range(index + 1, len(lines)):
                 if re.match(r"^\s*\[.*\]\s*(?:#.*)?$", lines[later]) and toml_boundary(lines, later):
@@ -507,7 +507,11 @@ def ensure_settings(text):
 
 
 def unsupported_mise_form(lines, name):
-    for index, line in enumerate(lines):
+    _, end = section_bounds(lines, None)
+    for index in range(end, len(lines)):
+        if re.match(rf'^\s*\[\s*{re.escape(name)}\s*\.', lines[index]) and toml_boundary(lines, index):
+            return "dotted key"
+    for index, line in enumerate(lines[:end]):
         if not toml_boundary(lines, index):
             continue
         if re.match(rf'^\s*{re.escape(name)}\s*=\s*\{{', line):
@@ -524,11 +528,13 @@ def merge_mise(existing, template):
         raise SyncError("install-files: mise.toml include must be an array")
     task_config = data.get("task_config", {})
     if not isinstance(task_config, dict):
-        raise SyncError("install-files: mise.toml task_config must be a table")
+        shape = "array of tables" if isinstance(task_config, list) else "non-table value"
+        raise SyncError(f"install-files: mise.toml defines task_config as {shape}; add the Factory entries by hand")
     if not isinstance(task_config.get("includes", []), list):
         raise SyncError("install-files: mise.toml task_config.includes must be an array")
     if not isinstance(data.get("settings", {}), dict):
-        raise SyncError("install-files: mise.toml settings must be a table")
+        shape = "array of tables" if isinstance(data["settings"], list) else "non-table value"
+        raise SyncError(f"install-files: mise.toml defines settings as {shape}; add the Factory entries by hand")
     if "experimental" in data.get("settings", {}) and not isinstance(data["settings"]["experimental"], bool):
         raise SyncError("install-files: mise.toml settings.experimental must be a boolean")
     lines = existing.splitlines(keepends=True)
@@ -744,11 +750,11 @@ def install_files(args):
     for source in sorted(path for path in template.rglob("*") if path.is_file()):
         destination = target / source.relative_to(template)
         name = destination.relative_to(target).as_posix()
-        content = source.read_text()
+        content = source.read_text(encoding="utf-8")
         if not destination.exists():
             changes.append((source, destination, name, None))
             continue
-        with destination.open(newline="") as existing_file:
+        with destination.open(encoding="utf-8", newline="") as existing_file:
             existing = existing_file.read()
         merged, differs = merge_text(source, template, existing, content)
         if not differs:
@@ -762,7 +768,7 @@ def install_files(args):
             shutil.copyfile(source, destination)
             print(f"created: {name}")
         else:
-            with destination.open("w", newline="") as destination_file:
+            with destination.open("w", encoding="utf-8", newline="") as destination_file:
                 destination_file.write(merged)
             print(f"changed: {name}")
     if args.check and changes:
@@ -849,6 +855,9 @@ if __name__ == "__main__":
         if str(error):
             print(f"sync-upstream: {error}", file=sys.stderr)
         sys.exit(error.code)
+    except UnicodeDecodeError as error:
+        print(f"sync-upstream: text file is not valid UTF-8: {error}", file=sys.stderr)
+        sys.exit(1)
     except (OSError, ValueError, KeyError, json.JSONDecodeError, tomllib.TOMLDecodeError) as error:
         print(f"sync-upstream: {error}", file=sys.stderr)
         sys.exit(1)

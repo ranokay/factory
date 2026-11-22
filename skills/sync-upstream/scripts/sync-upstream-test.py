@@ -438,6 +438,8 @@ class SyncUpstream(unittest.TestCase):
         self.assertEqual(self.factory_files(repo, "plain-mise").returncode, 0)
         self.branch(repo, "workflow", ".github/workflows/gates.yml", "name: Gates\njobs:\n  gates:\n    uses: ranokay/factory/.github/workflows/gates.yml@main\n")
         self.assertIn(".github/workflows/gates.yml: adds ranokay/factory", self.factory_files(repo, "workflow").stderr)
+        self.branch(repo, "yaml-workflow", ".github/workflows/gates.yaml", "name: Gates\njobs:\n  gates:\n    uses: ranokay/factory/.github/workflows/gates.yml@main\n")
+        self.assertIn(".github/workflows/gates.yaml: adds ranokay/factory", self.factory_files(repo, "yaml-workflow").stderr)
         self.branch(repo, "workflow-edit", ".github/workflows/ci.yml", "on: push\njobs:\n  test:\n    uses: ranokay/factory/.github/workflows/gates.yml@main\n")
         self.assertIn(".github/workflows/ci.yml: adds ranokay/factory", self.factory_files(repo, "workflow-edit").stderr)
         self.branch(repo, "workflow-plain", ".github/workflows/ci.yml", "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n")
@@ -584,7 +586,7 @@ class SyncUpstream(unittest.TestCase):
         (template / "a.txt").write_text("new\n")
         (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
         target = self.target({"mise.toml": ""})
-        for original, name, form in (('task_config = { includes = ["old"] }\n', "task_config", "inline table"), ('task_config.includes = ["old"]\n', "task_config", "dotted key"), ('"include" = ["old"]\n', "include", "quoted key"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes", "quoted key"), ('settings = { experimental = false }\n', "settings", "inline table"), ('note = """\n[settings]\nexperimental = true\n"""\n["settings"]\nexperimental = true\n', "settings", "quoted key")):
+        for original, name, form in (('task_config = { includes = ["old"] }\n', "task_config", "inline table"), ('task_config.includes = ["old"]\n', "task_config", "dotted key"), ('[[task_config]]\nincludes = ["old"]\n', "task_config", "array of tables"), ('[task_config.sub]\nincludes = ["old"]\n', "task_config", "dotted key"), ('"include" = ["old"]\n', "include", "quoted key"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes", "quoted key"), ('settings = { experimental = false }\n', "settings", "inline table"), ('[other]\nsettings = {}\n["settings"]\nexperimental = false\n', "settings", "quoted key"), ('note = """\n[settings]\nexperimental = true\n"""\n["settings"]\nexperimental = true\n', "settings", "quoted key")):
             with self.subTest(original=original):
                 (target / "mise.toml").write_text(original)
                 result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
@@ -592,6 +594,20 @@ class SyncUpstream(unittest.TestCase):
                 self.assertIn(f"install-files: mise.toml defines {name} as {form}; add the Factory entries by hand", result.stderr)
                 self.assertEqual((target / "mise.toml").read_text(), original)
                 self.assertFalse((target / "a.txt").exists())
+
+    def test_install_files_rejects_non_utf8_without_writing(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "a.txt").write_text("new\n")
+        (template / "mise.toml").write_text('include = ["factory"]\n')
+        target = self.target({"mise.toml": ""})
+        (target / "mise.toml").write_bytes(b"\xff")
+        result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("text file is not valid UTF-8", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual((target / "mise.toml").read_bytes(), b"\xff")
+        self.assertFalse((target / "a.txt").exists())
 
     def test_install_files_ignores_nested_arrays_when_finding_tables(self):
         template = self.root / "template"
@@ -601,6 +617,16 @@ class SyncUpstream(unittest.TestCase):
         target = self.target({"mise.toml": original})
         self.cli("install-files", "--target", str(target), "--template", str(template))
         expected = original.replace('"old"]', '"old", "factory"]') + '\n[settings]\nexperimental = true\n'
+        self.assertEqual((target / "mise.toml").read_text(), expected)
+
+    def test_install_files_accepts_whitespace_in_standard_headers(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
+        original = '[ task_config ]\nincludes = []\n[ settings ]\nexperimental = false # keep\n'
+        target = self.target({"mise.toml": original})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        expected = original.replace('includes = []', 'includes = ["factory-tasks"]').replace('false', 'true')
         self.assertEqual((target / "mise.toml").read_text(), expected)
 
     def test_install_files_extends_existing_files(self):
