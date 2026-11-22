@@ -116,9 +116,15 @@ def codacy(path, token, body=None):
         return json.load(response)
 
 
-def ruleset(codacy_check, bypass_actor=None):
+def ruleset(codacy_check, personal_fork=False):
     checks = CONFIG["required_checks"] + ([codacy_check] if codacy_check else [])
-    return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [bypass_actor] if bypass_actor else [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*CONFIG["branch_rules"], {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
+    review_types = {"required_signatures", "pull_request"}
+    branch_rules = [rule for rule in CONFIG["branch_rules"] if not personal_fork or rule["type"] not in review_types]
+    return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*branch_rules, {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
+
+
+def review_ruleset():
+    return {"name": "Factory review rules", "target": "branch", "enforcement": "active", "bypass_actors": [CONFIG["fork_bypass_actor"]], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [rule for rule in CONFIG["branch_rules"] if rule["type"] in {"required_signatures", "pull_request"}]}
 
 
 def codacy_check_seen(base, branch):
@@ -266,10 +272,15 @@ def main():
         codacy_ready = enrolled and codacy_check_seen(base, repo["default_branch"])
         if not codacy_ready:
             manual_drift.append("Codacy check not yet reporting")
-    matching = [r for r in gh(base + "/rulesets?per_page=100", paginate=True) if r["name"] == CONFIG["ruleset_name"]]
-    if len(matching) > 1:
-        raise RuntimeError("multiple rulesets have the Factory name")
-    live = gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
+    listed_rulesets = gh(base + "/rulesets?per_page=100", paginate=True)
+
+    def find_ruleset(name):
+        matching = [item for item in listed_rulesets if item["name"] == name]
+        if len(matching) > 1:
+            raise RuntimeError(f"multiple rulesets have the name {name}")
+        return gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
+
+    live = find_ruleset(CONFIG["ruleset_name"])
     existing_codacy = None
     if live and not repo["private"] and live.get("enforcement") == "active":
         for rule in live.get("rules", []):
@@ -277,10 +288,15 @@ def main():
                 for check in rule.get("parameters", {}).get("required_status_checks", []):
                     if check.get("context") == CONFIG["public_check"]["context"]:
                         existing_codacy = {key: check[key] for key in ("context", "integration_id") if check.get(key) is not None}
-    desired = ruleset(existing_codacy or (CONFIG["public_check"] if codacy_ready else None), CONFIG["fork_bypass_actor"] if personal_fork else None)
-    if not live or not matches(live, desired):
-        before = {key: live.get(key) for key in desired} if live else None
-        change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)
+    desired = ruleset(existing_codacy or (CONFIG["public_check"] if codacy_ready else None), personal_fork)
+    planned = [(live, desired)]
+    if personal_fork:
+        review = review_ruleset()
+        planned.insert(0, (find_ruleset(review["name"]), review))
+    for current, target in planned:
+        if not current or not matches(current, target):
+            before = {key: current.get(key) for key in target} if current else None
+            change(f"ruleset {target['name']}: {json.dumps(before, sort_keys=True)} -> {json.dumps(target, sort_keys=True)}", "PUT" if current else "POST", base + "/rulesets" + ("/" + str(current["id"]) if current else ""), target)
     secret_pages = json.loads(command(["gh", "api", "--paginate", "--slurp", base + "/actions/secrets?per_page=100"]))
     secrets = [secret for page in secret_pages for secret in page["secrets"]]
     secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)

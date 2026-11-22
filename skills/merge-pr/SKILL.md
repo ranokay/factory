@@ -115,8 +115,8 @@ commit for a Sync PR. For a Sync PR, in the PR's checkout run
 and execute only the command it prints. The command exits nonzero if any verdict is
 missing or any check run or commit status on the head is not successful; `skipped`
 and `neutral` pass only for a check the ruleset does not require. Its `--admin` flag
-stands in only for the Personal Fork ruleset's bypassable review rules (signature,
-authorship and review-thread resolution), never for Gates or AI Review. It does not
+stands in only for the Personal Fork's `Factory review rules`; `Factory default
+branch` holds required checks without a bypass. It does not
 inspect review threads; resolve them first. Bind every merge to the verified head
 with `--match-head-commit <sha>` or
 the forge's equivalent guard. For an ordinary PR, apply the repository merge

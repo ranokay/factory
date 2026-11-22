@@ -54,7 +54,7 @@ else:
     mapping = {"": "repo", "/topics": "topics", "/labels": "labels", "/rulesets": "rulesets", "/actions/permissions/fork-pr-contributor-approval": "approval", "/actions/permissions/fork-pr-workflows-private-repos": "private_settings", "/actions/secrets": "secret_response"}
     if method == "GET":
         if key.startswith("/rulesets/"):
-            result = s["rulesets"][0]
+            result = next(item for item in s["rulesets"] if item["id"] == int(key.rsplit("/", 1)[1]))
         elif key == "/actions/secrets":
             if "--slurp" in a:
                 print(json.dumps([{"secrets": s["secrets"][:1]}, {"secrets": s["secrets"][1:]}]))
@@ -78,14 +78,14 @@ else:
             body["default"] = False
             s["labels"].append(body)
         elif key.startswith("/rulesets"):
-            body["id"] = 1
+            body["id"] = int(key.rsplit("/", 1)[1]) if method == "PUT" else max((item["id"] for item in s["rulesets"]), default=0) + 1
             body["source"] = s["name"]
             for rule in body["rules"]:
                 if rule["type"] == "required_status_checks":
                     rule["parameters"]["do_not_enforce_on_create"] = False
                     for check in rule["parameters"]["required_status_checks"]:
                         if "integration_id" not in check: check["integration_id"] = None
-            s["rulesets"] = [body]
+            s["rulesets"] = [item for item in s["rulesets"] if item["id"] != body["id"]] + [body]
         elif key == "/actions/permissions/fork-pr-contributor-approval": s["approval"] = body
         elif key == "/actions/permissions/fork-pr-workflows-private-repos": s["private_settings"] = body
 json.dump(s, open(path, "w"))
@@ -195,6 +195,7 @@ class RepoSettings(unittest.TestCase):
         result = self.run_command("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
         ruleset = json.loads(self.path.read_text())["rulesets"][0]
+        self.assertEqual(len(json.loads(self.path.read_text())["rulesets"]), 1)
         self.assertEqual(ruleset["name"], "Factory default branch")
         self.assertEqual(ruleset["target"], "branch")
         self.assertEqual(ruleset["enforcement"], "active")
@@ -219,8 +220,21 @@ class RepoSettings(unittest.TestCase):
         self.write(state)
         result = self.run_command("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
-        ruleset = json.loads(self.path.read_text())["rulesets"][0]
-        self.assertEqual(ruleset["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
+        state = json.loads(self.path.read_text())
+        rulesets = {item["name"]: item for item in state["rulesets"]}
+        self.assertEqual(set(rulesets), {"Factory default branch", "Factory review rules"})
+        protection = rulesets["Factory default branch"]
+        review = rulesets["Factory review rules"]
+        self.assertEqual(protection["bypass_actors"], [])
+        self.assertEqual({rule["type"] for rule in protection["rules"]}, {"deletion", "non_fast_forward", "required_status_checks"})
+        self.assertEqual(review["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
+        self.assertEqual({rule["type"] for rule in review["rules"]}, {"required_signatures", "pull_request"})
+        state["writes"] = []
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no changes", result.stdout)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], [])
 
     def test_public_personal_fork_keeps_the_bypass_and_codacy(self):
         state = json.loads(self.path.read_text())
@@ -231,10 +245,30 @@ class RepoSettings(unittest.TestCase):
         self.write(state)
         result = self.run_command("--apply")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        ruleset = json.loads(self.path.read_text())["rulesets"][0]
-        self.assertEqual(ruleset["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
-        rules = {rule["type"]: rule.get("parameters", {}) for rule in ruleset["rules"]}
+        rulesets = {item["name"]: item for item in json.loads(self.path.read_text())["rulesets"]}
+        self.assertEqual(rulesets["Factory default branch"]["bypass_actors"], [])
+        self.assertEqual(rulesets["Factory review rules"]["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
+        rules = {rule["type"]: rule.get("parameters", {}) for rule in rulesets["Factory default branch"]["rules"]}
         self.assertIn("Codacy Static Code Analysis", [check["context"] for check in rules["required_status_checks"]["required_status_checks"]])
+
+    def test_personal_fork_migrates_existing_bypass_ruleset_safely(self):
+        state = json.loads(self.path.read_text())
+        state["repo"]["private"] = True
+        self.write(state)
+        self.assertEqual(self.run_command("--apply").returncode, 0)
+        state = json.loads(self.path.read_text())
+        state["repo"]["fork"] = True
+        state["topics"]["names"] = ["factory-personal-fork"]
+        state["rulesets"][0]["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}]
+        state["writes"] = []
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.path.read_text())
+        self.assertEqual([write for write in state["writes"] if "/rulesets" in write], ["POST /rulesets", "PUT /rulesets/1"])
+        rulesets = {item["name"]: item for item in state["rulesets"]}
+        self.assertEqual(rulesets["Factory default branch"]["bypass_actors"], [])
+        self.assertEqual({rule["type"] for rule in rulesets["Factory review rules"]["rules"]}, {"required_signatures", "pull_request"})
 
     def test_personal_project_ruleset_keeps_no_bypass(self):
         state = json.loads(self.path.read_text())
