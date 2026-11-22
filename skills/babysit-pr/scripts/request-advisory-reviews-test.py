@@ -19,7 +19,9 @@ endpoint = a[-1]
 if "/check-runs?" in endpoint:
     result = {"check_runs": [{"status": "completed", "conclusion": s.get("conclusion", "success"), "details_url": "https://github.com/o/r/actions/runs/42/job/1"}]}
 elif "/actions/runs?" in endpoint:
-    result = {"workflow_runs": [{"name": "AI Review", "head_sha": "abc", "status": "completed" if s.get("complete", True) else "in_progress", "conclusion": s.get("conclusion", "success"), "id": 42}]}
+    result = {"workflow_runs": [{"name": "AI Review", "display_title": "AI Review PR #" + str(s.get("run_pr", 1)), "head_sha": "abc", "status": "completed" if s.get("complete", True) else "in_progress", "conclusion": s.get("conclusion", "success"), "id": 42}]}
+    if s.get("older_completed"):
+        result["workflow_runs"].append({"name": "AI Review", "display_title": "AI Review PR #1", "head_sha": "abc", "status": "completed", "conclusion": "success", "id": 41})
 elif "/reviews?" in endpoint:
     result = [s.get("reviews", [])]
 elif "/comments?" in endpoint:
@@ -49,7 +51,7 @@ class ReviewRequests(unittest.TestCase):
         result, writes = self.invoke({})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 3)
-        state = {"reviews": [{"user": {"login": "copilot-pull-request-reviewer[bot]"}, "state": "COMMENTED"}], "comments": [{"user": {"login": "ranokay"}, "body": "<!-- factory:advisory-review:coderabbit -->"}, {"user": {"login": "ranokay"}, "body": "<!-- factory:advisory-review:greptile -->"}]}
+        state = {"reviews": [{"user": {"login": "copilot-pull-request-reviewer[bot]"}, "state": "COMMENTED"}], "comments": [{"body": "@coderabbitai review\n<!-- factory:advisory-review:coderabbit -->"}, {"body": "@greptileai\n<!-- factory:advisory-review:greptile -->"}]}
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(writes, [])
@@ -63,7 +65,7 @@ class ReviewRequests(unittest.TestCase):
         self.assertEqual(len(writes), 3)
 
     def test_partial_requests_and_timeline_are_respected(self):
-        state = {"timeline": [{"event": "review_requested", "requested_reviewer": {"login": "copilot-pull-request-reviewer[bot]"}}], "comments": [{"user": {"login": "ranokay"}, "body": "<!-- factory:advisory-review:coderabbit -->"}]}
+        state = {"timeline": [{"event": "review_requested", "requested_reviewer": {"login": "copilot-pull-request-reviewer[bot]"}}], "comments": [{"body": "@coderabbitai review"}]}
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 1)
@@ -93,6 +95,20 @@ class ReviewRequests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("workflow=failure", result.stdout)
         self.assertEqual(len(writes), 3)
+
+    def test_newer_running_or_other_pr_run_does_not_unblock(self):
+        for state in ({"complete": False, "older_completed": True}, {"run_pr": 2}):
+            with self.subTest(state=state):
+                result, writes = self.invoke(state)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(writes, [])
+
+    def test_manual_greptile_and_coderabbit_requests_are_not_repeated(self):
+        state = {"comments": [{"body": "@coderabbitai full review"}, {"body": "@greptile please review"}]}
+        result, writes = self.invoke(state)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(writes), 1)
+        self.assertIn("@copilot", writes[0])
 
 
 if __name__ == "__main__":

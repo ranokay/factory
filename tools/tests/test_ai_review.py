@@ -94,6 +94,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
 
     def test_automatic_review_event_routing(self):
         caller = workflow("ai-review-caller.yml")
+        self.assertIn("run-name: AI Review PR #${{ github.event.pull_request.number }}", caller)
         match = re.search(r"(?m)^    types: \[([^]]+)\]$", caller)
         actions = {action.strip() for action in match.group(1).split(",")}
         for action, starts in (
