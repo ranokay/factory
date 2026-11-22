@@ -134,10 +134,11 @@ class FactoryPins(unittest.TestCase):
         self.deps = extract(self.fixture)
 
     def test_each_pin_line_yields_one_tag_pin(self):
-        for path in ("mise.toml", "hk.pkl", ".github/workflows/check.yml"):
+        for path, expected in EXPECTED_PINS.items():
             with self.subTest(path=path):
+                self.assertGreater(expected, 0)
                 pins = tag_pins(self.deps.get(path, []))
-                self.assertEqual(len(pins), EXPECTED_PINS[path], self.deps.get(path))
+                self.assertEqual(len(pins), expected, self.deps.get(path))
                 replacements = [dep.get("replaceString") for dep in pins]
                 self.assertEqual(len(replacements), len(set(replacements)))
                 for dep in pins:
