@@ -584,7 +584,7 @@ class SyncUpstream(unittest.TestCase):
         (template / "a.txt").write_text("new\n")
         (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
         target = self.target({"mise.toml": ""})
-        for original, name in (('task_config = { includes = ["old"] }\n', "task_config"), ('task_config.includes = ["old"]\n', "task_config"), ('"include" = ["old"]\n', "include"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes"), ('settings = { experimental = false }\n', "settings")):
+        for original, name in (('task_config = { includes = ["old"] }\n', "task_config"), ('task_config.includes = ["old"]\n', "task_config"), ('"include" = ["old"]\n', "include"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes"), ('settings = { experimental = false }\n', "settings"), ('note = """\n[settings]\nexperimental = true\n"""\n["settings"]\nexperimental = true\n', "settings")):
             with self.subTest(original=original):
                 (target / "mise.toml").write_text(original)
                 result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
@@ -593,6 +593,16 @@ class SyncUpstream(unittest.TestCase):
                 self.assertIn("add the Factory entries by hand", result.stderr)
                 self.assertEqual((target / "mise.toml").read_text(), original)
                 self.assertFalse((target / "a.txt").exists())
+
+    def test_install_files_ignores_nested_arrays_when_finding_tables(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["factory"]\n[settings]\nexperimental = true\n')
+        original = 'other = [\n  ["nested"]\n]\ninclude = ["old"]\n'
+        target = self.target({"mise.toml": original})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        expected = original.replace('"old"]', '"old", "factory"]') + '\n[settings]\nexperimental = true\n'
+        self.assertEqual((target / "mise.toml").read_text(), expected)
 
     def test_install_files_extends_existing_files(self):
         target = self.target({

@@ -419,17 +419,25 @@ def with_profiles_line(text, template):
     return "\n".join([profiles, ""] + lines) + "\n", True
 
 
+def toml_boundary(lines, index):
+    try:
+        tomllib.loads("".join(lines[:index]))
+    except tomllib.TOMLDecodeError:
+        return False
+    return True
+
+
 def section_bounds(lines, section):
     if section is None:
         for index, line in enumerate(lines):
-            if re.match(r"^\s*\[", line):
+            if re.match(r"^\s*\[.*\]\s*(?:#.*)?$", line) and toml_boundary(lines, index):
                 return 0, index
         return 0, len(lines)
     for index, line in enumerate(lines):
-        if re.match(rf"^\s*\[{re.escape(section)}\]\s*(?:#.*)?$", line):
+        if re.match(rf"^\s*\[{re.escape(section)}\]\s*(?:#.*)?$", line) and toml_boundary(lines, index):
             end = len(lines)
             for later in range(index + 1, len(lines)):
-                if re.match(r"^\s*\[", lines[later]):
+                if re.match(r"^\s*\[.*\]\s*(?:#.*)?$", lines[later]) and toml_boundary(lines, later):
                     end = later
                     break
             return index + 1, end
@@ -445,7 +453,7 @@ def add_array_entry(text, key, value, section=None):
         return text + separator + f'{newline}[{section}]{newline}{key} = [{json.dumps(value)}]{newline}'
     pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*\[")
     for index in range(start, end):
-        if pattern.match(lines[index]):
+        if pattern.match(lines[index]) and toml_boundary(lines, index):
             closing = None
             for match in re.finditer(r'\]', lines[index]):
                 try:
@@ -489,7 +497,7 @@ def ensure_settings(text):
         separator = "" if not text or text.endswith("\n") else newline
         return text + separator + f"{newline}[settings]{newline}experimental = true{newline}"
     for index in range(start, end):
-        if re.match(r"^\s*experimental\s*=", lines[index]):
+        if re.match(r"^\s*experimental\s*=", lines[index]) and toml_boundary(lines, index):
             lines[index] = re.sub(r"(=\s*)false\b", r"\g<1>true", lines[index], count=1)
             return "".join(lines)
     if start and not lines[start - 1].endswith("\n"):
@@ -520,7 +528,7 @@ def merge_mise(existing, template):
         if key not in values:
             continue
         start, end = section_bounds(lines, section)
-        if start is None or not any(re.match(rf"^\s*{re.escape(key)}\s*=", line) for line in lines[start:end]):
+        if start is None or not any(re.match(rf"^\s*{re.escape(key)}\s*=", lines[index]) and toml_boundary(lines, index) for index in range(start, end)):
             name = f"{section}.{key}" if section else key
             raise SyncError(f"install-files: mise.toml defines {name} as a dotted or quoted key; add the Factory entries by hand")
     expected = copy.deepcopy(data)
