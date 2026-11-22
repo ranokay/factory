@@ -11,7 +11,6 @@ from pathlib import Path
 from sync_upstream_fixtures import GH, ForkPair
 
 SCRIPT = Path(__file__).resolve().with_name("sync-upstream")
-ROOT = SCRIPT.parents[3]
 GIT = shutil.which("git") or "git"
 
 
@@ -498,6 +497,46 @@ class SyncUpstream(unittest.TestCase):
         result = self.cli("verdicts", "--repo", "o/r", "--body-file", str(body), cwd=self.root, check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no upstream parent", result.stderr)
+
+    def test_install_files_preserves_inline_array_and_comment(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["factory"]\n[settings]\nexperimental = true\n')
+        original = 'include = ["café.toml"] # preserve ] comment\n[settings]\nexperimental = true\n'
+        target = self.target({"mise.toml": original})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        self.assertEqual((target / "mise.toml").read_text(), original.replace('"café.toml"]', '"café.toml", "factory"]'))
+
+    def test_install_files_preserves_block_arrays_and_adds_missing_tables(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
+        original = 'include = [ # existing ] comment\n  "other", # keep\n]\n[task_config]\nincludes = [\n  "tasks", # keep\n]\n'
+        target = self.target({"mise.toml": original})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        expected = original.replace('include = [ # existing ] comment\n', 'include = [ # existing ] comment\n  "factory",\n').replace('includes = [\n', 'includes = [\n  "factory-tasks",\n')
+        self.assertEqual((target / "mise.toml").read_text(), expected + '\n[settings]\nexperimental = true\n')
+
+    def test_install_files_adds_missing_task_and_settings_tables(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
+        target = self.target({"mise.toml": 'include = ["factory"]\n[tools]\npython = "3"\n'})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        self.assertEqual((target / "mise.toml").read_text(), 'include = ["factory"]\n[tools]\npython = "3"\n\n[task_config]\nincludes = ["factory-tasks"]\n\n[settings]\nexperimental = true\n')
+
+    def test_install_files_rejects_invalid_mise_shapes(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n')
+        target = self.target({"mise.toml": 'task_config = "invalid"\n'})
+        for invalid in ('task_config = "invalid"\n', 'include = "invalid"\n', '[task_config]\nincludes = "invalid"\n'):
+            with self.subTest(invalid=invalid):
+                (target / "mise.toml").write_text(invalid)
+                result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("install-files: mise.toml", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
 
     def test_install_files_extends_existing_files(self):
         target = self.target({

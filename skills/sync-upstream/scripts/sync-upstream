@@ -288,7 +288,7 @@ def merge_command(args):
     required = set()
     for rule in rules:
         if rule.get("type") == "required_status_checks":
-            for check in rule.get("parameters", {}).get("required_status_checks", []):
+            for check in (rule.get("parameters") or {}).get("required_status_checks") or []:
                 if check.get("context"):
                     required.add(check["context"])
     check_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/commits/{head}/check-runs?per_page=100"]).stdout)
@@ -438,17 +438,18 @@ def add_array_entry(text, key, value, section=None):
     pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*\[")
     for index in range(start, end):
         if pattern.match(lines[index]):
-            if "]" in lines[index].split("[", 1)[1]:
-                prefix = lines[index].split("=", 1)[0].rstrip()
-                values = tomllib.loads(text)
-                for name in (section.split(".") if section else []):
-                    values = values[name]
-                entries = values[key]
-                block = [f"{prefix} = ["]
-                block.extend(f'  {json.dumps(entry)},' for entry in entries)
-                block.append(f'  {json.dumps(value)},')
-                block.append("]")
-                lines[index:index + 1] = block
+            closing = None
+            for match in re.finditer(r'\]', lines[index]):
+                try:
+                    tomllib.loads(lines[index][:match.end()])
+                except tomllib.TOMLDecodeError:
+                    continue
+                closing = match.start()
+                break
+            if closing is not None:
+                before = lines[index][:closing]
+                separator = " " if before.rstrip().endswith(",") else ", " if not before.rstrip().endswith("[") else ""
+                lines[index] = before + separator + json.dumps(value) + lines[index][closing:]
             else:
                 lines.insert(index + 1, f'  {json.dumps(value)},')
             return "\n".join(lines) + "\n"
@@ -482,6 +483,15 @@ def ensure_settings(text):
 def merge_mise(existing, template):
     template_data = tomllib.loads(template)
     data = tomllib.loads(existing)
+    if not isinstance(data.get("include", []), list):
+        raise SyncError("install-files: mise.toml include must be an array")
+    task_config = data.get("task_config", {})
+    if not isinstance(task_config, dict):
+        raise SyncError("install-files: mise.toml task_config must be a table")
+    if not isinstance(task_config.get("includes", []), list):
+        raise SyncError("install-files: mise.toml task_config.includes must be an array")
+    if not isinstance(data.get("settings", {}), dict):
+        raise SyncError("install-files: mise.toml settings must be a table")
     text = existing
     for url in template_data.get("include", []):
         if url not in data.get("include", []):
