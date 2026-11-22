@@ -85,6 +85,22 @@ class SyncUpstream(unittest.TestCase):
         self.git(path, "commit", "-qm", "base")
         return path
 
+    def clone(self, source, target):
+        self.git(self.root, "clone", "-q", str(source), str(target))
+        self.git(target, "config", "user.name", "Fixture")
+        self.git(target, "config", "user.email", "fixture@example.com")
+        return target
+
+    def fork_pair(self):
+        origin_seed = self.seed("origin-seed", {"file.txt": "base\n"})
+        base = self.git(origin_seed, "rev-parse", "HEAD").stdout.strip()
+        origin = self.bare("origin", origin_seed)
+        upstream_seed = self.root / "upstream-seed"
+        self.clone(origin, upstream_seed)
+        ahead = self.commit(upstream_seed, "upstream.txt", "upstream\n", "upstream change")
+        upstream = self.bare("upstream", upstream_seed)
+        return origin_seed, base, origin, upstream, upstream_seed, ahead
+
     def test_kind_comes_from_the_topic(self):
         result = self.cli("kind", "--repo", "o/r")
         self.assertEqual(result.stdout.strip(), "personal")
@@ -108,19 +124,8 @@ class SyncUpstream(unittest.TestCase):
         self.assertIn("--fork-kind personal --apply", result.stderr)
 
     def test_personal_sync_merges_upstream_with_a_merge_commit(self):
-        origin_seed = self.seed("origin-seed", {"file.txt": "base\n"})
-        base = self.git(origin_seed, "rev-parse", "HEAD").stdout.strip()
-        origin = self.bare("origin", origin_seed)
-        upstream_seed = self.root / "upstream-seed"
-        self.git(self.root, "clone", "-q", str(origin), str(upstream_seed))
-        self.git(upstream_seed, "config", "user.name", "Fixture")
-        self.git(upstream_seed, "config", "user.email", "fixture@example.com")
-        self.commit(upstream_seed, "upstream.txt", "upstream\n", "upstream change")
-        upstream = self.bare("upstream", upstream_seed)
-        work = self.root / "work"
-        self.git(self.root, "clone", "-q", str(origin), str(work))
-        self.git(work, "config", "user.name", "Fixture")
-        self.git(work, "config", "user.email", "fixture@example.com")
+        _, base, origin, upstream, _, _ = self.fork_pair()
+        work = self.clone(origin, self.root / "work")
         self.git(work, "remote", "add", "upstream", str(upstream))
         result = self.cli("sync", "--repo", "o/r", "--date", "2026-11-22", cwd=work)
         self.assertIn("sync/upstream-2026-11-22", result.stdout)
@@ -143,29 +148,17 @@ class SyncUpstream(unittest.TestCase):
         self.assertIn("uncommitted", dirty.stderr)
 
     def test_upstream_sync_fast_forwards_and_refuses_a_divergence(self):
-        origin_seed = self.seed("origin-seed", {"file.txt": "base\n"})
-        origin = self.bare("origin", origin_seed)
-        upstream_seed = self.root / "upstream-seed"
-        self.git(self.root, "clone", "-q", str(origin), str(upstream_seed))
-        self.git(upstream_seed, "config", "user.name", "Fixture")
-        self.git(upstream_seed, "config", "user.email", "fixture@example.com")
-        ahead = self.commit(upstream_seed, "upstream.txt", "upstream\n", "upstream change")
-        upstream = self.bare("upstream", upstream_seed)
-        work = self.root / "work"
-        self.git(self.root, "clone", "-q", str(origin), str(work))
+        origin_seed, _, origin, upstream, _, ahead = self.fork_pair()
+        work = self.clone(origin, self.root / "work")
         self.git(work, "remote", "add", "upstream", str(upstream))
         self.write_repo("o/r", ["factory-upstream-fork"], "main")
         result = self.cli("sync", "--repo", "o/r", cwd=work)
         self.assertIn("fast-forwarded", result.stdout)
         self.assertEqual(self.git(origin, "rev-parse", "refs/heads/main").stdout.strip(), ahead)
-        divergent_seed = self.root / "divergent-seed"
-        self.git(self.root, "clone", "-q", str(origin_seed), str(divergent_seed))
-        self.git(divergent_seed, "config", "user.name", "Fixture")
-        self.git(divergent_seed, "config", "user.email", "fixture@example.com")
+        divergent_seed = self.clone(origin_seed, self.root / "divergent-seed")
         self.commit(divergent_seed, "fork.txt", "fork\n", "fork change")
         divergent = self.bare("divergent", divergent_seed)
-        fork_work = self.root / "fork-work"
-        self.git(self.root, "clone", "-q", str(divergent), str(fork_work))
+        fork_work = self.clone(divergent, self.root / "fork-work")
         self.git(fork_work, "remote", "add", "upstream", str(upstream))
         fork_head = self.git(divergent, "rev-parse", "refs/heads/main").stdout.strip()
         result = self.cli("sync", "--repo", "o/r", cwd=fork_work, check=False)
@@ -173,12 +166,12 @@ class SyncUpstream(unittest.TestCase):
         self.assertIn("not an ancestor", result.stderr)
         self.assertEqual(self.git(divergent, "rev-parse", "refs/heads/main").stdout.strip(), fork_head)
 
-    def verdict_repo(self):
+    def verdict_repo(self, first_change=True):
         repo = self.init("verdicts")
         self.commit(repo, "file.txt", "base\n", "base")
         base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
         self.git(repo, "branch", "side")
-        first = self.commit(repo, "first.txt", "first\n", "first change")
+        first = self.commit(repo, "first.txt", "first\n", "first change") if first_change else base
         self.git(repo, "switch", "-q", "side")
         side_one = self.commit(repo, "side-one.txt", "one\n", "side one")
         self.commit(repo, "side-two.txt", "two\n", "side two")
@@ -207,16 +200,7 @@ class SyncUpstream(unittest.TestCase):
         self.assertIn("has no verdict", result.stderr)
 
     def test_verdicts_merge_commit_stands_for_its_side_branch(self):
-        repo = self.init("merge-only")
-        self.commit(repo, "file.txt", "base\n", "base")
-        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
-        self.git(repo, "branch", "side")
-        self.git(repo, "switch", "-q", "side")
-        self.commit(repo, "one.txt", "one\n", "side one")
-        self.commit(repo, "two.txt", "two\n", "side two")
-        self.git(repo, "switch", "-q", "main")
-        self.git(repo, "merge", "--no-ff", "-q", "side", "-m", "merge side")
-        merge = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        repo, base, _, _, merge = self.verdict_repo(first_change=False)
         result = self.verdicts(repo, base, merge, f"## Verdicts\n\n- `{merge[:8]}` adopt — merge commit\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("1 first-parent upstream changes", result.stdout)

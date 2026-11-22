@@ -6,8 +6,13 @@ import re
 import shutil
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    print("sync-upstream: Python 3.11 or newer is required; run it with the Factory's mise Python", file=sys.stderr)
+    sys.exit(1)
 
 FACTORY_ROOT = Path(__file__).resolve().parents[3]
 FORK_TOPICS = {"factory-personal-fork": "personal", "factory-upstream-fork": "upstream"}
@@ -82,20 +87,20 @@ def remote_identity(url):
     return value.strip("/").lower()
 
 
-def ensure_upstream(parent, dry_run):
+def ensure_upstream(parent):
     existing = git("remote", "get-url", "upstream", check=False)
     if existing.returncode == 0:
         url = existing.stdout.strip()
-        if "github.com" in url and remote_identity(url) != parent.lower():
-            raise SyncError(f"remote upstream points at {remote_identity(url)}, not {parent.lower()}; fix it before syncing")
-        return
-    if dry_run:
-        print(f"git remote add upstream https://github.com/{parent}.git")
+        if "github.com" in url:
+            if remote_identity(url) != parent.lower():
+                raise SyncError(f"remote upstream points at {remote_identity(url)}, not {parent.lower()}; fix it before syncing")
+        elif not Path(url.removeprefix("file://")).exists():
+            raise SyncError(f"remote upstream points at {url}, not {parent}; fix it before syncing")
         return
     git("remote", "add", "upstream", f"https://github.com/{parent}.git")
 
 
-def sync_personal(default, date, dry_run):
+def sync_personal(default, date):
     if git("status", "--porcelain").stdout.strip():
         raise SyncError("the worktree has uncommitted changes; commit or stash them before syncing")
     base = f"origin/{default}"
@@ -103,17 +108,9 @@ def sync_personal(default, date, dry_run):
         raise SyncError(f"{base} does not exist; fetch origin first")
     branch = f"sync/upstream-{date}"
     if git("rev-parse", "--verify", f"refs/heads/{branch}", check=False).returncode == 0:
-        if dry_run:
-            print(f"git switch {branch}")
-        else:
-            git("switch", branch)
+        git("switch", branch)
     elif git("rev-parse", "--verify", f"refs/remotes/origin/{branch}", check=False).returncode == 0:
-        if dry_run:
-            print(f"git switch -c {branch} --track origin/{branch}")
-        else:
-            git("switch", "-c", branch, "--track", f"origin/{branch}")
-    elif dry_run:
-        print(f"git switch -c {branch} {base}")
+        git("switch", "-c", branch, "--track", f"origin/{branch}")
     else:
         git("switch", "-c", branch, base)
     upstream = f"upstream/{default}"
@@ -121,9 +118,6 @@ def sync_personal(default, date, dry_run):
         print(f"sync-upstream: {branch} already contains {upstream}")
         return
     message = f"Merge {upstream} into {default}"
-    if dry_run:
-        print(f"git merge --no-ff --no-edit -m '{message}' {upstream}")
-        return
     result = git("merge", "--no-ff", "--no-edit", "-m", message, upstream, check=False)
     if result.returncode:
         conflicts = git("diff", "--name-only", "--diff-filter=U", check=False).stdout.strip()
@@ -136,7 +130,7 @@ def sync_personal(default, date, dry_run):
     print(f"next: sync-upstream body --from origin/{default} --to {upstream} > body.md")
 
 
-def sync_upstream(default, dry_run):
+def sync_upstream(default):
     origin_ref = f"origin/{default}"
     upstream_ref = f"upstream/{default}"
     for ref in (origin_ref, upstream_ref):
@@ -150,9 +144,6 @@ def sync_upstream(default, dry_run):
         for line in git("log", "--left-right", "--oneline", f"{origin_ref}...{upstream_ref}").stdout.splitlines():
             print(f"  {line}", file=sys.stderr)
         raise SyncError("non-fast-forward", 1)
-    if dry_run:
-        print(f"git push origin {upstream_ref}:refs/heads/{default}")
-        return
     git("push", "origin", f"{upstream_ref}:refs/heads/{default}")
     print(f"sync-upstream: {default} fast-forwarded to {upstream_ref}")
 
@@ -263,13 +254,18 @@ def added_lines(first, last, path):
     return [line[1:] for line in output.splitlines() if line.startswith("+") and not line.startswith("+++")]
 
 
-def factory_paths():
+def template_dir():
     template = FACTORY_ROOT / "project"
     if not template.is_dir():
         raise SyncError(f"{template} is missing")
+    return template
+
+
+def factory_paths():
+    template = template_dir()
     paths = {str(path.relative_to(template)) for path in template.rglob("*") if path.is_file()}
     paths.update({"CLAUDE.md", "GLOSSARY.md"})
-    return paths, template
+    return paths
 
 
 def is_workflow(path):
@@ -278,7 +274,7 @@ def is_workflow(path):
 
 
 def factory_files(args):
-    paths, _ = factory_paths()
+    paths = factory_paths()
     problems = []
     for status, path in changed_files(args.first, args.head):
         lines = added_lines(args.first, args.head, path) if status != "D" else []
@@ -303,7 +299,18 @@ def factory_files(args):
     return 0
 
 
-def with_profiles_line(text):
+def template_profiles_line(template):
+    fenced = False
+    for line in template.splitlines():
+        if line.strip().startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if not fenced and PROFILES_LINE.match(line):
+            return line.strip()
+    raise SyncError("project/AGENTS.md has no Profiles line")
+
+
+def with_profiles_line(text, template):
     fenced = False
     for line in text.splitlines():
         if line.strip().startswith(("```", "~~~")):
@@ -311,12 +318,13 @@ def with_profiles_line(text):
             continue
         if not fenced and PROFILES_LINE.match(line):
             return text, False
+    profiles = template_profiles_line(template)
     lines = text.splitlines()
     for index, line in enumerate(lines):
         if HEADING.match(line):
-            lines[index + 1:index + 1] = ["", "Profiles: universal"]
+            lines[index + 1:index + 1] = ["", profiles]
             return "\n".join(lines) + "\n", True
-    return "\n".join(["Profiles: universal", ""] + lines) + "\n", True
+    return "\n".join([profiles, ""] + lines) + "\n", True
 
 
 def section_bounds(lines, section):
@@ -402,37 +410,65 @@ def merge_mise(existing, template):
 
 def merge_renovate(existing, template):
     data = json.loads(existing)
+    template_data = json.loads(template)
     if not isinstance(data, dict):
         raise SyncError("renovate.json must be an object")
-    wanted = "github>ranokay/factory"
+    wanted = template_data.get("extends")
+    if isinstance(wanted, str):
+        wanted = [wanted]
+    if not isinstance(wanted, list):
+        raise SyncError("project/renovate.json has no extends list")
     extends = data.get("extends")
+    changed = False
     if extends is None:
-        data["extends"] = [wanted]
+        data["extends"] = list(wanted)
+        changed = True
     elif isinstance(extends, str):
-        if extends == wanted:
-            return existing
-        data["extends"] = [extends, wanted]
+        entries = [extends]
+        for entry in wanted:
+            if entry not in entries:
+                entries.append(entry)
+                changed = True
+        data["extends"] = entries
     elif isinstance(extends, list):
-        if wanted in extends:
-            return existing
-        extends.append(wanted)
+        for entry in wanted:
+            if entry not in extends:
+                extends.append(entry)
+                changed = True
     else:
         raise SyncError("renovate.json extends must be a string or a list")
+    if not changed:
+        return existing
     return json.dumps(data, indent=2) + "\n"
 
 
 def merge_greptile(existing, template):
     data = json.loads(existing)
+    template_data = json.loads(template)
     if not isinstance(data, dict):
         raise SyncError(".greptile/config.json must be an object")
-    if "autoReview" in data and "statusCheck" in data:
+    if not isinstance(template_data, dict):
+        raise SyncError("project/.greptile/config.json must be an object")
+    changed = False
+    for key, value in template_data.items():
+        if key not in data:
+            data[key] = value
+            changed = True
+    if not changed:
         return existing
-    data.setdefault("autoReview", [])
-    data.setdefault("statusCheck", False)
     return json.dumps(data, indent=2) + "\n"
 
 
+def coderabbit_enabled(template):
+    for line in template.splitlines():
+        match = re.match(r"^\s+enabled:\s*(\S+)", line)
+        if match:
+            return match.group(1)
+    raise SyncError("project/.coderabbit.yaml has no enabled value")
+
+
 def merge_coderabbit(existing, template):
+    value = coderabbit_enabled(template)
     lines = existing.splitlines()
     reviews = None
     for index, line in enumerate(lines):
@@ -442,7 +478,7 @@ def merge_coderabbit(existing, template):
         if re.match(r"^reviews:\s*\S", line):
             raise SyncError(".coderabbit.yaml reviews must be a block")
     if reviews is None:
-        return existing.rstrip("\n") + "\nreviews:\n  auto_review:\n    enabled: false\n"
+        return existing.rstrip("\n") + f"\nreviews:\n  auto_review:\n    enabled: {value}\n"
     end = len(lines)
     for index in range(reviews + 1, len(lines)):
         if lines[index] and not lines[index].startswith((" ", "\t")):
@@ -457,7 +493,7 @@ def merge_coderabbit(existing, template):
         if re.match(r"^\s+auto_review:\s*\S", lines[index]):
             raise SyncError(".coderabbit.yaml auto_review must be a block")
     if auto is None:
-        lines[reviews + 1:reviews + 1] = ["  auto_review:", "    enabled: false"]
+        lines[reviews + 1:reviews + 1] = ["  auto_review:", f"    enabled: {value}"]
         return "\n".join(lines) + "\n"
     auto_end = end
     for index in range(auto + 1, end):
@@ -467,16 +503,16 @@ def merge_coderabbit(existing, template):
     for index in range(auto + 1, auto_end):
         match = re.match(r"^(\s+)enabled:\s*(.*)$", lines[index])
         if match:
-            lines[index] = f"{match.group(1)}enabled: false"
+            lines[index] = f"{match.group(1)}enabled: {value}"
             return "\n".join(lines) + "\n"
-    lines.insert(auto + 1, "    enabled: false")
+    lines.insert(auto + 1, f"    enabled: {value}")
     return "\n".join(lines) + "\n"
 
 
 def merge_text(path, template_root, existing, template):
     name = path.relative_to(template_root).as_posix()
     if name == "AGENTS.md":
-        return with_profiles_line(existing)
+        return with_profiles_line(existing, template)
     if name == "mise.toml":
         merged = merge_mise(existing, template)
         return merged, merged != existing
@@ -497,9 +533,7 @@ def merge_text(path, template_root, existing, template):
 
 
 def install_files(args):
-    template = Path(args.template) if args.template else FACTORY_ROOT / "project"
-    if not template.is_dir():
-        raise SyncError(f"{template} is missing")
+    template = template_dir()
     target = Path(args.target)
     changed = False
     for source in sorted(path for path in template.rglob("*") if path.is_file()):
@@ -539,7 +573,6 @@ def main():
     sync = commands.add_parser("sync", help="prepare a Personal Fork Sync PR or fast-forward an Upstream Fork")
     sync.add_argument("--repo")
     sync.add_argument("--date", default=datetime.date.today().isoformat())
-    sync.add_argument("--dry-run", action="store_true")
 
     body_parser = commands.add_parser("body", help="draft a Sync PR body with a verdict row per first-parent upstream commit")
     body_parser.add_argument("--from", dest="first", required=True)
@@ -558,7 +591,6 @@ def main():
 
     install = commands.add_parser("install-files", help="install the Project Template with the smallest diff")
     install.add_argument("--target", default=".")
-    install.add_argument("--template")
     install.add_argument("--check", action="store_true")
 
     args = parser.parse_args()
@@ -575,14 +607,13 @@ def main():
         parent = (info.get("parent") or {}).get("full_name")
         if not parent:
             raise SyncError(f"{repo} does not name its upstream parent", 2)
-        ensure_upstream(parent, args.dry_run)
-        if not args.dry_run:
-            git("fetch", "origin")
-            git("fetch", "upstream")
+        ensure_upstream(parent)
+        git("fetch", "origin")
+        git("fetch", "upstream")
         if kind == "personal":
-            sync_personal(info["default_branch"], args.date, args.dry_run)
+            sync_personal(info["default_branch"], args.date)
         else:
-            sync_upstream(info["default_branch"], args.dry_run)
+            sync_upstream(info["default_branch"])
         return 0
     if args.command == "body":
         body(args)

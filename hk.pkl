@@ -32,7 +32,7 @@ steps {
       }
     }
   }
-  ["sync-upstream"] = new Step {
+  ["sync-upstream-test"] = new Step {
     check = "python3 {{root}}/skills/sync-upstream/scripts/sync-upstream-test.py"
     tests {
       ["fork sync fixtures pass"] {

@@ -109,7 +109,7 @@ run = "hk test --step codacy-gate-test"
 
 [tasks."sync-upstream:test"]
 description = "Run the sync-upstream fixture tests"
-run = "hk test --step sync-upstream"
+run = "hk test --step sync-upstream-test"
 
 [tasks."skills:test"]
 description = "Run the skills:sync tests"
