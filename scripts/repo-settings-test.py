@@ -32,6 +32,13 @@ else:
     if key.startswith("/rules/branches/"):
         print(json.dumps([s.get("applied_rules", [])]))
         sys.exit(0)
+    if key.startswith("/commits/") and key.endswith("/check-runs"):
+        head = key.removeprefix("/commits/").removesuffix("/check-runs")
+        print(json.dumps([{"check_runs": s.get("check_runs", {}).get(head, [])}]))
+        sys.exit(0)
+    if key == "/pulls":
+        print(json.dumps([s.get("pulls", [])] if "--slurp" in a else s.get("pulls", [])))
+        sys.exit(0)
     if key.endswith("/protection") and method == "GET":
         if s.get("protection") is None:
             print("HTTP 404", file=sys.stderr)
@@ -55,8 +62,12 @@ else:
             import urllib.parse
             name = urllib.parse.unquote(key.removeprefix("/labels/"))
             s["labels"] = [x for x in s["labels"] if x["name"] != name]
-            if method != "DELETE": s["labels"].append(body)
-        elif key == "/labels": s["labels"].append(body)
+            if method != "DELETE":
+                body["default"] = False
+                s["labels"].append(body)
+        elif key == "/labels":
+            body["default"] = False
+            s["labels"].append(body)
         elif key.startswith("/rulesets"):
             body["id"] = 1
             body["source"] = "o/r"
@@ -104,7 +115,7 @@ class RepoSettings(unittest.TestCase):
         (self.root / "sitecustomize.py").write_text(SITE)
         self.path = self.root / "state"
         self.env = dict(os.environ, PATH=f"{self.root}:{os.environ['PATH']}", PYTHONPATH=str(self.root), FAKE_STATE=str(self.path), OP_SERVICE_ACCOUNT_TOKEN="fixture-token")
-        self.write({"repo": {"private": False, "fork": False, "default_branch": "main", "allow_squash_merge": False, "allow_merge_commit": False, "allow_rebase_merge": True}, "files": {".coderabbit.yaml": "reviews:\n  auto_review:\n    enabled: false\n", ".greptile/config.json": '{"autoReview": [], "statusCheck": false}'}, "topics": {"names": []}, "labels": [{"name": "documentation", "color": "0075ca", "description": ""}, {"name": "custom", "color": "123456", "description": "keep"}], "rulesets": [], "approval": {"approval_policy": "first_time_contributors"}, "private_settings": {"run_workflows_from_fork_pull_requests": False}, "secrets": [], "writes": []})
+        self.write({"repo": {"private": False, "fork": False, "default_branch": "main", "allow_squash_merge": False, "allow_merge_commit": False, "allow_rebase_merge": True}, "files": {".coderabbit.yaml": "reviews:\n  auto_review:\n    enabled: false\n", ".greptile/config.json": '{"autoReview": [], "statusCheck": false}'}, "topics": {"names": []}, "labels": [{"name": "documentation", "color": "0075ca", "description": "", "default": True}, {"name": "accessibility", "color": "f143ab", "description": "", "default": True}, {"name": "custom", "color": "123456", "description": "keep", "default": False}], "rulesets": [], "approval": {"approval_policy": "first_time_contributors"}, "private_settings": {"run_workflows_from_fork_pull_requests": False}, "secrets": [], "writes": []})
 
     def write(self, state):
         self.path.write_text(json.dumps(state))
@@ -119,11 +130,21 @@ class RepoSettings(unittest.TestCase):
         self.assertNotIn("fixture-secret", result.stdout + result.stderr)
         self.assertEqual(json.loads(self.path.read_text())["writes"], [])
         result = self.run_command("--apply")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("manual: Codacy check not yet reporting", result.stdout)
         self.assertNotIn("fixture-secret", result.stdout + result.stderr)
         state = json.loads(self.path.read_text())
         self.assertIn("custom", [item["name"] for item in state["labels"]])
         self.assertNotIn("documentation", [item["name"] for item in state["labels"]])
+        self.assertNotIn("accessibility", [item["name"] for item in state["labels"]])
+        self.assertIn("label accessibility: delete", result.stdout)
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        state["writes"] = []
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], ["PUT /rulesets/1"])
+        state = json.loads(self.path.read_text())
         state["writes"] = []
         self.write(state)
         result = self.run_command("--apply")
@@ -186,6 +207,40 @@ class RepoSettings(unittest.TestCase):
         self.assertIn("manual: ruleset o (10): required reviewer coderabbitai[bot]", result.stdout)
         self.assertIn("manual: legacy branch protection: required check Devin Review", result.stdout)
         self.assertFalse(any("rules/branches" in entry or "/protection" in entry for entry in json.loads(self.path.read_text())["writes"]))
+
+    def test_public_codacy_is_enrolled_before_ruleset_and_required_only_when_observed(self):
+        state = json.loads(self.path.read_text())
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("manual: Codacy check not yet reporting", result.stdout)
+        state = json.loads(self.path.read_text())
+        self.assertLess(state["writes"].index("codacy"), state["writes"].index("POST /rulesets"))
+        checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
+        self.assertNotIn("Codacy Static Code Analysis", [check["context"] for check in checks])
+        state["writes"] = []
+        state["pulls"] = [{"head": {"sha": "recent-pr"}}]
+        state["check_runs"] = {"recent-pr": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.path.read_text())
+        self.assertEqual(state["writes"], ["PUT /rulesets/1"])
+        checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
+        self.assertIn("Codacy Static Code Analysis", [check["context"] for check in checks])
+
+    def test_enrolled_codacy_without_check_stays_advisory(self):
+        state = json.loads(self.path.read_text())
+        state["enrolled"] = True
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("manual: Codacy check not yet reporting", result.stdout)
+        state = json.loads(self.path.read_text())
+        self.assertNotIn("codacy", state["writes"])
+        checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
+        self.assertNotIn("Codacy Static Code Analysis", [check["context"] for check in checks])
 
 
 if __name__ == "__main__":

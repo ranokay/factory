@@ -5,11 +5,15 @@ import sys
 from pathlib import Path
 
 
-GUARD = "github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.user.login == 'ranokay' || github.event.pull_request.user.login == 'renovate[bot]')"
 SECRET = re.compile(r"\bsecrets\b", re.IGNORECASE)
 
 
-def main(directory):
+def main(directory, config_path):
+    authors = json.loads(Path(config_path).read_text())["factory_authors"]
+    if not authors or any(not re.fullmatch(r"[A-Za-z0-9-]+(?:\[bot\])?", name) for name in authors):
+        raise ValueError("invalid factory_authors")
+    author_guard = " || ".join(f"github.event.pull_request.user.login == '{name}'" for name in authors)
+    guard_required = f"github.event.pull_request.head.repo.full_name == github.repository && ({author_guard})"
     failures = []
     paths = sorted([*Path(directory).glob("*.yml"), *Path(directory).glob("*.yaml")])
     if not paths:
@@ -26,7 +30,7 @@ def main(directory):
         for name, job in workflow.get("jobs", {}).items():
             guard = str(job.get("if", "")).strip().removeprefix("${{").removesuffix("}}").strip()
             secret = SECRET.search(json.dumps(job)) or job.get("secrets") == "inherit"
-            if secret and guard != GUARD:
+            if secret and guard != guard_required:
                 failures.append(f"{path}: {name} has secrets without a same-repository guard")
     if failures:
         raise ValueError("\n".join(failures))
@@ -34,7 +38,7 @@ def main(directory):
 
 if __name__ == "__main__":
     try:
-        main(sys.argv[1] if len(sys.argv) > 1 else ".github/workflows")
+        main(sys.argv[1] if len(sys.argv) > 1 else ".github/workflows", sys.argv[2] if len(sys.argv) > 2 else Path(__file__).resolve().parent.parent / "repo-settings.json")
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)

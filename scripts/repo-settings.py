@@ -116,9 +116,20 @@ def codacy(path, token, body=None):
         return json.load(response)
 
 
-def ruleset(private):
-    checks = CONFIG["required_checks"] + ([] if private else [CONFIG["public_check"]])
+def ruleset(codacy_ready):
+    checks = CONFIG["required_checks"] + ([CONFIG["public_check"]] if codacy_ready else [])
     return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*CONFIG["branch_rules"], {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
+
+
+def codacy_check_seen(base, branch):
+    pulls = gh(base + "/pulls?state=all&per_page=10")
+    heads = [branch, *[pull["head"]["sha"] for pull in pulls if pull.get("head", {}).get("sha")]]
+    for head in dict.fromkeys(heads):
+        endpoint = base + "/commits/" + urllib.parse.quote(head, safe="") + "/check-runs?per_page=100"
+        pages = json.loads(command(["gh", "api", "--paginate", "--slurp", endpoint]))
+        if any(check["name"] == CONFIG["public_check"]["context"] for page in pages for check in page["check_runs"]):
+            return True
+    return False
 
 
 def matches(actual, expected):
@@ -225,22 +236,11 @@ def main():
             before = {"color": existing["color"], "description": existing.get("description")} if existing else None
             after = {"name": label, "color": colour, "description": description}
             change(f"label {label}: {json.dumps(before, sort_keys=True)} -> {json.dumps(after, sort_keys=True)}", "PATCH" if existing else "POST", base + "/labels" + ("/" + urllib.parse.quote(label, safe="") if existing else ""), after)
-    for label in CONFIG["github_default_labels"]:
-        if label in labels:
-            change(f"label {label}: {json.dumps(labels[label], sort_keys=True)} -> deleted", "DELETE", base + "/labels/" + urllib.parse.quote(label, safe=""))
-    desired = ruleset(repo["private"])
-    matching = [r for r in gh(base + "/rulesets?per_page=100", paginate=True) if r["name"] == desired["name"]]
-    if len(matching) > 1:
-        raise RuntimeError("multiple rulesets have the Factory name")
-    live = gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
-    if not live or not matches(live, desired):
-        before = {key: live.get(key) for key in desired} if live else None
-        change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)
-    secrets = gh(base + "/actions/secrets?per_page=100")["secrets"]
-    secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)
-    if secret_needed:
-        changes.append(("Actions secret OPENCODE_ZEN_API_KEY: set from 1Password", "SECRET", "", None))
+    for label, details in labels.items():
+        if details.get("default") is True and label not in CONFIG["labels"]:
+            change(f"label {label}: delete", "DELETE", base + "/labels/" + urllib.parse.quote(label, safe=""))
     token = None
+    codacy_ready = False
     if not repo["private"]:
         token = op_read(CONFIG["codacy_token"])
         cursor = None
@@ -256,6 +256,21 @@ def main():
                 break
         if not enrolled:
             changes.append(("Codacy: enroll public repository", "CODACY", "", None))
+        codacy_ready = enrolled and codacy_check_seen(base, repo["default_branch"])
+        if not codacy_ready:
+            manual_drift.append("Codacy check not yet reporting")
+    desired = ruleset(codacy_ready)
+    matching = [r for r in gh(base + "/rulesets?per_page=100", paginate=True) if r["name"] == desired["name"]]
+    if len(matching) > 1:
+        raise RuntimeError("multiple rulesets have the Factory name")
+    live = gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
+    if not live or not matches(live, desired):
+        before = {key: live.get(key) for key in desired} if live else None
+        change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)
+    secrets = gh(base + "/actions/secrets?per_page=100")["secrets"]
+    secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)
+    if secret_needed:
+        changes.append(("Actions secret OPENCODE_ZEN_API_KEY: set from 1Password", "SECRET", "", None))
     print("drift:")
     for description, _, _, _ in changes:
         print("  " + description)

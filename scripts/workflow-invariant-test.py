@@ -1,3 +1,4 @@
+import json
 import subprocess
 import tempfile
 import unittest
@@ -26,6 +27,27 @@ class WorkflowInvariant(unittest.TestCase):
             path.write_text('name: bad\non: pull_request\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ toJSON(secrets) }}"\n')
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
+
+    def test_secret_workflow_guard_must_match_factory_authors(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        with tempfile.TemporaryDirectory() as temp:
+            for name in ("ai-review-caller.yml", "ai-review.yml"):
+                path = Path(temp) / name
+                source = (ROOT / ".github/workflows" / name).read_text()
+                path.write_text(source.replace("renovate[bot]", "other[bot]"))
+                result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, name)
+                self.assertIn("guard", result.stderr)
+                path.unlink()
+            path = Path(temp) / "ai-review-caller.yml"
+            path.write_text((ROOT / ".github/workflows/ai-review-caller.yml").read_text())
+            config = json.loads((ROOT / "repo-settings.json").read_text())
+            config["factory_authors"].append("factory-helper[bot]")
+            config_path = Path(temp) / "settings.json"
+            config_path.write_text(json.dumps(config))
+            result = subprocess.run(["python3", str(script), temp, str(config_path)], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("guard", result.stderr)
 
 
 if __name__ == "__main__":

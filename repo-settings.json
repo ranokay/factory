@@ -32,6 +32,5 @@
     "blocked": ["b60205", "Waiting for an unblock"],
     "promotion": ["5319e7", "Make a correction enforceable"],
     "protected": ["e99695", "Requires approval before merge"]
-  },
-  "github_default_labels": ["documentation", "duplicate", "good first issue", "help wanted", "invalid", "question"]
+  }
 }
