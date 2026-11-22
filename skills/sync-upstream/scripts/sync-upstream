@@ -404,17 +404,32 @@ def unfenced_lines(lines):
         visible = line
         if fence is None:
             visible = ""
-            rest = line
-            while rest:
-                marker = "-->" if comment else "<!--"
-                before, found, after = rest.partition(marker)
-                if not comment:
-                    visible += before
-                if not found:
-                    break
-                comment = not comment
-                rest = after
-        match = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", visible.rstrip("\r\n"))
+            offset = 0
+            while offset < len(line):
+                if comment:
+                    end = line.find("-->", offset)
+                    if end < 0:
+                        break
+                    comment = False
+                    offset = end + 3
+                elif line.startswith("<!--", offset):
+                    comment = True
+                    offset += 4
+                elif line[offset] == "`":
+                    run = re.match(r"`+", line[offset:]).group()
+                    closing = re.search(rf"(?<!`)`{{{len(run)}}}(?!`)", line[offset + len(run):])
+                    if closing:
+                        end = offset + len(run) + closing.end()
+                        visible += line[offset:end]
+                        offset = end
+                    else:
+                        visible += run
+                        offset += len(run)
+                else:
+                    visible += line[offset]
+                    offset += 1
+        prefix = r"(?:[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+)?" if fence is None else ""
+        match = re.match(rf"^{prefix}[ \t]*(`{{3,}}|~{{3,}})(.*)$", visible.rstrip("\r\n"))
         if fence is None and match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
             fence = match.group(1)
             continue
@@ -423,11 +438,11 @@ def unfenced_lines(lines):
                 fence = None
             continue
         if fence is None:
-            yield index, visible
+            yield index, visible, comment
 
 
 def find_profiles_line(text):
-    for _, line in unfenced_lines(text.splitlines()):
+    for _, line, _ in unfenced_lines(text.splitlines()):
         if PROFILES_LINE.match(line):
             return line.strip()
     return None
@@ -446,9 +461,15 @@ def with_profiles_line(text, template):
     profiles = template_profiles_line(template)
     lines = text.splitlines(keepends=True)
     newline = "\r\n" if "\r\n" in text else "\n"
-    for index, line in unfenced_lines(lines):
+    scan = iter(unfenced_lines(lines))
+    for index, line, comment in scan:
         if HEADING.match(line):
-            if not line.endswith("\n"):
+            while comment:
+                try:
+                    index, _, comment = next(scan)
+                except StopIteration:
+                    return profiles + newline + newline + text, True
+            if not lines[index].endswith("\n"):
                 lines[index] += newline
             lines[index + 1:index + 1] = [newline, profiles + newline]
             return "".join(lines), True
