@@ -38,9 +38,11 @@ class AiReviewWorkflowTests(unittest.TestCase):
         caller = workflow("ai-review-caller.yml")
         match = re.search(r"(?m)^    types: \[([^]]+)\]$", caller)
         actions = {action.strip() for action in match.group(1).split(",")}
-        for action, starts in (("opened", True), ("reopened", True),
-                               ("ready_for_review", True), ("synchronize", True),
-                               ("closed", False), ("edited", False)):
+        for action, starts in (
+            ("opened", True), ("reopened", True),
+            ("ready_for_review", True), ("synchronize", True),
+            ("closed", False), ("edited", False),
+        ):
             with self.subTest(action=action):
                 self.assertEqual(action in actions, starts)
 
