@@ -88,6 +88,12 @@ class WorkflowInvariant(unittest.TestCase):
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("guards an external reusable workflow at the caller", result.stderr)
+            path.write_text("name: caller\non: pull_request\njobs:\n  other:\n    if: always()\n    uses: other/repo/.github/workflows/review.yml@v1\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path.write_text("name: caller\non: push\njobs:\n  review:\n    if: always()\n    uses: other/repo/.github/workflows/review.yml@v1\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_required_check_cannot_be_guarded_at_the_caller(self):
         script = ROOT / "scripts/workflow-invariant.py"

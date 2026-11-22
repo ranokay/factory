@@ -93,10 +93,12 @@ def main(directory, config_path):
                 context = f"{job_name(job_id, job)} / {job_name(called_id, called)}"
                 if context in required and condition(job.get("if")):
                     failures.append(f"{path}: {job_id} guards required check {context} at the caller")
-            if not callees and "uses" in job and condition(job.get("if")):
-                failures.append(f"{path}: {job_id} guards an external reusable workflow at the caller")
         if not {"pull_request", "pull_request_target", "workflow_run"} & names:
             continue
+        for job_id, job in jobs.items():
+            prefix = job_name(job_id, job) + " / "
+            if not called_jobs(path, job) and "uses" in job and condition(job.get("if")) and any(check.startswith(prefix) for check in required):
+                failures.append(f"{path}: {job_id} guards an external reusable workflow at the caller")
         expected = guard_required if names & {"pull_request", "pull_request_target"} else run_guard
         for name, job in jobs.items():
             guard = condition(job.get("if"))
