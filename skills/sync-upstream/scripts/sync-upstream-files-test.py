@@ -89,42 +89,32 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not exist", result.stderr)
 
-    def test_install_files_places_profiles_after_heading_outside_fence(self):
+    def test_install_files_adds_profiles_after_first_heading(self):
         template = self.root / "template"
         template.mkdir()
         (template / "AGENTS.md").write_text("# Factory\n\nProfiles: universal\n")
         target = self.target({"AGENTS.md": ""})
-        for fence in (b"```text\r\n# comment\r\n```\r\n", b"```\r\n    ```\r\nProfiles: fake\r\n```\r\n", b"~~~text\r\n```\r\n# comment\r\n```\r\n~~~\r\n", b"````text\r\n```\r\nProfiles: fake\r\n# comment\r\n```\r\n````\r\n", b"- Example:\r\n\r\n    ```\r\n    Profiles: fake\r\n    ```\r\n\r\n", b"- ```\r\n  Profiles: fake\r\n  ```\r\n", b"- ```\r\n  example\r\n```\r\n# fake\r\n```\r\n", b"<!--\r\n# comment\r\nProfiles: fake\r\n-->\r\n", b"``` invalid ` info\r\n", b"    ```\r\n\r\n", b"`inline\r\n<!--\r\n`\r\n", b"Unmatched `\r\n\r\nOther `code`\r\n"):
-            with self.subTest(fence=fence):
-                original = fence + b"# Title\r\nExisting instructions.\r\n"
-                (target / "AGENTS.md").write_bytes(original)
-                self.cli("install-files", "--target", str(target), "--template", str(template))
-                expected = original.replace(b"# Title\r\n", b"# Title\r\n\r\nProfiles: universal\r\n")
-                self.assertEqual((target / "AGENTS.md").read_bytes(), expected)
+        original = b"\r\n# Title\r\n```text\r\nProfiles: fake\r\n```\r\n"
+        (target / "AGENTS.md").write_bytes(original)
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        expected = original.replace(b"# Title\r\n", b"# Title\r\n\r\nProfiles: universal\r\n")
+        self.assertEqual((target / "AGENTS.md").read_bytes(), expected)
+        self.cli("install-files", "--target", str(target), "--template", str(template), "--check")
 
-    def test_install_files_handles_comments_and_inline_code_at_heading(self):
+    def test_install_files_refuses_nonstandard_agents_preambles_without_writing(self):
         template = self.root / "template"
         template.mkdir()
+        (template / "0.txt").write_text("new\n")
         (template / "AGENTS.md").write_text("# Factory\n\nProfiles: universal\n")
         target = self.target({"AGENTS.md": ""})
-        path = target / "AGENTS.md"
-        original = "# Title <!--\nhidden\n-->\nbody\n"
-        path.write_text(original)
-        self.cli("install-files", "--target", str(target), "--template", str(template))
-        self.assertEqual(path.read_text(), "# Title <!--\nhidden\n-->\n\nProfiles: universal\nbody\n")
-        self.cli("install-files", "--target", str(target), "--template", str(template), "--check")
-        original = "# Title `<!--`\n\nProfiles: custom\n"
-        path.write_text(original)
-        self.cli("install-files", "--target", str(target), "--template", str(template), "--check")
-        self.assertEqual(path.read_text(), original)
-        original = "# Title\n\n``` <!--\nexample\n```\n\nProfiles: custom\n"
-        path.write_text(original)
-        self.cli("install-files", "--target", str(target), "--template", str(template), "--check")
-        self.assertEqual(path.read_text(), original)
-        original = "# Title `\ncontinued\n`\nbody\n"
-        path.write_text(original)
-        self.cli("install-files", "--target", str(target), "--template", str(template))
-        self.assertEqual(path.read_text(), "# Title `\ncontinued\n`\n\nProfiles: universal\nbody\n")
+        for original in ("```\n# comment\n```\n# Title\n", "<pre>\n# comment\n</pre>\n# Title\n", "    code\n# Title\n", "  # Title\n", "Title\n=====\n", "---\ntitle: Example\n---\n# Title\n", "text\n# Title\n", "\n"):
+            with self.subTest(original=original):
+                (target / "AGENTS.md").write_text(original)
+                result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("install-files: AGENTS.md must begin with a # heading", result.stderr)
+                self.assertEqual((target / "AGENTS.md").read_text(), original)
+                self.assertFalse((target / "0.txt").exists())
 
     def test_install_files_scopes_coderabbit_enabled_to_auto_review(self):
         template = self.root / "template"

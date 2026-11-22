@@ -8,6 +8,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from profiles_reader import profiles_entries
+
 PRUNE = {'.git', 'node_modules', '.venv', 'venv', 'skills', 'patches'}
 PROFILE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
 TAG = re.compile(r'^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$')
@@ -25,7 +27,6 @@ FACTORY_REPO = re.compile(
     r'^(?:https?://github\.com/ranokay/factory(?:\.git)?|ssh://git@github\.com/ranokay/factory(?:\.git)?)/?$'
 )
 AMENDS = re.compile(r'^\s*amends\s+"([^"]+)"', re.MULTILINE)
-PROFILES_LINE = re.compile(r'^[ \t]*Profiles:[ \t]*(.*)$')
 
 
 def relative(root, path):
@@ -134,22 +135,6 @@ def parse_hk(path, root):
         if name is not None:
             names.add(name)
     return names, problems
-
-
-def profiles_entries(text):
-    entries = []
-    fenced = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(('```', '~~~')):
-            fenced = not fenced
-            continue
-        if fenced:
-            continue
-        match = PROFILES_LINE.match(line)
-        if match is not None:
-            entries.append(match.group(1))
-    return entries
 
 
 def parse_profiles(root, agents, problems):

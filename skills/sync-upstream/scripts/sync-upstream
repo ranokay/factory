@@ -16,13 +16,15 @@ except ModuleNotFoundError:
     sys.exit(1)
 
 FACTORY_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(FACTORY_ROOT / "scripts"))
+from profiles_reader import profiles_entries
+
 FORK_TOPICS = {"factory-personal-fork": "personal", "factory-upstream-fork": "upstream"}
 FACTORY_MARKERS = ("ranokay/factory",)
 PROFILES_LINE = re.compile(r"^\s*Profiles:")
 VERDICT_LINE = re.compile(r"^[-*]\s+`?([0-9a-fA-F]{7,40})`?\s+(\S+)")
 VERDICT_SECTION = re.compile(r"^##\s+Verdicts\s*$", re.IGNORECASE)
 SECTION = re.compile(r"^##\s+")
-HEADING = re.compile(r"^#\s+")
 VERDICTS = ("adopt", "keep-ours", "entangled")
 EXIT_MISSING_TOPIC = 3
 
@@ -397,122 +399,29 @@ def factory_files(args):
     return 0
 
 
-def unfenced_lines(lines):
-    fence = None
-    comment = False
-    inline = None
-    in_list = False
-    list_indent = 0
-    fence_min_indent = 0
-    fence_max_indent = 3
-    for index, line in enumerate(lines):
-        raw = line.rstrip("\r\n")
-        indentation = len(raw) - len(raw.lstrip(" \t"))
-        list_item = re.match(r"^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+", raw)
-        if fence is not None and fence_min_indent and raw.strip() and indentation < fence_min_indent:
-            fence = None
-            in_list = False
-        if fence is None and not comment and inline is None:
-            if list_item:
-                in_list = True
-                list_indent = list_item.end()
-            elif raw.strip() and not raw.startswith((" ", "\t")):
-                in_list = False
-            opening = re.match(r"^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+(`{3,}|~{3,})(.*)$", raw) if list_item else re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", raw)
-            if opening is None and in_list:
-                opening = re.match(r"^[ \t]+(`{3,}|~{3,})(.*)$", raw)
-            if opening and not (opening.group(1)[0] == "`" and "`" in opening.group(2)):
-                fence = opening.group(1)
-                fence_min_indent = list_indent if in_list else 0
-                fence_max_indent = list_indent + 3 if in_list else 3
-                continue
-        if fence is not None:
-            closing = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", raw)
-            if closing and indentation <= fence_max_indent and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence) and not closing.group(2).strip():
-                fence = None
-            continue
-        visible = line
-        if fence is None:
-            visible = ""
-            offset = 0
-            while offset < len(line):
-                if comment:
-                    end = line.find("-->", offset)
-                    if end < 0:
-                        break
-                    comment = False
-                    offset = end + 3
-                elif inline is not None:
-                    closing = re.match(rf"`{{{len(inline)}}}(?!`)", line[offset:])
-                    if closing:
-                        visible += " " * len(inline)
-                        offset += len(inline)
-                        inline = None
-                    else:
-                        visible += "\n" if line[offset] == "\n" else " "
-                        offset += 1
-                elif line.startswith("<!--", offset):
-                    comment = True
-                    offset += 4
-                elif line[offset] == "`":
-                    run = re.match(r"`+", line[offset:]).group()
-                    closing = re.search(rf"(?<!`)`{{{len(run)}}}(?!`)", line[offset + len(run):])
-                    if closing:
-                        end = offset + len(run) + closing.end()
-                        visible += " " * (end - offset)
-                        offset = end
-                    else:
-                        offset += len(run)
-                        paragraph = []
-                        for following in lines[index + 1:]:
-                            if not following.strip() or HEADING.match(following):
-                                break
-                            paragraph.append(following)
-                        later = "".join(paragraph)
-                        if re.search(rf"(?<!`)`{{{len(run)}}}(?!`)", later):
-                            inline = run
-                            visible += " " * len(run)
-                        else:
-                            visible += run
-                else:
-                    visible += line[offset]
-                    offset += 1
-        yield index, visible, comment or inline is not None
-
-
-def find_profiles_line(text):
-    for _, line, _ in unfenced_lines(text.splitlines()):
-        if PROFILES_LINE.match(line):
-            return line.strip()
-    return None
-
-
 def template_profiles_line(template):
-    line = find_profiles_line(template)
-    if line is None:
-        raise SyncError("project/AGENTS.md has no Profiles line")
-    return line
+    entries = profiles_entries(template)
+    if len(entries) != 1 or not entries[0].strip():
+        raise SyncError("project/AGENTS.md must have exactly one non-empty Profiles line")
+    return f"Profiles: {entries[0]}"
 
 
 def with_profiles_line(text, template):
-    if find_profiles_line(text) is not None:
+    if profiles_entries(text):
         return text, False
     profiles = template_profiles_line(template)
     lines = text.splitlines(keepends=True)
+    first = next((index for index, line in enumerate(lines) if line.strip()), None)
+    if first is None or not re.match(r"^#\s+\S", lines[first]):
+        raise SyncError("install-files: AGENTS.md must begin with a # heading; add the Profiles line by hand")
     newline = "\r\n" if "\r\n" in text else "\n"
-    scan = iter(unfenced_lines(lines))
-    for index, line, comment in scan:
-        if HEADING.match(line):
-            while comment:
-                try:
-                    index, _, comment = next(scan)
-                except StopIteration:
-                    return profiles + newline + newline + text, True
-            if not lines[index].endswith("\n"):
-                lines[index] += newline
-            lines[index + 1:index + 1] = [newline, profiles + newline]
-            return "".join(lines), True
-    return profiles + newline + newline + text, True
+    if not lines[first].endswith("\n"):
+        lines[first] += newline
+    lines[first + 1:first + 1] = [newline, profiles + newline]
+    result = "".join(lines)
+    if profiles_entries(result) != profiles_entries(profiles):
+        raise SyncError("install-files: AGENTS.md Profiles insertion failed; add the Profiles line by hand")
+    return result, True
 
 
 def toml_boundary(lines, index):
