@@ -72,8 +72,7 @@ class WorkflowInvariant(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("AI Review author guard does not match factory_authors", result.stderr)
 
-
-    def test_secret_workflow_without_pull_request_trigger_is_allowed(self):
+    def test_secret_workflows_need_a_guard_only_for_fork_reachable_triggers(self):
         script = ROOT / "scripts/workflow-invariant.py"
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "release.yml"
