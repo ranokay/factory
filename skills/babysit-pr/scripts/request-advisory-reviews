@@ -16,13 +16,18 @@ def pages(endpoint):
 
 
 def contains_command(body, pattern):
-    fenced = False
+    fence = None
     for line in body.splitlines():
         stripped = line.lstrip()
-        if stripped.startswith(("```", "~~~")):
-            fenced = not fenced
+        if fence:
+            if re.fullmatch(re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*", stripped):
+                fence = None
             continue
-        if not fenced and not line.startswith(("    ", "\t")) and not stripped.startswith(">") and re.match(pattern, stripped, re.IGNORECASE):
+        opening = re.match(r"(`{3,}|~{3,})", stripped)
+        if opening:
+            fence = opening.group(1)
+            continue
+        if not line.startswith(("    ", "\t")) and not stripped.startswith(">") and re.match(pattern, stripped, re.IGNORECASE):
             return True
     return False
 
@@ -56,7 +61,7 @@ def main():
     reviewed = any("copilot" in r["user"]["login"].lower() for r in reviews)
     if not requested and not reviewed:
         subprocess.run(["gh", "pr", "edit", number, "--repo", repo, "--add-reviewer", "@copilot"], check=True)
-    for bot, command, pattern, reviewers in (("coderabbit", "@coderabbitai review", r"@coderabbitai\s+(?:full\s+)?review\s*$", {"coderabbitai[bot]"}), ("greptile", "@greptileai", r"@greptile(?:ai)?(?:\s+(?:please\s+)?review(?:\s+.*)?)?\s*$", {"greptile-apps[bot]", "greptile[bot]"})):
+    for bot, command, pattern, reviewers in (("coderabbit", "@coderabbitai review", r"@coderabbitai\s+(?:full\s+)?review\s*$", {"coderabbitai[bot]"}), ("greptile", "@greptileai", r"@greptile(?:ai)?(?:\s+(?:please\s+)?review(?:\s+this(?:\s+at\s+(?:apex|plus))?)?)?\s*$", {"greptile-apps[bot]", "greptile[bot]"})):
         marker = f"<!-- factory:advisory-review:{bot} -->"
         requested_in_comment = any(contains_command(comment.get("body") or "", pattern) for comment in comments)
         trusted_marker = any(contains_command(comment.get("body") or "", re.escape(marker) + r"\s*$") and (comment.get("user") or {}).get("login", "").lower() in {author.lower() for author in config["factory_authors"]} for comment in comments)

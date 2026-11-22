@@ -120,6 +120,12 @@ class ReviewRequests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 2)
 
+    def test_discussion_and_mismatched_fence_do_not_hide_requests(self):
+        state = {"comments": [{"body": "@greptile review was discussed as an option"}, {"user": {"login": "ranokay"}, "body": "```\n~~~\n<!-- factory:advisory-review:coderabbit -->\n```"}]}
+        result, writes = self.invoke(state)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(writes), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
