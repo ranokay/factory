@@ -124,7 +124,7 @@ class RepoSettings(unittest.TestCase):
         (self.root / "sitecustomize.py").write_text(SITE)
         self.path = self.root / "state"
         self.env = dict(os.environ, PATH=f"{self.root}:{os.environ['PATH']}", PYTHONPATH=str(self.root), FAKE_STATE=str(self.path), OP_SERVICE_ACCOUNT_TOKEN="fixture-token")
-        self.write({"repo": {"private": False, "fork": False, "default_branch": "main", "allow_squash_merge": False, "allow_merge_commit": False, "allow_rebase_merge": True}, "files": {".coderabbit.yaml": "reviews:\n  auto_review:\n    enabled: false\n", ".greptile/config.json": '{"autoReview": [], "statusCheck": false}'}, "topics": {"names": []}, "labels": [{"name": "documentation", "color": "0075ca", "description": "", "default": True}, {"name": "accessibility", "color": "f143ab", "description": "", "default": True}, {"name": "custom", "color": "123456", "description": "keep", "default": False}], "rulesets": [], "approval": {"approval_policy": "first_time_contributors"}, "private_settings": {"run_workflows_from_fork_pull_requests": False}, "secrets": [], "writes": []})
+        self.write({"repo": {"private": False, "fork": False, "default_branch": "main", "allow_squash_merge": False, "allow_merge_commit": False, "allow_rebase_merge": True, "allow_auto_merge": True}, "files": {".coderabbit.yaml": "reviews:\n  auto_review:\n    enabled: false\n", ".greptile/config.json": '{"autoReview": [], "statusCheck": false}'}, "topics": {"names": []}, "labels": [{"name": "documentation", "color": "0075ca", "description": "", "default": True}, {"name": "accessibility", "color": "f143ab", "description": "", "default": True}, {"name": "custom", "color": "123456", "description": "keep", "default": False}], "rulesets": [], "approval": {"approval_policy": "first_time_contributors"}, "private_settings": {"run_workflows_from_fork_pull_requests": False}, "secrets": [], "writes": []})
 
     def write(self, state):
         self.path.write_text(json.dumps(state))
@@ -160,6 +160,19 @@ class RepoSettings(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("no changes", result.stdout)
         self.assertEqual(json.loads(self.path.read_text())["writes"], [])
+
+    def test_auto_merge_is_enabled(self):
+        state = json.loads(self.path.read_text())
+        state["repo"]["allow_auto_merge"] = False
+        self.write(state)
+        result = self.run_command()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"allow_auto_merge": false', result.stdout)
+        self.assertIn('"allow_auto_merge": true', result.stdout)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(json.loads(self.path.read_text())["repo"]["allow_auto_merge"])
+        self.assertIn("PATCH ", json.loads(self.path.read_text())["writes"])
 
     def test_unreadable_vendor_file_is_reported_and_other_drift_applies(self):
         state = json.loads(self.path.read_text())

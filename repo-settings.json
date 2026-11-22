@@ -6,7 +6,7 @@
     {"context": "review / review", "integration_id": 15368}
   ],
   "public_check": {"context": "Codacy Static Code Analysis"},
-  "merge_settings": {"allow_squash_merge": true, "allow_merge_commit": true, "allow_rebase_merge": false},
+  "merge_settings": {"allow_squash_merge": true, "allow_merge_commit": true, "allow_rebase_merge": false, "allow_auto_merge": true},
   "fork_approval": "all_external_contributors",
   "private_fork_settings": {"run_workflows_from_fork_pull_requests": true, "send_write_tokens_to_workflows": false, "send_secrets_and_variables": false, "require_approval_for_fork_pr_workflows": true},
   "vendor_files": {
