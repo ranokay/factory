@@ -490,7 +490,7 @@ def yaml_block_end(lines, index, end, indent):
 def child_indent(lines, start, end):
     for index in range(start, end):
         line = lines[index]
-        if line.strip():
+        if line.strip() and not line.strip().startswith("#"):
             return len(line) - len(line.lstrip())
     return None
 

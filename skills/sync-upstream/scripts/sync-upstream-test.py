@@ -342,6 +342,12 @@ class SyncUpstream(unittest.TestCase):
         self.assertIn("no merge rule", result.stderr)
         self.assertEqual((target / "extra.txt").read_text(), "upstream\n")
 
+    def test_install_files_requires_an_existing_template(self):
+        target = self.target()
+        result = self.cli("install-files", "--target", str(target), "--template", str(self.root / "missing"), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not exist", result.stderr)
+
     def test_install_files_scopes_coderabbit_enabled_to_auto_review(self):
         template = self.root / "template"
         template.mkdir()
