@@ -94,7 +94,7 @@ class SyncUpstreamFiles(SyncFixture):
         template.mkdir()
         (template / "AGENTS.md").write_text("# Factory\n\nProfiles: universal\n")
         target = self.target({"AGENTS.md": ""})
-        for fence in (b"```text\r\n# comment\r\n```\r\n", b"~~~text\r\n```\r\n# comment\r\n```\r\n~~~\r\n", b"````text\r\n```\r\nProfiles: fake\r\n# comment\r\n```\r\n````\r\n"):
+        for fence in (b"```text\r\n# comment\r\n```\r\n", b"~~~text\r\n```\r\n# comment\r\n```\r\n~~~\r\n", b"````text\r\n```\r\nProfiles: fake\r\n# comment\r\n```\r\n````\r\n", b"- Example:\r\n\r\n    ```\r\n    Profiles: fake\r\n    ```\r\n\r\n", b"<!--\r\n# comment\r\nProfiles: fake\r\n-->\r\n", b"``` invalid ` info\r\n"):
             with self.subTest(fence=fence):
                 original = fence + b"# Title\r\nExisting instructions.\r\n"
                 (target / "AGENTS.md").write_bytes(original)

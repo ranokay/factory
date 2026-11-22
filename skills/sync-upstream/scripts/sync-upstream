@@ -399,9 +399,23 @@ def factory_files(args):
 
 def unfenced_lines(lines):
     fence = None
+    comment = False
     for index, line in enumerate(lines):
-        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
-        if fence is None and match:
+        visible = line
+        if fence is None:
+            visible = ""
+            rest = line
+            while rest:
+                marker = "-->" if comment else "<!--"
+                before, found, after = rest.partition(marker)
+                if not comment:
+                    visible += before
+                if not found:
+                    break
+                comment = not comment
+                rest = after
+        match = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", visible.rstrip("\r\n"))
+        if fence is None and match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
             fence = match.group(1)
             continue
         if fence is not None:
@@ -409,7 +423,7 @@ def unfenced_lines(lines):
                 fence = None
             continue
         if fence is None:
-            yield index, line
+            yield index, visible
 
 
 def find_profiles_line(text):
