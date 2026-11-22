@@ -174,8 +174,9 @@ class RepoSettings(unittest.TestCase):
         self.assertIn('"allow_auto_merge": true', result.stdout)
         result = self.run_command("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
+        writes = json.loads(self.path.read_text())["writes"]
         self.assertTrue(json.loads(self.path.read_text())["repo"]["allow_auto_merge"])
-        self.assertIn("PATCH ", json.loads(self.path.read_text())["writes"])
+        self.assertEqual([entry for entry in writes if entry.startswith("PATCH")], ["PATCH "])
 
     def test_unreadable_vendor_file_is_reported_and_other_drift_applies(self):
         state = json.loads(self.path.read_text())
