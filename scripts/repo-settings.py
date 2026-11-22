@@ -269,7 +269,7 @@ def main():
         raise RuntimeError("multiple rulesets have the Factory name")
     live = gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
     existing_codacy = None
-    if live and not repo["private"]:
+    if live and not repo["private"] and live.get("enforcement") == "active":
         for rule in live.get("rules", []):
             if rule.get("type") == "required_status_checks":
                 for check in rule.get("parameters", {}).get("required_status_checks", []):

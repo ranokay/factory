@@ -257,7 +257,7 @@ class RepoSettings(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(self.path.read_text())
         state["check_runs"] = {}
-        state["rulesets"][0]["enforcement"] = "disabled"
+        state["rulesets"][0]["rules"][-1]["parameters"]["strict_required_status_checks_policy"] = True
         checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
         next(check for check in checks if check["context"] == "Codacy Static Code Analysis")["integration_id"] = 42
         self.write(state)
@@ -268,6 +268,25 @@ class RepoSettings(unittest.TestCase):
         checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
         self.assertIn({"context": "Codacy Static Code Analysis", "integration_id": 42}, checks)
         self.assertEqual(state["rulesets"][0]["enforcement"], "active")
+
+    def test_disabled_ruleset_does_not_activate_unobserved_codacy_check(self):
+        state = json.loads(self.path.read_text())
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.path.read_text())
+        state["check_runs"] = {}
+        state["rulesets"][0]["enforcement"] = "disabled"
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("manual: Codacy check not yet reporting", result.stdout)
+        state = json.loads(self.path.read_text())
+        self.assertEqual(state["rulesets"][0]["enforcement"], "active")
+        checks = state["rulesets"][0]["rules"][-1]["parameters"]["required_status_checks"]
+        self.assertNotIn("Codacy Static Code Analysis", [check["context"] for check in checks])
 
     def test_unavailable_pr_head_does_not_hide_later_check(self):
         state = json.loads(self.path.read_text())

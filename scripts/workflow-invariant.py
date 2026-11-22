@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 SECRET = re.compile(r"\bsecrets\b", re.IGNORECASE)
+AI_REVIEW = ("ai-review-caller.yml", "ai-review.yml")
 
 
 def main(directory, config_path):
@@ -32,6 +33,14 @@ def main(directory, config_path):
             secret = SECRET.search(json.dumps(job)) or job.get("secrets") == "inherit"
             if secret and guard != guard_required:
                 failures.append(f"{path}: {name} has secrets without a same-repository guard")
+        if path.name in AI_REVIEW:
+            guards = [str(job.get("if", "")).strip().removeprefix("${{").removesuffix("}}").strip() for job in workflow.get("jobs", {}).values()]
+            guards = [guard for guard in guards if "pull_request.user.login" in guard]
+            if not guards:
+                failures.append(f"{path}: AI Review job has no author guard")
+            for guard in guards:
+                if guard != guard_required:
+                    failures.append(f"{path}: AI Review author guard does not match factory_authors")
     if failures:
         raise ValueError("\n".join(failures))
 

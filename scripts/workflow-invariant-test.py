@@ -49,6 +49,23 @@ class WorkflowInvariant(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("guard", result.stderr)
 
+    def test_ai_review_guard_without_secrets_still_must_match_factory_authors(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        guard = "github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.user.login == 'other')"
+        with tempfile.TemporaryDirectory() as temp:
+            for name in ("ai-review-caller.yml", "ai-review.yml"):
+                path = Path(temp) / name
+                path.write_text(f"name: AI Review\non: pull_request\njobs:\n  review:\n    if: {guard}\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n")
+                result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, name)
+                self.assertIn("AI Review author guard does not match factory_authors", result.stderr)
+                path.unlink()
+            path = Path(temp) / "ai-review.yml"
+            path.write_text("name: AI Review\non: pull_request\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("AI Review job has no author guard", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
