@@ -114,8 +114,9 @@ commit for a Sync PR. Merge a Sync PR with
 for Sync PRs and matches the admin RepositoryRole bypass actor on the Personal Fork
 ruleset, whose reservation the promotion at
 https://github.com/ranokay/factory/issues/104 enforces. Bind every merge to the
-verified head with `--match-head-commit <sha>` or the forge's equivalent guard. Apply the repository
-merge preflight and execute only its printed, head-pinned command. Do not pass a
+verified head with `--match-head-commit <sha>` or the forge's equivalent guard.
+Apply the repository merge preflight and execute only its printed, head-pinned
+command. Do not pass a
 branch-deletion option to the merge command; all deletions happen in Clean up
 after their guards. If a repository's printed command includes one, omit it or
 report it. Changed state returns to verification once; a head that keeps moving
