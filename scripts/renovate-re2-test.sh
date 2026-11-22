@@ -15,7 +15,10 @@ if RENOVATE_CONFIG_VALIDATOR="$tmp/validator" sh "$root/scripts/renovate-config-
 	printf '%s\n' 'validator accepted the RE2 fallback' >&2
 	exit 1
 fi
-grep -q 'RE2 failed to load' "$tmp/validator.log"
+grep -q 'RE2 failed to load' "$tmp/validator.log" || {
+	printf '%s\n' 'validator failed for an unexpected reason' >&2
+	exit 1
+}
 
 cat >"$tmp/failing" <<'STUB'
 #!/bin/sh
@@ -53,7 +56,10 @@ if RENOVATE_BINARY="$tmp/renovate" python3 "$root/scripts/renovate-managers-test
 	printf '%s\n' 'managers test accepted the RE2 fallback' >&2
 	exit 1
 fi
-grep -q 'Renovate could not load RE2' "$tmp/test.log"
+grep -q 'Renovate could not load RE2' "$tmp/test.log" || {
+	printf '%s\n' 'managers test failed for an unexpected reason' >&2
+	exit 1
+}
 grep -q 'renovate output marker' "$tmp/test.log" || {
 	printf '%s\n' 'managers test lost its captured output' >&2
 	exit 1

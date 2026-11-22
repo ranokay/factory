@@ -23,7 +23,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update Factory task includes pinned to a release tag; the built-in mise manager updates the root includes.",
+      "description": "Update Factory task_config.includes pinned to a release tag; the built-in mise manager updates the root include.",
       "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
       "matchStrings": [
         "git::https://github\\.com/ranokay/factory\\.git//profiles/[a-z0-9-]+/tasks\\.toml\\?ref=(?<currentValue>v\\d+\\.\\d+\\.\\d+)"

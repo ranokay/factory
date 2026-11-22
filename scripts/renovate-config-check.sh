@@ -15,9 +15,11 @@ else
 	validator=$(mise -C "$root" which renovate-config-validator)
 fi
 if xargs -0 "$validator" --strict --no-global default.json <"$files" >"$output" 2>&1; then
-	:
+	status=0
 else
 	status=$?
+fi
+if [ "$status" -ne 0 ]; then
 	cat "$output"
 	exit "$status"
 fi

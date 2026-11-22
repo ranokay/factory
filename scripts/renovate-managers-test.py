@@ -3,8 +3,9 @@
 import json
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404 -- the Gate runs the pinned local Renovate binary
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -71,7 +72,7 @@ def renovate_binary():
     mise = shutil.which("mise")
     if mise is None:
         raise AssertionError("mise is not on PATH; run the Gate with mise run check")
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 -- fixed mise command
         [mise, "-C", str(ROOT), "which", "renovate"],
         capture_output=True,
         text=True,
@@ -111,8 +112,8 @@ def extract(fixture):
             "NO_PROXY": "",
         }
     )
-    result = subprocess.run(
-        [renovate, "--platform=local", "--dry-run=extract"],
+    result = subprocess.run(  # nosec B603  # nosemgrep -- pinned local Renovate binary
+        [renovate, "--platform=local", "--dry-run=extract"],  # nosemgrep -- pinned local Renovate binary
         cwd=fixture,
         env=env,
         capture_output=True,
@@ -136,15 +137,20 @@ def extract(fixture):
             continue
         if entry.get("msg") == "Extracted dependencies":
             entries.append(entry)
-    if not entries:
-        raise AssertionError("renovate logged no extracted dependencies")
+    aggregate = next(
+        (entry for entry in reversed(entries) if entry.get("packageFiles")), None
+    )
+    if aggregate is None:
+        raise AssertionError("renovate logged no packageFiles in extracted dependencies")
     deps = {}
-    for manager, manager_files in entries[-1]["packageFiles"].items():
+    for manager, manager_files in aggregate["packageFiles"].items():
         for package_file in manager_files:
             deps.setdefault(package_file["packageFile"], []).extend(
                 {**dep, "_manager": manager}
                 for dep in package_file.get("deps", [])
             )
+    if not deps:
+        raise AssertionError("renovate extracted no dependencies")
     return deps
 
 
@@ -246,6 +252,11 @@ class FactoryPins(unittest.TestCase):
         )
         self.assertFalse(major["automerge"])
         self.assertIn("protected", major["addLabels"])
+
+    def test_tool_declaration_builds_re2(self):
+        config = tomllib.loads((ROOT / "mise.toml").read_text())
+        tool = config["tools"]["npm:renovate"]
+        self.assertIn("re2", tool.get("allow_builds", []))
 
     def test_consumers_extend_the_preset(self):
         for path in (ROOT / "renovate.json", ROOT / "project" / "renovate.json"):
