@@ -169,6 +169,23 @@ class SyncUpstreamFiles(SyncFixture):
         self.cli("install-files", "--target", str(target), "--template", str(template))
         self.assertEqual((target / "mise.toml").read_text(), original.replace('"café.toml"]', '"café.toml", "factory"]'))
 
+    def test_install_files_adds_only_missing_template_entry(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["old", "new"]\n[settings]\nexperimental = true\n')
+        target = self.target({"mise.toml": 'include = ["old"]\n[settings]\nexperimental = true\n'})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        self.assertEqual(tomllib.loads((target / "mise.toml").read_text())["include"], ["old", "new"])
+
+    def test_install_files_preserves_existing_coderabbit_indentation(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / ".coderabbit.yaml").write_text("reviews:\n  auto_review:\n    enabled: false\n")
+        original = "reviews:\n    tools:\n        enabled: true\n"
+        target = self.target({".coderabbit.yaml": original})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        self.assertEqual((target / ".coderabbit.yaml").read_text(), "reviews:\n    auto_review:\n      enabled: false\n    tools:\n        enabled: true\n")
+
     def test_install_files_merges_multiple_mise_entries(self):
         template = self.root / "template"
         template.mkdir()

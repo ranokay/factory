@@ -53,6 +53,9 @@ else:
         sys.exit(0)
     mapping = {"": "repo", "/topics": "topics", "/labels": "labels", "/rulesets": "rulesets", "/actions/permissions/fork-pr-contributor-approval": "approval", "/actions/permissions/fork-pr-workflows-private-repos": "private_settings", "/actions/secrets": "secret_response"}
     if method == "GET":
+        if key == "/rulesets":
+            s.setdefault("ruleset_list_requests", []).append(endpoint)
+            json.dump(s, open(path, "w"))
         if key.startswith("/rulesets/"):
             result = next(item for item in s["rulesets"] if item["id"] == int(key.rsplit("/", 1)[1]))
         elif key == "/actions/secrets":
@@ -84,6 +87,7 @@ else:
             else:
                 body["id"] = int(key.rsplit("/", 1)[1]) if method == "PUT" else max((item["id"] for item in s["rulesets"]), default=0) + 1
                 body["source"] = s["name"]
+                body["source_type"] = "Repository"
                 for rule in body["rules"]:
                     if rule["type"] == "required_status_checks":
                         rule["parameters"]["do_not_enforce_on_create"] = False
@@ -314,7 +318,7 @@ class RepoSettings(unittest.TestCase):
         self.assertIn("no changes", result.stdout)
         self.assertEqual(json.loads(self.path.read_text())["writes"], [])
 
-    def test_personal_fork_to_upstream_removes_review_bypass(self):
+    def test_personal_fork_to_upstream_reports_rulesets_without_writes(self):
         state = json.loads(self.path.read_text())
         state["repo"].update({"fork": True, "private": True})
         state["topics"]["names"] = ["factory-personal-fork"]
@@ -326,8 +330,25 @@ class RepoSettings(unittest.TestCase):
         result = self.run_command("--apply", "--fork-kind", "upstream")
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(self.path.read_text())
-        self.assertEqual([item for item in state["writes"] if "/rulesets" in item], ["DELETE /rulesets/1"])
-        self.assertFalse(any(item["name"] == "Factory review rules" for item in state["rulesets"]))
+        self.assertFalse(any("/rulesets" in item for item in state["writes"]))
+        self.assertEqual(len(state["rulesets"]), 2)
+        for ruleset in state["rulesets"]:
+            self.assertIn(f"manual: ruleset {ruleset['name']}: gh api -X DELETE repos/o/r/rulesets/{ruleset['id']}", result.stdout)
+
+    def test_inherited_ruleset_is_never_managed(self):
+        state = json.loads(self.path.read_text())
+        state["repo"].update({"fork": True, "private": True})
+        state["topics"]["names"] = ["factory-personal-fork"]
+        inherited = {"id": 90, "name": "Factory review rules", "source_type": "Organization", "source": "o"}
+        state["rulesets"] = [inherited]
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.path.read_text())
+        self.assertIn(inherited, state["rulesets"])
+        self.assertEqual(len(state["rulesets"]), 3)
+        self.assertTrue(all("includes_parents=false" in endpoint for endpoint in state["ruleset_list_requests"]))
+        self.assertFalse(any(request["path"] == "/rulesets/90" for request in state["ruleset_requests"]))
 
     def test_personal_project_ruleset_keeps_no_bypass(self):
         state = json.loads(self.path.read_text())

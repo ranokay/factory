@@ -17,7 +17,7 @@ except ModuleNotFoundError:
 
 FACTORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(FACTORY_ROOT / "scripts"))
-from profiles_reader import profiles_entries
+from profiles_reader import profiles_entries, unfenced_lines
 
 FORK_TOPICS = {"factory-personal-fork": "personal", "factory-upstream-fork": "upstream"}
 FACTORY_MARKERS = ("ranokay/factory",)
@@ -214,7 +214,7 @@ def read_body(args):
 def verdict_rows(text):
     rows = []
     inside = False
-    for line in text.splitlines():
+    for line in unfenced_lines(text):
         if VERDICT_SECTION.match(line):
             inside = True
             continue
@@ -238,13 +238,8 @@ def verdicts(args, quiet=False):
     rows = verdict_rows(read_body(args))
     problems = []
     accepted = {}
+    required = {sha for sha, _ in first_parent}
     for prefix, verdict in rows:
-        if verdict == "<verdict>":
-            problems.append(f"{prefix} still has the <verdict> placeholder")
-            continue
-        if verdict not in VERDICTS:
-            problems.append(f"{prefix} has unknown verdict {verdict}")
-            continue
         matches = [sha for sha, _ in everything if sha.startswith(prefix)]
         if not matches:
             problems.append(f"{prefix} names no commit in {args.first}..{args.last}")
@@ -253,6 +248,14 @@ def verdicts(args, quiet=False):
             problems.append(f"{prefix} is an ambiguous commit prefix")
             continue
         sha = matches[0]
+        if sha not in required:
+            continue
+        if verdict == "<verdict>":
+            problems.append(f"{prefix} still has the <verdict> placeholder")
+            continue
+        if verdict not in VERDICTS:
+            problems.append(f"{prefix} has unknown verdict {verdict}")
+            continue
         if sha in accepted and accepted[sha] != verdict:
             problems.append(f"{sha[:8]} has more than one verdict")
             continue
@@ -723,7 +726,8 @@ def merge_coderabbit(existing, template):
                 raise SyncError(".coderabbit.yaml auto_review must be a block")
         if not lines[reviews].endswith("\n"):
             lines[reviews] += newline
-        lines[reviews + 1:reviews + 1] = [f"  auto_review:{newline}", f"    enabled: {value}{newline}"]
+        indent = child_indent(lines, reviews + 1, reviews_end) or 2
+        lines[reviews + 1:reviews + 1] = [f"{' ' * indent}auto_review:{newline}", f"{' ' * (indent + 2)}enabled: {value}{newline}"]
         return "".join(lines)
     indent = child_indent(lines, auto + 1, auto_end)
     if indent is None:

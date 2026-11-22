@@ -172,6 +172,10 @@ def main():
         parser.error("repo must be OWNER/REPO")
     owner, name = args.repo.split("/")
     base = "repos/" + args.repo
+
+    def owned_rulesets():
+        listed = gh(base + "/rulesets?per_page=100&includes_parents=false", paginate=True)
+        return [item for item in listed if item.get("source_type") == "Repository" and item.get("source", "").lower() == args.repo.lower()]
     repo = gh(base)
     topics = set(gh(base + "/topics")["names"])
     kinds = {"factory-personal-fork", "factory-upstream-fork"}
@@ -204,15 +208,13 @@ def main():
         if any(private_settings.get(k) != v for k, v in private_desired.items()):
             change(f"private fork workflows: {json.dumps(private_settings, sort_keys=True)} -> {json.dumps(private_desired, sort_keys=True)}", "PUT", private_path, private_desired)
     if upstream:
-        review_rules = [item for item in gh(base + "/rulesets?per_page=100", paginate=True) if item["name"] == CONFIG["review_ruleset_name"]]
-        if len(review_rules) > 1:
-            raise RuntimeError(f"multiple rulesets have the name {CONFIG['review_ruleset_name']}")
-        if review_rules:
-            change(f"ruleset {CONFIG['review_ruleset_name']}: delete", "DELETE", base + "/rulesets/" + str(review_rules[0]["id"]))
+        factory_rules = [item for item in owned_rulesets() if item["name"] in (CONFIG["ruleset_name"], CONFIG["review_ruleset_name"])]
         print("drift:")
         for description, _, _, _ in changes:
             print("  " + description)
-        if not changes:
+        for item in factory_rules:
+            print(f"  manual: ruleset {item['name']}: gh api -X DELETE {base}/rulesets/{item['id']}")
+        if not changes and not factory_rules:
             print("  no changes")
         print("Upstream Fork: skipped ruleset, merge settings, labels, vendor files, Codacy and CI review key")
         if args.apply:
@@ -277,7 +279,7 @@ def main():
         codacy_ready = enrolled and codacy_check_seen(base, repo["default_branch"])
         if not codacy_ready:
             manual_drift.append("Codacy check not yet reporting")
-    listed_rulesets = gh(base + "/rulesets?per_page=100", paginate=True)
+    listed_rulesets = owned_rulesets()
 
     def find_ruleset(name):
         matching = [item for item in listed_rulesets if item["name"] == name]

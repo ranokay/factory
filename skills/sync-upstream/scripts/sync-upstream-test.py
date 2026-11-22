@@ -145,6 +145,29 @@ class SyncUpstream(SyncFixture):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(merge, result.stderr)
 
+    def test_verdicts_ignore_fenced_rows_and_side_branch_conflicts(self):
+        repo, base, first, side, merge = self.verdict_repo()
+        fenced = f"## Verdicts\n```\n- `{first[:8]}` adopt — example\n```\n- `{merge[:8]}` adopt — merge\n"
+        result = self.verdicts(repo, base, merge, fenced)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(first, result.stderr)
+        body = f"## Verdicts\n- `{first[:8]}` adopt — first\n- `{merge[:8]}` adopt — merge\n- `{side[:8]}` adopt — side\n- `{side[:8]}` keep-ours — side\n~~~\n- `{first[:8]}` keep-ours — example\n~~~\n"
+        result = self.verdicts(repo, base, merge, body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.verdicts(repo, base, merge, body + f"- `{first[:8]}` keep-ours — conflict\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("more than one verdict", result.stderr)
+
+    def test_verdicts_reject_ambiguous_commit_prefix(self):
+        first = "abcdef0" + "1" * 33
+        side = "abcdef0" + "2" * 33
+        fake = self.root / "bin" / "git"
+        fake.write_text(f"#!/bin/sh\nif [ \"$2\" = \"--first-parent\" ]; then\n  printf '%s\\tfirst\\n' {first}\nelse\n  printf '%s\\tfirst\\n%s\\tside\\n' {first} {side}\nfi\n")
+        fake.chmod(0o755)
+        result = self.verdicts(self.root, "base", "tip", "## Verdicts\n- `abcdef0` adopt — ambiguous\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ambiguous commit prefix", result.stderr)
+
     def test_verdicts_reads_a_pr_body(self):
         repo, base, first, side_one, merge = self.verdict_repo()
         state = json.loads(self.repo_file.read_text())
