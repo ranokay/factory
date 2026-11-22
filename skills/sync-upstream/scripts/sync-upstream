@@ -313,7 +313,7 @@ def merge_command(args):
         if status.get("state") != "success":
             problems.append(f"status {context} is {status.get('state')}")
     for context in sorted(required):
-        if not any(check.get("name") == context for check in checks) and not any(status.get("context") == context for status in statuses):
+        if not any(check.get("name") == context for check in checks) and not any(status.get("context") == context for status in statuses.values()):
             problems.append(f"required check {context} has no result")
     if problems:
         for problem in problems:

@@ -378,6 +378,15 @@ class SyncUpstream(unittest.TestCase):
         result = self.merge_command(repo)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_merge_command_accepts_a_required_check_from_a_status(self):
+        repo, _ = self.command_fixture(statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}])
+        state = json.loads(self.repo_file.read_text())
+        state["applied_rules"] = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Gates / Gates"}, {"context": "Codacy Static Code Analysis"}]}}]
+        self.repo_file.write_text(json.dumps(state))
+        result = self.merge_command(repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.startswith("gh pr merge 7 -R o/r --merge --match-head-commit "))
+
     def test_merge_command_blocks_a_missing_origin_ref(self):
         repo, _ = self.command_fixture()
         self.git(repo, "update-ref", "-d", "refs/remotes/origin/main")

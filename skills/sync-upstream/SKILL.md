@@ -114,8 +114,7 @@ missing or any check run or commit status on the head is not successful; `skippe
 and `neutral` pass only for a check the ruleset does not require. Its `--admin` flag
 stands in only for the Personal Fork ruleset's signature and authorship
 rules, never for Gates or AI Review. The command gates verdicts and checks; it does
-not inspect review threads, and `--admin` skips their resolution rule, so resolve
-them first. The promotion at
+not inspect review threads, so resolve them first. The promotion at
 https://github.com/ranokay/factory/issues/105 tracks the guard that enforces this.
 
 Never merge a Sync PR whose verdicts fail. Never force-push its branch.
