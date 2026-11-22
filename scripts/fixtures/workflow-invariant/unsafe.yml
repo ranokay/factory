@@ -1,0 +1,10 @@
+name: unsafe
+on:
+  pull_request:
+jobs:
+  leak:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "$TOKEN"
+        env:
+          TOKEN: ${{ secrets.EXAMPLE }}

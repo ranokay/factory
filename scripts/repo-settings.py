@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+import argparse
+import base64
+import json
+import os
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+
+CONFIG = json.loads((Path(__file__).resolve().parent.parent / "repo-settings.json").read_text())
+
+
+def command(args, data=None, env=None):
+    result = subprocess.run(args, input=data, capture_output=True, env=env, check=False)
+    if result.returncode:
+        raise RuntimeError(f"{args[0]} failed (exit {result.returncode})")
+    return result.stdout
+
+
+def gh(endpoint, method="GET", body=None, paginate=False):
+    args = ["gh", "api", "--method", method]
+    if paginate:
+        args += ["--paginate", "--slurp"]
+    args.append(endpoint)
+    if body is not None:
+        args += ["--input", "-"]
+    result = command(args, json.dumps(body).encode() if body is not None else None)
+    if not result:
+        return None
+    value = json.loads(result)
+    return [item for page in value for item in page] if paginate else value
+
+
+def op_read(reference):
+    env = os.environ.copy()
+    if not env.get("OP_SERVICE_ACCOUNT_TOKEN"):
+        for args in (["launchctl", "getenv", "OP_SERVICE_ACCOUNT_TOKEN"], ["security", "find-generic-password", "-a", "Factory", "-s", "dev.factory.op-service-account", "-w"]):
+            try:
+                token = command(args).decode().strip()
+            except (RuntimeError, FileNotFoundError):
+                continue
+            if token:
+                env["OP_SERVICE_ACCOUNT_TOKEN"] = token
+                break
+    if not env.get("OP_SERVICE_ACCOUNT_TOKEN"):
+        raise RuntimeError("1Password service account token unavailable in environment, launchd, and keychain")
+    return command(["op", "read", "--no-newline", reference], env=env)
+
+
+def repo_file(base, path, branch):
+    endpoint = base + "/contents/" + path + "?" + urllib.parse.urlencode({"ref": branch})
+    result = subprocess.run(["gh", "api", endpoint], capture_output=True, check=False)
+    if result.returncode:
+        if b"HTTP 404" in result.stderr:
+            return None
+        raise RuntimeError(f"could not read {path} from the default branch")
+    return base64.b64decode(json.loads(result.stdout)["content"])
+
+
+def codacy(path, token, body=None):
+    request = urllib.request.Request("https://app.codacy.com/api/v3/" + path, data=json.dumps(body).encode() if body is not None else None, headers={"api-token": token.decode(), "Content-Type": "application/json"}, method="POST" if body is not None else "GET")
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)
+
+
+def ruleset(private):
+    checks = CONFIG["required_checks"] + ([] if private else [CONFIG["public_check"]])
+    return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*CONFIG["branch_rules"], {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
+
+
+def matches(actual, expected):
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and all(key in actual and matches(actual[key], value) for key, value in expected.items())
+    if isinstance(expected, list):
+        if not isinstance(actual, list) or len(actual) != len(expected):
+            return False
+        unmatched = list(actual)
+        for value in expected:
+            for index, item in enumerate(unmatched):
+                if matches(item, value):
+                    unmatched.pop(index)
+                    break
+            else:
+                return False
+        return True
+    return actual == expected
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("repo")
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--rotate-secret", action="store_true")
+    parser.add_argument("--fork-kind", choices=["personal", "upstream"])
+    args = parser.parse_args()
+    if len(args.repo.split("/")) != 2 or not all(args.repo.split("/")):
+        parser.error("repo must be OWNER/REPO")
+    owner, name = args.repo.split("/")
+    base = "repos/" + args.repo
+    repo = gh(base)
+    topics = set(gh(base + "/topics")["names"])
+    kinds = {"factory-personal-fork", "factory-upstream-fork"}
+    current_kinds = topics & kinds
+    if repo["fork"] and not args.fork_kind and len(current_kinds) != 1:
+        raise RuntimeError("fork requires --fork-kind personal or upstream")
+    desired_topics = topics - kinds
+    if repo["fork"]:
+        desired_topics.add("factory-" + args.fork_kind + "-fork" if args.fork_kind else next(iter(current_kinds)))
+    changes = []
+    needs_pr = []
+    for path, expected in CONFIG["vendor_files"].items():
+        content = repo_file(base, path, repo["default_branch"])
+        if content is None:
+            needs_pr.append(f"{path}: missing; expected {json.dumps(expected)}")
+            continue
+        try:
+            parsed = json.loads(command(["yq", "-o=json", ".", "-"], content))
+        except (RuntimeError, ValueError):
+            parsed = None
+        if not matches(parsed, expected):
+            needs_pr.append(f"{path}: {json.dumps(parsed, sort_keys=True)} -> {json.dumps(expected, sort_keys=True)}")
+
+    def change(description, method, endpoint, body=None):
+        changes.append((description, method, endpoint, body))
+
+    merge = CONFIG["merge_settings"]
+    if any(repo.get(k) != v for k, v in merge.items()):
+        before = {key: repo.get(key) for key in merge}
+        change(f"merge settings: {json.dumps(before, sort_keys=True)} -> {json.dumps(merge, sort_keys=True)}", "PATCH", base, merge)
+    if desired_topics != topics:
+        change(f"topics: {sorted(topics)} -> {sorted(desired_topics)}", "PUT", base + "/topics", {"names": sorted(desired_topics)})
+    labels = {label["name"]: label for label in gh(base + "/labels?per_page=100", paginate=True)}
+    for label, (colour, description) in CONFIG["labels"].items():
+        existing = labels.get(label)
+        if not existing or existing["color"].lower() != colour or (existing.get("description") or "") != description:
+            before = {"color": existing["color"], "description": existing.get("description")} if existing else None
+            after = {"name": label, "color": colour, "description": description}
+            change(f"label {label}: {json.dumps(before, sort_keys=True)} -> {json.dumps(after, sort_keys=True)}", "PATCH" if existing else "POST", base + "/labels" + ("/" + urllib.parse.quote(label, safe="") if existing else ""), after)
+    for label in CONFIG["github_default_labels"]:
+        if label in labels:
+            change(f"label {label}: {json.dumps(labels[label], sort_keys=True)} -> deleted", "DELETE", base + "/labels/" + urllib.parse.quote(label, safe=""))
+    desired = ruleset(repo["private"])
+    matching = [r for r in gh(base + "/rulesets?per_page=100", paginate=True) if r["name"] == desired["name"]]
+    if len(matching) > 1:
+        raise RuntimeError("multiple rulesets have the Factory name")
+    live = gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
+    if not live or not matches(live, desired):
+        before = {key: live.get(key) for key in desired} if live else None
+        change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)
+    approval_path = base + "/actions/permissions/fork-pr-contributor-approval"
+    approval = gh(approval_path)
+    if approval["approval_policy"] != CONFIG["fork_approval"]:
+        change(f"fork workflow approval: {approval['approval_policy']} -> {CONFIG['fork_approval']}", "PUT", approval_path, {"approval_policy": CONFIG["fork_approval"]})
+    if repo["private"]:
+        private_path = base + "/actions/permissions/fork-pr-workflows-private-repos"
+        private_settings = gh(private_path)
+        private_desired = CONFIG["private_fork_settings"]
+        if any(private_settings.get(k) != v for k, v in private_desired.items()):
+            change(f"private fork workflows: {json.dumps(private_settings, sort_keys=True)} -> {json.dumps(private_desired, sort_keys=True)}", "PUT", private_path, private_desired)
+    secrets = gh(base + "/actions/secrets?per_page=100")["secrets"]
+    secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)
+    if secret_needed:
+        changes.append(("Actions secret OPENCODE_ZEN_API_KEY: set from 1Password", "SECRET", "", None))
+    token = None
+    if not repo["private"]:
+        token = op_read(CONFIG["codacy_token"])
+        cursor = None
+        enrolled = False
+        while True:
+            query = {"limit": 100}
+            if cursor:
+                query["cursor"] = cursor
+            page = codacy(f"organizations/gh/{urllib.parse.quote(owner)}/repositories?" + urllib.parse.urlencode(query), token)
+            enrolled |= any(item.get("name", "").lower() == name.lower() for item in page["data"])
+            cursor = page.get("pagination", {}).get("cursor")
+            if not cursor:
+                break
+        if not enrolled:
+            changes.append(("Codacy: enroll public repository", "CODACY", "", None))
+    print("drift:")
+    for description, _, _, _ in changes:
+        print("  " + description)
+    for description in needs_pr:
+        print("  needs PR: " + description)
+    if not changes and not needs_pr:
+        print("  no changes")
+    print("manual checks:")
+    print("  Copilot personal automatic reviews: https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/configure-code-review")
+    print("  Devin pricing: https://docs.devin.ai/admin/billing")
+    if args.apply:
+        for _, method, endpoint, body in changes:
+            if method == "SECRET":
+                command(["gh", "secret", "set", "OPENCODE_ZEN_API_KEY", "--repo", args.repo], op_read(CONFIG["review_secret"]))
+            elif method == "CODACY":
+                codacy("repositories", token, {"provider": "gh", "repositoryFullPath": args.repo})
+            else:
+                gh(endpoint, method, body)
+        if needs_pr:
+            raise RuntimeError("repository configuration needs a PR")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (RuntimeError, OSError, ValueError, KeyError) as error:
+        print(f"repo-settings: {error}", file=sys.stderr)
+        sys.exit(1)

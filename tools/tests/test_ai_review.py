@@ -113,14 +113,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
         for source in (caller, reusable):
             job = source.split("  review:\n", 1)[1]
             condition = re.search(r"(?m)^    if: (.+)$", job).group(1)
-            operands = re.split(r"\s*==\s*", condition)
-            self.assertEqual(len(operands), 2)
-            for head, expected in (("ranokay/factory", True), ("outside/fork", False)):
-                context = {
-                    "github.event.pull_request.head.repo.full_name": head,
-                    "github.repository": "ranokay/factory",
-                }
-                self.assertEqual(context[operands[0]] == context[operands[1]], expected)
+            self.assertEqual(condition, "github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.user.login == 'ranokay' || github.event.pull_request.user.login == 'renovate[bot]')")
 
     def test_missing_key_fails_before_review(self):
         source = workflow("ai-review.yml")

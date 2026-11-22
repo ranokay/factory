@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def gh(*args):
+    result = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
+    return json.loads(result.stdout) if result.stdout.strip() else None
+
+
+def pages(endpoint):
+    return gh("api", "--paginate", "--slurp", endpoint)
+
+
+def main():
+    if len(sys.argv) != 3 or "/" not in sys.argv[1] or not sys.argv[2].isdigit():
+        raise ValueError("usage: request-advisory-reviews OWNER/REPO PR")
+    repo, number = sys.argv[1:]
+    prefix = f"repos/{repo}"
+    pr = gh("api", f"{prefix}/pulls/{number}")
+    head = pr["head"]["sha"]
+    checks = [check for page in pages(f"{prefix}/commits/{head}/check-runs?per_page=100") for check in page["check_runs"]]
+    runs = [run for page in pages(f"{prefix}/actions/runs?event=pull_request&head_sha={head}&per_page=100") for run in page["workflow_runs"]]
+    successful = {str(r["id"]) for r in runs if r["name"] == "AI Review" and r["head_sha"] == head and r["status"] == "completed" and r["conclusion"] == "success"}
+    if not any(c["status"] == "completed" and c["conclusion"] == "success" and any(f"/actions/runs/{run}/" in (c.get("details_url") or "") for run in successful) for c in checks):
+        raise ValueError("AI Review has not completed successfully on the PR head")
+    reviews = [item for page in pages(f"{prefix}/pulls/{number}/reviews?per_page=100") for item in page]
+    config = json.loads((Path(__file__).resolve().parents[3] / "repo-settings.json").read_text())
+    outside = pr["head"]["repo"] is None or pr["head"]["repo"]["full_name"].lower() != repo.lower() or pr["user"]["login"].lower() not in {name.lower() for name in config["factory_authors"]}
+    owner_reviews = [r for r in reviews if r["user"]["login"].lower() == "ranokay" and r["state"] in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED")]
+    approved = bool(owner_reviews) and owner_reviews[-1]["state"] == "APPROVED"
+    if outside and not approved:
+        raise ValueError("Outside Contributor PR requires an APPROVED review by ranokay")
+    comments = [item for page in pages(f"{prefix}/issues/{number}/comments?per_page=100") for item in page]
+    timeline = [item for page in pages(f"{prefix}/issues/{number}/timeline?per_page=100") for item in page]
+    requested = any(e.get("event") == "review_requested" and "copilot" in (e.get("requested_reviewer") or {}).get("login", "").lower() for e in timeline)
+    reviewed = any("copilot" in r["user"]["login"].lower() for r in reviews)
+    if not requested and not reviewed:
+        subprocess.run(["gh", "pr", "edit", number, "--repo", repo, "--add-reviewer", "@copilot"], check=True)
+    for bot, command in (("coderabbit", "@coderabbitai review"), ("greptile", "@greptileai")):
+        marker = f"<!-- factory:advisory-review:{bot} -->"
+        if not any(marker in (comment.get("body") or "") and comment.get("user", {}).get("login", "").lower() in {author.lower() for author in config["factory_authors"]} for comment in comments):
+            subprocess.run(["gh", "pr", "comment", number, "--repo", repo, "--body", f"{command}\n\n{marker}"], check=True)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, subprocess.CalledProcessError, KeyError) as error:
+        print(f"request-advisory-reviews: {error}", file=sys.stderr)
+        sys.exit(1)

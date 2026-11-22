@@ -10,9 +10,13 @@ from pathlib import Path
 
 COMMON_TOOLS = {
     'aqua:jdx/jactionlint',
+    'aqua:mikefarah/yq',
     'editorconfig-checker',
     'gitleaks',
+    'gh',
     'hk',
+    'npm:@codacy/analysis-cli',
+    'node',
     'pinact',
     'shellcheck',
     'shfmt',

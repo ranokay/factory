@@ -1,6 +1,26 @@
 [check]
 description = "Run every Gate"
-depends = ["check:gates"]
+depends = ["check:gates", "check:codacy"]
 
 ["check:gates"]
 run = ["hk check --all", "hk test"]
+
+["check:codacy"]
+description = "Run local Codacy analysis for private repositories"
+run = '''
+set -eu
+private=$(gh repo view --json isPrivate --jq .isPrivate)
+case "$private" in
+  false) printf '%s\n' 'Public repository: Codacy cloud check applies'; exit 0 ;;
+  true) ;;
+  *) printf '%s\n' 'Unable to determine repository visibility' >&2; exit 1 ;;
+esac
+config=$(mktemp /tmp/factory-codacy.XXXXXXXX)
+trap 'rm -f "$config"' EXIT HUP INT TERM
+codacy-analysis init . --auto --dry-run --no-update-notifier > "$config"
+if ! yq -e -p=json '.tools | length > 0' "$config" >/dev/null; then
+  printf '%s\n' 'Codacy selected zero tools for this private repository' >&2
+  exit 1
+fi
+codacy-analysis analyze . --config-file "$config" --install-dependencies --no-log --no-update-notifier
+'''
