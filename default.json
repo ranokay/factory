@@ -1,0 +1,47 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "The Factory's Renovate policy: weekly grouped minor and patch updates, GitHub platform auto-merge on green required checks, protected majors, and Factory tag pins.",
+  "schedule": ["before 6am on monday"],
+  "automerge": false,
+  "platformAutomerge": true,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "non-major dependencies",
+      "groupSlug": "non-major-dependencies",
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "platformAutomerge": false,
+      "addLabels": ["protected"]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update Factory task_config.includes pinned to a release tag; the built-in mise manager updates the root include.",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": [
+        "git::https://github\\.com/ranokay/factory\\.git//profiles/[a-z0-9-]+/tasks\\.toml\\?ref=(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "ranokay/factory",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Update the Factory Profile that an hk config amends at a release tag.",
+      "managerFilePatterns": ["/(^|/)hk\\.pkl$/"],
+      "matchStrings": [
+        "(?:^|\\n)amends\\s+\"https://raw\\.githubusercontent\\.com/ranokay/factory/(?<currentValue>v\\d+\\.\\d+\\.\\d+)/profiles/"
+      ],
+      "depNameTemplate": "ranokay/factory",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    }
+  ]
+}

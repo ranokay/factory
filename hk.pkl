@@ -35,6 +35,27 @@ steps {
   ["workflow-invariant"] = new Step {
     check = "python3 {{root}}/scripts/workflow-invariant.py {{root}}/.github/workflows"
   }
+  ["renovate-config"] = new Step {
+    check = "sh {{root}}/scripts/renovate-config-check.sh"
+  }
+  ["renovate-managers-test"] = new Step {
+    check = "python3 {{root}}/scripts/renovate-managers-test.py"
+    tests {
+      ["extracts every Factory tag pin once"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+  ["renovate-re2-test"] = new Step {
+    check = "sh {{root}}/scripts/renovate-re2-test.sh"
+    tests {
+      ["both Renovate steps reject the RE2 fallback"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
   ["workflow-invariant-test"] = new Step {
     check = "python3 {{root}}/scripts/workflow-invariant-test.py"
     tests {
