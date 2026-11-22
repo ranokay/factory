@@ -17,45 +17,81 @@ def triggers(workflow):
     return set(on or [])
 
 
+def condition(value):
+    return str(value or "").strip().removeprefix("${{").removesuffix("}}").strip()
+
+
+def job_name(job_id, job):
+    return job.get("name", job_id)
+
+
 def main(directory, config_path):
-    authors = json.loads(Path(config_path).read_text())["factory_authors"]
+    config = json.loads(Path(config_path).read_text())
+    authors = config["factory_authors"]
     if not authors or any(not re.fullmatch(r"[A-Za-z0-9-]+(?:\[bot\])?", name) for name in authors):
         raise ValueError("invalid factory_authors")
     author_guard = " || ".join(f"github.event.pull_request.user.login == '{name}'" for name in authors)
     guard_required = f"github.event.pull_request.head.repo.full_name == github.repository && ({author_guard})"
     run_guard = "github.event.workflow_run.head_repository.full_name == github.repository"
+    required = {check["context"] for check in config["required_checks"]}
+    root = Path(directory)
+    cache = {}
+
+    def load(path):
+        if path not in cache:
+            result = subprocess.run(["yq", "-o=json", ".", str(path)], capture_output=True, text=True, check=True)
+            cache[path] = json.loads(result.stdout)
+        return cache[path]
+
+    def called_jobs(job):
+        uses = str(job.get("uses") or "")
+        if not (uses.startswith("$/") or uses.startswith("./")):
+            return {}
+        path = root / Path(uses).name
+        return load(path).get("jobs", {}) if path.is_file() else {}
+
+    def called_guarded(job, guard):
+        callees = called_jobs(job)
+        return bool(callees) and all(condition(called.get("if")) == guard for called in callees.values())
+
     failures = []
-    paths = sorted([*Path(directory).glob("*.yml"), *Path(directory).glob("*.yaml")])
+    paths = sorted([*root.glob("*.yml"), *root.glob("*.yaml")])
     if not paths:
         raise ValueError("no workflows found")
     for path in paths:
-        result = subprocess.run(["yq", "-o=json", ".", str(path)], capture_output=True, text=True, check=True)
-        workflow = json.loads(result.stdout)
+        workflow = load(path)
         names = triggers(workflow)
         if not names:
             failures.append(f"{path}: no workflow trigger")
             continue
-        target = "pull_request_target" in names
-        if target:
+        if "pull_request_target" in names:
             failures.append(f"{path}: pull_request_target is not permitted")
         if SECRET.search(json.dumps(workflow.get("env", {}))):
             failures.append(f"{path}: workflow-level environment references secrets")
+        jobs = workflow.get("jobs", {})
         if workflow.get("name") == "AI Review":
-            guards = [str(job.get("if", "")).strip().removeprefix("${{").removesuffix("}}").strip() for job in workflow.get("jobs", {}).values()]
+            guards = [condition(job.get("if")) for job in jobs.values()]
+            for job in jobs.values():
+                guards.extend(condition(called.get("if")) for called in called_jobs(job).values())
             guards = [guard for guard in guards if "pull_request.user.login" in guard]
             if not guards:
                 failures.append(f"{path}: AI Review job has no author guard")
             for guard in guards:
                 if guard != guard_required:
                     failures.append(f"{path}: AI Review author guard does not match factory_authors")
+        for job_id, job in jobs.items():
+            for called_id, called in called_jobs(job).items():
+                context = f"{job_name(job_id, job)} / {job_name(called_id, called)}"
+                if context in required and condition(job.get("if")):
+                    failures.append(f"{path}: {job_id} guards required check {context} at the caller")
         if not {"pull_request", "pull_request_target", "workflow_run"} & names:
             continue
         expected = guard_required if names & {"pull_request", "pull_request_target"} else run_guard
-        for name, job in workflow.get("jobs", {}).items():
-            guard = str(job.get("if", "")).strip().removeprefix("${{").removesuffix("}}").strip()
-            secret = SECRET.search(json.dumps(job))
-            if secret and guard != expected:
-                failures.append(f"{path}: {name} has secrets without a same-repository guard")
+        for name, job in jobs.items():
+            guard = condition(job.get("if"))
+            if not SECRET.search(json.dumps(job)) or guard == expected or called_guarded(job, expected):
+                continue
+            failures.append(f"{path}: {name} has secrets without a same-repository guard")
     if failures:
         raise ValueError("\n".join(failures))
 

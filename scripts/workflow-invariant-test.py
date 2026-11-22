@@ -28,26 +28,52 @@ class WorkflowInvariant(unittest.TestCase):
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
 
-    def test_secret_workflow_guard_must_match_factory_authors(self):
+    def test_ai_review_callee_guard_must_match_factory_authors(self):
         script = ROOT / "scripts/workflow-invariant.py"
+        caller = (ROOT / ".github/workflows/ai-review-caller.yml").read_text()
+        reusable = (ROOT / ".github/workflows/ai-review.yml").read_text()
         with tempfile.TemporaryDirectory() as temp:
-            for name in ("ai-review-caller.yml", "ai-review.yml"):
-                path = Path(temp) / name
-                source = (ROOT / ".github/workflows" / name).read_text()
-                path.write_text(source.replace("renovate[bot]", "other[bot]"))
-                result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
-                self.assertNotEqual(result.returncode, 0, name)
-                self.assertIn("guard", result.stderr)
-                path.unlink()
-            path = Path(temp) / "ai-review-caller.yml"
-            path.write_text((ROOT / ".github/workflows/ai-review-caller.yml").read_text())
+            root = Path(temp)
+            (root / "ai-review-caller.yml").write_text(caller)
+            (root / "ai-review.yml").write_text(reusable.replace("renovate[bot]", "other[bot]"))
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("AI Review author guard does not match factory_authors", result.stderr)
+            self.assertIn("has secrets without a same-repository guard", result.stderr)
+            (root / "ai-review.yml").write_text(reusable)
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
             config = json.loads((ROOT / "repo-settings.json").read_text())
             config["factory_authors"].append("factory-helper[bot]")
-            config_path = Path(temp) / "settings.json"
+            config_path = root / "settings.json"
             config_path.write_text(json.dumps(config))
             result = subprocess.run(["python3", str(script), temp, str(config_path)], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("guard", result.stderr)
+            self.assertIn("AI Review author guard does not match factory_authors", result.stderr)
+
+    def test_caller_without_guard_needs_a_guarded_called_job(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "caller.yml").write_text("name: caller\non: pull_request\njobs:\n  review:\n    uses: $/.github/workflows/callee.yml\n    secrets:\n      TOKEN: ${{ secrets.TOKEN }}\n")
+            (root / "callee.yml").write_text("name: callee\non: workflow_call\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("caller.yml: review has secrets without a same-repository guard", result.stderr)
+
+    def test_required_check_cannot_be_guarded_at_the_caller(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        guard = "github.event.pull_request.head.repo.full_name == github.repository"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "callee.yml").write_text((ROOT / ".github/workflows/ai-review.yml").read_text())
+            (root / "caller.yml").write_text(f"name: caller\non: pull_request\njobs:\n  review:\n    if: {guard}\n    uses: $/.github/workflows/callee.yml\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("guards required check review / review at the caller", result.stderr)
+            (root / "caller.yml").write_text(f"name: caller\non: pull_request\njobs:\n  review:\n    uses: $/.github/workflows/callee.yml\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_ai_review_guard_without_secrets_still_must_match_factory_authors(self):
         script = ROOT / "scripts/workflow-invariant.py"
