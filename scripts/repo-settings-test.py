@@ -221,6 +221,20 @@ class RepoSettings(unittest.TestCase):
         ruleset = json.loads(self.path.read_text())["rulesets"][0]
         self.assertEqual(ruleset["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
 
+    def test_public_personal_fork_keeps_the_bypass_and_codacy(self):
+        state = json.loads(self.path.read_text())
+        state["repo"].update({"fork": True, "private": False})
+        state["topics"]["names"] = ["factory-personal-fork"]
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ruleset = json.loads(self.path.read_text())["rulesets"][0]
+        self.assertEqual(ruleset["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
+        rules = {rule["type"]: rule.get("parameters", {}) for rule in ruleset["rules"]}
+        self.assertIn("Codacy Static Code Analysis", [check["context"] for check in rules["required_status_checks"]["required_status_checks"]])
+
     def test_personal_project_ruleset_keeps_no_bypass(self):
         state = json.loads(self.path.read_text())
         state["enrolled"] = True

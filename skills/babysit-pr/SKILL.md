@@ -101,15 +101,15 @@ Supervisor thread stands in for the Supervisor's confirmation.
   or workflow, or a dependency manifest in a major bump. If the PR touches one
   and lacks the `protected` label, add the label, send
   `supervise · wake · protected <PR URL>`, and do not merge.
-- Squash-merge, except a Sync PR, which merges with a merge commit. Identify a
-  Sync PR by what it is, never by a branch-name convention: it merges upstream's
-  default branch into a Personal Fork's `main` and its body carries a verdict for
-  every upstream change. If you cannot tell whether the PR is a Sync PR, inside a
-  Run send the `stopped` notice to the notice thread with the question so the
-  Dispatcher parks the issue; otherwise report the question to the user. Do not
-  wake the Supervisor and do not guess. Merge a Sync PR with
-  `gh pr merge <n> --merge --admin`; `--admin` is reserved for Sync PRs and
-  matches the bypass actor on the Personal Fork ruleset.
+- Squash-merge, except a Sync PR, which merges with a merge commit. Merge a Sync PR
+  with `gh pr merge <n> --merge --match-head-commit <sha> --admin`; `--admin` is
+  reserved for Sync PRs and matches the admin RepositoryRole bypass actor on the
+  Personal Fork ruleset. Identify a Sync PR by what it is, never by a branch-name
+  convention: it merges upstream's default branch into a Personal Fork's `main` and
+  its body carries a verdict for every upstream change. If you cannot tell whether
+  the PR is a Sync PR, inside a Run send the `stopped` notice to the notice thread
+  with the question so the Dispatcher parks the issue; otherwise report the question
+  to the user. Do not wake the Supervisor and do not guess.
 - Before readiness, a Sync PR passes
   `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;
   a missing verdict is a blocking finding. An Upstream Fork PR passes
@@ -189,7 +189,9 @@ base, checks, and review state immediately before merging. Bind the merge to the
 verified head, using `--match-head-commit` with `gh pr merge` or an equivalent
 supported guard. Apply any repository merge preflight. Changed state returns to
 inspection and validation. Respect branch protections, approval requirements,
-and merge queues; never bypass them to finish the task.
+and merge queues. Never bypass them, force a merge, or weaken a check to finish the
+task, except the Personal Fork ruleset bypass actor that a Sync PR's recorded
+`--admin` merge uses.
 
 Verify that GitHub reports the PR merged and record the merge commit before
 cleanup. A queued merge or enabled auto-merge is still pending. If permissions
