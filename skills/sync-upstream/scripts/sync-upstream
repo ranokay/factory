@@ -591,8 +591,10 @@ def merge_mise(existing, template):
         if key in expected_container and isinstance(actual_container, dict):
             expected_values = expected_container[key]
             added = expected_values[len(original_values):]
-            if actual_container.get(key) == list(reversed(added)) + original_values:
-                expected_container[key] = actual_container[key]
+            actual_values = actual_container.get(key)
+            if actual_values not in (expected_values, list(reversed(added)) + original_values):
+                raise SyncError("install-files: mise.toml could not be merged safely; add the Factory entries by hand")
+            expected_container[key] = actual_values
     if actual != expected:
         raise SyncError("install-files: mise.toml could not be merged safely; add the Factory entries by hand")
     return text
@@ -705,20 +707,24 @@ def coderabbit_enabled(template):
 
 def merge_coderabbit(existing, template):
     value = coderabbit_enabled(template)
-    lines = existing.splitlines()
+    lines = existing.splitlines(keepends=True)
+    newline = "\r\n" if "\r\n" in existing else "\n"
     reviews, reviews_end = find_yaml_block(lines, "reviews", 0, len(lines), 0)
     if reviews is None:
         for line in lines:
             if re.match(r"^reviews:\s*\S", line):
                 raise SyncError(".coderabbit.yaml reviews must be a block")
-        return existing.rstrip("\n") + f"\nreviews:\n  auto_review:\n    enabled: {value}\n"
+        separator = "" if not existing or existing.endswith("\n") else newline
+        return existing + separator + f"reviews:{newline}  auto_review:{newline}    enabled: {value}{newline}"
     auto, auto_end = coderabbit_auto_review(lines, reviews + 1, reviews_end)
     if auto is None:
         for index in range(reviews + 1, reviews_end):
             if re.match(r"^\s+auto_review:\s*\S", lines[index]):
                 raise SyncError(".coderabbit.yaml auto_review must be a block")
-        lines[reviews + 1:reviews + 1] = ["  auto_review:", f"    enabled: {value}"]
-        return "\n".join(lines) + "\n"
+        if not lines[reviews].endswith("\n"):
+            lines[reviews] += newline
+        lines[reviews + 1:reviews + 1] = [f"  auto_review:{newline}", f"    enabled: {value}{newline}"]
+        return "".join(lines)
     indent = child_indent(lines, auto + 1, auto_end)
     if indent is None:
         indent = len(lines[auto]) - len(lines[auto].lstrip()) + 2
@@ -726,10 +732,12 @@ def merge_coderabbit(existing, template):
     for index in range(auto + 1, auto_end):
         match = pattern.match(lines[index])
         if match:
-            lines[index] = f"{' ' * indent}enabled: {value}"
-            return "\n".join(lines) + "\n"
-    lines.insert(auto + 1, f"{' ' * indent}enabled: {value}")
-    return "\n".join(lines) + "\n"
+            lines[index] = re.sub(r"(enabled:\s*)\S+", rf"\g<1>{value}", lines[index], count=1)
+            return "".join(lines)
+    if not lines[auto].endswith("\n"):
+        lines[auto] += newline
+    lines.insert(auto + 1, f"{' ' * indent}enabled: {value}{newline}")
+    return "".join(lines)
 
 
 def merge_text(path, template_root, existing, template):

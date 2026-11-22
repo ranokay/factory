@@ -135,6 +135,17 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertIn("auto_review:\n    enabled: false\n    other: true", text)
         self.assertIn("tools:\n    enabled: true", text)
 
+    def test_install_files_preserves_coderabbit_crlf(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / ".coderabbit.yaml").write_text("reviews:\n  auto_review:\n    enabled: false\n")
+        original = b"reviews:\r\n  auto_review:\r\n    other: true # keep\r\n  tools:\r\n    enabled: true\r\n"
+        target = self.target({".coderabbit.yaml": ""})
+        (target / ".coderabbit.yaml").write_bytes(original)
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        expected = original.replace(b"  auto_review:\r\n", b"  auto_review:\r\n    enabled: false\r\n")
+        self.assertEqual((target / ".coderabbit.yaml").read_bytes(), expected)
+
     def test_install_files_preserves_inline_array_and_comment(self):
         template = self.root / "template"
         template.mkdir()
@@ -143,6 +154,24 @@ class SyncUpstreamFiles(SyncFixture):
         target = self.target({"mise.toml": original})
         self.cli("install-files", "--target", str(target), "--template", str(template))
         self.assertEqual((target / "mise.toml").read_text(), original.replace('"café.toml"]', '"café.toml", "factory"]'))
+
+    def test_install_files_merges_multiple_mise_entries(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["one", "two"]\n[task_config]\nincludes = ["tasks-one", "tasks-two"]\n[settings]\nexperimental = true\n')
+        target = self.target({"mise.toml": ""})
+        path = target / "mise.toml"
+        cases = (
+            ('include = ["old"]\n[task_config]\nincludes = ["old-tasks"]\n', ["old", "one", "two"], ["old-tasks", "tasks-one", "tasks-two"]),
+            ('include = [\n  "old",\n]\n[task_config]\nincludes = [\n  "old-tasks",\n]\n', ["two", "one", "old"], ["tasks-two", "tasks-one", "old-tasks"]),
+        )
+        for original, includes, task_includes in cases:
+            with self.subTest(original=original):
+                path.write_text(original)
+                self.cli("install-files", "--target", str(target), "--template", str(template))
+                result = tomllib.loads(path.read_text())
+                self.assertEqual(result["include"], includes)
+                self.assertEqual(result["task_config"]["includes"], task_includes)
 
     def test_install_files_preserves_block_arrays_and_adds_missing_tables(self):
         template = self.root / "template"
