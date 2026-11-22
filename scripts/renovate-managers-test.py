@@ -68,6 +68,8 @@ EXPECTED_PINS = {
 def renovate_binary():
     override = os.environ.get("RENOVATE_BINARY")
     if override:
+        if not Path(override).exists():
+            raise AssertionError(f"RENOVATE_BINARY points to a missing path: {override}")
         return override
     mise = shutil.which("mise")
     if mise is None:
@@ -91,15 +93,9 @@ def renovate_binary():
 def extract(fixture):
     renovate = renovate_binary()
     env = {
-        key: value
-        for key, value in os.environ.items()
-        if key
-        not in {
-            "GITHUB_TOKEN",
-            "GITHUB_COM_TOKEN",
-            "RENOVATE_TOKEN",
-            "RENOVATE_CONFIG_FILE",
-        }
+        key: os.environ[key]
+        for key in ("HOME", "LANG", "PATH", "TMPDIR")
+        if key in os.environ
     }
     env.update(
         {
@@ -112,18 +108,29 @@ def extract(fixture):
             "NO_PROXY": "",
         }
     )
-    result = subprocess.run(  # nosec B603  # nosemgrep -- pinned local Renovate binary
-        [renovate, "--platform=local", "--dry-run=extract"],  # nosemgrep -- pinned local Renovate binary
-        cwd=fixture,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    if "RE2 not usable" in result.stdout + result.stderr:
+    try:
+        result = subprocess.run(  # nosec B603  # nosemgrep -- pinned local Renovate binary
+            [renovate, "--platform=local", "--dry-run=extract"],  # nosemgrep -- pinned local Renovate binary
+            cwd=fixture,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AssertionError(
+            "renovate extract timed out\n"
+            + (error.stdout or "")[-2000:]
+            + (error.stderr or "")[-4000:]
+        ) from error
+    combined = result.stdout + result.stderr
+    if "RE2 not usable" in combined:
+        lines = "\n".join(
+            line for line in combined.splitlines() if "RE2 not usable" in line
+        )
         raise AssertionError(
             "Renovate could not load RE2; the Gate would evaluate regexes with RegExp\n"
-            + (result.stdout + result.stderr)[-2000:]
+            + lines
         )
     if result.returncode:
         raise AssertionError(
@@ -137,11 +144,13 @@ def extract(fixture):
             continue
         if entry.get("msg") == "Extracted dependencies":
             entries.append(entry)
-    aggregate = next(
-        (entry for entry in reversed(entries) if entry.get("packageFiles")), None
-    )
-    if aggregate is None:
+    aggregates = [entry for entry in entries if entry.get("packageFiles")]
+    if not aggregates:
         raise AssertionError("renovate logged no packageFiles in extracted dependencies")
+    aggregate = max(
+        aggregates,
+        key=lambda entry: sum(len(files) for files in entry["packageFiles"].values()),
+    )
     deps = {}
     for manager, manager_files in aggregate["packageFiles"].items():
         for package_file in manager_files:
@@ -210,6 +219,10 @@ class FactoryPins(unittest.TestCase):
         self.assertTrue([dep for dep in mise if dep.get("currentDigest") == FIXTURE_SHA])
         hk = self.deps.get("hk.pkl", [])
         self.assertEqual({dep.get("currentValue") for dep in hk}, {TAG})
+        self.assertIn(
+            'amends "https://raw.githubusercontent.com/ranokay/factory/main/profiles/universal/hk.pkl"',
+            HK,
+        )
         workflow = self.deps.get(".github/workflows/check.yml", [])
         self.assertTrue([dep for dep in workflow if dep.get("currentDigest") == FIXTURE_SHA])
         self.assertFalse(

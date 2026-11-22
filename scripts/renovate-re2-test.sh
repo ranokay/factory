@@ -55,8 +55,8 @@ grep -q 'validator output marker' "$tmp/failing.log" || {
 
 cat >"$tmp/renovate" <<'STUB'
 #!/bin/sh
-printf '%s\n' 'RE2 not usable, falling back to RegExp'
-printf '%s\n' 'renovate output marker'
+printf '%s\n' '{"msg":"RE2 not usable, falling back to RegExp"}'
+printf '%s\n' '{"msg":"renovate output marker"}'
 STUB
 chmod +x "$tmp/renovate"
 if RENOVATE_BINARY="$tmp/renovate" python3 "$root/scripts/renovate-managers-test.py" >"$tmp/test.log" 2>&1; then
@@ -65,9 +65,5 @@ if RENOVATE_BINARY="$tmp/renovate" python3 "$root/scripts/renovate-managers-test
 fi
 grep -q 'Renovate could not load RE2' "$tmp/test.log" || {
 	printf '%s\n' 'managers test failed for an unexpected reason' >&2
-	exit 1
-}
-grep -q 'renovate output marker' "$tmp/test.log" || {
-	printf '%s\n' 'managers test lost its captured output' >&2
 	exit 1
 }

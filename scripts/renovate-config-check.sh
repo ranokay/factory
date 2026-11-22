@@ -15,8 +15,9 @@ if [ ! -s "$files" ]; then
 fi
 if [ -n "${RENOVATE_CONFIG_VALIDATOR:-}" ]; then
 	validator=$RENOVATE_CONFIG_VALIDATOR
-else
-	validator=$(mise -C "$root" which renovate-config-validator)
+elif ! validator=$(mise -C "$root" which renovate-config-validator); then
+	printf '%s\n' 'mise could not resolve renovate-config-validator from mise.toml' >&2
+	exit 1
 fi
 if xargs -0 "$validator" --strict --no-global default.json <"$files" >"$output" 2>&1; then
 	status=0
@@ -27,6 +28,11 @@ if grep -q 'RE2 not usable' "$output"; then
 	cat "$output"
 	printf '%s\n' 'RE2 failed to load; the Gate must evaluate regexes with RE2' >&2
 	exit 1
+fi
+if [ "$status" -ge 123 ]; then
+	cat "$output"
+	printf '%s\n' 'renovate-config-validator could not run' >&2
+	exit "$status"
 fi
 if [ "$status" -ne 0 ]; then
 	cat "$output"
