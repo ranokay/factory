@@ -94,11 +94,13 @@ class SyncUpstreamFiles(SyncFixture):
         template.mkdir()
         (template / "AGENTS.md").write_text("# Factory\n\nProfiles: universal\n")
         target = self.target({"AGENTS.md": ""})
-        original = b"```text\r\n# comment\r\n```\r\n# Title\r\nExisting instructions.\r\n"
-        (target / "AGENTS.md").write_bytes(original)
-        self.cli("install-files", "--target", str(target), "--template", str(template))
-        expected = original.replace(b"# Title\r\n", b"# Title\r\n\r\nProfiles: universal\r\n")
-        self.assertEqual((target / "AGENTS.md").read_bytes(), expected)
+        for fence in (b"```text\r\n# comment\r\n```\r\n", b"~~~text\r\n```\r\n# comment\r\n```\r\n~~~\r\n", b"````text\r\n```\r\nProfiles: fake\r\n# comment\r\n```\r\n````\r\n"):
+            with self.subTest(fence=fence):
+                original = fence + b"# Title\r\nExisting instructions.\r\n"
+                (target / "AGENTS.md").write_bytes(original)
+                self.cli("install-files", "--target", str(target), "--template", str(template))
+                expected = original.replace(b"# Title\r\n", b"# Title\r\n\r\nProfiles: universal\r\n")
+                self.assertEqual((target / "AGENTS.md").read_bytes(), expected)
 
     def test_install_files_scopes_coderabbit_enabled_to_auto_review(self):
         template = self.root / "template"

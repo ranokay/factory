@@ -398,12 +398,17 @@ def factory_files(args):
 
 
 def unfenced_lines(lines):
-    fenced = False
+    fence = None
     for index, line in enumerate(lines):
-        if line.strip().startswith(("```", "~~~")):
-            fenced = not fenced
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+        if fence is None and match:
+            fence = match.group(1)
             continue
-        if not fenced:
+        if fence is not None:
+            if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
+                fence = None
+            continue
+        if fence is None:
             yield index, line
 
 
