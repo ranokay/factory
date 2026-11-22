@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import datetime
 import json
 import re
@@ -288,9 +289,14 @@ def merge_command(args):
     required = set()
     for rule in rules:
         if rule.get("type") == "required_status_checks":
-            for check in (rule.get("parameters") or {}).get("required_status_checks") or []:
-                if check.get("context"):
-                    required.add(check["context"])
+            parameters = rule.get("parameters")
+            check_list = parameters.get("required_status_checks") if isinstance(parameters, dict) else None
+            if not isinstance(check_list, list):
+                raise SyncError("required_status_checks rule has no check list")
+            for check in check_list:
+                if not isinstance(check, dict) or not isinstance(check.get("context"), str) or not check["context"]:
+                    raise SyncError("required_status_checks rule has a check without context")
+                required.add(check["context"])
     check_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/commits/{head}/check-runs?per_page=100"]).stdout)
     checks = [check for page in check_pages for check in page.get("check_runs", [])]
     status_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/commits/{head}/statuses?per_page=100"]).stdout)
@@ -435,7 +441,8 @@ def add_array_entry(text, key, value, section=None):
     newline = "\r\n" if "\r\n" in text else "\n"
     start, end = section_bounds(lines, section)
     if start is None:
-        return text.rstrip("\r\n") + f'{newline}{newline}[{section}]{newline}{key} = [{json.dumps(value)}]{newline}'
+        separator = "" if not text or text.endswith("\n") else newline
+        return text + separator + f'{newline}[{section}]{newline}{key} = [{json.dumps(value)}]{newline}'
     pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*\[")
     for index in range(start, end):
         if pattern.match(lines[index]):
@@ -465,6 +472,8 @@ def add_array_entry(text, key, value, section=None):
         if start < len(lines) - 1 and lines[start + 1].strip() != "":
             lines.insert(start + 1, newline)
     else:
+        if start and not lines[start - 1].endswith("\n"):
+            lines[start - 1] += newline
         lines.insert(start, insert)
     return "".join(lines)
 
@@ -477,12 +486,14 @@ def ensure_settings(text):
     newline = "\r\n" if "\r\n" in text else "\n"
     start, end = section_bounds(lines, "settings")
     if start is None:
-        return text.rstrip("\r\n") + f"{newline}{newline}[settings]{newline}experimental = true{newline}"
+        separator = "" if not text or text.endswith("\n") else newline
+        return text + separator + f"{newline}[settings]{newline}experimental = true{newline}"
     for index in range(start, end):
         if re.match(r"^\s*experimental\s*=", lines[index]):
-            prefix = lines[index].split("=", 1)[0].rstrip()
-            lines[index] = f"{prefix} = true{newline}"
+            lines[index] = re.sub(r"(=\s*)false\b", r"\g<1>true", lines[index], count=1)
             return "".join(lines)
+    if start and not lines[start - 1].endswith("\n"):
+        lines[start - 1] += newline
     lines.insert(start, f"experimental = true{newline}")
     return "".join(lines)
 
@@ -499,6 +510,27 @@ def merge_mise(existing, template):
         raise SyncError("install-files: mise.toml task_config.includes must be an array")
     if not isinstance(data.get("settings", {}), dict):
         raise SyncError("install-files: mise.toml settings must be a table")
+    if "experimental" in data.get("settings", {}) and not isinstance(data["settings"]["experimental"], bool):
+        raise SyncError("install-files: mise.toml settings.experimental must be a boolean")
+    lines = existing.splitlines(keepends=True)
+    for section in ("task_config", "settings"):
+        if section in data and section_bounds(lines, section)[0] is None:
+            raise SyncError(f"install-files: mise.toml defines {section} as an inline, dotted or quoted table; add the Factory entries by hand")
+    for section, key, values in ((None, "include", data), ("task_config", "includes", task_config), ("settings", "experimental", data.get("settings", {}))):
+        if key not in values:
+            continue
+        start, end = section_bounds(lines, section)
+        if start is None or not any(re.match(rf"^\s*{re.escape(key)}\s*=", line) for line in lines[start:end]):
+            name = f"{section}.{key}" if section else key
+            raise SyncError(f"install-files: mise.toml defines {name} as a dotted or quoted key; add the Factory entries by hand")
+    expected = copy.deepcopy(data)
+    for url in template_data.get("include", []):
+        if url not in expected.get("include", []):
+            expected.setdefault("include", []).append(url)
+    for url in (template_data.get("task_config") or {}).get("includes", []):
+        if url not in expected.get("task_config", {}).get("includes", []):
+            expected.setdefault("task_config", {}).setdefault("includes", []).append(url)
+    expected.setdefault("settings", {})["experimental"] = True
     text = existing
     for url in template_data.get("include", []):
         if url not in data.get("include", []):
@@ -507,7 +539,21 @@ def merge_mise(existing, template):
         if url not in (data.get("task_config") or {}).get("includes", []):
             text = add_array_entry(text, "includes", url, "task_config")
     text = ensure_settings(text)
-    tomllib.loads(text)
+    try:
+        actual = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        raise SyncError(f"install-files: mise.toml could not be merged safely; add the Factory entries by hand: {error}") from error
+    for section, key in ((None, "include"), ("task_config", "includes")):
+        original_values = data.get(key, []) if section is None else data.get(section, {}).get(key, [])
+        expected_container = expected if section is None else expected.get(section, {})
+        actual_container = actual if section is None else actual.get(section, {})
+        if key in expected_container and isinstance(actual_container, dict):
+            expected_values = expected_container[key]
+            added = expected_values[len(original_values):]
+            if actual_container.get(key) == list(reversed(added)) + original_values:
+                expected_container[key] = actual_container[key]
+    if actual != expected:
+        raise SyncError("install-files: mise.toml could not be merged safely; add the Factory entries by hand")
     return text
 
 
@@ -674,33 +720,32 @@ def install_files(args):
     if not template.is_dir():
         raise SyncError(f"{template} is not a directory")
     target = Path(args.target)
-    changed = False
+    changes = []
     for source in sorted(path for path in template.rglob("*") if path.is_file()):
         destination = target / source.relative_to(template)
         name = destination.relative_to(target).as_posix()
         content = source.read_text()
         if not destination.exists():
-            changed = True
-            if args.check:
-                print(f"would create: {name}")
-            else:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, destination)
-                print(f"created: {name}")
+            changes.append((source, destination, name, None))
             continue
         with destination.open(newline="") as existing_file:
             existing = existing_file.read()
         merged, differs = merge_text(source, template, existing, content)
         if not differs:
             continue
-        changed = True
+        changes.append((source, destination, name, merged))
+    for source, destination, name, merged in changes:
         if args.check:
-            print(f"would change: {name}")
+            print(f"would {'create' if merged is None else 'change'}: {name}")
+        elif merged is None:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+            print(f"created: {name}")
         else:
             with destination.open("w", newline="") as destination_file:
                 destination_file.write(merged)
             print(f"changed: {name}")
-    if args.check and changed:
+    if args.check and changes:
         return 1
     return 0
 

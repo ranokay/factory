@@ -287,15 +287,17 @@ class SyncUpstream(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, f"gh pr merge 7 -R o/r --merge --match-head-commit {head} --admin\n")
 
-    def test_merge_command_accepts_null_ruleset_parameters(self):
+    def test_merge_command_rejects_incomplete_ruleset_parameters(self):
         repo, _ = self.command_fixture()
         state = json.loads(self.repo_file.read_text())
-        for parameters in (None, {"required_status_checks": None}):
+        for parameters in (None, {}, {"required_status_checks": None}, {"required_status_checks": "invalid"}, {"required_status_checks": [{}]}):
             with self.subTest(parameters=parameters):
                 state["applied_rules"] = [{"type": "required_status_checks", "parameters": parameters}]
                 self.repo_file.write_text(json.dumps(state))
                 result = self.merge_command(repo)
-                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("required_status_checks rule", result.stderr)
+                self.assertEqual(result.stdout, "")
 
     def test_merge_command_blocks_a_failing_check(self):
         repo, _ = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "failure"}])
@@ -546,6 +548,23 @@ class SyncUpstream(unittest.TestCase):
         self.cli("install-files", "--target", str(target), "--template", str(template))
         self.assertEqual((target / "mise.toml").read_text(), 'include = ["factory"]\n[tools]\npython = "3"\n\n[task_config]\nincludes = ["factory-tasks"]\n\n[settings]\nexperimental = true\n')
 
+    def test_install_files_preserves_trailing_blank_lines_and_setting_comment(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
+        original = '[settings]\nexperimental = false # retain\n\n\n'
+        target = self.target({"mise.toml": original})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        self.assertEqual((target / "mise.toml").read_text(), original.replace("false", "true") + '\n[task_config]\nincludes = ["factory-tasks"]\n')
+
+    def test_install_files_adds_key_after_header_without_final_newline(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
+        target = self.target({"mise.toml": '[task_config]'})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        self.assertEqual((target / "mise.toml").read_text(), '[task_config]\nincludes = ["factory-tasks"]\n\n[settings]\nexperimental = true\n')
+
     def test_install_files_rejects_invalid_mise_shapes(self):
         template = self.root / "template"
         template.mkdir()
@@ -558,6 +577,22 @@ class SyncUpstream(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("install-files: mise.toml", result.stderr)
                 self.assertNotIn("Traceback", result.stderr)
+
+    def test_install_files_refuses_unsupported_mise_forms_without_writing(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "a.txt").write_text("new\n")
+        (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
+        target = self.target({"mise.toml": ""})
+        for original, name in (('task_config = { includes = ["old"] }\n', "task_config"), ('task_config.includes = ["old"]\n', "task_config"), ('"include" = ["old"]\n', "include"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes"), ('settings = { experimental = false }\n', "settings")):
+            with self.subTest(original=original):
+                (target / "mise.toml").write_text(original)
+                result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"install-files: mise.toml defines {name}", result.stderr)
+                self.assertIn("add the Factory entries by hand", result.stderr)
+                self.assertEqual((target / "mise.toml").read_text(), original)
+                self.assertFalse((target / "a.txt").exists())
 
     def test_install_files_extends_existing_files(self):
         target = self.target({
