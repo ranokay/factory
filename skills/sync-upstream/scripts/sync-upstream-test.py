@@ -16,9 +16,9 @@ GIT = shutil.which("git") or "git"
 
 
 def run_process(args, cwd, env=None):
-    process = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 B607 -- the fixture runs local executables
+    process = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 B607 -- fixture executables # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- controlled test arguments
     stdout, stderr = process.communicate()
-    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- result construction does not execute commands
 
 
 class SyncUpstream(unittest.TestCase):
