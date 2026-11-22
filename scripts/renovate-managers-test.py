@@ -47,6 +47,12 @@ jobs:
     uses: ranokay/factory/.github/workflows/gates.yml@{SHA}
 """
 
+EXPECTED_PINS = {
+    "mise.toml": MISE.count(f"?ref={TAG}"),
+    "hk.pkl": HK.count(f"/{TAG}/"),
+    ".github/workflows/check.yml": WORKFLOW.count(f"@{TAG}"),
+}
+
 
 def extract(fixture):
     renovate = shutil.which("renovate")
@@ -131,8 +137,9 @@ class FactoryPins(unittest.TestCase):
         for path in ("mise.toml", "hk.pkl", ".github/workflows/check.yml"):
             with self.subTest(path=path):
                 pins = tag_pins(self.deps.get(path, []))
-                expected = 2 if path == "mise.toml" else 1
-                self.assertEqual(len(pins), expected, self.deps.get(path))
+                self.assertEqual(len(pins), EXPECTED_PINS[path], self.deps.get(path))
+                replacements = [dep.get("replaceString") for dep in pins]
+                self.assertEqual(len(replacements), len(set(replacements)))
                 for dep in pins:
                     self.assertEqual(
                         dep.get("packageName") or dep["depName"], "ranokay/factory"

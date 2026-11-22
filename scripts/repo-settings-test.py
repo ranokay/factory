@@ -164,13 +164,16 @@ class RepoSettings(unittest.TestCase):
     def test_auto_merge_is_enabled(self):
         state = json.loads(self.path.read_text())
         state["repo"]["allow_auto_merge"] = False
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
         self.write(state)
         result = self.run_command()
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("merge settings:", result.stdout)
         self.assertIn('"allow_auto_merge": false', result.stdout)
         self.assertIn('"allow_auto_merge": true', result.stdout)
         result = self.run_command("--apply")
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(self.path.read_text())["repo"]["allow_auto_merge"])
         self.assertIn("PATCH ", json.loads(self.path.read_text())["writes"])
 
