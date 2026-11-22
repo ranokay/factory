@@ -198,8 +198,9 @@ Bind the merge to the verified head, using `--match-head-commit` with `gh pr mer
 or an equivalent supported guard. Apply any repository merge preflight. Changed state returns to
 inspection and validation. Respect branch protections, approval requirements,
 and merge queues. Never bypass them, force a merge, or weaken a check to finish the
-task, except the signature and authorship bypass that a Sync PR's printed
-`--admin` command uses. Gates and AI Review are never bypassed.
+task, except the bypassable review rules (signature, authorship and review-thread
+resolution) that a Sync PR's printed `--admin` command uses. Gates and AI Review are
+never bypassed.
 
 Verify that GitHub reports the PR merged and record the merge commit before
 cleanup. A queued merge or enabled auto-merge is still pending. If permissions

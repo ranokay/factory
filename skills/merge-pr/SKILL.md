@@ -127,9 +127,9 @@ report it. Changed state returns to verification once; a head that keeps moving
 means another session is active, so report instead of racing it.
 
 Respect branch protections, required approvals, and merge queues. Never bypass
-them, force a merge, or weaken a check to finish, except the signature and
-authorship bypass that a Sync PR's printed `--admin` command uses. Gates
-and AI Review are never bypassed.
+them, force a merge, or weaken a check to finish, except the bypassable review rules
+(signature, authorship and review-thread resolution) that a Sync PR's printed
+`--admin` command uses. Gates and AI Review are never bypassed.
 
 Verify that the forge reports the PR merged on the verified head and record the
 merge commit. A queued merge, enabled auto-merge, or an open PR after the command
