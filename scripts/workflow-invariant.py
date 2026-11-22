@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 SECRET = re.compile(r"\bsecrets\b", re.IGNORECASE)
-AI_REVIEW = ("ai-review-caller.yml", "ai-review.yml")
 
 
 def triggers(workflow):
@@ -24,6 +23,7 @@ def main(directory, config_path):
         raise ValueError("invalid factory_authors")
     author_guard = " || ".join(f"github.event.pull_request.user.login == '{name}'" for name in authors)
     guard_required = f"github.event.pull_request.head.repo.full_name == github.repository && ({author_guard})"
+    run_guard = "github.event.workflow_run.head_repository.full_name == github.repository"
     failures = []
     paths = sorted([*Path(directory).glob("*.yml"), *Path(directory).glob("*.yaml")])
     if not paths:
@@ -40,7 +40,7 @@ def main(directory, config_path):
             failures.append(f"{path}: pull_request_target is not permitted")
         if SECRET.search(json.dumps(workflow.get("env", {}))):
             failures.append(f"{path}: workflow-level environment references secrets")
-        if path.name in AI_REVIEW:
+        if workflow.get("name") == "AI Review":
             guards = [str(job.get("if", "")).strip().removeprefix("${{").removesuffix("}}").strip() for job in workflow.get("jobs", {}).values()]
             guards = [guard for guard in guards if "pull_request.user.login" in guard]
             if not guards:
@@ -50,10 +50,11 @@ def main(directory, config_path):
                     failures.append(f"{path}: AI Review author guard does not match factory_authors")
         if not {"pull_request", "pull_request_target", "workflow_run"} & names:
             continue
+        expected = guard_required if names & {"pull_request", "pull_request_target"} else run_guard
         for name, job in workflow.get("jobs", {}).items():
             guard = str(job.get("if", "")).strip().removeprefix("${{").removesuffix("}}").strip()
-            secret = SECRET.search(json.dumps(job)) or job.get("secrets") == "inherit"
-            if secret and guard != guard_required:
+            secret = SECRET.search(json.dumps(job))
+            if secret and guard != expected:
                 failures.append(f"{path}: {name} has secrets without a same-repository guard")
     if failures:
         raise ValueError("\n".join(failures))

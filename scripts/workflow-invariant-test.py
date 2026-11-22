@@ -65,6 +65,12 @@ class WorkflowInvariant(unittest.TestCase):
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("AI Review job has no author guard", result.stderr)
+            path = Path(temp) / "review.yml"
+            path.write_text((ROOT / ".github/workflows/ai-review.yml").read_text().replace("renovate[bot]", "other[bot]"))
+            (Path(temp) / "ai-review.yml").unlink()
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("AI Review author guard does not match factory_authors", result.stderr)
 
 
     def test_secret_workflow_without_pull_request_trigger_is_allowed(self):
@@ -78,14 +84,28 @@ class WorkflowInvariant(unittest.TestCase):
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("has secrets without a same-repository guard", result.stderr)
+
+    def test_workflow_without_a_trigger_fails(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "release.yml"
             path.write_text("name: release\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n")
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("no workflow trigger", result.stderr)
-            path.write_text('name: after\non:\n  workflow_run:\n    workflows: [Gates]\n    types: [completed]\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        env:\n          TOKEN: ${{ secrets.TOKEN }}\n')
+
+    def test_workflow_run_secrets_need_the_run_guard(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "after.yml"
+            body = 'name: after\non:\n  workflow_run:\n    workflows: [Gates]\n    types: [completed]\njobs:\n  publish:\n    if: {guard}\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        env:\n          TOKEN: ${{ secrets.TOKEN }}\n'
+            path.write_text(body.replace("{guard}", "always()"))
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("has secrets without a same-repository guard", result.stderr)
+            path.write_text(body.replace("{guard}", "github.event.workflow_run.head_repository.full_name == github.repository"))
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
