@@ -104,14 +104,14 @@ class ReviewRequests(unittest.TestCase):
                 self.assertEqual(writes, [])
 
     def test_manual_greptile_and_coderabbit_requests_are_not_repeated(self):
-        state = {"comments": [{"body": "@coderabbitai full review"}, {"body": "@greptile review"}]}
+        state = {"comments": [{"body": "@coderabbitai full review"}, {"body": "@greptile please review"}]}
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 1)
         self.assertIn("@copilot", writes[0])
 
     def test_quoted_comments_do_not_suppress_requests_but_trusted_marker_does(self):
-        state = {"comments": [{"body": "```\n@coderabbitai review\n```"}, {"body": "Discussing @greptile in this thread"}]}
+        state = {"comments": [{"body": "```\n@coderabbitai review\n```"}, {"body": "Discussing @greptile in this thread"}, {"body": "@coderabbitai review was discussed as an option"}, {"user": {"login": "ranokay"}, "body": "```\n<!-- factory:advisory-review:coderabbit -->\n```"}]}
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 3)

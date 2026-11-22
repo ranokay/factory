@@ -60,6 +60,56 @@ def repo_file(base, path, branch):
     return base64.b64decode(json.loads(result.stdout)["content"])
 
 
+def optional_gh(endpoint):
+    result = subprocess.run(["gh", "api", endpoint], capture_output=True, check=False)
+    if result.returncode:
+        if b"HTTP 404" in result.stderr:
+            return None
+        raise RuntimeError(f"could not read {endpoint}")
+    return json.loads(result.stdout)
+
+
+def advisory_name(value):
+    return any(name in str(value).lower() for name in ("coderabbit", "copilot", "greptile", "devin"))
+
+
+def reviewer_name(reviewer):
+    if isinstance(reviewer, str):
+        return reviewer
+    if not isinstance(reviewer, dict):
+        raise RuntimeError("cannot identify a required reviewer in existing protection")
+    for key in ("login", "slug", "name"):
+        if reviewer.get(key):
+            return reviewer[key]
+    kind, identifier = reviewer.get("type"), reviewer.get("id")
+    if kind == "User" and identifier:
+        return gh(f"user/{identifier}")["login"]
+    if kind == "Team" and identifier:
+        return gh(f"teams/{identifier}")["slug"]
+    raise RuntimeError("cannot identify a required reviewer in existing protection")
+
+
+def advisory_drift(policy, rule):
+    found = []
+    kind = rule.get("type", "legacy branch protection")
+    params = rule.get("parameters", rule)
+    if kind == "copilot_code_review":
+        found.append(f"{policy}: copilot_code_review rule")
+    checks = params.get("required_status_checks") or {}
+    if isinstance(checks, dict):
+        checks = checks.get("checks", []) + [{"context": c} for c in checks.get("contexts", [])]
+    for check in checks:
+        if advisory_name(check.get("context", "")):
+            found.append(f"{policy}: required check {check['context']}")
+    for item in params.get("required_reviewers", []):
+        if item.get("minimum_approvals", 1) == 0:
+            continue
+        name = reviewer_name(item.get("reviewer", item))
+        if advisory_name(name):
+            found.append(f"{policy}: required reviewer {name}")
+    return found
+
+
 def codacy(path, token, body=None):
     request = urllib.request.Request("https://app.codacy.com/api/v3/" + path, data=json.dumps(body).encode() if body is not None else None, headers={"api-token": token.decode(), "Content-Type": "application/json"}, method="POST" if body is not None else "GET")
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -142,6 +192,16 @@ def main():
                 gh(endpoint, method, body)
         return
 
+    branch = urllib.parse.quote(repo["default_branch"], safe="")
+    rules = gh(base + f"/rules/branches/{branch}?per_page=100", paginate=True)
+    manual_drift = []
+    for rule in rules:
+        policy = f"ruleset {rule.get('ruleset_source', 'unknown')} ({rule.get('ruleset_id', 'unknown')})"
+        manual_drift.extend(advisory_drift(policy, rule))
+    protection = optional_gh(base + f"/branches/{branch}/protection")
+    if protection:
+        manual_drift.extend(advisory_drift("legacy branch protection", protection))
+
     for path, expected in CONFIG["vendor_files"].items():
         content = repo_file(base, path, repo["default_branch"])
         if content is None:
@@ -201,7 +261,9 @@ def main():
         print("  " + description)
     for description in needs_pr:
         print("  needs PR: " + description)
-    if not changes and not needs_pr:
+    for description in manual_drift:
+        print("  manual: " + description)
+    if not changes and not needs_pr and not manual_drift:
         print("  no changes")
     print("manual checks:")
     print("  Copilot personal automatic reviews: https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/configure-code-review")
@@ -214,8 +276,8 @@ def main():
                 codacy("repositories", token, {"provider": "gh", "repositoryFullPath": args.repo})
             else:
                 gh(endpoint, method, body)
-        if needs_pr:
-            raise RuntimeError("repository configuration needs a PR")
+        if needs_pr or manual_drift:
+            raise RuntimeError("repository has unresolved PR or manual drift")
 
 
 if __name__ == "__main__":

@@ -29,6 +29,15 @@ else:
             sys.exit(1)
         print(json.dumps({"content": base64.b64encode(value.encode()).decode()}))
         sys.exit(0)
+    if key.startswith("/rules/branches/"):
+        print(json.dumps([s.get("applied_rules", [])]))
+        sys.exit(0)
+    if key.endswith("/protection") and method == "GET":
+        if s.get("protection") is None:
+            print("HTTP 404", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(s["protection"]))
+        sys.exit(0)
     mapping = {"": "repo", "/topics": "topics", "/labels": "labels", "/rulesets": "rulesets", "/actions/permissions/fork-pr-contributor-approval": "approval", "/actions/permissions/fork-pr-workflows-private-repos": "private_settings", "/actions/secrets": "secret_response"}
     if method == "GET":
         if key.startswith("/rulesets/"):
@@ -164,6 +173,19 @@ class RepoSettings(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("no changes", result.stdout)
         self.assertEqual(json.loads(self.path.read_text())["writes"], [])
+
+    def test_unmanaged_advisory_requirements_report_manual_drift(self):
+        state = json.loads(self.path.read_text())
+        state["applied_rules"] = [{"ruleset_source": "o/r", "ruleset_id": 8, "type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Greptile Review"}]}}, {"ruleset_source": "o", "ruleset_id": 9, "type": "copilot_code_review"}, {"ruleset_source": "o", "ruleset_id": 10, "type": "pull_request", "parameters": {"required_reviewers": [{"reviewer": {"login": "coderabbitai[bot]"}, "minimum_approvals": 1}]}}]
+        state["protection"] = {"required_status_checks": {"contexts": ["Devin Review"], "checks": []}}
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("manual: ruleset o/r (8): required check Greptile Review", result.stdout)
+        self.assertIn("manual: ruleset o (9): copilot_code_review rule", result.stdout)
+        self.assertIn("manual: ruleset o (10): required reviewer coderabbitai[bot]", result.stdout)
+        self.assertIn("manual: legacy branch protection: required check Devin Review", result.stdout)
+        self.assertFalse(any("rules/branches" in entry or "/protection" in entry for entry in json.loads(self.path.read_text())["writes"]))
 
 
 if __name__ == "__main__":
