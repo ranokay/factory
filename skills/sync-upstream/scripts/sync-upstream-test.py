@@ -584,13 +584,12 @@ class SyncUpstream(unittest.TestCase):
         (template / "a.txt").write_text("new\n")
         (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
         target = self.target({"mise.toml": ""})
-        for original, name in (('task_config = { includes = ["old"] }\n', "task_config"), ('task_config.includes = ["old"]\n', "task_config"), ('"include" = ["old"]\n', "include"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes"), ('settings = { experimental = false }\n', "settings"), ('note = """\n[settings]\nexperimental = true\n"""\n["settings"]\nexperimental = true\n', "settings")):
+        for original, name, form in (('task_config = { includes = ["old"] }\n', "task_config", "inline table"), ('task_config.includes = ["old"]\n', "task_config", "dotted key"), ('"include" = ["old"]\n', "include", "quoted key"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes", "quoted key"), ('settings = { experimental = false }\n', "settings", "inline table"), ('note = """\n[settings]\nexperimental = true\n"""\n["settings"]\nexperimental = true\n', "settings", "quoted key")):
             with self.subTest(original=original):
                 (target / "mise.toml").write_text(original)
                 result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn(f"install-files: mise.toml defines {name}", result.stderr)
-                self.assertIn("add the Factory entries by hand", result.stderr)
+                self.assertIn(f"install-files: mise.toml defines {name} as {form}; add the Factory entries by hand", result.stderr)
                 self.assertEqual((target / "mise.toml").read_text(), original)
                 self.assertFalse((target / "a.txt").exists())
 

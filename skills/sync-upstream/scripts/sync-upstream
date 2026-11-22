@@ -506,6 +506,17 @@ def ensure_settings(text):
     return "".join(lines)
 
 
+def unsupported_mise_form(lines, name):
+    for index, line in enumerate(lines):
+        if not toml_boundary(lines, index):
+            continue
+        if re.match(rf'^\s*{re.escape(name)}\s*=\s*\{{', line):
+            return "inline table"
+        if re.match(rf'^\s*(?:\[\s*)?{re.escape(name)}\s*\.', line):
+            return "dotted key"
+    return "quoted key"
+
+
 def merge_mise(existing, template):
     template_data = tomllib.loads(template)
     data = tomllib.loads(existing)
@@ -523,14 +534,15 @@ def merge_mise(existing, template):
     lines = existing.splitlines(keepends=True)
     for section in ("task_config", "settings"):
         if section in data and section_bounds(lines, section)[0] is None:
-            raise SyncError(f"install-files: mise.toml defines {section} as an inline, dotted or quoted table; add the Factory entries by hand")
+            form = unsupported_mise_form(lines, section)
+            raise SyncError(f"install-files: mise.toml defines {section} as {form}; add the Factory entries by hand")
     for section, key, values in ((None, "include", data), ("task_config", "includes", task_config), ("settings", "experimental", data.get("settings", {}))):
         if key not in values:
             continue
         start, end = section_bounds(lines, section)
         if start is None or not any(re.match(rf"^\s*{re.escape(key)}\s*=", lines[index]) and toml_boundary(lines, index) for index in range(start, end)):
             name = f"{section}.{key}" if section else key
-            raise SyncError(f"install-files: mise.toml defines {name} as a dotted or quoted key; add the Factory entries by hand")
+            raise SyncError(f"install-files: mise.toml defines {name} as quoted key; add the Factory entries by hand")
     expected = copy.deepcopy(data)
     for url in template_data.get("include", []):
         if url not in expected.get("include", []):
