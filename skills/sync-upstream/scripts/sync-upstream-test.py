@@ -373,6 +373,18 @@ class SyncUpstream(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("is not upstream/main", result.stderr)
 
+    def test_merge_command_uses_the_latest_status_per_context(self):
+        repo, _ = self.command_fixture(statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}, {"context": "Codacy Static Code Analysis", "state": "failure"}])
+        result = self.merge_command(repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_merge_command_blocks_a_missing_origin_ref(self):
+        repo, _ = self.command_fixture()
+        self.git(repo, "update-ref", "-d", "refs/remotes/origin/main")
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("origin/main is missing", result.stderr)
+
     def test_merge_command_blocks_a_non_default_base(self):
         repo, _ = self.command_fixture()
         state = json.loads(self.repo_file.read_text())

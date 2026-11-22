@@ -114,7 +114,7 @@ Supervisor thread stands in for the Supervisor's confirmation.
   `skipped` and `neutral` pass only for a check the ruleset does not require. Its
   `--admin` flag stands in only for the Personal Fork ruleset's signature and
   authorship rules, never for Gates or AI Review. It does not inspect review
-  threads; resolve them first.
+  threads, and `--admin` skips their resolution rule; resolve them first.
 - Before readiness, a Sync PR passes
   `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;
   a missing verdict is a blocking finding. An Upstream Fork PR passes
