@@ -216,6 +216,28 @@ class FactoryPins(unittest.TestCase):
                     self.assertEqual(dep.get("datasource"), "github-tags")
                     self.assertEqual(dep.get("currentValue"), TAG)
 
+    def test_preset_keeps_the_update_policy(self):
+        config = json.loads(PRESET.read_text())
+        self.assertEqual(config["schedule"], ["before 6am on monday"])
+        self.assertTrue(config["platformAutomerge"])
+        self.assertEqual(config["automergeType"], "pr")
+        self.assertEqual(config["automergeStrategy"], "squash")
+        group = next(
+            rule
+            for rule in config["packageRules"]
+            if rule.get("matchUpdateTypes") == ["minor", "patch"]
+        )
+        self.assertEqual(group["groupName"], "non-major dependencies")
+        self.assertEqual(group["groupSlug"], "non-major-dependencies")
+        self.assertTrue(group["automerge"])
+        major = next(
+            rule
+            for rule in config["packageRules"]
+            if rule.get("matchUpdateTypes") == ["major"]
+        )
+        self.assertFalse(major["automerge"])
+        self.assertIn("protected", major["addLabels"])
+
     def test_consumers_extend_the_preset(self):
         for path in (ROOT / "renovate.json", ROOT / "project" / "renovate.json"):
             with self.subTest(path=path):
