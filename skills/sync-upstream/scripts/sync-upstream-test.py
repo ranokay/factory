@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import os
 import subprocess
@@ -7,14 +6,10 @@ import tempfile
 import tomllib
 import unittest
 from collections import namedtuple
-from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().with_name("sync-upstream")
 ROOT = SCRIPT.parents[3]
-LOADER = SourceFileLoader("sync_upstream", str(SCRIPT))
-sync_upstream = importlib.util.module_from_spec(importlib.util.spec_from_loader("sync_upstream", LOADER))
-LOADER.exec_module(sync_upstream)
 ForkPair = namedtuple("ForkPair", "origin_seed base origin upstream upstream_seed ahead")
 GH = '''#!/usr/bin/env python3
 import json, os, sys
@@ -128,7 +123,7 @@ class SyncUpstream(unittest.TestCase):
         self.write_repo("o/r", [], "main", fork=False)
         self.assertEqual(self.cli("kind", "--repo", "o/r").stdout.strip(), "personal-project")
 
-    def test_repo_name_comes_from_origin_not_ghs_parent(self):
+    def test_repo_name_comes_from_origin_not_the_parent(self):
         work = self.init("remote-work")
         self.git(work, "remote", "add", "origin", "https://github.com/o/r.git")
         state = json.loads(self.repo_file.read_text())
@@ -337,15 +332,44 @@ class SyncUpstream(unittest.TestCase):
         again = self.cli("install-files", "--target", str(target), "--check")
         self.assertIn("hk.pkl: upstream has its own; Factory Gates not amended", again.stdout)
 
-    def test_unsupported_existing_factory_file_fails(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            template = root / "project"
-            template.mkdir()
-            source = template / "extra.txt"
-            source.write_text("factory\n")
-            with self.assertRaises(sync_upstream.SyncError):
-                sync_upstream.merge_text(source, template, "upstream\n", "factory\n")
+    def test_install_files_fails_on_an_existing_file_with_no_merge_rule(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "extra.txt").write_text("factory\n")
+        target = self.target({"extra.txt": "upstream\n"})
+        result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no merge rule", result.stderr)
+        self.assertEqual((target / "extra.txt").read_text(), "upstream\n")
+
+    def test_install_files_reads_enabled_from_auto_review(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / ".coderabbit.yaml").write_text("reviews:\n  tools:\n    enabled: true\n  auto_review:\n    enabled: false\n")
+        target = self.target({".coderabbit.yaml": "reviews:\n  auto_review:\n"})
+        self.cli("install-files", "--target", str(target), "--template", str(template))
+        text = (target / ".coderabbit.yaml").read_text()
+        self.assertIn("enabled: false", text)
+        self.assertNotIn("enabled: true", text)
+
+    def test_sync_rejects_a_local_upstream_that_is_not_the_parent(self):
+        pair = self.fork_pair()
+        self.git(self.root, "--git-dir", str(pair.upstream), "config", "remote.origin.url", "https://github.com/other/repo.git")
+        work = self.clone(pair.origin, self.root / "work")
+        self.git(work, "remote", "add", "upstream", str(pair.upstream))
+        result = self.cli("sync", "--repo", "o/r", cwd=work, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a mirror", result.stderr)
+
+    def test_verdicts_requires_a_parent_when_refs_are_omitted(self):
+        state = json.loads(self.repo_file.read_text())
+        state["info"]["parent"] = None
+        self.repo_file.write_text(json.dumps(state))
+        body = self.root / "body.md"
+        body.write_text("## Verdicts\n\n")
+        result = self.cli("verdicts", "--repo", "o/r", "--body-file", str(body), cwd=self.root, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no upstream parent", result.stderr)
 
     def test_install_files_extends_existing_files(self):
         target = self.target({

@@ -43,7 +43,8 @@ mirror.
 <this skill's directory>/scripts/sync-upstream install-files --check
 ```
 
-If it reports a change, run it without `--check` on an ordinary branch, commit, open
+`--template DIR` installs a different template; the default is `project/`. If the
+check reports a change, run it without `--check` on an ordinary branch, commit, open
 a normal PR and squash-merge it. Do not mix these changes into a Sync PR: the Sync
 PR carries upstream changes only.
 

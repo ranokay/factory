@@ -479,32 +479,33 @@ def merge_greptile(existing, template):
     return json.dumps(data, indent=2) + "\n"
 
 
+def simple_yaml(text):
+    root = {}
+    stack = [(-1, root)]
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        key, _, value = stripped.partition(":")
+        while stack[-1][0] >= indent:
+            stack.pop()
+        parent = stack[-1][1]
+        value = value.split("#", 1)[0].strip()
+        if value:
+            parent[key] = value
+        else:
+            child = {}
+            parent[key] = child
+            stack.append((indent, child))
+    return root
+
+
 def coderabbit_enabled(template):
-    lines = template.splitlines()
-    reviews = None
-    for index, line in enumerate(lines):
-        if re.match(r"^reviews:\s*(#.*)?$", line):
-            reviews = index
-            break
-    if reviews is None:
-        raise SyncError("project/.coderabbit.yaml has no reviews block")
-    end = len(lines)
-    for index in range(reviews + 1, len(lines)):
-        if lines[index] and not lines[index].startswith((" ", "\t")):
-            end = index
-            break
-    auto = None
-    for index in range(reviews + 1, end):
-        if re.match(r"^\s+auto_review:\s*(#.*)?$", lines[index]):
-            auto = index
-            break
-    if auto is None:
-        raise SyncError("project/.coderabbit.yaml has no auto_review block")
-    for index in range(auto + 1, end):
-        match = re.match(r"^\s+enabled:\s*(\S+)", lines[index])
-        if match:
-            return match.group(1)
-    raise SyncError("project/.coderabbit.yaml has no enabled value")
+    try:
+        return simple_yaml(template)["reviews"]["auto_review"]["enabled"]
+    except (KeyError, TypeError):
+        raise SyncError("project/.coderabbit.yaml has no reviews.auto_review.enabled value")
 
 
 def merge_coderabbit(existing, template):
@@ -572,7 +573,9 @@ def merge_text(path, template_root, existing, template):
 
 
 def install_files(args):
-    template = template_dir()
+    template = Path(args.template) if args.template else template_dir()
+    if not template.is_dir():
+        raise SyncError(f"{template} is missing")
     target = Path(args.target)
     changed = False
     for source in sorted(path for path in template.rglob("*") if path.is_file()):
@@ -630,6 +633,7 @@ def main():
 
     install = commands.add_parser("install-files", help="install the Project Template with the smallest diff")
     install.add_argument("--target", default=".")
+    install.add_argument("--template")
     install.add_argument("--check", action="store_true")
 
     args = parser.parse_args()
