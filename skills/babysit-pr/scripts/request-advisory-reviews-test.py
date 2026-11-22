@@ -17,9 +17,9 @@ if a[0] != "api":
     sys.exit(0)
 endpoint = a[-1]
 if "/check-runs?" in endpoint:
-    result = {"check_runs": [{"status": "completed", "conclusion": "success", "details_url": "https://github.com/o/r/actions/runs/42/job/1"}]}
+    result = {"check_runs": [{"status": "completed", "conclusion": s.get("conclusion", "success"), "details_url": "https://github.com/o/r/actions/runs/42/job/1"}]}
 elif "/actions/runs?" in endpoint:
-    result = {"workflow_runs": [{"name": "AI Review", "head_sha": "abc", "status": "completed" if s.get("complete", True) else "in_progress", "conclusion": "success", "id": 42}]}
+    result = {"workflow_runs": [{"name": "AI Review", "head_sha": "abc", "status": "completed" if s.get("complete", True) else "in_progress", "conclusion": s.get("conclusion", "success"), "id": 42}]}
 elif "/reviews?" in endpoint:
     result = [s.get("reviews", [])]
 elif "/comments?" in endpoint:
@@ -73,6 +73,16 @@ class ReviewRequests(unittest.TestCase):
         result, writes = self.invoke({"complete": False})
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(writes, [])
+
+    def test_skipped_review_allows_only_approved_outside_contributor(self):
+        state = {"head_repo": "other/r", "conclusion": "skipped"}
+        result, writes = self.invoke(state)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(writes, [])
+        state["reviews"] = [{"user": {"login": "ranokay"}, "state": "APPROVED"}]
+        result, writes = self.invoke(state)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(writes), 3)
         result, writes = self.invoke({"head_repo": "other/r"})
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(writes, [])

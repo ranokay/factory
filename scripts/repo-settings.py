@@ -111,6 +111,37 @@ def main():
         desired_topics.add("factory-" + args.fork_kind + "-fork" if args.fork_kind else next(iter(current_kinds)))
     changes = []
     needs_pr = []
+
+    def change(description, method, endpoint, body=None):
+        changes.append((description, method, endpoint, body))
+
+    upstream = "factory-upstream-fork" in desired_topics
+    if desired_topics != topics:
+        change(f"topics: {sorted(topics)} -> {sorted(desired_topics)}", "PUT", base + "/topics", {"names": sorted(desired_topics)})
+    approval_path = base + "/actions/permissions/fork-pr-contributor-approval"
+    approval = gh(approval_path)
+    if approval["approval_policy"] != CONFIG["fork_approval"]:
+        change(f"fork workflow approval: {approval['approval_policy']} -> {CONFIG['fork_approval']}", "PUT", approval_path, {"approval_policy": CONFIG["fork_approval"]})
+    if repo["private"]:
+        private_path = base + "/actions/permissions/fork-pr-workflows-private-repos"
+        private_settings = gh(private_path)
+        private_desired = dict(CONFIG["private_fork_settings"])
+        if upstream:
+            private_desired["run_workflows_from_fork_pull_requests"] = private_settings["run_workflows_from_fork_pull_requests"]
+        if any(private_settings.get(k) != v for k, v in private_desired.items()):
+            change(f"private fork workflows: {json.dumps(private_settings, sort_keys=True)} -> {json.dumps(private_desired, sort_keys=True)}", "PUT", private_path, private_desired)
+    if upstream:
+        print("drift:")
+        for description, _, _, _ in changes:
+            print("  " + description)
+        if not changes:
+            print("  no changes")
+        print("Upstream Fork: skipped ruleset, merge settings, labels, vendor files, Codacy and CI review key")
+        if args.apply:
+            for _, method, endpoint, body in changes:
+                gh(endpoint, method, body)
+        return
+
     for path, expected in CONFIG["vendor_files"].items():
         content = repo_file(base, path, repo["default_branch"])
         if content is None:
@@ -123,15 +154,10 @@ def main():
         if not matches(parsed, expected):
             needs_pr.append(f"{path}: {json.dumps(parsed, sort_keys=True)} -> {json.dumps(expected, sort_keys=True)}")
 
-    def change(description, method, endpoint, body=None):
-        changes.append((description, method, endpoint, body))
-
     merge = CONFIG["merge_settings"]
     if any(repo.get(k) != v for k, v in merge.items()):
         before = {key: repo.get(key) for key in merge}
         change(f"merge settings: {json.dumps(before, sort_keys=True)} -> {json.dumps(merge, sort_keys=True)}", "PATCH", base, merge)
-    if desired_topics != topics:
-        change(f"topics: {sorted(topics)} -> {sorted(desired_topics)}", "PUT", base + "/topics", {"names": sorted(desired_topics)})
     labels = {label["name"]: label for label in gh(base + "/labels?per_page=100", paginate=True)}
     for label, (colour, description) in CONFIG["labels"].items():
         existing = labels.get(label)
@@ -150,16 +176,6 @@ def main():
     if not live or not matches(live, desired):
         before = {key: live.get(key) for key in desired} if live else None
         change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)
-    approval_path = base + "/actions/permissions/fork-pr-contributor-approval"
-    approval = gh(approval_path)
-    if approval["approval_policy"] != CONFIG["fork_approval"]:
-        change(f"fork workflow approval: {approval['approval_policy']} -> {CONFIG['fork_approval']}", "PUT", approval_path, {"approval_policy": CONFIG["fork_approval"]})
-    if repo["private"]:
-        private_path = base + "/actions/permissions/fork-pr-workflows-private-repos"
-        private_settings = gh(private_path)
-        private_desired = CONFIG["private_fork_settings"]
-        if any(private_settings.get(k) != v for k, v in private_desired.items()):
-            change(f"private fork workflows: {json.dumps(private_settings, sort_keys=True)} -> {json.dumps(private_desired, sort_keys=True)}", "PUT", private_path, private_desired)
     secrets = gh(base + "/actions/secrets?per_page=100")["secrets"]
     secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)
     if secret_needed:

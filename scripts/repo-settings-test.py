@@ -146,6 +146,25 @@ class RepoSettings(unittest.TestCase):
         self.assertIn("needs PR: .coderabbit.yaml", result.stdout)
         self.assertIn("codacy", json.loads(self.path.read_text())["writes"])
 
+    def test_upstream_fork_changes_only_topic_and_fork_safety(self):
+        state = json.loads(self.path.read_text())
+        state["repo"].update({"fork": True, "private": True})
+        state["files"] = {}
+        self.write(state)
+        result = self.run_command("--fork-kind", "upstream", "--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Upstream Fork: skipped", result.stdout)
+        state = json.loads(self.path.read_text())
+        self.assertEqual(state["topics"]["names"], ["factory-upstream-fork"])
+        self.assertEqual(set(state["writes"]), {"PUT /topics", "PUT /actions/permissions/fork-pr-contributor-approval", "PUT /actions/permissions/fork-pr-workflows-private-repos"})
+        self.assertFalse(state["private_settings"]["run_workflows_from_fork_pull_requests"])
+        state["writes"] = []
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no changes", result.stdout)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

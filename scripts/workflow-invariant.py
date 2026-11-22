@@ -19,6 +19,8 @@ def main(directory):
         workflow = json.loads(result.stdout)
         triggers = workflow.get("on", {})
         target = "pull_request_target" in triggers if isinstance(triggers, (dict, list, str)) else False
+        if target:
+            failures.append(f"{path}: pull_request_target is not permitted")
         if SECRET.search(json.dumps(workflow.get("env", {}))):
             failures.append(f"{path}: workflow-level environment references secrets")
         for name, job in workflow.get("jobs", {}).items():
@@ -26,14 +28,6 @@ def main(directory):
             secret = SECRET.search(json.dumps(job)) or job.get("secrets") == "inherit"
             if secret and guard != GUARD:
                 failures.append(f"{path}: {name} has secrets without a same-repository guard")
-            if target:
-                if "uses" in job:
-                    failures.append(f"{path}: {name} calls a reusable workflow under pull_request_target")
-                for step in job.get("steps", []):
-                    if str(step.get("uses", "")).lower().startswith("actions/checkout@"):
-                        ref = str(step.get("with", {}).get("ref", ""))
-                        if "${{" in ref or re.search(r"refs/pull/", ref, re.IGNORECASE):
-                            failures.append(f"{path}: {name} has an unsafe checkout ref under pull_request_target")
     if failures:
         raise ValueError("\n".join(failures))
 
