@@ -51,7 +51,7 @@ def op_read(reference):
 
 
 def repo_file(base, path, branch):
-    endpoint = base + "/contents/" + path + "?" + urllib.parse.urlencode({"ref": branch})
+    endpoint = base + "/contents/" + urllib.parse.quote(path) + "?" + urllib.parse.urlencode({"ref": branch})
     result = subprocess.run(["gh", "api", endpoint], capture_output=True, check=False)
     if result.returncode:
         if b"HTTP 404" in result.stderr:
@@ -280,7 +280,8 @@ def main():
     if not live or not matches(live, desired):
         before = {key: live.get(key) for key in desired} if live else None
         change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)
-    secrets = gh(base + "/actions/secrets?per_page=100")["secrets"]
+    secret_pages = json.loads(command(["gh", "api", "--paginate", "--slurp", base + "/actions/secrets?per_page=100"]))
+    secrets = [secret for page in secret_pages for secret in page["secrets"]]
     secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)
     if secret_needed:
         changes.append(("Actions secret OPENCODE_ZEN_API_KEY: set from 1Password", "SECRET", "", None))

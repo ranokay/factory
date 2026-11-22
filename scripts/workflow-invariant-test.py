@@ -144,6 +144,14 @@ class WorkflowInvariant(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("has secrets without a same-repository guard", result.stderr)
 
+    def test_folded_guard_condition_matches(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "guarded.yml"
+            path.write_text("name: guarded\non: pull_request\njobs:\n  review:\n    if: >-\n      github.event.pull_request.head.repo.full_name == github.repository &&\n      (github.event.pull_request.user.login == 'ranokay' || github.event.pull_request.user.login == 'renovate[bot]')\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n        env:\n          TOKEN: ${{ secrets.TOKEN }}\n")
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_workflow_without_a_trigger_fails(self):
         script = ROOT / "scripts/workflow-invariant.py"
         with tempfile.TemporaryDirectory() as temp:

@@ -56,7 +56,10 @@ else:
         if key.startswith("/rulesets/"):
             result = s["rulesets"][0]
         elif key == "/actions/secrets":
-            result = {"secrets": s["secrets"]}
+            if "--slurp" in a:
+                print(json.dumps([{"secrets": s["secrets"][:1]}, {"secrets": s["secrets"][1:]}]))
+                sys.exit(0)
+            result = {"secrets": s["secrets"][:1]}
         else:
             result = s[mapping[key]]
         print(json.dumps([result] if "--slurp" in a else result))
@@ -190,6 +193,16 @@ class RepoSettings(unittest.TestCase):
         checks = rules["required_status_checks"]["required_status_checks"]
         self.assertEqual([check["context"] for check in checks], ["Gates / Gates", "review / review", "Codacy Static Code Analysis"])
         self.assertEqual([check["integration_id"] for check in checks[:2]], [15368, 15368])
+
+    def test_secret_lookup_reads_every_page(self):
+        state = json.loads(self.path.read_text())
+        state["secrets"] = [{"name": "OTHER"}, {"name": "OPENCODE_ZEN_API_KEY"}]
+        state["enrolled"] = True
+        state["check_runs"] = {"main": [{"name": "Codacy Static Code Analysis"}]}
+        self.write(state)
+        result = self.run_command()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Actions secret OPENCODE_ZEN_API_KEY", result.stdout)
 
     def test_secret_is_set_only_when_missing_or_rotated(self):
         state = json.loads(self.path.read_text())

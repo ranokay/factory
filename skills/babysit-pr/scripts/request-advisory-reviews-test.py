@@ -62,9 +62,12 @@ class ReviewRequests(unittest.TestCase):
         result, writes = self.invoke({"author": "other"})
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(writes, [])
-        result, writes = self.invoke({"author": "other", "reviews": [{"user": {"login": "ranokay"}, "state": "APPROVED"}]})
+        result, writes = self.invoke({"author": "other", "reviews": [{"user": {"login": "ranokay"}, "state": "APPROVED", "commit_id": "abc"}]})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 3)
+        result, writes = self.invoke({"author": "other", "reviews": [{"user": {"login": "ranokay"}, "state": "APPROVED", "commit_id": "old"}]})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(writes, [])
 
     def test_partial_requests_and_timeline_are_respected(self):
         state = {"timeline": [{"event": "review_requested", "requested_reviewer": {"login": "copilot-pull-request-reviewer[bot]"}}], "comments": [{"body": "<!-- factory:advisory-review:coderabbit -->"}]}
@@ -83,7 +86,7 @@ class ReviewRequests(unittest.TestCase):
         result, writes = self.invoke(state)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(writes, [])
-        state["reviews"] = [{"user": {"login": "ranokay"}, "state": "APPROVED"}]
+        state["reviews"] = [{"user": {"login": "ranokay"}, "state": "APPROVED", "commit_id": "abc"}]
         result, writes = self.invoke(state)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(writes), 3)

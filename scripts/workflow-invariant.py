@@ -18,7 +18,7 @@ def triggers(workflow):
 
 
 def condition(value):
-    return str(value or "").strip().removeprefix("${{").removesuffix("}}").strip()
+    return " ".join(str(value or "").split()).removeprefix("${{").removesuffix("}}").strip()
 
 
 def job_name(job_id, job):

@@ -24,7 +24,7 @@ def main():
     checks = [check for page in pages(f"{prefix}/commits/{head}/check-runs?per_page=100") for check in page["check_runs"]]
     runs = [run for page in pages(f"{prefix}/actions/runs?event=pull_request&head_sha={head}&per_page=100") for run in page["workflow_runs"]]
     candidates = [r for r in runs if r["head_sha"] == head and r.get("display_title") == f"AI Review PR {number}"]
-    latest = candidates[0] if candidates else None
+    latest = max(candidates, key=lambda r: (r.get("run_attempt", 1), r["id"])) if candidates else None
     matching = [c for c in checks if latest and f"/actions/runs/{latest['id']}/" in (c.get("details_url") or "")]
     if not latest or latest["status"] != "completed" or not matching or any(c["status"] != "completed" for c in matching):
         raise ValueError("AI Review has not completed on the PR head")
@@ -34,7 +34,7 @@ def main():
     config = json.loads((Path(__file__).resolve().parents[3] / "repo-settings.json").read_text())
     outside = pr["head"]["repo"] is None or pr["head"]["repo"]["full_name"].lower() != repo.lower() or pr["user"]["login"].lower() not in {name.lower() for name in config["factory_authors"]}
     owner_reviews = [r for r in reviews if r["user"]["login"].lower() == "ranokay" and r["state"] in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED")]
-    approved = bool(owner_reviews) and owner_reviews[-1]["state"] == "APPROVED"
+    approved = bool(owner_reviews) and owner_reviews[-1]["state"] == "APPROVED" and owner_reviews[-1].get("commit_id") == head
     if outside and not approved:
         raise ValueError("Outside Contributor PR requires an APPROVED review by ranokay")
     comments = [item for page in pages(f"{prefix}/issues/{number}/comments?per_page=100") for item in page]
