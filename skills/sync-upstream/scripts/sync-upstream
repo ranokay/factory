@@ -33,6 +33,14 @@ class SyncError(Exception):
         self.code = code
 
 
+def read_utf8(path):
+    try:
+        with path.open(encoding="utf-8", newline="") as source:
+            return source.read()
+    except UnicodeDecodeError as error:
+        raise SyncError(f"{path}: text file is not valid UTF-8") from error
+
+
 def run(args, cwd=None, check=True):
     result = subprocess.run(args, cwd=cwd or Path.cwd(), capture_output=True, text=True, errors="replace")
     if check and result.returncode:
@@ -194,7 +202,7 @@ def body(args):
 
 def read_body(args):
     if args.body_file:
-        return Path(args.body_file).read_text(encoding="utf-8")
+        return read_utf8(Path(args.body_file))
     if args.pr is not None:
         repo = reponame(args.repo)
         return gh("pr", "view", str(args.pr), "--repo", repo, "--json", "body", "--jq", ".body")
@@ -509,6 +517,8 @@ def ensure_settings(text):
 def unsupported_mise_form(lines, name):
     _, end = section_bounds(lines, None)
     for index in range(end, len(lines)):
+        if re.match(rf'^\s*\[\[\s*{re.escape(name)}\s*(?:\.|\]\])', lines[index]) and toml_boundary(lines, index):
+            return "array of tables"
         if re.match(rf'^\s*\[\s*{re.escape(name)}\s*\.', lines[index]) and toml_boundary(lines, index):
             return "dotted key"
     for index, line in enumerate(lines[:end]):
@@ -548,7 +558,8 @@ def merge_mise(existing, template):
         start, end = section_bounds(lines, section)
         if start is None or not any(re.match(rf"^\s*{re.escape(key)}\s*=", lines[index]) and toml_boundary(lines, index) for index in range(start, end)):
             name = f"{section}.{key}" if section else key
-            raise SyncError(f"install-files: mise.toml defines {name} as quoted key; add the Factory entries by hand")
+            form = unsupported_mise_form(lines, name)
+            raise SyncError(f"install-files: mise.toml defines {name} as {form}; add the Factory entries by hand")
     expected = copy.deepcopy(data)
     for url in template_data.get("include", []):
         if url not in expected.get("include", []):
@@ -750,12 +761,11 @@ def install_files(args):
     for source in sorted(path for path in template.rglob("*") if path.is_file()):
         destination = target / source.relative_to(template)
         name = destination.relative_to(target).as_posix()
-        content = source.read_text(encoding="utf-8")
+        content = read_utf8(source)
         if not destination.exists():
             changes.append((source, destination, name, None))
             continue
-        with destination.open(encoding="utf-8", newline="") as existing_file:
-            existing = existing_file.read()
+        existing = read_utf8(destination)
         merged, differs = merge_text(source, template, existing, content)
         if not differs:
             continue
@@ -855,9 +865,6 @@ if __name__ == "__main__":
         if str(error):
             print(f"sync-upstream: {error}", file=sys.stderr)
         sys.exit(error.code)
-    except UnicodeDecodeError as error:
-        print(f"sync-upstream: text file is not valid UTF-8: {error}", file=sys.stderr)
-        sys.exit(1)
     except (OSError, ValueError, KeyError, json.JSONDecodeError, tomllib.TOMLDecodeError) as error:
         print(f"sync-upstream: {error}", file=sys.stderr)
         sys.exit(1)

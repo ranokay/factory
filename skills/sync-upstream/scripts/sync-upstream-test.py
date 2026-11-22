@@ -586,7 +586,7 @@ class SyncUpstream(unittest.TestCase):
         (template / "a.txt").write_text("new\n")
         (template / "mise.toml").write_text('include = ["factory"]\n[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
         target = self.target({"mise.toml": ""})
-        for original, name, form in (('task_config = { includes = ["old"] }\n', "task_config", "inline table"), ('task_config.includes = ["old"]\n', "task_config", "dotted key"), ('[[task_config]]\nincludes = ["old"]\n', "task_config", "array of tables"), ('[task_config.sub]\nincludes = ["old"]\n', "task_config", "dotted key"), ('"include" = ["old"]\n', "include", "quoted key"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes", "quoted key"), ('settings = { experimental = false }\n', "settings", "inline table"), ('[other]\nsettings = {}\n["settings"]\nexperimental = false\n', "settings", "quoted key"), ('note = """\n[settings]\nexperimental = true\n"""\n["settings"]\nexperimental = true\n', "settings", "quoted key")):
+        for original, name, form in (('task_config = { includes = ["old"] }\n', "task_config", "inline table"), ('task_config.includes = ["old"]\n', "task_config", "dotted key"), ('[[task_config]]\nincludes = ["old"]\n', "task_config", "array of tables"), ('[[task_config.sub]]\nx = 1\n', "task_config", "array of tables"), ('[task_config]\n[[task_config.includes]]\nx = 1\n', "task_config.includes", "array of tables"), ('[task_config.sub]\nincludes = ["old"]\n', "task_config", "dotted key"), ('"include" = ["old"]\n', "include", "quoted key"), ('[task_config]\n"includes" = ["old"]\n', "task_config.includes", "quoted key"), ('settings = { experimental = false }\n', "settings", "inline table"), ('[other]\nsettings = {}\n["settings"]\nexperimental = false\n', "settings", "quoted key"), ('note = """\n[settings]\nexperimental = true\n"""\n["settings"]\nexperimental = true\n', "settings", "quoted key")):
             with self.subTest(original=original):
                 (target / "mise.toml").write_text(original)
                 result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
@@ -605,9 +605,29 @@ class SyncUpstream(unittest.TestCase):
         result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("text file is not valid UTF-8", result.stderr)
+        self.assertIn(str(target / "mise.toml"), result.stderr)
         self.assertNotIn("Traceback", result.stderr)
         self.assertEqual((target / "mise.toml").read_bytes(), b"\xff")
         self.assertFalse((target / "a.txt").exists())
+
+    def test_invalid_utf8_names_template_and_body_files(self):
+        template = self.root / "template"
+        template.mkdir()
+        source = template / "mise.toml"
+        source.write_bytes(b"\xff")
+        target = self.target()
+        result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
+        self.assertIn(str(source), result.stderr)
+        self.assertIn("text file is not valid UTF-8", result.stderr)
+        self.assertEqual(list(target.iterdir()), [])
+        repo = self.init("body-repo")
+        head = self.commit(repo, "file", "content\n", "base")
+        body = self.root / "body.md"
+        body.write_bytes(b"\xff")
+        result = self.cli("verdicts", "--from", head, "--to", head, "--body-file", str(body), cwd=repo, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(str(body), result.stderr)
+        self.assertIn("text file is not valid UTF-8", result.stderr)
 
     def test_install_files_ignores_nested_arrays_when_finding_tables(self):
         template = self.root / "template"
