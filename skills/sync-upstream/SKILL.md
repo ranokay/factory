@@ -66,10 +66,10 @@ upstream already has one, it adds only what the Factory needs:
 ```
 
 This reads the topic, fetches `origin` and `upstream`, branches
-`sync/upstream-<YYYY-MM-DD>` from `origin/<default>`, and merges
-`upstream/<default>` with `git merge --no-ff`. It never rebases, squashes, creates a
-mirror or pushes a `develop` branch. A dirty tree, a missing topic, or a conflict
-stops it.
+`sync/upstream-<YYYY-MM-DD>` from the fork's default branch, and merges upstream's
+default branch with `git merge --no-ff`. The two defaults may differ; each is read
+from GitHub. It never rebases, squashes, creates a mirror or pushes a `develop`
+branch. A dirty tree, a missing topic, or a conflict stops it.
 
 Resolve a conflict from the verdicts: `keep-ours` keeps the fork's version,
 `entangled` is a hand resolution that mixes both. Never rebase or squash the merge;
@@ -81,8 +81,9 @@ the upstream ancestry must stay.
 <this skill's directory>/scripts/sync-upstream body --from origin/<default> --to upstream/<default> > body.md
 ```
 
-The body lists one row per **first-parent** upstream commit. Give each row exactly
-one verdict:
+`--from` is the fork's default branch and `--to` is upstream's; `verdicts` reads
+both defaults from GitHub when they are omitted. The body lists one row per
+**first-parent** upstream commit. Give each row exactly one verdict:
 
 - `adopt` takes upstream's version;
 - `keep-ours` keeps the fork's version;

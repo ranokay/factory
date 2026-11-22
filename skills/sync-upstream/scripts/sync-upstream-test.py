@@ -39,8 +39,8 @@ class SyncUpstream(unittest.TestCase):
         self.env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ["PATH"], FAKE_REPO=str(self.repo_file))
         self.write_repo("o/r", ["factory-personal-fork"], "main")
 
-    def write_repo(self, name, topics, default, fork=True, parent="up/stream"):
-        self.repo_file.write_text(json.dumps({"name": name, "info": {"fork": fork, "default_branch": default, "parent": {"full_name": parent}, "topics": topics}}))
+    def write_repo(self, name, topics, default, fork=True, parent="up/stream", parent_default="main"):
+        self.repo_file.write_text(json.dumps({"name": name, "info": {"fork": fork, "default_branch": default, "parent": {"full_name": parent, "default_branch": parent_default}, "topics": topics}}))
 
     def cli(self, *args, cwd=None, check=True):
         result = subprocess.run([sys.executable, str(SCRIPT), *args], cwd=cwd or self.root, env=self.env, capture_output=True, text=True)
@@ -146,6 +146,29 @@ class SyncUpstream(unittest.TestCase):
         dirty = self.cli("sync", "--repo", "o/r", "--date", "2026-11-22", cwd=work, check=False)
         self.assertNotEqual(dirty.returncode, 0)
         self.assertIn("uncommitted", dirty.stderr)
+
+    def test_upstream_default_branch_differs_from_the_fork(self):
+        origin_seed = self.seed("origin-seed", {"file.txt": "base\n"})
+        base = self.git(origin_seed, "rev-parse", "HEAD").stdout.strip()
+        self.git(origin_seed, "branch", "trunk")
+        origin = self.bare("origin", origin_seed)
+        self.git(origin_seed, "push", "-q", str(origin), "trunk:refs/heads/trunk")
+        upstream_seed = self.clone(origin_seed, self.root / "upstream-seed")
+        self.commit(upstream_seed, "upstream.txt", "upstream\n", "upstream change")
+        upstream_sha = self.git(upstream_seed, "rev-parse", "HEAD").stdout.strip()
+        upstream = self.bare("upstream", upstream_seed)
+        work = self.clone(origin, self.root / "work")
+        self.git(work, "remote", "add", "upstream", str(upstream))
+        self.write_repo("o/r", ["factory-personal-fork"], "trunk", parent_default="main")
+        result = self.cli("sync", "--repo", "o/r", "--date", "2026-11-22", cwd=work)
+        self.assertIn("merges upstream/main into trunk", result.stdout)
+        parents = self.git(work, "rev-list", "--parents", "-n", "1", "HEAD").stdout.split()
+        self.assertEqual(parents[1], base)
+        self.assertEqual(parents[2], upstream_sha)
+        body = self.root / "body.md"
+        body.write_text(f"## Verdicts\n\n- `{upstream_sha[:8]}` adopt — upstream change\n")
+        self.cli("verdicts", "--repo", "o/r", "--body-file", str(body), cwd=work)
+        self.assertEqual(self.git(work, "rev-parse", "origin/trunk").stdout.strip(), base)
 
     def test_upstream_sync_fast_forwards_and_refuses_a_divergence(self):
         origin_seed, _, origin, upstream, _, ahead = self.fork_pair()

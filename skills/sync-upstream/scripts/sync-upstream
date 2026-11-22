@@ -60,6 +60,12 @@ def repo_info(repo):
     return json.loads(gh("api", f"repos/{repo}"))
 
 
+def default_branches(info):
+    fork_default = info["default_branch"]
+    upstream_default = (info.get("parent") or {}).get("default_branch") or fork_default
+    return fork_default, upstream_default
+
+
 def fork_kind(info, repo):
     topics = set(info.get("topics") or [])
     found = [topic for topic in FORK_TOPICS if topic in topics]
@@ -100,10 +106,10 @@ def ensure_upstream(parent):
     git("remote", "add", "upstream", f"https://github.com/{parent}.git")
 
 
-def sync_personal(default, date):
+def sync_personal(fork_default, upstream_default, date):
     if git("status", "--porcelain").stdout.strip():
         raise SyncError("the worktree has uncommitted changes; commit or stash them before syncing")
-    base = f"origin/{default}"
+    base = f"origin/{fork_default}"
     if git("rev-parse", "--verify", base, check=False).returncode:
         raise SyncError(f"{base} does not exist; fetch origin first")
     branch = f"sync/upstream-{date}"
@@ -113,11 +119,11 @@ def sync_personal(default, date):
         git("switch", "-c", branch, "--track", f"origin/{branch}")
     else:
         git("switch", "-c", branch, base)
-    upstream = f"upstream/{default}"
+    upstream = f"upstream/{upstream_default}"
     if git("merge-base", "--is-ancestor", upstream, "HEAD", check=False).returncode == 0:
         print(f"sync-upstream: {branch} already contains {upstream}")
         return
-    message = f"Merge {upstream} into {default}"
+    message = f"Merge {upstream} into {fork_default}"
     result = git("merge", "--no-ff", "--no-edit", "-m", message, upstream, check=False)
     if result.returncode:
         conflicts = git("diff", "--name-only", "--diff-filter=U", check=False).stdout.strip()
@@ -126,13 +132,13 @@ def sync_personal(default, date):
             print(f"  {path}", file=sys.stderr)
         print("Resolve them from the verdicts; never rebase or squash the merge.", file=sys.stderr)
         raise SyncError("merge conflicted", 1)
-    print(f"sync-upstream: {branch} merges {upstream} into {default}")
-    print(f"next: sync-upstream body --from origin/{default} --to {upstream} > body.md")
+    print(f"sync-upstream: {branch} merges {upstream} into {fork_default}")
+    print(f"next: sync-upstream body --from origin/{fork_default} --to {upstream} > body.md")
 
 
-def sync_upstream(default):
-    origin_ref = f"origin/{default}"
-    upstream_ref = f"upstream/{default}"
+def sync_upstream(fork_default, upstream_default):
+    origin_ref = f"origin/{fork_default}"
+    upstream_ref = f"upstream/{upstream_default}"
     for ref in (origin_ref, upstream_ref):
         if git("rev-parse", "--verify", ref, check=False).returncode:
             raise SyncError(f"{ref} does not exist; fetch origin and upstream first")
@@ -144,8 +150,8 @@ def sync_upstream(default):
         for line in git("log", "--left-right", "--oneline", f"{origin_ref}...{upstream_ref}").stdout.splitlines():
             print(f"  {line}", file=sys.stderr)
         raise SyncError("non-fast-forward", 1)
-    git("push", "origin", f"{upstream_ref}:refs/heads/{default}")
-    print(f"sync-upstream: {default} fast-forwarded to {upstream_ref}")
+    git("push", "origin", f"{upstream_ref}:refs/heads/{fork_default}")
+    print(f"sync-upstream: {fork_default} fast-forwarded to {upstream_ref}")
 
 
 def first_parent_commits(first, last):
@@ -200,10 +206,9 @@ def verdict_rows(text):
 
 def verdicts(args):
     if not args.first or not args.last:
-        info = repo_info(reponame(args.repo))
-        default = info["default_branch"]
-        args.first = args.first or f"origin/{default}"
-        args.last = args.last or f"upstream/{default}"
+        fork_default, upstream_default = default_branches(repo_info(reponame(args.repo)))
+        args.first = args.first or f"origin/{fork_default}"
+        args.last = args.last or f"upstream/{upstream_default}"
     first_parent = first_parent_commits(args.first, args.last)
     everything = all_commits(args.first, args.last)
     rows = verdict_rows(read_body(args))
@@ -528,8 +533,7 @@ def merge_text(path, template_root, existing, template):
     if name == ".coderabbit.yaml":
         merged = merge_coderabbit(existing, template)
         return merged, merged != existing
-    print(f"{name}: upstream has its own; not replaced")
-    return existing, False
+    raise SyncError(f"{name}: upstream has its own and the Factory has no merge rule")
 
 
 def install_files(args):
@@ -610,10 +614,11 @@ def main():
         ensure_upstream(parent)
         git("fetch", "origin")
         git("fetch", "upstream")
+        fork_default, upstream_default = default_branches(info)
         if kind == "personal":
-            sync_personal(info["default_branch"], args.date)
+            sync_personal(fork_default, upstream_default, args.date)
         else:
-            sync_upstream(info["default_branch"])
+            sync_upstream(fork_default, upstream_default)
         return 0
     if args.command == "body":
         body(args)
