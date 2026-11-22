@@ -197,6 +197,17 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertEqual((target / "mise.toml").read_bytes(), b"\xff")
         self.assertFalse((target / "a.txt").exists())
 
+    def test_install_files_rejects_quoted_experimental_key(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('[settings]\nexperimental = true\n')
+        original = '[settings]\n"experimental" = false\n'
+        target = self.target({"mise.toml": original})
+        result = self.cli("install-files", "--target", str(target), "--template", str(template), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("defines settings.experimental as quoted key", result.stderr)
+        self.assertEqual((target / "mise.toml").read_text(), original)
+
     def test_invalid_utf8_names_template_and_body_files(self):
         template = self.root / "template"
         template.mkdir()
