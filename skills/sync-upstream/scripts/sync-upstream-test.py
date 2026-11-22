@@ -168,6 +168,31 @@ class SyncUpstream(SyncFixture):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ambiguous commit prefix", result.stderr)
 
+    def test_verdicts_fail_closed_on_mismatched_and_unclosed_fences(self):
+        repo, base, first, _, merge = self.verdict_repo()
+        row = f"- `{first[:8]}` adopt — example\n"
+        merge_row = f"- `{merge[:8]}` adopt — merge\n"
+        body = "## Verdicts\n````\n```\n~~~\n" + row + "````\n" + merge_row
+        result = self.verdicts(repo, base, merge, body)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(first, result.stderr)
+        unclosed = "## Verdicts\n```\n~~~\n" + row + merge_row
+        result = self.verdicts(repo, base, merge, unclosed)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unclosed fenced block", result.stderr)
+        valid = "## Verdicts\n```\nexample\n```\n" + row + merge_row
+        self.assertEqual(self.verdicts(repo, base, merge, valid).returncode, 0)
+        generated = self.cli("body", "--from", base, "--to", merge, cwd=repo)
+        self.assertIn("<verdict>", generated.stdout)
+        self.assertIn("<verdict>", self.verdicts(repo, base, merge, generated.stdout).stderr)
+
+    def test_merge_command_refuses_an_unclosed_verdict_fence(self):
+        repo, _ = self.command_fixture(body="## Verdicts\n```\n~~~\n")
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unclosed fenced block", result.stderr)
+        self.assertNotIn("gh pr merge", result.stdout)
+
     def test_verdicts_reads_a_pr_body(self):
         repo, base, first, side_one, merge = self.verdict_repo()
         state = json.loads(self.repo_file.read_text())

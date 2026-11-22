@@ -237,10 +237,24 @@ class SyncUpstreamFiles(SyncFixture):
         template = self.root / "template"
         template.mkdir()
         (template / "mise.toml").write_text('[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
-        original = '[settings]\nexperimental = false # retain\n\n\n'
+        original = '[settings]\nexperimental = true # retain\n\n\n'
         target = self.target({"mise.toml": original})
         self.cli("install-files", "--target", str(target), "--template", str(template))
-        self.assertEqual((target / "mise.toml").read_text(), original.replace("false", "true") + '\n[task_config]\nincludes = ["factory-tasks"]\n')
+        self.assertEqual((target / "mise.toml").read_text(), original + '\n[task_config]\nincludes = ["factory-tasks"]\n')
+
+    def test_install_files_refuses_explicit_false_without_writing(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "mise.toml").write_text('include = ["factory"]\n[settings]\nexperimental = true\n')
+        original = b'[settings]\r\nexperimental = false # upstream\r\n'
+        target = self.target({"mise.toml": ""})
+        path = target / "mise.toml"
+        path.write_bytes(original)
+        for args in ((), ("--check",)):
+            result = self.cli("install-files", "--target", str(target), "--template", str(template), *args, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("install-files: mise.toml sets settings.experimental = false; the Factory includes need true; change it by hand", result.stderr)
+            self.assertEqual(path.read_bytes(), original)
 
     def test_install_files_adds_key_after_header_without_final_newline(self):
         template = self.root / "template"
@@ -337,16 +351,16 @@ class SyncUpstreamFiles(SyncFixture):
         template = self.root / "template"
         template.mkdir()
         (template / "mise.toml").write_text('[task_config]\nincludes = ["factory-tasks"]\n[settings]\nexperimental = true\n')
-        original = '[ task_config ]\nincludes = []\n[ settings ]\nexperimental = false # keep\n'
+        original = '[ task_config ]\nincludes = []\n[ settings ]\nexperimental = true # keep\n'
         target = self.target({"mise.toml": original})
         self.cli("install-files", "--target", str(target), "--template", str(template))
-        expected = original.replace('includes = []', 'includes = ["factory-tasks"]').replace('false', 'true')
+        expected = original.replace('includes = []', 'includes = ["factory-tasks"]')
         self.assertEqual((target / "mise.toml").read_text(), expected)
 
     def test_install_files_extends_existing_files(self):
         target = self.target({
             "AGENTS.md": "# upstream\n\nOwn instructions.\n",
-            "mise.toml": 'include = ["other.toml"]\n\n[tools]\ngo = "1.24"\n\n[settings]\nexperimental = false\n',
+            "mise.toml": 'include = ["other.toml"]\n\n[tools]\ngo = "1.24"\n\n[settings]\nexperimental = true\n',
             "renovate.json": '{"extends":["config:base"],"rangeStrategy":"pin"}\n',
             ".greptile/config.json": '{"custom":true}\n',
             ".coderabbit.yaml": "reviews:\n  auto_review:\n    enabled: true\n  request_changes_workflow: false\n",

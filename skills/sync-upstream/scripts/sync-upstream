@@ -17,7 +17,7 @@ except ModuleNotFoundError:
 
 FACTORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(FACTORY_ROOT / "scripts"))
-from profiles_reader import profiles_entries, unfenced_lines
+from profiles_reader import profiles_entries
 
 FORK_TOPICS = {"factory-personal-fork": "personal", "factory-upstream-fork": "upstream"}
 FACTORY_MARKERS = ("ranokay/factory",)
@@ -214,17 +214,30 @@ def read_body(args):
 def verdict_rows(text):
     rows = []
     inside = False
-    for line in unfenced_lines(text):
+    fence = None
+    for line in text.splitlines():
+        marker = re.match(r'^\s*(`{3,}|~{3,})', line)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and not line[marker.end():].strip():
+                fence = None
+            continue
+        if fence is not None:
+            continue
         if VERDICT_SECTION.match(line):
             inside = True
             continue
         if inside and SECTION.match(line):
-            break
+            inside = False
         if not inside:
             continue
         match = VERDICT_LINE.match(line)
         if match:
             rows.append((match.group(1).lower(), match.group(2)))
+    if fence is not None:
+        raise SyncError("verdicts: PR body has an unclosed fenced block")
     return rows
 
 
@@ -504,10 +517,6 @@ def ensure_settings(text):
     if start is None:
         separator = "" if not text or text.endswith("\n") else newline
         return text + separator + f"{newline}[settings]{newline}experimental = true{newline}"
-    for index in range(start, end):
-        if re.match(r"^\s*experimental\s*=", lines[index]) and toml_boundary(lines, index):
-            lines[index] = re.sub(r"(=\s*)false\b", r"\g<1>true", lines[index], count=1)
-            return "".join(lines)
     if start and not lines[start - 1].endswith("\n"):
         lines[start - 1] += newline
     lines.insert(start, f"experimental = true{newline}")
@@ -567,6 +576,8 @@ def merge_mise(existing, template):
             name = f"{section}.{key}" if section else key
             form = unsupported_mise_form(lines, name)
             raise SyncError(f"install-files: mise.toml defines {name} as {form}; add the Factory entries by hand")
+    if data.get("settings", {}).get("experimental") is False:
+        raise SyncError("install-files: mise.toml sets settings.experimental = false; the Factory includes need true; change it by hand")
     expected = copy.deepcopy(data)
     for url in template_data.get("include", []):
         if url not in expected.get("include", []):
