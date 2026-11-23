@@ -34,7 +34,7 @@ jobs:
             const query = `query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
               repository(owner: $owner, name: $repo) {
                 pullRequest(number: $number) {
-                  title body
+                  title
                   closingIssuesReferences(first: 100, after: $cursor) {
                     nodes { number title body url }
                     pageInfo { hasNextPage endCursor }
@@ -47,9 +47,9 @@ jobs:
             do {
               const data = await github.graphql(query, {owner: context.repo.owner, repo: context.repo.repo, number: context.issue.number, cursor});
               const pr = data.repository.pullRequest;
-              // The PR body changes when evidence is attached, so keep it out
-              // of this fingerprinted input; the title and linked issues hold
-              // the stable spec. See OCR_FP_BACKGROUND in
+              // The PR body changes when evidence is attached, and OCR
+              // fingerprints this input; leave the body out so the checkpoint
+              // survives that edit. See OCR_FP_BACKGROUND in
               // https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
               if (!background) background = `PR: ${pr.title}`;
               for (const issue of pr.closingIssuesReferences.nodes) {

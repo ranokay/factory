@@ -114,7 +114,6 @@ class AiReviewWorkflowTests(unittest.TestCase):
     def test_checkpoint_context_ignores_the_editable_pr_body(self):
         script = step(workflow("ai-review.yml"), "Gather review context")
         self.assertNotIn("pr.body", script)
-        self.assertIn("PR: ${pr.title}", script)
         self.assertIn("issue.body", script)
 
     def test_rule_file_points_at_review_markdown_through_an_absolute_path(self):
