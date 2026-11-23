@@ -50,8 +50,8 @@ def validate_checks():
     if not isinstance(checks, list) or not checks or not all(valid_check(check, True) for check in checks):
         raise RuntimeError("repo-settings.json: required_checks must contain valid checks")
     contexts = [check["context"] for check in checks]
-    if len(set(contexts)) != len(contexts) or not {"Gates / Gates", "review / review"}.issubset(contexts):
-        raise RuntimeError("repo-settings.json: required_checks must uniquely include Gates / Gates and review / review")
+    if len(set(contexts)) != len(contexts) or not {"Gates", "OCR PR Review"}.issubset(contexts):
+        raise RuntimeError("repo-settings.json: required_checks must uniquely include Gates and OCR PR Review")
     if not valid_check(CONFIG.get("public_check"), False):
         raise RuntimeError("repo-settings.json: public_check is invalid")
     if CONFIG["public_check"]["context"] in contexts:

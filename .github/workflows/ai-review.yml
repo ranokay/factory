@@ -1,107 +1,30 @@
 name: AI Review
+run-name: AI Review PR ${{ github.event.pull_request.number }}
 on:
-  workflow_call:
-    secrets:
-      OPENCODE_ZEN_API_KEY:
-        required: false
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 permissions: {}
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 jobs:
   review:
+    name: OCR PR Review
     if: github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.user.login == 'ranokay' || github.event.pull_request.user.login == 'renovate[bot]') && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      # resolve_outdated resolves outdated bot threads, which GitHub gates on
-      # repository write access rather than the pull-requests scope. See
+      # The callee resolves outdated bot threads, so the caller grants it
+      # repository write access. See
       # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
       contents: write
       issues: read
       pull-requests: write
     steps:
-      - name: Require Console key
-        env:
-          ZEN_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
-        run: |
-          if [ -z "$ZEN_KEY" ]; then
-            echo '::error::Missing OPENCODE_ZEN_API_KEY'
-            exit 1
-          fi
-      - name: Gather review context
-        id: context
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          script: |
-            const query = `query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
-              repository(owner: $owner, name: $repo) {
-                pullRequest(number: $number) {
-                  title
-                  closingIssuesReferences(first: 100, after: $cursor) {
-                    nodes { number title body url }
-                    pageInfo { hasNextPage endCursor }
-                  }
-                }
-              }
-            }`;
-            let cursor = null;
-            let background = '';
-            do {
-              const data = await github.graphql(query, {owner: context.repo.owner, repo: context.repo.repo, number: context.issue.number, cursor});
-              const pr = data.repository.pullRequest;
-              // The PR body changes when evidence is attached, and OCR
-              // fingerprints this input; leave the body out so the checkpoint
-              // survives that edit. See OCR_FP_BACKGROUND in
-              // https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
-              if (!background) background = `PR: ${pr.title}`;
-              for (const issue of pr.closingIssuesReferences.nodes) {
-                background += `\n\nIssue ${issue.url}: ${issue.title}\n${issue.body || ''}`;
-              }
-              cursor = pr.closingIssuesReferences.pageInfo.hasNextPage ? pr.closingIssuesReferences.pageInfo.endCursor : null;
-            } while (cursor);
-            core.setOutput('background', background);
+          persist-credentials: false
       - name: Review
-        id: review
-        uses: alibaba/open-code-review@d29ca2044a42ea297a7fa93692d0f5ac8f38d84e # v1.14.0
+        uses: $/.github/actions/ocr-review
         with:
-          ocr_version: 1.14.0
-          llm_url: https://opencode.ai/inference/openai/v1
-          llm_model: deepseek-v4.1-flash
-          llm_use_anthropic: 'false'
-          llm_protocol: openai
-          llm_auth_token: ${{ secrets.OPENCODE_ZEN_API_KEY }}
-          # A per-run value here changes the checkpoint fingerprint, so the
-          # session stays stable across a PR's pushes. See OCR_FP_LLM_EXTRA_HEADERS
-          # in
-          # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
-          llm_extra_headers: x-opencode-session=ses-${{ github.repository_id }}-${{ github.event.pull_request.number }}
-          background: ${{ steps.context.outputs.background }}
-          # OCR resolves a rule file's nested REVIEW.md against the JSON's
-          # directory and rejects a bare filename as escaping the repo root, so
-          # pass the workspace-qualified path. See tryReadRuleFile in
-          # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/internal/config/rules/system_rules.go
-          rule: ${{ github.workspace }}/ai-review-rule.json
-          sticky_summary: 'true'
-          incremental: 'true'
-          checkpoint_range: 'true'
-          route_severity_below: medium
-          route_categories: style,documentation
-          resolve_outdated: 'true'
-          effort: high
-          # The checkpoint travels in the sticky summary comment, not in
-          # uploaded artifacts. See the checkpoint outputs in
-          # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
-          upload_artifacts: 'false' # No raw artifacts.
-      - name: Require published review
-        env:
-          SUMMARY: ${{ steps.review.outputs.summary_comment_url }}
-          RANGE_REASON: ${{ steps.review.outputs.range_reason }}
-          RESULT_PATH: /tmp/ocr-result.json
-        run: |
-          # A same-head rerun reviews an empty range and deliberately leaves the
-          # existing summary in place, so it publishes no new URL. See the
-          # range_reason output in
-          # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
-          if [ -z "$SUMMARY" ] && [ "$RANGE_REASON" != "same_head_noop" ]; then
-            echo '::error::Review summary publication failed'
-            exit 1
-          fi
-          python3 -c 'import json, os, sys; result = json.load(open(os.environ["RESULT_PATH"])); sys.exit(result.get("status") not in ("complete", "skipped"))'
+          opencode_zen_api_key: ${{ secrets.OPENCODE_ZEN_API_KEY }}

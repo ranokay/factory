@@ -3,8 +3,8 @@
   "ruleset_name": "Factory default branch",
   "review_ruleset_name": "Factory review rules",
   "required_checks": [
-    {"context": "Gates / Gates", "integration_id": 15368},
-    {"context": "review / review", "integration_id": 15368}
+    {"context": "Gates", "integration_id": 15368},
+    {"context": "OCR PR Review", "integration_id": 15368}
   ],
   "public_check": {"context": "Codacy Static Code Analysis"},
   "fork_bypass_actor": {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"},

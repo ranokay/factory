@@ -16,21 +16,24 @@ def workflow(name):
     return (ROOT / ".github" / "workflows" / name).read_text()
 
 
-def step(source, name):
-    match = re.search(
-        rf"(?ms)^      - name: {re.escape(name)}\n(.*?)(?=^      - name: |\Z)", source
-    )
-    if match is None:
-        raise AssertionError(f"missing step: {name}")
-    return match.group(1)
+def action(name):
+    return (ROOT / ".github" / "actions" / name / "action.yml").read_text()
+
+
+def action_steps(source):
+    return yaml.safe_load(source)["runs"]["steps"]
+
+
+def named_step(steps, name):
+    for item in steps:
+        if item.get("name") == name:
+            return item
+    raise AssertionError(f"missing step: {name}")
 
 
 def run_step(source, environment):
-    match = re.search(r"(?ms)^        run: \|\n((?:^          .*\n)+)", source)
-    if match is None:
-        raise AssertionError("missing shell command")
     return subprocess.run(
-        ["bash", "-c", textwrap.dedent(match.group(1))],
+        ["bash", "-c", textwrap.dedent(source["run"])],
         env={**os.environ, **environment}, capture_output=True, text=True, check=False,
     )
 
@@ -45,19 +48,20 @@ def assert_review_permissions(test, source):
 
 
 def review_step(source):
-    for item in yaml.safe_load(source)["jobs"]["review"]["steps"]:
+    for item in action_steps(source):
         if item.get("id") == "review":
             return item
     raise AssertionError("missing review step")
 
 
-def assert_draft_guard(test, callee, caller):
-    condition = yaml.safe_load(callee)["jobs"]["review"]["if"]
+def assert_draft_guard(test, caller):
+    job = yaml.safe_load(caller)["jobs"]["review"]
+    condition = job["if"]
     test.assertIn(
         "github.event.pull_request.head.repo.full_name == github.repository", condition
     )
     test.assertIn("github.event.pull_request.draft == false", condition)
-    test.assertNotIn("if", yaml.safe_load(caller)["jobs"]["review"])
+    test.assertFalse(any("if" in item for item in job["steps"]))
 
 
 def assert_failure_propagation(test, source):
@@ -71,27 +75,33 @@ def assert_failure_propagation(test, source):
                 test.assertNotRegex(item["if"], r"(?i)\b(?:always|failure)\s*\(")
 
 
+def assert_action_failure_propagation(test, source):
+    for item in action_steps(source):
+        test.assertNotIn("continue-on-error", item)
+        if "if" in item:
+            test.assertIsInstance(item["if"], str)
+            test.assertNotRegex(item["if"], r"(?i)\b(?:always|failure)\s*\(")
+
+
 class AiReviewWorkflowTests(unittest.TestCase):
     def test_review_permissions_grant_only_the_review_needs(self):
-        for name in ("ai-review.yml", "ai-review-caller.yml"):
-            with self.subTest(workflow=name):
-                source = workflow(name)
-                assert_review_permissions(self, source)
-                assert_review_permissions(self, source.replace("permissions: {}", "permissions: {} # deny defaults"))
-                mutated = source.replace("      contents: write\n", "      actions: write\n      contents: write\n")
-                self.assertNotEqual(mutated, source)
-                with self.assertRaises(AssertionError):
-                    assert_review_permissions(self, mutated)
-                mutated = source.replace("permissions: {}\n", "permissions:\n  contents: write\n", 1)
-                self.assertNotEqual(mutated, source)
-                with self.assertRaises(AssertionError):
-                    assert_review_permissions(self, mutated)
+        source = workflow("ai-review.yml")
+        assert_review_permissions(self, source)
+        assert_review_permissions(self, source.replace("permissions: {}", "permissions: {} # deny defaults"))
+        mutated = source.replace("      contents: write\n", "      actions: write\n      contents: write\n")
+        self.assertNotEqual(mutated, source)
+        with self.assertRaises(AssertionError):
+            assert_review_permissions(self, mutated)
+        mutated = source.replace("permissions: {}\n", "permissions:\n  contents: write\n", 1)
+        self.assertNotEqual(mutated, source)
+        with self.assertRaises(AssertionError):
+            assert_review_permissions(self, mutated)
 
     def test_review_uses_high_signal_inputs(self):
-        with_ = review_step(workflow("ai-review.yml"))["with"]
+        with_ = review_step(action("ocr-review"))["with"]
         expected = {
             "ocr_version": "1.14.0",
-            "rule": "${{ github.workspace }}/ai-review-rule.json",
+            "rule": "${{ inputs.rule || format('{0}/ai-review-rule.json', github.workspace) }}",
             "sticky_summary": "true",
             "incremental": "true",
             "checkpoint_range": "true",
@@ -106,13 +116,13 @@ class AiReviewWorkflowTests(unittest.TestCase):
         self.assertNotIn("max_tokens_budget", with_)
 
     def test_checkpoint_session_header_is_stable_across_pushes(self):
-        headers = review_step(workflow("ai-review.yml"))["with"]["llm_extra_headers"]
+        headers = review_step(action("ocr-review"))["with"]["llm_extra_headers"]
         self.assertNotIn("github.run_", headers)
         self.assertIn("github.repository_id", headers)
         self.assertIn("github.event.pull_request.number", headers)
 
     def test_checkpoint_context_ignores_the_editable_pr_body(self):
-        script = step(workflow("ai-review.yml"), "Gather review context")
+        script = named_step(action_steps(action("ocr-review")), "Gather review context")["with"]["script"]
         self.assertNotIn("pr.body", script)
         self.assertIn("issue.body", script)
 
@@ -127,25 +137,21 @@ class AiReviewWorkflowTests(unittest.TestCase):
         })
         self.assertTrue((ROOT / "REVIEW.md").is_file())
         self.assertEqual(
-            review_step(workflow("ai-review.yml"))["with"]["rule"],
-            "${{ github.workspace }}/" + path.name,
+            review_step(action("ocr-review"))["with"]["rule"],
+            "${{ inputs.rule || format('{0}/ai-review-rule.json', github.workspace) }}",
         )
+        caller = yaml.safe_load(workflow("ai-review.yml"))
+        self.assertNotIn("rule", caller["jobs"]["review"]["steps"][-1]["with"])
 
     def test_draft_pull_requests_skip_review_until_ready(self):
-        callee = workflow("ai-review.yml")
-        caller = workflow("ai-review-caller.yml")
-        assert_draft_guard(self, callee, caller)
+        assert_draft_guard(self, workflow("ai-review.yml"))
 
     def test_review_failures_propagate(self):
-        for name in ("ai-review.yml", "ai-review-caller.yml"):
-            with self.subTest(workflow=name):
-                assert_failure_propagation(self, workflow(name))
         source = workflow("ai-review.yml")
+        assert_failure_propagation(self, source)
+        assert_action_failure_propagation(self, action("ocr-review"))
         mutated = source.replace("      - name: Review\n", "      - name: Review\n        continue-on-error: true\n")
         self.assertNotEqual(mutated, source)
-        with self.assertRaises(AssertionError):
-            assert_failure_propagation(self, mutated)
-        mutated = source.replace("      - name: Review\n", "      - name: Review\n        'continue-on-error': true\n")
         with self.assertRaises(AssertionError):
             assert_failure_propagation(self, mutated)
         mutated = source.replace("  review:\n", "  review:\n    continue-on-error: true\n")
@@ -154,15 +160,13 @@ class AiReviewWorkflowTests(unittest.TestCase):
         mutated = re.sub(r"(?m)^    if: .+$", "    if: always()", source)
         with self.assertRaises(AssertionError):
             assert_failure_propagation(self, mutated)
-        mutated = source.replace("      - name: Require published review\n", "      - name: Require published review\n        if: failure()\n")
+        review = action("ocr-review")
+        mutated = review.replace("    - name: Require published review\n", "    - name: Require published review\n      if: failure()\n")
         with self.assertRaises(AssertionError):
-            assert_failure_propagation(self, mutated)
-        mutated = source.replace("      - name: Require published review\n", "      - name: Require published review\n        if: >+\n          ${{ failure() }}\n")
-        with self.assertRaises(AssertionError):
-            assert_failure_propagation(self, mutated)
+            assert_action_failure_propagation(self, mutated)
 
     def test_automatic_review_event_routing(self):
-        caller = workflow("ai-review-caller.yml")
+        caller = workflow("ai-review.yml")
         self.assertIn("run-name: AI Review PR ${{ github.event.pull_request.number }}", caller)
         match = re.search(r"(?m)^    types: \[([^]]+)\]$", caller)
         actions = {action.strip() for action in match.group(1).split(",")}
@@ -175,32 +179,35 @@ class AiReviewWorkflowTests(unittest.TestCase):
                 self.assertEqual(action in actions, starts)
 
     def test_secret_jobs_allow_only_same_repository_pull_requests(self):
-        caller = workflow("ai-review-caller.yml")
-        reusable = workflow("ai-review.yml")
+        caller = workflow("ai-review.yml")
         triggers = caller.split("on:\n", 1)[1].split("permissions:", 1)[0]
         self.assertEqual(re.findall(r"(?m)^  ([a-z_]+):", triggers), ["pull_request"])
-        self.assertNotIn("pull_request_target:", caller + reusable)
-        self.assertNotIn("if", yaml.safe_load(caller)["jobs"]["review"])
-        authors = json.loads((ROOT / "repo-settings.json").read_text())["factory_authors"]
-        job = reusable.split("  review:\n", 1)[1]
-        condition = re.search(r"(?m)^    if: (.+)$", job).group(1)
+        self.assertNotIn("pull_request_target:", caller + action("ocr-review"))
+        job = yaml.safe_load(caller)["jobs"]["review"]
+        condition = job["if"]
         self.assertTrue(condition.startswith("github.event.pull_request.head.repo.full_name == github.repository"))
+        self.assertIn("github.event.pull_request.draft == false", condition)
+        authors = json.loads((ROOT / "repo-settings.json").read_text())["factory_authors"]
         self.assertEqual(re.findall(r"pull_request\.user\.login == '([^']+)'", condition), authors)
+        self.assertEqual(
+            job["steps"][-1]["with"]["opencode_zen_api_key"],
+            "${{ secrets.OPENCODE_ZEN_API_KEY }}",
+        )
 
     def test_missing_key_fails_before_review(self):
-        source = workflow("ai-review.yml")
-        check = step(source, "Require Console key")
-        self.assertIn("ZEN_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}", check)
-        self.assertNotIn("continue-on-error:", check)
+        source = action("ocr-review")
+        check = named_step(action_steps(source), "Require Console key")
+        self.assertEqual(check["env"]["ZEN_KEY"], "${{ inputs.opencode_zen_api_key }}")
+        self.assertNotIn("continue-on-error", check)
         self.assertLess(source.index("name: Require Console key"), source.index("name: Review\n"))
         self.assertNotEqual(run_step(check, {"ZEN_KEY": ""}).returncode, 0)
         self.assertEqual(run_step(check, {"ZEN_KEY": "fixture"}).returncode, 0)
 
     def test_summary_check_does_not_fail_on_findings_that_could_not_be_inlined(self):
-        check = step(workflow("ai-review.yml"), "Require published review")
-        self.assertIn("SUMMARY: ${{ steps.review.outputs.summary_comment_url }}", check)
-        self.assertIn("RANGE_REASON: ${{ steps.review.outputs.range_reason }}", check)
-        self.assertIn("RESULT_PATH: /tmp/ocr-result.json", check)
+        check = named_step(action_steps(action("ocr-review")), "Require published review")
+        self.assertEqual(check["env"]["SUMMARY"], "${{ steps.review.outputs.summary_comment_url }}")
+        self.assertEqual(check["env"]["RANGE_REASON"], "${{ steps.review.outputs.range_reason }}")
+        self.assertEqual(check["env"]["RESULT_PATH"], "/tmp/ocr-result.json")
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "result.json"
             env = {"SUMMARY": "https://example.test/comment", "RANGE_REASON": "", "RESULT_PATH": str(path)}

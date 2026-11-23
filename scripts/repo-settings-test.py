@@ -224,7 +224,7 @@ class RepoSettings(unittest.TestCase):
         self.assertNotIn("required_reviewers", rules["pull_request"])
         self.assertNotIn("copilot_code_review", rules)
         checks = rules["required_status_checks"]["required_status_checks"]
-        self.assertEqual([check["context"] for check in checks], ["Gates / Gates", "review / review", "Codacy Static Code Analysis"])
+        self.assertEqual([check["context"] for check in checks], ["Gates", "OCR PR Review", "Codacy Static Code Analysis"])
         self.assertEqual([check["integration_id"] for check in checks[:2]], [15368, 15368])
 
     def test_personal_fork_ruleset_gets_the_pull_request_bypass(self):
@@ -426,9 +426,9 @@ class RepoSettings(unittest.TestCase):
             rules = [dict(rule, parameters=parameters) if rule["type"] == "pull_request" else rule for rule in config["branch_rules"]]
             invalid.append((dict(config, branch_rules=rules), "branch_rules"))
         checks = config["required_checks"]
-        for bad in ([], None, checks[:1], [*checks, checks[0]], [{"context": "Gates / Gates"}, checks[1]], [dict(checks[0], integration_id=0), checks[1]], [dict(checks[0], integration_id=True), checks[1]], [dict(checks[0], context=""), checks[1]], [dict(checks[0], extra=True), checks[1]]):
+        for bad in ([], None, checks[:1], [*checks, checks[0]], [{"context": "Gates"}, checks[1]], [dict(checks[0], integration_id=0), checks[1]], [dict(checks[0], integration_id=True), checks[1]], [dict(checks[0], context=""), checks[1]], [dict(checks[0], extra=True), checks[1]]):
             invalid.append((dict(config, required_checks=bad), "required_checks"))
-        for bad in (None, {}, {"context": ""}, {"context": "Gates / Gates"}, {"context": "Codacy", "integration_id": 0}, {"context": "Codacy", "extra": True}):
+        for bad in (None, {}, {"context": ""}, {"context": "Gates"}, {"context": "Codacy", "integration_id": 0}, {"context": "Codacy", "extra": True}):
             invalid.append((dict(config, public_check=bad), "public_check"))
         for modified, field in invalid:
             with self.subTest(config=modified):
@@ -437,7 +437,7 @@ class RepoSettings(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("repo-settings.json:", result.stderr)
                 self.assertIn(field, result.stderr)
-                if modified.get("public_check") == {"context": "Gates / Gates"}:
+                if modified.get("public_check") == {"context": "Gates"}:
                     self.assertIn("required_checks", result.stderr)
                 self.assertFalse(log.exists())
         path.write_text(json.dumps(config))

@@ -42,12 +42,12 @@ WORKFLOW = f"""\
 name: Check
 on: pull_request
 jobs:
-  pinned:
-    uses: ranokay/factory/.github/workflows/gates.yml@{TAG}
-  branch:
-    uses: ranokay/factory/.github/workflows/gates.yml@main
-  sha:
-    uses: ranokay/factory/.github/workflows/gates.yml@{FIXTURE_SHA}
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ranokay/factory/.github/actions/gates@{TAG}
+      - uses: ranokay/factory/.github/actions/gates@main
+      - uses: ranokay/factory/.github/actions/gates@{FIXTURE_SHA}
 """
 
 EXPECTED_PINS = {
