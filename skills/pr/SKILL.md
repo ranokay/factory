@@ -9,162 +9,62 @@ metadata:
     url: "https://github.com/humanlayer/skills/blob/main/plugins/show-me/skills/show-me/SKILL.md"
 ---
 
-Use this template for writing the PR body:
+# PR body
 
-```markdown
+Write the body in this order. The important line comes first; everything else is collapsed.
+
+## Shape
+
+````markdown
 ## Summary
 
-<diagram, diff-sketch, or tree>
+<1-3 lines: what changed and the result>
+
+## Why
+
+<the problem, with the issue link>
 
 ## Evidence
 
-- **Before:** <screenshot/output/failing test run>
-  **After:** <screenshot/output/passing test run>
+[Verification Evidence](<comment URL>) - <one line saying what it proves>
 
 ## Merge Danger
 
-**Door:** <one-way or two-way>
+**Door:** <one-way or two-way> - <why>
+**Blast Radius:** <scope>
 
-<optional: description>
+<details>
+<summary>Details</summary>
 
-**Blast Radius:** <one-word description>
+<design notes, diffs, screenshots>
 
-<optional: potential ramifications of merge>
-```
+</details>
+````
 
-## Sections
+## Limits
 
-Skip all preambles and keep prose brief. Use the user's domain language from `GLOSSARY.md`.
+| Part | Limit |
+| --- | --- |
+| Summary | 1-3 lines, 160 characters each |
+| Why | 400 characters |
+| Evidence | exactly 1 line, 300 characters, linking the comment and saying what it proves |
+| Merge Danger | 400 characters, with `**Door:**` and `**Blast Radius:**` |
+| Body outside `<details>` | at most 39 rendered lines |
+| Fenced block outside `<details>` | at most 5 content lines |
 
-### Summary
+## Evidence
 
-Pick the smallest view that makes the key point clear.
+The evidence is the single `<!-- factory-evidence -->` comment the evidence skill posts. Link it on one line with a short statement of what it proves; never repeat the comment's summary, receipt or attachments. A non-visual change still posts that comment, so it still links it. Tests and CI logs belong behind the link, never pasted into the body.
 
-- Show logic or an algorithm as pseudocode:
+## Write and check it
 
-```text
-on(save)
-  if content is unchanged
-    return cached result
-  write new content
-  return fresh result
-```
+1. Open the PR with the rest of the body in this shape. Leave the Evidence link for the next step.
+2. Run `~/Developer/factory/skills/evidence/scripts/evidence attach --pr <n>` (or `mise run evidence -- attach ...`). It prints the posted comment URL as its last line.
+3. Put that URL and the one-line statement in the Evidence section, then check the final body with `gh pr view <n> --json body --jq .body | ~/Developer/factory/skills/pr/scripts/pr-text body -`.
+4. Edit the PR until the checker passes. It exits non-zero and names the line that breaks.
 
-- Show runtime control flow as a call tree:
+Put anything beyond these sections in the one `<details>` block after Merge Danger. Recordings, long diffs and design notes go there, or behind the CI run link. No command transcripts: the visible body carries no logs, test output or diffs, and a fenced block outside `<details>` is capped.
 
-```text
-submitForm
-  createSession
-    persistPrompt
-    launchAgent
-  navigateToSession
-```
+## Merge Danger
 
-- Show UI structure as a component tree, including state and module boundaries that matter:
-
-```text
-<SessionPage> (apps/example/src/routes/session.tsx)
-  useSessionEvents()
-  <SessionToolbar>
-    <RunSkillButton> (packages/ui)
-```
-
-- Show file responsibility or a broad refactor as a shallow file tree:
-
-```text
-src/
-├── commands/       # parses user actions
-├── sessions/       # owns session state
-└── transport/      # sends API requests
-```
-
-- Show component interaction, control flow, or data flow with Mermaid:
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant UI
-    participant Daemon
-    User->>UI: choose command
-    UI->>Daemon: send expanded prompt
-    Daemon-->>UI: stream result
-```
-
-- Use `diff` when the point is what changes and the surrounding shape already exists. Match the diff shape to the topic.
-
-For a component change:
-
-```diff
- <SessionPage>
-   useSessionEvents()
-   <SessionToolbar>
-+    <RunSkillButton />
-   <SessionTimeline>
-+    <SkillResultCard />
-```
-
-For a file-layout change:
-
-```diff
- src/
- ├── commands/
-+│   └── show-me.ts       # expands the slash command
- ├── sessions/
--└── transport.ts
-+└── transport/
-+    ├── client.ts
-+    └── stream.ts
-```
-
-For a call-tree or call-stack change:
-
-```diff
- submitForm
-   createSession
-     persistPrompt
-+    expandSkillMention
-     launchAgent
--  navigateToSession
-+  navigateToSession
-+    subscribeToEvents
-```
-
-For a state or control-flow change:
-
-```diff
- on(save)
--  write content
-+  if content is unchanged
-+    return cached result
-+  write new content
-+  invalidate cache
-```
-
-- Show the whole block when most of it is new, when omitted context would hide ownership or order, or when the user needs a copyable target shape:
-
-```ts
-function expandSkill(command: string): string {
-  const skillName = command.slice(1);
-  return `use the ${skillName} skill`;
-}
-```
-
-#### Guidance
-
-Place each visual next to the short text it supports. Keep only the calls, files, props, states, and boundaries needed to answer the user's current question or the options to resolve the current discussion point.
-
-You may use one of these, you may use several, it is unlikely you will use all of them. Use your judgement and don't overwhelm the user.
-
-### Evidence
-
-Concrete evidence that the change works. Show a before and after.
-
-Screenshots are S-tier - when the environment is set up for it and the change is visual.
-
-Execution-based evidence is A-tier. Test results, console output. Show the exact test that now fails and passes, using pseudocode.
-
-### Merge Danger
-
-Describe whether it's a one-way or two-way door. You can walk back through two-way doors, but not one-way doors. A PR that is cheap to roll back is lower risk. Changes that involve destructive actions or hard-to-reverse decisions are one-way doors.
-
-The blast radius is the potential impact or scope of the changes introduced by this PR. Consider all possibilities. Examples are layout shift, breakages for consumers, mobile responsiveness, etc.
+`**Door:**` is `one-way` when a rollback is expensive or destructive, `two-way` otherwise. `**Blast Radius:**` names the scope in a word or two.

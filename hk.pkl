@@ -965,6 +965,91 @@ steps {
         env { ["BLOCK_ISSUE_CASE"] = "post" }
         expect { code = 0 }
       }
+      ["puts the unblock step first"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "order" }
+        expect { code = 0 }
+      }
+      ["refuses a multi-line unblock step"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "unblock_multiline" }
+        expect { code = 0 }
+      }
+      ["refuses a multi-line reason"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "reason_multiline" }
+        expect { code = 0 }
+      }
+      ["accepts a trailing newline on a one-line value"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "trailing_newline" }
+        expect { code = 0 }
+      }
+      ["refuses multi-line evidence"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "evidence_multiline" }
+        expect { code = 0 }
+      }
+      ["accepts a digit-leading evidence value"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "digit_value" }
+        expect { code = 0 }
+      }
+      ["refuses a summary tag in details"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "summary_tag" }
+        expect { code = 0 }
+      }
+      ["escapes a mention in the reason"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "reason_mention" }
+        expect { code = 0 }
+      }
+      ["strips a trailing newline from the reason"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "reason_newline" }
+        expect { code = 0 }
+      }
+      ["refuses an evidence list marker"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "leading_marker" }
+        expect { code = 0 }
+      }
+      ["refuses a details breakout"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "detail_breakout" }
+        expect { code = 0 }
+      }
+      ["escapes mentions inside details"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "detail_mention" }
+        expect { code = 0 }
+      }
+      ["omits details without a detail value"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "no_detail" }
+        expect { code = 0 }
+      }
+      ["refuses empty evidence"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "empty_evidence" }
+        expect { code = 0 }
+      }
+      ["refuses a finding list marker"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "finding_marker" }
+        expect { code = 0 }
+      }
+      ["refuses the Blocker marker in details"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "blocker_marker" }
+        expect { code = 0 }
+      }
+      ["refuses a details tag variant"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "detail_attributes" }
+        expect { code = 0 }
+      }
       ["keeps one comment on an already blocked issue"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "idempotent" }
@@ -1108,6 +1193,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "stage_attach" }
         expect { code = 0 }
       }
+      ["attach prints the comment URL and a dry run prints none"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_url" }
+        expect { code = 0 }
+      }
       ["attach without a PR resolves it and posts from the PR directory"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "attach_resolves_pr" }
@@ -1236,6 +1326,232 @@ steps {
       ["the mise task runs the command"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "mise_task" }
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["pr-text"] = new Step {
+    check = "python3 {{root}}/skills/pr/scripts/pr-text-test"
+    tests {
+      ["accepts a good PR body"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "good_body" }
+        expect { code = 0 }
+      }
+      ["accepts a long details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "long_details" }
+        expect { code = 0 }
+      }
+      ["rejects a four-line summary"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "summary_four_lines" }
+        expect { code = 0 }
+      }
+      ["rejects an empty summary"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "empty_summary" }
+        expect { code = 0 }
+      }
+      ["rejects an empty Why"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "empty_why" }
+        expect { code = 0 }
+      }
+      ["rejects a summary line over 160 characters"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "summary_long_line" }
+        expect { code = 0 }
+      }
+      ["rejects a Why over 400 characters"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "why_too_long" }
+        expect { code = 0 }
+      }
+      ["rejects a missing Why"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "missing_why" }
+        expect { code = 0 }
+      }
+      ["rejects an indented section heading"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "indented_heading" }
+        expect { code = 0 }
+      }
+      ["rejects evidence without the comment link"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_unlinked" }
+        expect { code = 0 }
+      }
+      ["rejects a second evidence line"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_repeated" }
+        expect { code = 0 }
+      }
+      ["rejects a bare evidence link"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_link_only" }
+        expect { code = 0 }
+      }
+      ["rejects an autolinked evidence URL"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_autolink" }
+        expect { code = 0 }
+      }
+      ["rejects a titled evidence link without a statement"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_titled_link" }
+        expect { code = 0 }
+      }
+      ["rejects a six-line fence outside details"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "long_fence" }
+        expect { code = 0 }
+      }
+      ["accepts a fence at the content limit"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "fence_at_limit" }
+        expect { code = 0 }
+      }
+      ["accepts a fence that looks like structure"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "fenced_structure" }
+        expect { code = 0 }
+      }
+      ["accepts an Enterprise evidence link"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_enterprise" }
+        expect { code = 0 }
+      }
+      ["rejects a second bare evidence URL"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_second_url" }
+        expect { code = 0 }
+      }
+      ["rejects text after details"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "text_after_details" }
+        expect { code = 0 }
+      }
+      ["rejects a second details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "second_details" }
+        expect { code = 0 }
+      }
+      ["rejects an unclosed details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "unclosed_details" }
+        expect { code = 0 }
+      }
+      ["rejects an inline details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "inline_details" }
+        expect { code = 0 }
+      }
+      ["rejects a nested details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "nested_details" }
+        expect { code = 0 }
+      }
+      ["accepts a Why at the character limit"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "why_at_limit" }
+        expect { code = 0 }
+      }
+      ["rejects a multi-line Why over the limit"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "why_multiline_over" }
+        expect { code = 0 }
+      }
+      ["rejects a Merge Danger over the limit"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "danger_over" }
+        expect { code = 0 }
+      }
+      ["accepts 39 rendered lines"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "39_lines" }
+        expect { code = 0 }
+      }
+      ["rejects 40 rendered lines"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "40_lines" }
+        expect { code = 0 }
+      }
+      ["accepts a body from a file"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "body_file" }
+        expect { code = 0 }
+      }
+      ["rejects a missing body file"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "body_missing" }
+        expect { code = 0 }
+      }
+      ["accepts a short fixed reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_fixed" }
+        expect { code = 0 }
+      }
+      ["accepts a full fixed reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_fixed_full_sha" }
+        expect { code = 0 }
+      }
+      ["accepts a not-a-bug reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_not_a_bug" }
+        expect { code = 0 }
+      }
+      ["accepts a deferred reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_deferred" }
+        expect { code = 0 }
+      }
+      ["rejects a multi-line reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_multiline" }
+        expect { code = 0 }
+      }
+      ["rejects a free-form reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_freestyle" }
+        expect { code = 0 }
+      }
+      ["rejects a fixed reply without a sha"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_fixed_without_sha" }
+        expect { code = 0 }
+      }
+      ["rejects a reply over 200 characters"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_too_long" }
+        expect { code = 0 }
+      }
+      ["accepts a reply from stdin"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_stdin" }
+        expect { code = 0 }
+      }
+      ["accepts a CRLF reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_crlf" }
+        expect { code = 0 }
+      }
+      ["accepts a trailing blank line after a reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_trailing_blank" }
+        expect { code = 0 }
+      }
+      ["accepts a reply with a leading blank line"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_leading_blank" }
+        expect { code = 0 }
+      }
+      ["rejects an empty reply from stdin"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_empty_stdin" }
         expect { code = 0 }
       }
     }

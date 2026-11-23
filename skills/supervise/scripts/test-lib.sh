@@ -3,14 +3,14 @@
 expect_contains() {
 	haystack=$1
 	needle=$2
-	if ! printf '%s\n' "$haystack" | grep -Fq "$needle"; then
+	if ! printf '%s\n' "$haystack" | grep -Fq -e "$needle"; then
 		printf 'expected output to contain %s, got:\n%s\n' "$needle" "$haystack" >&2
 		return 1
 	fi
 }
 
 expect_body() {
-	if ! grep -Fq "$1" "$GH_BODY"; then
+	if ! grep -Fq -e "$1" "$GH_BODY"; then
 		printf 'expected the body to contain %s, got:\n%s\n' "$1" "$(cat "$GH_BODY")" >&2
 		return 1
 	fi

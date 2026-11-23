@@ -30,13 +30,13 @@ A finding keeps its ID (`F1`, `F2`, ...) across rounds.
 
 ## Notices
 
-Only with `--notify <thread>`. One header line each; the merged and stopped notices add their receipt lines under it. `<task>` is the issue reference, or the task's short title when there is none.
+Only with `--notify <thread>`. One header line each; the merged and stopped notices add their receipt lines under it. `<task>` is the issue reference, or the task's short title when there is none. A notice stays one header line plus its receipt lines; put anything longer in `<details>`.
 
-- Supervisor escalation: `supervise · notice · <task> · stopped <Supervisor thread ID> · <one-line reason>` plus `blocker: <Blocker comment URL, or none>`, `unblock: <the exact step ranokay must take>` and `processes: <the Worker's receipt>`
+- Supervisor escalation: `supervise · notice · <task> · stopped <Supervisor thread ID> · <one-line reason>` plus `blocker: <Blocker comment URL, or none>`, `unblock: <the exact step ranokay must take, one line>` and `processes: <the Worker's receipt>`
 - PR handoff, after sending it: `supervise · notice · <task> · handed-off <fork thread ID>`
 - no PR to open: `supervise · notice · <task> · done <branch>`
 - the fork, after the merge: `supervise · notice · <task> · merged <PR URL> <merge SHA>` plus `processes: <receipt>`
-- the fork, stopping before the merge: `supervise · notice · <task> · stopped <fork thread ID> · <one-line reason>` plus `blocker: <Blocker comment URL, or none>`, `unblock: <the exact step ranokay must take>` and `processes: <receipt>`
+- the fork, stopping before the merge: `supervise · notice · <task> · stopped <fork thread ID> · <one-line reason>` plus `blocker: <Blocker comment URL, or none>`, `unblock: <the exact step ranokay must take, one line>` and `processes: <receipt>`
 
 ## Blocker
 
@@ -45,9 +45,10 @@ One shape, three senders: the Supervisor before the PR exists, the PR fork after
 ```
 <supervise path>/scripts/block-issue <owner>/<repo> <issue> \
   --reason '<what is stuck>' \
-  --unblock '<the exact step ranokay must take>' \
+  --unblock '<the exact step ranokay must take, one line>' \
   [--evidence '<comment URL, cache path or report line>']... \
-  [--finding '<F1: one line>']...
+  [--finding '<F1: one line>']... \
+  [--detail '<longer context>']...
 ```
 
 The comment it posts, with the marker that `blocker-notify.yml` looks for:
@@ -57,14 +58,25 @@ The comment it posts, with the marker that `blocker-notify.yml` looks for:
 
 ## Blocker
 
+**Unblock step:** <the step, one command or question>
+
 @ranokay <reason>
 
-**Unblock step:** <the step>
-**Last evidence:** <evidence, or none>
-**Open findings:** <findings, or none>
+**Last evidence:**
+- <evidence, or none>
+
+**Open findings:**
+- <findings, or none>
+
+<details>
+<summary>Details</summary>
+
+<longer context, when --detail is used>
+
+</details>
 ```
 
-A budget Blocker always passes `--evidence` for the last evidence and `--finding` for every open finding; `none` is only for a Blocker that has neither, such as a quota failure before any work.
+The unblock step is the first content line: one command or question. The script refuses a multi-line `--reason`, `--unblock`, `--evidence` or `--finding`; pass longer text with `--detail`, which renders inside the collapsed block. A budget Blocker always passes `--evidence` for the last evidence and `--finding` for every open finding; `none` is only for a Blocker that has neither, such as a quota failure before any work.
 
 The script posts the comment first and adds `blocked` second, so the label event always sees the comment. Where the repository has the caller, `blocker-notify.yml` then comments the issue link and this comment's URL as `github-actions[bot]`, which is what produces the GitHub Mobile push: GitHub sends no notification for an @mention from ranokay's own account. The Project Template installs the caller; `ranokay/factory` has it. If the issue already carries `blocked` and a Blocker comment, the script prints that URL and changes nothing. Add or remove `blocked` only through this shape, and remove it when the Run resumes.
 
@@ -153,8 +165,8 @@ Supervisor skill: <supervise path>.
 Issue: <owner>/<repo>#<n>, or none.
 
 1. If the base branch moved, rebase onto it and rerun the checks.
-2. Push the branch and open the PR following the repository's conventions.
-3. Record and attach the Verification Evidence with `~/Developer/factory/skills/evidence/scripts/evidence` (also `mise run evidence -- ...` in the Factory Repo). Attach visual proof only: a UI state, a recording of a flow, or a rendered diagram or statechart, each with a one-line `--caption` saying what visible behaviour it proves. Never attach logs, command output, test output or diffs. A change with no visual surface (CLI, workflow, infra, docs, Factory skills) attaches nothing; the comment is just the summary and the receipt. Then `receipt` with the model and variant from this handoff's launch target, `yes` for fallback when this Run executed a different model from the one requested, the Run's Worker attempt count, the harness usage for token cost (`unavailable (<reason>)` only when the harness reports none), every gate command that actually ran, and a `--summary` of at most 10 lines: one per command with its exit code and a link to the CI run that holds the full log. Then `attach --pr <number>`: it posts the single `<!-- factory-evidence -->` comment with `gh pr comment --attach` and replaces any earlier one. Every receipt field is required.
+2. Push the branch and open the PR following the repository's conventions, with the body in `~/Developer/factory/skills/pr/SKILL.md`'s shape and its Evidence line left for step 3.
+3. Record and attach the Verification Evidence with `~/Developer/factory/skills/evidence/scripts/evidence` (also `mise run evidence -- ...` in the Factory Repo). Attach visual proof only: a UI state, a recording of a flow, or a rendered diagram or statechart, each with a one-line `--caption` saying what visible behaviour it proves. Never attach logs, command output, test output or diffs. A change with no visual surface (CLI, workflow, infra, docs, Factory skills) attaches nothing; the comment is just the summary and the receipt. Then `receipt` with the model and variant from this handoff's launch target, `yes` for fallback when this Run executed a different model from the one requested, the Run's Worker attempt count, the harness usage for token cost (`unavailable (<reason>)` only when the harness reports none), every gate command that actually ran, and a `--summary` of at most 10 lines: one per command with its exit code and a link to the CI run that holds the full log. Then `attach --pr <number>`: it posts the single `<!-- factory-evidence -->` comment with `gh pr comment --attach`, replaces any earlier one, and prints the comment URL as its last line. Put that URL and the one-line statement in the PR body's Evidence section, fetch the final body with `gh pr view <number> --json body --jq .body`, run `~/Developer/factory/skills/pr/scripts/pr-text body -`, and update the PR until it passes. Every receipt field is required.
 4. Read <babysit path>/SKILL.md and follow it through merge. Inside this Run, do not merge until the Supervisor confirms the final Definition of Done. If the repository is an Upstream Fork or the PR is from an Outside Contributor, do not merge at all: stop at the green open PR and send the stopped notice; the responsible maintainers own the merge.
 5. When the Gates are green, the evidence comment is attached, every finding is settled and the PR is mergeable, send `supervise · wake · done <PR URL> · <head SHA>` to thread <Supervisor thread ID> with `t3_thread_send` (`mode: "queue"`). Start the body with `Reply to thread <this thread's ID>.` Merge only after `supervise · merge <PR URL> · <head SHA>`. A `supervise · block <PR URL> · <reason>` reply stops the run: post the Blocker shape first, then stop.
 6. If the change touches a Protected Surface, add the `protected` label when you open the PR. If the PR carries `protected`, send `supervise · wake · protected <PR URL>` instead of the done wake, and wait. Merge only after ranokay approves and the Supervisor replies `supervise · merge`.
