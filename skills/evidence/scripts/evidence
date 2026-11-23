@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import html
 import json
 import os
 import re
@@ -13,22 +14,26 @@ CACHE_ENV = "EVIDENCE_CACHE_ROOT"
 MAX_ENV = "EVIDENCE_MAX_BYTES"
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 MARKER = "<!-- factory-evidence -->"
-MAX_ATTACHMENTS = 50
+MAX_ATTACHMENTS = 5
+MAX_SUMMARY_LINES = 10
+CAPTIONS = "captions.json"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".webm"}
 REPOSITORY = re.compile(r"^[a-z0-9_.-]+/[a-z0-9_.-]+$")
 UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 UNAVAILABLE = re.compile(r"^unavailable \([^)]+\)$")
-RESERVED = {"body.md", "receipt.json"}
 ENCODERS = ("libx264", "libopenh264", "h264_videotoolbox")
 SUPPORTED = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
 
 USAGE = """\
 examples:
-  evidence add demo.mp4 shots/login.png --repo owner/name
+  evidence add shots/login.png --caption 'Signed-in banner appears after login'
+  evidence add before.png after.png --caption 'Before: empty list' \\
+    --caption 'After: the saved row appears'
   evidence receipt --repo owner/name --model opencode-go/deepseek-v4.1-flash \\
     --variant max --fallback no --attempts 1 --cost '214k tokens' \\
-    --gates 'mise run check — exit 0' --summary 'Signed in and saw the new banner.'
+    --gates '`mise run check` — exit 0' \\
+    --summary '`mise run check` — exit 0 — https://github.com/owner/name/actions/runs/1'
   evidence attach --repo owner/name --pr 41
   evidence attach --repo owner/name --pr 41 --dry-run
   evidence cleanup --worktree ~/.t3/worktrees/factory/thread --repo owner/name --pr 41
@@ -36,6 +41,10 @@ examples:
 Evidence lives under ~/.cache/factory/<owner>/<repo>/<pr>/, or under
 <owner>/<repo>/branch/<branch-slug>/ until the PR exists. Tests override the
 cache with EVIDENCE_CACHE_ROOT and the attachment limit with EVIDENCE_MAX_BYTES.
+Attachments are visual proof only, one caption per file, at most 5 per PR. The
+summary is at most 10 lines: one per command with its exit code and a link to
+the CI run that holds the full log. A change with no visual surface attaches
+nothing; the comment is the summary and the Run receipt.
 """
 
 
@@ -285,14 +294,24 @@ def fit_video(path):
     limit = max_bytes()
     size = path.stat().st_size
     if size <= limit:
-        return
-    compressed = path.with_name(f"{path.stem}-compressed.mp4")
-    encode(path, compressed, limit)
-    final = compressed.stat().st_size
-    if final > limit:
-        fail(f"{compressed.name} is still {human(final)} and the limit is {human(limit)}")
+        return path
+    stem = re.sub(r"-compressed(-\d+)?$", "", path.stem)
+    compressed = path.with_name(f"{stem}-compressed.mp4")
+    index = 2
+    while compressed.exists():
+        compressed = path.with_name(f"{stem}-compressed-{index}.mp4")
+        index += 1
+    try:
+        encode(path, compressed, limit)
+        final = compressed.stat().st_size
+        if final > limit:
+            fail(f"{compressed.name} is still {human(final)} and the limit is {human(limit)}")
+    except BaseException:
+        compressed.unlink(missing_ok=True)
+        raise
     path.unlink()
     print(f"compressed {path.name} ({human(size)}) to {compressed.name} ({human(final)})")
+    return compressed
 
 
 def cmd_add(args):
@@ -312,23 +331,76 @@ def cmd_add(args):
         if not name:
             fail(f"{source.name} has no usable file name; rename it before adding")
         sources.append((source, name, suffix))
+    names = [name for _, name, _ in sources]
+    seen = set()
+    for name in names:
+        if name in seen:
+            fail(f"{name} is used by more than one file; rename one so each attachment has its own caption")
+        seen.add(name)
+    if len(args.caption) != len(sources):
+        files_word = "file" if len(sources) == 1 else "files"
+        captions_word = "caption" if len(args.caption) == 1 else "captions"
+        fail(
+            f"give one --caption per file, in order: {len(sources)} {files_word} and "
+            f"{len(args.caption)} {captions_word}; each caption says what visible behaviour the file proves"
+        )
+    captions = {}
+    for (_, name, _), raw in zip(sources, args.caption):
+        captions[name] = caption_text(raw, f"caption for {name}")
+    stored = {item.name for item in attachments(target)}
+    projected = stored | set(captions)
+    attachment_limit(len(projected), target, "would be stored in")
     target.mkdir(parents=True, exist_ok=True)
-    for source, name, suffix in sources:
-        destination = target / name
-        if destination.resolve() == source:
-            print(f"already in place: {destination}")
-            continue
-        if suffix in IMAGE_SUFFIXES:
-            require_size(source)
-        shutil.copy2(source, destination)
-        print(f"added {name} ({human(destination.stat().st_size)}) to {target}")
-        if suffix in VIDEO_SUFFIXES:
+    written = []
+    try:
+        for source, name, suffix in sources:
+            destination = target / name
+            in_place = destination.resolve() == source
+            backup = None
+            final = destination
             try:
-                fit_video(destination)
-            except Refused:
-                destination.unlink(missing_ok=True)
-                (target / f"{destination.stem}-compressed.mp4").unlink(missing_ok=True)
+                if in_place:
+                    if suffix in VIDEO_SUFFIXES:
+                        backup = target / f".{destination.name}.backup"
+                        backup.unlink(missing_ok=True)
+                        os.replace(destination, backup)
+                        shutil.copy2(backup, destination)
+                elif destination.exists():
+                    backup = target / f".{destination.name}.backup"
+                    backup.unlink(missing_ok=True)
+                    os.replace(destination, backup)
+                if suffix in IMAGE_SUFFIXES:
+                    require_size(source)
+                if not in_place:
+                    shutil.copy2(source, destination)
+                if suffix in VIDEO_SUFFIXES:
+                    final = fit_video(destination)
+                    if final.name != name:
+                        rekey_caption(captions, name, final.name)
+                action = "already in place" if in_place and backup is None else ("replaced" if backup else "added")
+                print(f"{action} {final.name} ({human(final.stat().st_size)}) to {target}")
+            except BaseException:
+                try:
+                    if not in_place or backup is not None:
+                        final.unlink(missing_ok=True)
+                finally:
+                    if backup is not None:
+                        os.replace(backup, destination)
                 raise
+            if backup is not None or not in_place:
+                written.append((final, destination, backup))
+    except BaseException:
+        for final, destination, backup in reversed(written):
+            final.unlink(missing_ok=True)
+            if backup is not None:
+                os.replace(backup, destination)
+        raise
+    for _, _, backup in written:
+        if backup is not None:
+            backup.unlink(missing_ok=True)
+    merged = load_captions(target)
+    merged.update(captions)
+    write_captions(target, merged)
 
 
 def cmd_path(args):
@@ -347,6 +419,27 @@ def cmd_list(args):
         print(f"no evidence in {target}")
 
 
+def caption_text(raw, label):
+    caption = raw.strip()
+    if not caption:
+        fail(f"{label} is empty; say what visible behaviour it proves")
+    if "\n" in caption or "\r" in caption:
+        fail(f"{label} must be one line")
+    return caption
+
+
+def check_summary(summary, label):
+    lines = summary.strip().splitlines()
+    if not lines:
+        fail(f"{label} is required")
+    if len(lines) > MAX_SUMMARY_LINES:
+        fail(
+            f"{label} is {len(lines)} lines; keep it to {MAX_SUMMARY_LINES} lines or fewer: "
+            "one line per command with its exit code and a link to the CI run that holds the full log"
+        )
+    return "\n".join(lines)
+
+
 def cmd_receipt(args):
     _, target = evidence_target(args)
     cost = args.cost.strip()
@@ -362,6 +455,7 @@ def cmd_receipt(args):
     gates = [gate.strip() for gate in args.gates]
     if not gates or any(not gate for gate in gates):
         fail("--gates is required and must name the gate command that ran")
+    summary = check_summary(args.summary, "--summary")
     fields = {
         "model": args.model,
         "variant": args.variant,
@@ -369,10 +463,8 @@ def cmd_receipt(args):
         "attempts": args.attempts,
         "cost": cost,
         "gates": gates,
-        "summary": args.summary.strip(),
+        "summary": summary,
     }
-    if not fields["summary"]:
-        fail("--summary is required")
     target.mkdir(parents=True, exist_ok=True)
     path = target / "receipt.json"
     path.write_text(json.dumps(fields, indent=2) + "\n")
@@ -382,8 +474,10 @@ def cmd_receipt(args):
 def load_receipt(path):
     try:
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, ValueError) as error:
         fail(f"{path} is not readable: {error}")
+    if not isinstance(data, dict):
+        fail(f"{path} must be a JSON object; run `evidence receipt` again")
     for key in ("model", "variant", "fallback", "attempts", "cost", "gates", "summary"):
         value = data.get(key)
         if value in (None, "", []):
@@ -394,46 +488,116 @@ def load_receipt(path):
 
 
 def attachments(directory):
+    if not directory.is_dir():
+        return []
     files = []
     for item in sorted(directory.iterdir()):
-        if not item.is_file() or item.name in RESERVED or item.name.startswith("."):
+        if not item.is_file() or item.name.startswith("."):
+            continue
+        if item.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
             continue
         files.append(item)
     return files
 
 
-def validated_attachments(directory):
-    for item in attachments(directory):
+def load_captions(directory, prune=True):
+    path = directory / CAPTIONS
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        fail(f"{path} is not readable: {error}")
+    if not isinstance(data, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str) for key, value in data.items()
+    ):
+        fail(f"{path} must map each file name to a one-line caption")
+    for key, value in data.items():
+        caption_text(value, f"{path} caption for {key}")
+    if not prune:
+        return data
+    names = {item.name for item in attachments(directory)}
+    return {key: value for key, value in data.items() if key in names}
+
+
+def rekey_caption(captions, old, new):
+    if old in captions:
+        captions[new] = captions.pop(old)
+
+
+def write_captions(directory, captions):
+    path = directory / CAPTIONS
+    if not captions:
+        path.unlink(missing_ok=True)
+        return
+    path.write_text(json.dumps(dict(sorted(captions.items())), indent=2) + "\n")
+
+
+def attachment_limit(count, where, state="in"):
+    if count <= MAX_ATTACHMENTS:
+        return
+    fail(
+        f"{count} attachments {state} {where}; at most {MAX_ATTACHMENTS} per PR — "
+        "drop or merge files so a reviewer sees only the proof that matters"
+    )
+
+
+def attachment_entries(directory):
+    files = attachments(directory)
+    attachment_limit(len(files), directory)
+    for item in files:
+        if UNSAFE_NAME.search(item.name):
+            fail(f"{item.name} has characters that cannot be referenced in the comment; rename it")
+    captions = load_captions(directory)
+    entries = []
+    for item in files:
         if item.suffix.lower() in VIDEO_SUFFIXES:
-            fit_video(item)
+            final = fit_video(item)
+            if final.name != item.name:
+                rekey_caption(captions, item.name, final.name)
+                write_captions(directory, captions)
+                item = final
         else:
             require_size(item)
-    files = attachments(directory)
-    if len(files) > MAX_ATTACHMENTS:
-        fail(f"{len(files)} attachments; GitHub allows {MAX_ATTACHMENTS} per comment. Keep the important ones")
-    for item in files:
-        if item.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
-            fail(f"{item.name} is not an image or video; attachments accept {SUPPORTED}")
-    return files
+        caption = captions.get(item.name, "").strip()
+        if not caption:
+            fail(
+                f"{item.name} has no caption; remove it or re-add it in place with --caption "
+                "so the comment says what visible behaviour it proves"
+            )
+        entries.append((item, caption))
+    write_captions(directory, captions)
+    return entries
 
 
-def render(data, files):
-    lines = [MARKER, "", "## Verification Evidence", "", data["summary"].strip(), ""]
-    if files:
+def escape_caption(caption):
+    text = caption.replace("\\", "\\\\")
+    text = html.escape(text, quote=True).replace("[", "\\[").replace("]", "\\]")
+    text = re.sub(r"^(\d+)([.)])", r"\1\\\2", text)
+    if text[:1] in {"#", ">", "-", "+", "*", "=", "|"}:
+        text = "\\" + text
+    return text
+
+
+def render(data, entries):
+    lines = [MARKER, "", "## Verification Evidence", "", html.escape(data["summary"].strip(), quote=False), ""]
+    if entries:
         lines += ["### Attachments", ""]
-        for item in files:
-            lines += [f"![{item.name}](./{item.name})", ""]
+        for item, caption in entries:
+            lines += [f"![{item.name}](./{item.name})", "", escape_caption(caption), ""]
     lines += [
-        "**Run receipt**",
+        "<details>",
+        "<summary>Run receipt</summary>",
         "",
-        f"- Worker model: `{data['model']}` (variant `{data['variant']}`)",
+        f"- Worker model: `{html.escape(data['model'], quote=False)}` (variant `{html.escape(data['variant'], quote=False)}`)",
         f"- Fallback used: {data['fallback']}",
         f"- Attempts: {data['attempts']}",
-        f"- Token cost: {data['cost']}",
+        f"- Token cost: {html.escape(data['cost'], quote=False)}",
         "- Gates run:",
     ]
     for gate in data["gates"]:
-        lines.append(f"  - {gate}")
+        lines.append(f"  - {html.escape(gate, quote=False)}")
+    lines.append("</details>")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -444,18 +608,33 @@ def pr_branch(repo, pr):
 
 def move_staged(stage, target, copy=False):
     target.mkdir(parents=True, exist_ok=True)
+    merged = None
+    if (stage / CAPTIONS).is_file():
+        merged = load_captions(target)
+        merged.update(load_captions(stage, prune=False))
     moved = []
+    captions_moved = False
     for item in sorted(stage.iterdir()):
-        if item.is_file():
-            if copy:
-                shutil.copy2(item, target / item.name)
-            else:
-                os.replace(item, target / item.name)
-            moved.append(item.name)
-    if not moved:
+        if not item.is_file():
+            continue
+        if item.name == CAPTIONS:
+            write_captions(target, merged or {})
+            if not copy:
+                item.unlink()
+            captions_moved = True
+            continue
+        if copy:
+            shutil.copy2(item, target / item.name)
+        else:
+            os.replace(item, target / item.name)
+        moved.append(item.name)
+    if not moved and not captions_moved:
         return
     if copy:
-        print(f"copied staged evidence from {stage} to {target} for the dry run")
+        if moved:
+            print(f"copied staged evidence from {stage} to {target} for the dry run")
+        else:
+            print(f"merged staged captions from {stage} to {target} for the dry run")
         return
     if any(stage.iterdir()):
         print(f"left {stage} in place; it still holds files")
@@ -463,7 +642,10 @@ def move_staged(stage, target, copy=False):
     stage.rmdir()
     if stage.parent.is_dir() and not any(stage.parent.iterdir()):
         stage.parent.rmdir()
-    print(f"moved staged evidence from {stage} to {target}")
+    if moved:
+        print(f"moved staged evidence from {stage} to {target}")
+    else:
+        print(f"moved staged captions from {stage} to {target}")
 
 
 def marked_comments(repo, pr):
@@ -493,12 +675,12 @@ def cmd_attach(args):
     if not receipt_path.is_file():
         fail(f"{receipt_path} does not exist; run `evidence receipt ...` first")
     data = load_receipt(receipt_path)
-    files = validated_attachments(target)
+    entries = attachment_entries(target)
     body_path = target / "body.md"
-    body_path.write_text(render(data, files))
+    body_path.write_text(render(data, entries))
     print(f"body: {body_path}")
     cmd = ["gh", "pr", "comment", str(pr), "--repo", repo, "--body-file", str(body_path)]
-    for item in files:
+    for item, _ in entries:
         cmd += ["--attach", str(item)]
     if args.dry_run:
         print("dry run: no comment posted")
@@ -678,6 +860,13 @@ def build_parser():
 
     add = subparsers.add_parser("add", parents=[common], help="copy images and videos into the evidence directory")
     add.add_argument("files", nargs="+", metavar="FILE")
+    add.add_argument(
+        "--caption",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help="what visible behaviour the matching file proves; one per file, in order",
+    )
     add.set_defaults(func=cmd_add)
 
     path = subparsers.add_parser("path", parents=[common], help="print the evidence directory")
@@ -693,7 +882,11 @@ def build_parser():
     receipt.add_argument("--attempts", required=True, type=int, help="the Run's Worker attempt count")
     receipt.add_argument("--cost", required=True, help='harness usage, or "unavailable (<reason>)" when it reports none')
     receipt.add_argument("--gates", required=True, action="append", help="a gate command that ran, with its result")
-    receipt.add_argument("--summary", required=True, help="what the evidence shows")
+    receipt.add_argument(
+        "--summary",
+        required=True,
+        help=f"what the evidence shows; at most {MAX_SUMMARY_LINES} lines, one per command with its exit code and the CI run link",
+    )
     receipt.set_defaults(func=cmd_receipt)
 
     attach = subparsers.add_parser("attach", parents=[common], help="post or replace the single evidence comment")

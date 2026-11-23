@@ -28,7 +28,7 @@ Before editing a package, read `~/.agents/profiles/<name>/standards.md` for ever
 ## Definition of Done
 
 1. `mise run check` passes locally and in CI.
-2. Verification Evidence comes from the repo's `verify-<app>` skill, is inspected by the Supervisor, and is attached with `gh pr comment --attach` (10 MB per file).
+2. Verification Evidence comes from the repo's `verify-<app>` skill, is inspected by the Supervisor, and, when the change has a visual surface, is attached through the `evidence` skill (images and videos only, at most 5). A non-visual change attaches nothing; its evidence comment is the summary and receipt.
 3. Every review finding is fixed, or filed as an issue linked from the PR.
 
 Deferred work becomes an issue: never a TODO, a follow-up note in the PR body, or a skipped test.

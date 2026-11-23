@@ -185,7 +185,8 @@ the PR. Its Run receipt takes the Worker model and variant from the launch
 target, whether the fallback ran from the executed model against the requested
 one, the Run's Worker attempt count, the harness usage for token cost
 (`unavailable (<reason>)` only when it reports none), and the gate commands that
-actually ran. Every field is required.
+actually ran. Every field is required. A non-visual change carries no
+attachments; the comment is still the evidence.
 
 Once readiness is verified, merge as part of the default babysitting request,
 subject to the merge policy above. Use the repository's merge method, or squash

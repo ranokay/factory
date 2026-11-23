@@ -244,9 +244,11 @@ def comment(work, number):
 def case_add_outside(work):
     repo, _ = make_repo(work)
     image = make_image(work / "shot.png")
-    result = ok(tool(work, repo, ["add", str(image), "--repo", "a/one", "--pr", "7"]))
+    result = ok(tool(work, repo, ["add", str(image), "--caption", "Login banner", "--repo", "a/one", "--pr", "7"]))
     target = work / "cache" / "a" / "one" / "7" / "shot.png"
     expect(target.is_file(), f"{target} was not written: {result}")
+    captions = json.loads((target.parent / "captions.json").read_text())
+    expect(captions == {"shot.png": "Login banner"}, f"captions were {captions}")
     expect(git(repo, "status", "--porcelain") == "", "the repository is not clean after add")
     listing = ok(tool(work, repo, ["list", "--repo", "a/one", "--pr", "7"]))
     expect(f"shot.png\t{target.stat().st_size}" in listing, f"list did not report shot.png: {listing}")
@@ -259,7 +261,7 @@ def case_defaults(work):
     repo, _ = make_repo(work)
     wt = make_worktree(repo, work)
     image = make_image(work / "shot.png")
-    ok(tool(work, wt, ["add", str(image)]))
+    ok(tool(work, wt, ["add", str(image), "--caption", "Login banner"]))
     target = work / "cache" / "a" / "one" / "branch" / "feat-thing" / "shot.png"
     expect(target.is_file(), f"{target} was not written")
     expect(git(wt, "status", "--porcelain") == "", "the worktree is not clean after add")
@@ -269,7 +271,7 @@ def case_defaults(work):
 def case_add_source_inside(work):
     repo, _ = make_repo(work)
     image = make_image(repo / "shot.png")
-    result = tool(work, repo, ["add", str(image), "--repo", "a/one", "--pr", "7"])
+    result = tool(work, repo, ["add", str(image), "--caption", "Login banner", "--repo", "a/one", "--pr", "7"])
     refused(result, "inside the repository")
     expect(not (work / "cache" / "a").exists(), "evidence was written for a refused source")
 
@@ -281,11 +283,156 @@ def case_add_dest_inside(work):
     result = tool(
         work,
         repo,
-        ["add", str(image), "--repo", "a/one", "--pr", "7"],
+        ["add", str(image), "--caption", "Login banner", "--repo", "a/one", "--pr", "7"],
         env={"EVIDENCE_CACHE_ROOT": str(repo / ".cache")},
     )
     refused(result, "inside the repository")
     expect(not (repo / ".cache").exists(), "the cache directory was created inside the repository")
+
+
+@case
+def case_add_video_rollback(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    shutil.copy2(make_video(work / "demo-compressed.mp4", seconds=1), target / "demo-compressed.mp4")
+    (target / "captions.json").write_text(json.dumps({"demo-compressed.mp4": "Old flow"}))
+    big = make_video(work / "demo.mp4", seconds=3)
+    result = tool(
+        work,
+        repo,
+        ["add", str(big), "--caption", "New flow", "--repo", "a/one", "--pr", "7"],
+        env={"EVIDENCE_MAX_BYTES": "1000"},
+    )
+    refused(result, "cannot fit")
+    expect((target / "demo-compressed.mp4").is_file(), "the failed add deleted a stored attachment")
+    expect(not (target / "demo.mp4").exists(), "the failed add left its copy behind")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"demo-compressed.mp4": "Old flow"}, f"captions were {captions}")
+
+
+@case
+def case_add_multi_rollback(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    old = make_image(target / "shot.png", size="320x180")
+    old_bytes = old.read_bytes()
+    (target / "captions.json").write_text(json.dumps({"shot.png": "Old state"}))
+    expect((target / "captions.json").is_file(), "the captions fixture was not written")
+    new = make_image(work / "shot.png", size="640x360")
+    expect(new.stat().st_size < 50000, f"the image fixture is {new.stat().st_size} bytes")
+    bad = make_video(work / "bad.mp4", seconds=3)
+    result = tool(
+        work,
+        repo,
+        [
+            "add",
+            str(new),
+            str(bad),
+            "--caption",
+            "New state",
+            "--caption",
+            "Bad flow",
+            "--repo",
+            "a/one",
+            "--pr",
+            "7",
+        ],
+        env={"EVIDENCE_MAX_BYTES": "50000"},
+    )
+    refused(result, "cannot fit")
+    expect((target / "shot.png").read_bytes() == old_bytes, "the replaced attachment was not restored")
+    expect(not (target / "bad.mp4").exists(), "the failed file was left behind")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"shot.png": "Old state"}, f"captions were {captions}")
+
+
+@case
+def case_add_in_place_video(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    image = make_image(work / "shot.png")
+    captions = {}
+    for index in range(4):
+        path = target / f"shot-{index}.png"
+        shutil.copy2(image, path)
+        captions[path.name] = f"State {index}"
+    shutil.copy2(make_video(work / "demo.mp4", seconds=3), target / "demo.mp4")
+    expect((target / "demo.mp4").stat().st_size > 1000000, "the video fixture is under the limit")
+    captions["demo.mp4"] = "Flow recording"
+    (target / "captions.json").write_text(json.dumps(captions))
+    ok(
+        tool(
+            work,
+            repo,
+            ["add", str(target / "demo.mp4"), "--caption", "Flow recording", "--repo", "a/one", "--pr", "7"],
+            env={"EVIDENCE_MAX_BYTES": "1000000"},
+        )
+    )
+    media = [item for item in target.iterdir() if item.suffix in {".png", ".mp4"}]
+    expect(len(media) == 5, f"expected five stored attachments, found {sorted(item.name for item in media)}")
+    expect((target / "demo-compressed.mp4").is_file(), "the in-place video was not compressed")
+    expect(not (target / "demo.mp4").exists(), "the original in-place video remains")
+    stored_captions = json.loads((target / "captions.json").read_text())
+    expected = {f"shot-{index}.png": f"State {index}" for index in range(4)}
+    expected["demo-compressed.mp4"] = "Flow recording"
+    expect(stored_captions == expected, f"captions were {stored_captions}")
+
+
+@case
+def case_add_in_place_rollback(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    shutil.copy2(make_video(work / "demo.mp4", seconds=3), target / "demo.mp4")
+    (target / "captions.json").write_text(json.dumps({"demo.mp4": "Flow recording"}))
+    bad = make_image(work / "bad.png", size="3840x2160")
+    expect(bad.stat().st_size > 500000, f"the fixture image is only {bad.stat().st_size} bytes")
+    result = tool(
+        work,
+        repo,
+        [
+            "add",
+            str(target / "demo.mp4"),
+            str(bad),
+            "--caption",
+            "Flow recording",
+            "--caption",
+            "Bad state",
+            "--repo",
+            "a/one",
+            "--pr",
+            "7",
+        ],
+        env={"EVIDENCE_MAX_BYTES": "500000"},
+    )
+    refused(result, "attachment limit")
+    expect((target / "demo.mp4").is_file(), "the in-place video was not restored")
+    expect(not (target / "demo-compressed.mp4").exists(), "the compressed file remains")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"demo.mp4": "Flow recording"}, f"captions were {captions}")
+
+
+@case
+def case_add_in_place_image_limit(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    image = make_image(target / "shot.png", size="3840x2160")
+    expect(image.stat().st_size > 500000, f"the fixture image is only {image.stat().st_size} bytes")
+    (target / "captions.json").write_text(json.dumps({"shot.png": "Large state"}))
+    result = tool(
+        work,
+        repo,
+        ["add", str(target / "shot.png"), "--caption", "Large state", "--repo", "a/one", "--pr", "7"],
+        env={"EVIDENCE_MAX_BYTES": "500000"},
+    )
+    refused(result, "attachment limit")
+    expect((target / "shot.png").is_file(), "the in-place image was deleted")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"shot.png": "Large state"}, f"captions were {captions}")
 
 
 @case
@@ -294,7 +441,7 @@ def case_stage_attach(work):
     wt = make_worktree(repo, work)
     make_pr(work, git(wt, "rev-parse", "HEAD"), "feat/thing")
     image = make_image(work / "shot.png")
-    ok(tool(work, wt, ["add", str(image), "--repo", "a/one"]))
+    ok(tool(work, wt, ["add", str(image), "--caption", "Login form shows the error banner", "--repo", "a/one"]))
     stage = work / "cache" / "a" / "one" / "branch" / "feat-thing"
     expect((stage / "shot.png").is_file(), "the image was not staged under the branch")
     ok(tool(work, wt, receipt_args(pr=None)))
@@ -312,8 +459,9 @@ def case_stage_attach(work):
     recorded = comment(work, "101")
     expect(recorded["attachments"] == [str(target)], f"attachments were {recorded['attachments']}")
     body = Path(recorded["body"]).read_text()
-    expect("![shot.png](./shot.png)" in body, body)
-    expect(body.rstrip().endswith("  - `mise run check` \u2014 exit 0"), body)
+    expect("![shot.png](./shot.png)\n\nLogin form shows the error banner" in body, body)
+    expect("<details>\n<summary>Run receipt</summary>" in body, body)
+    expect(body.rstrip().endswith("</details>"), body)
 
 
 @case
@@ -321,7 +469,14 @@ def case_video(work):
     repo, _ = make_repo(work)
     source = make_video(work / "demo.mp4")
     expect(source.stat().st_size > 1000000, f"the fixture video is only {source.stat().st_size} bytes")
-    added = ok(tool(work, repo, ["add", str(source), "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
+    added = ok(
+        tool(
+            work,
+            repo,
+            ["add", str(source), "--caption", "The flow records and the clip compresses", "--repo", "a/one", "--pr", "7"],
+            env={"EVIDENCE_MAX_BYTES": "1000000"},
+        )
+    )
     expect("compressed demo.mp4" in added, added)
     target = work / "cache" / "a" / "one" / "7" / "demo-compressed.mp4"
     expect(target.is_file(), f"{target} was not written")
@@ -345,18 +500,143 @@ def case_video(work):
     recorded = comment(work, "101")
     expect(recorded["attachments"] == [str(target)], f"attachments were {recorded['attachments']}")
     body = Path(recorded["body"]).read_text()
-    expect("![demo-compressed.mp4](./demo-compressed.mp4)" in body, body)
+    expect("![demo-compressed.mp4](./demo-compressed.mp4)\n\nThe flow records and the clip compresses" in body, body)
     expect("- Worker model: `opencode-go/deepseek-v4.1-flash` (variant `max`)" in body, body)
     expect("- Fallback used: no" in body, body)
     expect("- Attempts: 1" in body, body)
     expect("- Token cost: 12k tokens" in body, body)
-    expect(body.rstrip().endswith("- `mise run check` \u2014 exit 0"), body)
+    expect("- `mise run check` \u2014 exit 0" in body, body)
+    expect(body.rstrip().endswith("</details>"), body)
     ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
     ids = (work / "gh" / "ids").read_text().split()
     expect(ids == ["102"], f"expected one comment, found {ids}")
     log = (work / "gh" / "log").read_text()
     expect(log.count('"pr", "comment"') == 2, log)
     expect('"--method", "DELETE"' in log, log)
+
+
+@case
+def case_attach_video_compress(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    source = make_video(work / "demo.mp4")
+    expect(source.stat().st_size > 1000000, f"the fixture video is only {source.stat().st_size} bytes")
+    shutil.copy2(source, target / "demo.mp4")
+    (target / "captions.json").write_text(json.dumps({"demo.mp4": "The flow records end to end"}))
+    dry = ok(
+        tool(
+            work,
+            repo,
+            ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"],
+            env={"EVIDENCE_MAX_BYTES": "1000000"},
+        )
+    )
+    compressed = target / "demo-compressed.mp4"
+    expect(compressed.is_file(), "the video was not compressed")
+    expect(not (target / "demo.mp4").exists(), "the original video remains")
+    expect(f"--attach {compressed}" in dry, dry)
+    expect(f"--attach {target / 'demo.mp4'}" not in dry, dry)
+    body = (target / "body.md").read_text()
+    expect("![demo-compressed.mp4](./demo-compressed.mp4)\n\nThe flow records end to end" in body, body)
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"demo-compressed.mp4": "The flow records end to end"}, f"captions were {captions}")
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
+    recorded = comment(work, "101")
+    expect(recorded["attachments"] == [str(compressed)], f"attachments were {recorded['attachments']}")
+
+
+@case
+def case_attach_video_collision(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    big = make_video(work / "demo.mp4", seconds=3)
+    small = make_video(work / "demo-compressed.mp4", seconds=1)
+    limit = 1200000
+    expect(big.stat().st_size > limit, f"the big fixture video is only {big.stat().st_size} bytes")
+    expect(small.stat().st_size <= limit, f"the small fixture video is {small.stat().st_size} bytes")
+    shutil.copy2(big, target / "demo.mp4")
+    shutil.copy2(small, target / "demo-compressed.mp4")
+    (target / "captions.json").write_text(json.dumps({"demo.mp4": "New flow", "demo-compressed.mp4": "Old flow"}))
+    dry = ok(
+        tool(
+            work,
+            repo,
+            ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"],
+            env={"EVIDENCE_MAX_BYTES": str(limit)},
+        )
+    )
+    compressed = target / "demo-compressed-2.mp4"
+    expect(compressed.is_file(), "the compressed video did not get a unique name")
+    expect((target / "demo-compressed.mp4").is_file(), "the existing compressed video was overwritten")
+    expect(str(compressed) in dry, dry)
+    expect(not (target / "demo.mp4").exists(), "the original video remains")
+    body = (target / "body.md").read_text()
+    expect("![demo-compressed.mp4](./demo-compressed.mp4)" in body, body)
+    expect("![demo-compressed-2.mp4](./demo-compressed-2.mp4)" in body, body)
+    expect("Old flow" in body and "New flow" in body, body)
+    captions = json.loads((target / "captions.json").read_text())
+    expect(
+        captions == {"demo-compressed-2.mp4": "New flow", "demo-compressed.mp4": "Old flow"},
+        f"captions were {captions}",
+    )
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": str(limit)}))
+    recorded = comment(work, "101")
+    expected = sorted([str(target / "demo-compressed.mp4"), str(compressed)])
+    expect(sorted(recorded["attachments"]) == expected, f"attachments were {recorded['attachments']}")
+
+
+@case
+def case_attach_rekey_survives_failure(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    shutil.copy2(make_video(work / "a.mp4", seconds=3), target / "a.mp4")
+    image = make_image(target / "z.png", size="3840x2160")
+    expect(image.stat().st_size > 500000, f"the fixture image is only {image.stat().st_size} bytes")
+    (target / "captions.json").write_text(json.dumps({"a.mp4": "The flow records"}))
+    result = tool(
+        work,
+        repo,
+        ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"],
+        env={"EVIDENCE_MAX_BYTES": "500000"},
+    )
+    refused(result, "attachment limit")
+    compressed = target / "a-compressed.mp4"
+    expect(compressed.is_file(), "the video was not compressed")
+    expect(not (target / "a.mp4").exists(), "the original video remains")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"a-compressed.mp4": "The flow records"}, f"captions were {captions}")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "500000"})
+    refused(result, "attachment limit")
+    expect(not (work / "gh" / "comment-101.json").exists(), "a failed attach posted a comment")
+
+
+@case
+def case_cap_after_compression(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True, exist_ok=True)
+    image = make_image(work / "shot.png")
+    captions = {}
+    for index in range(4):
+        path = target / f"shot-{index}.png"
+        shutil.copy2(image, path)
+        captions[path.name] = f"State {index}"
+    video = make_video(work / "demo.mp4", seconds=3)
+    expect(video.stat().st_size > 1000000, f"the fixture video is only {video.stat().st_size} bytes")
+    shutil.copy2(video, target / "demo.mp4")
+    captions["demo.mp4"] = "Flow recording"
+    (target / "captions.json").write_text(json.dumps(captions))
+    dry = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
+    expect("--attach " in dry, dry)
+    expect(dry.count("--attach ") == 5, dry)
+    body = (target / "body.md").read_text()
+    expect(body.count("![") == 5, body)
+    expect(not (target / "demo.mp4").exists(), "the original video remains")
+    expect((target / "demo-compressed.mp4").is_file(), "the video was not compressed")
 
 
 @case
@@ -371,7 +651,12 @@ def case_oversize(work):
     expect("resize" in result.stderr or "re-record" in result.stderr, result.stderr)
     if (work / "gh" / "log").exists():
         expect('"pr", "comment"' not in (work / "gh" / "log").read_text(), "a comment was posted for an oversize attachment")
-    added = tool(work, repo, ["add", str(image), "--repo", "a/one", "--pr", "8"], env={"EVIDENCE_MAX_BYTES": "150000"})
+    added = tool(
+        work,
+        repo,
+        ["add", str(image), "--caption", "Oversize state", "--repo", "a/one", "--pr", "8"],
+        env={"EVIDENCE_MAX_BYTES": "150000"},
+    )
     refused(added, "attachment limit")
 
 
@@ -388,15 +673,54 @@ def case_receipt_rules(work):
 
 
 @case
-def case_too_many(work):
+def case_receipt_shape(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    (target / "receipt.json").write_text("[]")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "must be a JSON object")
+
+
+@case
+def case_attachment_limit(work):
     repo, _ = make_repo(work)
     ok(tool(work, repo, receipt_args(pr="7")))
-    target = work / "cache" / "a" / "one" / "7"
     image = make_image(work / "shot.png")
-    for index in range(51):
-        shutil.copy2(image, target / f"shot-{index:02d}.png")
+    files = []
+    captions = []
+    for index in range(5):
+        path = work / f"shot-{index}.png"
+        shutil.copy2(image, path)
+        files.append(str(path))
+        captions += ["--caption", f"State {index}"]
+    ok(tool(work, repo, ["add", *files, "--repo", "a/one", "--pr", "7", *captions]))
+    target = work / "cache" / "a" / "one" / "7"
+    expect(len([item for item in target.iterdir() if item.suffix == ".png"]) == 5, "expected five stored attachments")
+    sixth = work / "shot-5.png"
+    shutil.copy2(image, sixth)
+    result = tool(work, repo, ["add", str(sixth), "--caption", "Sixth state", "--repo", "a/one", "--pr", "7"])
+    refused(result, "drop or merge")
+    expect("at most 5" in result.stderr, result.stderr)
+    expect(not (target / "shot-5.png").exists(), "the sixth attachment was stored")
+    stored_captions = json.loads((target / "captions.json").read_text())
+    expect(
+        stored_captions == {f"shot-{index}.png": f"State {index}" for index in range(5)},
+        f"captions were {stored_captions}",
+    )
+    shutil.copy2(image, target / "manual.png")
+    stored_captions = json.loads((target / "captions.json").read_text())
+    stored_captions["manual.png"] = "Manual state"
+    (target / "captions.json").write_text(json.dumps(stored_captions))
     result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
-    refused(result, "GitHub allows 50")
+    refused(result, "drop or merge")
+    over = tool(
+        work,
+        repo,
+        ["add", *files, str(sixth), "--repo", "a/one", "--pr", "8", *captions, "--caption", "Sixth state"],
+    )
+    refused(over, "at most 5")
+    expect(not (work / "cache" / "a" / "one" / "8").exists(), "an over-cap add wrote evidence")
 
 
 @case
@@ -413,7 +737,7 @@ def case_attach_gh_failure(work):
 def case_attach_rollback(work):
     repo, _ = make_repo(work)
     ok(tool(work, repo, receipt_args(pr="7")))
-    ok(tool(work, repo, ["add", str(make_image(work / "shot.png")), "--repo", "a/one", "--pr", "7"]))
+    ok(tool(work, repo, ["add", str(make_image(work / "shot.png")), "--caption", "Login banner", "--repo", "a/one", "--pr", "7"]))
     ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"]))
     (work / "gh" / "fail_delete").write_text("1")
     result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"])
@@ -428,7 +752,7 @@ def case_stage_leftover(work):
     repo, _ = make_repo(work)
     wt = make_worktree(repo, work)
     make_pr(work, git(wt, "rev-parse", "HEAD"), "feat/thing")
-    ok(tool(work, wt, ["add", str(make_image(work / "shot.png")), "--repo", "a/one"]))
+    ok(tool(work, wt, ["add", str(make_image(work / "shot.png")), "--caption", "Login banner", "--repo", "a/one"]))
     ok(tool(work, wt, receipt_args(pr=None)))
     stage = work / "cache" / "a" / "one" / "branch" / "feat-thing"
     (stage / "nested").mkdir()
@@ -461,7 +785,7 @@ def case_attach_resolves_pr(work):
     wt = make_worktree(repo, work)
     make_pr(work, git(wt, "rev-parse", "HEAD"), "feat/thing")
     (work / "gh" / "pr_number").write_text("7")
-    ok(tool(work, wt, ["add", str(make_image(work / "shot.png")), "--repo", "a/one"]))
+    ok(tool(work, wt, ["add", str(make_image(work / "shot.png")), "--caption", "Login banner", "--repo", "a/one"]))
     ok(tool(work, wt, receipt_args(pr=None)))
     stage = work / "cache" / "a" / "one" / "branch" / "feat-thing"
     out = ok(tool(work, wt, ["attach", "--repo", "a/one"]))
@@ -573,6 +897,213 @@ def case_mise_task(work):
     printed = ok(result).strip()
     expected = work / "cache" / "a" / "one" / "7"
     expect(printed == str(expected), f"mise run evidence path printed {printed}")
+
+
+@case
+def case_add_caption(work):
+    repo, _ = make_repo(work)
+    image = make_image(work / "shot.png")
+    missing = tool(work, repo, ["add", str(image), "--repo", "a/one", "--pr", "7"])
+    refused(missing, "one --caption per file")
+    expect("visible behaviour" in missing.stderr, missing.stderr)
+    expect(not (work / "cache" / "a" / "one" / "7").exists(), "evidence was written without a caption")
+    second = make_image(work / "second.png")
+    mismatch = tool(
+        work, repo, ["add", str(image), str(second), "--caption", "One", "--repo", "a/one", "--pr", "7"]
+    )
+    refused(mismatch, "2 files and 1 caption")
+    multiline = tool(
+        work, repo, ["add", str(image), "--caption", "first\nsecond", "--repo", "a/one", "--pr", "7"]
+    )
+    refused(multiline, "must be one line")
+    blank = tool(work, repo, ["add", str(image), "--caption", "   ", "--repo", "a/one", "--pr", "7"])
+    refused(blank, "is empty")
+    duplicate = tool(
+        work,
+        repo,
+        [
+            "add",
+            str(make_image(work / "a" / "shot.png")),
+            str(make_image(work / "b" / "shot.png")),
+            "--caption",
+            "One",
+            "--caption",
+            "Two",
+            "--repo",
+            "a/one",
+            "--pr",
+            "7",
+        ],
+    )
+    refused(duplicate, "more than one file")
+    ok(
+        tool(
+            work,
+            repo,
+            ["add", str(image), str(second), "--caption", "Login banner", "--caption", "Saved toast", "--repo", "a/one", "--pr", "7"],
+        )
+    )
+    captions = json.loads((work / "cache" / "a" / "one" / "7" / "captions.json").read_text())
+    expect(captions == {"shot.png": "Login banner", "second.png": "Saved toast"}, f"captions were {captions}")
+
+
+@case
+def case_caption_escape(work):
+    repo, _ = make_repo(work)
+    image = make_image(work / "shot.png")
+    caption = '- Banner <b>shows</b> [ok] & "quoted" \\ path'
+    ok(tool(work, repo, ["add", str(image), "--caption", caption, "--repo", "a/one", "--pr", "7"]))
+    ok(
+        tool(
+            work,
+            repo,
+            ["add", str(make_image(work / "second.png")), "--caption", "1. first", "--repo", "a/one", "--pr", "7"],
+        )
+    )
+    ok(
+        tool(
+            work,
+            repo,
+            receipt_args(
+                pr="7",
+                model="m</details>",
+                summary="`mise run check` \u2014 exit 0\n<b>proof</b>",
+                gates=("`mise run check` \u2014 exit 0 </details>",),
+            ),
+        )
+    )
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
+    body = (work / "cache" / "a" / "one" / "7" / "body.md").read_text()
+    expect('\\- Banner &lt;b&gt;shows&lt;/b&gt; \\[ok\\] &amp; &quot;quoted&quot; \\\\ path' in body, body)
+    expect(caption not in body, body)
+    expect("&lt;b&gt;proof&lt;/b&gt;" in body, body)
+    expect("m&lt;/details&gt;" in body, body)
+    expect("1\\. first" in body, body)
+    expect("&lt;/details&gt;" in body, body)
+    expect("<b>" not in body, body)
+
+
+@case
+def case_bad_attachment_name(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    make_image(target / "bad name.png")
+    (target / "captions.json").write_text(json.dumps({"bad name.png": "Bad name"}))
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "cannot be referenced")
+
+
+@case
+def case_attach_caption_required(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    make_image(target / "shot.png")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "has no caption")
+    expect("--caption" in result.stderr, result.stderr)
+    expect(not (target / "body.md").exists(), "a body was written for an uncaptioned attachment")
+    (target / "captions.json").write_text(json.dumps({"shot.png": "first\nsecond"}))
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "must be one line")
+
+
+@case
+def case_summary_limit(work):
+    repo, _ = make_repo(work)
+    ten = "\n".join(
+        f"`cmd {index}` \u2014 exit 0 \u2014 https://github.com/a/one/actions/runs/{index}" for index in range(10)
+    )
+    ok(tool(work, repo, receipt_args(pr="7", summary=ten)))
+    ok(tool(work, repo, receipt_args(pr="9", summary=ten + "\n")))
+    result = tool(work, repo, receipt_args(pr="8", summary=ten + "\nlast"))
+    refused(result, "10 lines")
+    expect("exit code" in result.stderr, result.stderr)
+    expect("CI run" in result.stderr, result.stderr)
+    expect(not (work / "cache" / "a" / "one" / "8" / "receipt.json").exists(), "an over-long summary was stored")
+
+
+@case
+def case_no_attachments(work):
+    repo, _ = make_repo(work)
+    summary = (
+        "`mise run check` \u2014 exit 0 \u2014 https://github.com/a/one/actions/runs/1\n"
+        "The CLI change has no visual surface."
+    )
+    ok(tool(work, repo, receipt_args(pr="7", summary=summary)))
+    target = work / "cache" / "a" / "one" / "7"
+    (target / "notes.txt").write_text("command output\n")
+    notes = work / "notes.txt"
+    notes.write_text("command output\n")
+    refused(
+        tool(work, repo, ["add", str(notes), "--caption", "Log output", "--repo", "a/one", "--pr", "7"]),
+        "not an image or video",
+    )
+    dry = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
+    expect("--attach" not in dry, dry)
+    body = (target / "body.md").read_text()
+    expect("### Attachments" not in body, body)
+    expect("notes.txt" not in body, body)
+    expect("![" not in body, body)
+    expect(body.rstrip().endswith("</details>"), body)
+    expect(summary.splitlines()[0] in body, body)
+    expect("<details>\n<summary>Run receipt</summary>" in body, body)
+    expect("- Worker model:" in body, body)
+    expect(len(body.rstrip().splitlines()) < 25, f"{len(body.rstrip().splitlines())} lines:\n{body}")
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"]))
+    recorded = comment(work, "101")
+    expect(recorded["attachments"] == [], recorded)
+
+
+@case
+def case_caption_merge(work):
+    repo, _ = make_repo(work)
+    wt = make_worktree(repo, work)
+    make_pr(work, git(wt, "rev-parse", "HEAD"), "feat/thing")
+    ok(
+        tool(
+            work,
+            wt,
+            ["add", str(make_image(work / "existing.png")), "--caption", "Existing state", "--repo", "a/one", "--pr", "7"],
+        )
+    )
+    ok(tool(work, wt, ["add", str(make_image(work / "a-staged.png")), "--caption", "Staged state", "--repo", "a/one"]))
+    ok(tool(work, wt, receipt_args(pr="7")))
+    ok(tool(work, wt, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
+    target = work / "cache" / "a" / "one" / "7"
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"existing.png": "Existing state", "a-staged.png": "Staged state"}, f"captions were {captions}")
+    body = (target / "body.md").read_text()
+    expect("Existing state" in body and "Staged state" in body, body)
+    ok(tool(work, wt, ["attach", "--repo", "a/one", "--pr", "7"]))
+    recorded = comment(work, "101")
+    expect(len(recorded["attachments"]) == 2, f"attachments were {recorded['attachments']}")
+
+
+@case
+def case_legacy_receipt_over_ten_lines(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    summary = "\n".join(f"line {index}" for index in range(11))
+    (target / "receipt.json").write_text(
+        json.dumps(
+            {
+                "model": "m",
+                "variant": "max",
+                "fallback": "no",
+                "attempts": 1,
+                "cost": "1k tokens",
+                "gates": ["`mise run check` \u2014 exit 0"],
+                "summary": summary,
+            }
+        )
+    )
+    out = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
+    expect("dry run: no comment posted" in out, out)
+    body = (target / "body.md").read_text()
+    expect("line 0" in body and "line 10" in body, body)
 
 
 def main():

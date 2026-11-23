@@ -1078,6 +1078,31 @@ steps {
         env { ["EVIDENCE_CASE"] = "add_dest_inside" }
         expect { code = 0 }
       }
+      ["a failed add keeps stored attachments and its captions"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_video_rollback" }
+        expect { code = 0 }
+      }
+      ["a failed multi-file add restores what it replaced"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_multi_rollback" }
+        expect { code = 0 }
+      }
+      ["add compresses a video passed as the stored file"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_in_place_video" }
+        expect { code = 0 }
+      }
+      ["a failed in-place video add restores the original"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_in_place_rollback" }
+        expect { code = 0 }
+      }
+      ["an oversize in-place image is refused and kept"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_in_place_image_limit" }
+        expect { code = 0 }
+      }
       ["staged evidence moves to the PR directory before the comment"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "stage_attach" }
@@ -1093,6 +1118,26 @@ steps {
         env { ["EVIDENCE_CASE"] = "video" }
         expect { code = 0 }
       }
+      ["a video over the limit is compressed at attach and keeps its caption"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_video_compress" }
+        expect { code = 0 }
+      }
+      ["a compressed video takes a unique name when its target exists"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_video_collision" }
+        expect { code = 0 }
+      }
+      ["a rekeyed caption survives a later failure"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_rekey_survives_failure" }
+        expect { code = 0 }
+      }
+      ["compression keeps the five-attachment cap"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "cap_after_compression" }
+        expect { code = 0 }
+      }
       ["a file over the limit fails before upload"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "oversize" }
@@ -1103,9 +1148,54 @@ steps {
         env { ["EVIDENCE_CASE"] = "receipt_rules" }
         expect { code = 0 }
       }
-      ["more than 50 attachments is refused"] {
+      ["a receipt that is not a JSON object is refused"] {
         run = "check"
-        env { ["EVIDENCE_CASE"] = "too_many" }
+        env { ["EVIDENCE_CASE"] = "receipt_shape" }
+        expect { code = 0 }
+      }
+      ["add requires a one-line caption for every file"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_caption" }
+        expect { code = 0 }
+      }
+      ["attach refuses stored evidence without a caption"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_caption_required" }
+        expect { code = 0 }
+      }
+      ["attach refuses a media name that breaks the comment"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "bad_attachment_name" }
+        expect { code = 0 }
+      }
+      ["captions escape Markdown and HTML"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "caption_escape" }
+        expect { code = 0 }
+      }
+      ["a summary over ten lines is refused"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "summary_limit" }
+        expect { code = 0 }
+      }
+      ["a sixth attachment is refused"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attachment_limit" }
+        expect { code = 0 }
+      }
+      ["a non-visual change posts no attachments"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "no_attachments" }
+        expect { code = 0 }
+      }
+      ["a receipt written before the summary cap still attaches"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "legacy_receipt_over_ten_lines" }
+        expect { code = 0 }
+      }
+      ["staged captions merge with attachments already in the PR directory"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "caption_merge" }
         expect { code = 0 }
       }
       ["a gh failure names its cause"] {
