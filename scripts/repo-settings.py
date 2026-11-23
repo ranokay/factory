@@ -377,7 +377,7 @@ def main():
         stale_review = find_ruleset(CONFIG["review_ruleset_name"])
         if stale_review:
             expected_review = review_ruleset()
-            if matches(stale_review, expected_review) and matches(expected_review["rules"], stale_review["rules"]) and matches(expected_review["bypass_actors"], stale_review["bypass_actors"]):
+            if matches(stale_review, expected_review) and all(matches(expected_review[key], stale_review[key]) for key in ("rules", "bypass_actors", "conditions")):
                 change(f"ruleset {CONFIG['review_ruleset_name']}: delete", "DELETE", base + "/rulesets/" + str(stale_review["id"]))
             else:
                 manual_drift.append(f"ruleset {stale_review['name']} differs from Factory review rules: {json.dumps(stale_review, sort_keys=True)}; gh api -X DELETE {base}/rulesets/{stale_review['id']}")

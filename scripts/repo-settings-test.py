@@ -331,15 +331,21 @@ class RepoSettings(unittest.TestCase):
         state = json.loads(self.path.read_text())
         state["repo"]["fork"] = False
         state["topics"]["names"] = []
-        review = next(item for item in state["rulesets"] if item["name"] == "Factory review rules")
-        review["rules"].append({"type": "deletion"})
-        state["writes"] = []
-        self.write(state)
-        result = self.run_command("--apply")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("manual: ruleset Factory review rules differs", result.stdout)
-        self.assertIn(f"gh api -X DELETE repos/o/r/rulesets/{review['id']}", result.stdout)
-        self.assertFalse(any(write.startswith("DELETE /rulesets/") for write in json.loads(self.path.read_text())["writes"]))
+        for kind in ("rule", "condition"):
+            with self.subTest(kind=kind):
+                candidate = json.loads(json.dumps(state))
+                review = next(item for item in candidate["rulesets"] if item["name"] == "Factory review rules")
+                if kind == "rule":
+                    review["rules"].append({"type": "deletion"})
+                else:
+                    review["conditions"]["ref_name"]["extra"] = ["protected"]
+                candidate["writes"] = []
+                self.write(candidate)
+                result = self.run_command("--apply")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("manual: ruleset Factory review rules differs", result.stdout)
+                self.assertIn(f"gh api -X DELETE repos/o/r/rulesets/{review['id']}", result.stdout)
+                self.assertFalse(any(write.startswith("DELETE /rulesets/") for write in json.loads(self.path.read_text())["writes"]))
 
     def test_personal_fork_to_upstream_reports_rulesets_without_writes(self):
         state = json.loads(self.path.read_text())

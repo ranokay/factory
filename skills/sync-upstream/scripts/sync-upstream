@@ -303,7 +303,12 @@ def merge_command(args):
     try:
         if not isinstance(pages, list) or not pages or any(page.get("errors") for page in pages):
             raise ValueError
-        threads = [node for page in pages for node in page["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]]
+        groups = [page["data"]["repository"]["pullRequest"]["reviewThreads"] for page in pages]
+        for index, group in enumerate(groups):
+            page_info = group["pageInfo"]
+            if not isinstance(group["nodes"], list) or page_info["hasNextPage"] is not (index < len(groups) - 1) or (page_info["hasNextPage"] and not page_info["endCursor"]):
+                raise ValueError
+        threads = [node for group in groups for node in group["nodes"]]
         if any(thread["isResolved"] is not True for thread in threads):
             problems.append("PR has unresolved review threads")
     except (KeyError, TypeError, ValueError, AttributeError):

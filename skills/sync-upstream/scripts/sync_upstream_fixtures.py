@@ -18,7 +18,8 @@ if args[:2] == ["api", "graphql"]:
     if state.get("threads_unavailable"):
         print("review threads unavailable", file=sys.stderr)
         sys.exit(1)
-    print(json.dumps([{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": state.get("review_threads", [])}}}}}]))
+    pages = state.get("thread_pages", [{"nodes": state.get("review_threads", []), "pageInfo": {"hasNextPage": False, "endCursor": None}}])
+    print(json.dumps([{"data": {"repository": {"pullRequest": {"reviewThreads": page}}}} for page in pages]))
 elif args[:2] == ["api", "repos/" + state["name"]]:
     print(json.dumps(state["info"]))
 elif args[:2] == ["repo", "view"]:

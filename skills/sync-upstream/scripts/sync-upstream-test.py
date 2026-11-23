@@ -245,7 +245,7 @@ class SyncUpstream(SyncFixture):
         repo, _ = self.command_fixture()
         original = json.loads(self.repo_file.read_text())
         self.assertEqual(self.merge_command(repo).returncode, 0)
-        for key, value, message in (("verified", False, "signature is not verified"), ("review_threads", [{"isResolved": False}], "unresolved review threads"), ("threads_unavailable", True, "gh")):
+        for key, value, message in (("verified", False, "signature is not verified"), ("review_threads", [{"isResolved": False}], "unresolved review threads"), ("threads_unavailable", True, "gh"), ("thread_pages", [{"nodes": []}], "could not verify PR review threads"), ("thread_pages", [{"nodes": [], "pageInfo": {"hasNextPage": True, "endCursor": "next"}}], "could not verify PR review threads")):
             with self.subTest(key=key):
                 state = dict(original, **{key: value})
                 self.repo_file.write_text(json.dumps(state))
@@ -253,6 +253,9 @@ class SyncUpstream(SyncFixture):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(message, result.stderr)
                 self.assertNotIn("gh pr merge", result.stdout)
+        state = dict(original, thread_pages=[{"nodes": [], "pageInfo": {"hasNextPage": True, "endCursor": "next"}}, {"nodes": [{"isResolved": False}], "pageInfo": {"hasNextPage": False, "endCursor": None}}])
+        self.repo_file.write_text(json.dumps(state))
+        self.assertIn("unresolved review threads", self.merge_command(repo).stderr)
 
     def test_merge_command_prints_only_when_green(self):
         repo, head = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "success"}, {"name": "CodeRabbit", "status": "completed", "conclusion": "skipped"}], statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}])
