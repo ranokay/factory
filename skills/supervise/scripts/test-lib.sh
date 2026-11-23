@@ -3,7 +3,7 @@
 expect_contains() {
 	haystack=$1
 	needle=$2
-	if ! printf '%s\n' "$haystack" | grep -Fq "$needle"; then
+	if ! printf '%s\n' "$haystack" | grep -Fq -e "$needle"; then
 		printf 'expected output to contain %s, got:\n%s\n' "$needle" "$haystack" >&2
 		return 1
 	fi

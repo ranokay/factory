@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 TOOL = Path(__file__).resolve().with_name("pr-text")
@@ -219,18 +220,52 @@ def case_evidence_titled_link():
 def case_long_fence():
     body = GOOD.replace(
         "PR bodies and review threads read like logs.",
-        "```text\none\ntwo\nthree\nfour\nfive\n```",
+        "```text\none\ntwo\nthree\nfour\nfive\nsix\n```",
     )
     rejected(body, "the limit is 5")
+
+
+@case
+def case_fence_at_limit():
+    body = GOOD.replace(
+        "PR bodies and review threads read like logs.",
+        "A fence stays at the limit.\n\n```text\none\ntwo\nthree\nfour\nfive\n```",
+    )
+    accepted(body)
 
 
 @case
 def case_fenced_structure():
     body = GOOD.replace(
         "PR bodies and review threads read like logs.",
-        "```text\n## not a section\n# a comment\n<details>\n```",
+        "A fence stays literal.\n\n```text\n## not a section\n# a comment\n<details>\n```",
     )
     accepted(body)
+
+
+@case
+def case_evidence_enterprise():
+    body = GOOD.replace(
+        "https://github.com/ranokay/factory/pull/1#issuecomment-1",
+        "https://github.example.com/ranokay/factory/pull/1#issuecomment-1",
+    )
+    accepted(body)
+
+
+@case
+def case_body_file():
+    path = Path(tempfile.mkdtemp(prefix="pr-text-test-")) / "body.md"
+    path.write_text(GOOD)
+    result = run(["body", str(path)])
+    expect(result.returncode == 0, f"expected success, got {result.returncode}: {result.stderr.strip()}")
+
+
+@case
+def case_body_missing():
+    path = Path(tempfile.mkdtemp(prefix="pr-text-test-")) / "missing.md"
+    result = run(["body", str(path)])
+    expect(result.returncode == 1, f"expected exit 1, got {result.returncode}")
+    expect("cannot read" in result.stderr, result.stderr)
 
 
 @case
@@ -286,6 +321,29 @@ def case_reply_fixed_without_sha():
 @case
 def case_reply_too_long():
     rejected_reply("Not a bug: " + "x" * 190, "the limit is 200")
+
+
+@case
+def case_reply_stdin():
+    result = run(["reply", "-"], "Fixed in 50bd7aa\n")
+    expect(result.returncode == 0, f"expected success, got {result.returncode}: {result.stderr.strip()}")
+
+
+@case
+def case_reply_trailing_blank():
+    accepted_reply("Fixed in 50bd7aa\n\n")
+
+
+@case
+def case_reply_leading_blank():
+    rejected_reply("\nFixed in 50bd7aa", "must be one line")
+
+
+@case
+def case_reply_empty_stdin():
+    result = run(["reply", "-"], " \n")
+    expect(result.returncode == 1, f"expected exit 1, got {result.returncode}")
+    expect("reply is empty" in result.stderr, result.stderr)
 
 
 def main():

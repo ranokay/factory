@@ -26,7 +26,7 @@ fail() {
 }
 
 one_line() {
-  if [ "$(printf '%s\n' "$2" | wc -l | tr -d ' ')" -ne 1 ]; then
+  if [ "$(printf '%s' "$2" | awk 'END { print NR }')" -ne 1 ]; then
     fail "$1 must be one line; put longer text in --detail"
   fi
 }
@@ -57,32 +57,45 @@ while [ "$#" -gt 0 ]; do
   case $1 in
   --reason)
     [ "$#" -ge 2 ] || fail "missing value for --reason"
-    one_line --reason "$2"
-    reason=$2
+    reason=$(printf '%s\n' "$2")
+    one_line --reason "$reason"
     shift 2
     ;;
   --unblock)
     [ "$#" -ge 2 ] || fail "missing value for --unblock"
-    one_line --unblock "$2"
-    unblock=$2
+    unblock=$(printf '%s\n' "$2")
+    one_line --unblock "$unblock"
     shift 2
     ;;
   --evidence)
     [ "$#" -ge 2 ] || fail "missing value for --evidence"
-    one_line --evidence "$2"
+    item=$(printf '%s' "$2" | sed 's/^[[:space:]]*//')
+    case $item in
+    '') fail "--evidence must not be empty" ;;
+    -* | +* | \**) fail "--evidence must not start with a list marker" ;;
+    esac
+    one_line --evidence "$item"
     evidence="$evidence${evidence:+
-}$2"
+}$item"
     shift 2
     ;;
   --finding)
     [ "$#" -ge 2 ] || fail "missing value for --finding"
-    one_line --finding "$2"
+    item=$(printf '%s' "$2" | sed 's/^[[:space:]]*//')
+    case $item in
+    '') fail "--finding must not be empty" ;;
+    -* | +* | \**) fail "--finding must not start with a list marker" ;;
+    esac
+    one_line --finding "$item"
     findings="$findings${findings:+
-}$2"
+}$item"
     shift 2
     ;;
   --detail)
     [ "$#" -ge 2 ] || fail "missing value for --detail"
+    if printf '%s' "$2" | grep -qi '</details>'; then
+      fail "--detail cannot contain </details>"
+    fi
     detail="$detail${detail:+
 
 }$2"

@@ -13,7 +13,7 @@ DANGER_MAX_CHARS = 400
 FENCE_MAX_LINES = 5
 VISIBLE_MAX_LINES = 39
 REPLY_MAX_CHARS = 200
-EVIDENCE_LINK = re.compile(r"https://github\.com/[^\s)\]>]+/(?:issues|pull)/\d+#issuecomment-\d+")
+EVIDENCE_LINK = re.compile(r"https://[^\s)\]>]+/(?:issues|pull)/\d+#issuecomment-\d+")
 DOOR = re.compile(r"\*\*Door:\*\*\s+\S")
 BLAST_RADIUS = re.compile(r"\*\*Blast Radius:\*\*\s+\S")
 FIXED = re.compile(r"Fixed in [0-9a-f]{7,40}")
@@ -29,9 +29,10 @@ examples:
 The body runs Summary, Why, Evidence and Merge Danger, then one collapsed
 <details> block. The Evidence section is one line linking the PR's single
 evidence comment and saying what it proves. Outside <details> the body allows
-39 rendered lines, a 5-line fenced block, a 3-line Summary, a 400-character Why
-and a 400-character Merge Danger. A review reply is one line of at most 200
-characters: `Fixed in <sha>`, `Not a bug: <reason>` or `Deferred: #<issue>`.
+39 rendered lines, a fenced block of at most 5 content lines, a 3-line Summary,
+a 400-character Why and a 400-character Merge Danger. A review reply is one
+line of at most 200 characters: `Fixed in <sha>`, `Not a bug: <reason>` or
+`Deferred: #<issue>`.
 """
 
 
@@ -73,17 +74,18 @@ def check_sections(body):
         if details_closed and line:
             fail(f"line {number}: text after </details> must stay inside the block")
         if fence:
-            fence_lines += 1
-            sections[current].append((number, line))
-            if line:
-                visible += 1
             if line.startswith("```") or line.startswith("~~~"):
                 fence = False
+                visible += 1
                 if fence_lines > FENCE_MAX_LINES:
                     fail(
-                        f"line {fence_start}: fenced block has {fence_lines} lines outside "
-                        f"<details>; the limit is {FENCE_MAX_LINES}"
+                        f"line {fence_start}: fenced block has {fence_lines} content lines "
+                        f"outside <details>; the limit is {FENCE_MAX_LINES}"
                     )
+                continue
+            fence_lines += 1
+            if line:
+                visible += 1
             continue
         if line.startswith("## "):
             title = line[3:].strip()
@@ -105,8 +107,7 @@ def check_sections(body):
         if line.startswith("```") or line.startswith("~~~"):
             fence = True
             fence_start = number
-            fence_lines = 1
-            sections[current].append((number, line))
+            fence_lines = 0
             visible += 1
             continue
         if line.startswith("<details"):
@@ -182,7 +183,7 @@ def check_body(body):
 
 
 def check_reply(reply):
-    body = reply.strip()
+    body = reply.rstrip()
     if not body:
         fail("reply is empty")
     if "\n" in body:

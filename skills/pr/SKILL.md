@@ -50,7 +50,7 @@ Write the body in this order. The important line comes first; everything else is
 | Evidence | exactly 1 line, 300 characters, linking the comment and saying what it proves |
 | Merge Danger | 400 characters, with `**Door:**` and `**Blast Radius:**` |
 | Body outside `<details>` | at most 39 rendered lines |
-| Fenced block outside `<details>` | at most 5 lines |
+| Fenced block outside `<details>` | at most 5 content lines |
 
 ## Evidence
 

@@ -48,8 +48,48 @@ case_order() {
 	reset_gh_fixtures
 	"$block" o/one 6 --reason 'Worker failed the Gate' --unblock 'Raise the timeout in mise.toml' --evidence 'https://example.test/evidence' --finding 'F1: the Gate still fails' >/dev/null
 	first=$(first_content)
-	expect_contains "$first" '**Unblock step:** Raise the timeout in mise.toml'
+	if [ "$first" != '**Unblock step:** Raise the timeout in mise.toml' ]; then
+		printf 'expected the unblock step as the first content line, got %s\n' "$first" >&2
+		return 1
+	fi
 	printf 'ok: puts the unblock step first\n'
+}
+
+case_reason_multiline() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason "$(printf 'one\ntwo')" --unblock 'step' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for a multi-line reason\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'must be one line'
+	printf 'ok: refuses a multi-line reason\n'
+}
+
+case_trailing_newline() {
+	reset_gh_fixtures
+	"$block" o/one 6 --reason 'reason' --unblock "$(printf 'step\n')" >/dev/null
+	expect_body '**Unblock step:** step'
+	printf 'ok: accepts a trailing newline on a one-line value\n'
+}
+
+case_leading_marker() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason 'reason' --unblock 'step' --evidence '- https://example.test/evidence' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for an evidence list marker\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'must not start with a list marker'
+	printf 'ok: refuses an evidence list marker\n'
+}
+
+case_detail_breakout() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason 'reason' --unblock 'step' --detail 'before </details> after' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for a details breakout\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'cannot contain </details>'
+	printf 'ok: refuses a details breakout\n'
 }
 
 case_unblock_multiline() {
@@ -124,6 +164,10 @@ case ${BLOCK_ISSUE_CASE:-all} in
 post) case_post ;;
 order) case_order ;;
 unblock_multiline) case_unblock_multiline ;;
+reason_multiline) case_reason_multiline ;;
+trailing_newline) case_trailing_newline ;;
+leading_marker) case_leading_marker ;;
+detail_breakout) case_detail_breakout ;;
 idempotent) case_idempotent ;;
 missing) case_missing ;;
 invalid_repo) case_invalid_repo ;;
@@ -132,6 +176,10 @@ all)
 	case_post
 	case_order
 	case_unblock_multiline
+	case_reason_multiline
+	case_trailing_newline
+	case_leading_marker
+	case_detail_breakout
 	case_idempotent
 	case_missing
 	case_invalid_repo

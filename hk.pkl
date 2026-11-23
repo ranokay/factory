@@ -975,6 +975,26 @@ steps {
         env { ["BLOCK_ISSUE_CASE"] = "unblock_multiline" }
         expect { code = 0 }
       }
+      ["refuses a multi-line reason"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "reason_multiline" }
+        expect { code = 0 }
+      }
+      ["accepts a trailing newline on a one-line value"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "trailing_newline" }
+        expect { code = 0 }
+      }
+      ["refuses an evidence list marker"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "leading_marker" }
+        expect { code = 0 }
+      }
+      ["refuses a details breakout"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "detail_breakout" }
+        expect { code = 0 }
+      }
       ["keeps one comment on an already blocked issue"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "idempotent" }
@@ -1329,9 +1349,19 @@ steps {
         env { ["PR_TEXT_CASE"] = "long_fence" }
         expect { code = 0 }
       }
+      ["accepts a fence at the content limit"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "fence_at_limit" }
+        expect { code = 0 }
+      }
       ["accepts a fence that looks like structure"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "fenced_structure" }
+        expect { code = 0 }
+      }
+      ["accepts an Enterprise evidence link"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_enterprise" }
         expect { code = 0 }
       }
       ["rejects text after details"] {
@@ -1347,6 +1377,16 @@ steps {
       ["rejects 40 rendered lines"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "40_lines" }
+        expect { code = 0 }
+      }
+      ["accepts a body from a file"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "body_file" }
+        expect { code = 0 }
+      }
+      ["rejects a missing body file"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "body_missing" }
         expect { code = 0 }
       }
       ["accepts a short fixed reply"] {
@@ -1387,6 +1427,26 @@ steps {
       ["rejects a reply over 200 characters"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "reply_too_long" }
+        expect { code = 0 }
+      }
+      ["accepts a reply from stdin"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_stdin" }
+        expect { code = 0 }
+      }
+      ["accepts a trailing blank line after a reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_trailing_blank" }
+        expect { code = 0 }
+      }
+      ["rejects a reply with a leading blank line"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_leading_blank" }
+        expect { code = 0 }
+      }
+      ["rejects an empty reply from stdin"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_empty_stdin" }
         expect { code = 0 }
       }
     }
