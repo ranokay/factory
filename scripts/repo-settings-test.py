@@ -67,6 +67,8 @@ else:
                 print(json.dumps([{"secrets": s["secrets"][:1]}, {"secrets": s["secrets"][1:]}]))
                 sys.exit(0)
             result = {"secrets": s["secrets"][:1]}
+        elif key == "":
+            result = dict(s["repo"], full_name=s.get("canonical_name", s["name"]))
         else:
             result = s[mapping[key]]
         print(json.dumps([result] if "--slurp" in a else result))
@@ -459,6 +461,17 @@ class RepoSettings(unittest.TestCase):
         state["writes"] = []
         for ruleset in state["rulesets"]:
             ruleset["source"] = "O/R"
+        self.write(state)
+        result = self.run_command("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no changes", result.stdout)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], [])
+
+        state = json.loads(json.dumps(original))
+        state["writes"] = []
+        state["canonical_name"] = "renamed/repo"
+        for ruleset in state["rulesets"]:
+            ruleset["source"] = "RENAMED/REPO"
         self.write(state)
         result = self.run_command("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)

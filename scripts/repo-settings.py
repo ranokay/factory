@@ -239,7 +239,7 @@ def main():
             if not isinstance(source, str) or not source or not isinstance(source_type, str) or not source_type:
                 raise RuntimeError(f"ruleset {item['name']} ({item['id']}) has missing ownership information (source_type: {source_type!r})")
             if source_type == "Repository":
-                if source.lower() != args.repo.lower():
+                if source.lower() != repo["full_name"].lower():
                     raise RuntimeError(f"ruleset {item['name']} belongs to another repository: {source}")
                 owned.append(item)
             elif source_type not in ("Organization", "Enterprise"):
