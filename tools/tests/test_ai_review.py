@@ -225,7 +225,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
         check = named_step(action_steps(action("ocr-review")), "Require published review")
         self.assertEqual(check["env"]["SUMMARY"], "${{ steps.review.outputs.summary_comment_url }}")
         self.assertEqual(check["env"]["RANGE_REASON"], "${{ steps.review.outputs.range_reason }}")
-        self.assertEqual(check["env"]["RESULT_PATH"], "/tmp/ocr-result.json")
+        self.assertEqual(check["env"]["RESULT_PATH"], "/tmp/ocr-result.json")  # nosec B108 -- the OCR action writes its result there
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "result.json"
             env = {"SUMMARY": "https://example.test/comment", "RANGE_REASON": "", "RESULT_PATH": str(path)}

@@ -25,6 +25,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Review
-        uses: $/.github/actions/ocr-review
+        uses: ./.github/actions/ocr-review # zizmor: ignore[self-repository] -- Codacy does not understand the self-repository form
         with:
           opencode_zen_api_key: ${{ secrets.OPENCODE_ZEN_API_KEY }}
