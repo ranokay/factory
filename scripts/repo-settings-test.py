@@ -333,19 +333,28 @@ class RepoSettings(unittest.TestCase):
         state = json.loads(self.path.read_text())
         state["repo"]["fork"] = False
         state["topics"]["names"] = []
-        for kind in ("rule", "condition"):
+        for kind in ("rule", "parameter", "actor", "condition"):
             with self.subTest(kind=kind):
                 candidate = json.loads(json.dumps(state))
                 review = next(item for item in candidate["rulesets"] if item["name"] == "Factory review rules")
+                rules = {rule["type"]: rule for rule in review["rules"]}
                 if kind == "rule":
                     review["rules"].append({"type": "deletion"})
+                    difference = "rules"
+                elif kind == "parameter":
+                    rules["pull_request"]["parameters"]["required_reviewers"] = []
+                    difference = "rules"
+                elif kind == "actor":
+                    review["bypass_actors"].append({"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"})
+                    difference = "bypass_actors"
                 else:
                     review["conditions"]["ref_name"]["extra"] = ["protected"]
+                    difference = "conditions"
                 candidate["writes"] = []
                 self.write(candidate)
                 result = self.run_command("--apply")
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("manual: ruleset Factory review rules differs", result.stdout)
+                self.assertIn(f"manual: ruleset Factory review rules differs from Factory review rules in {difference}", result.stdout)
                 self.assertIn(f"gh api -X DELETE repos/o/r/rulesets/{review['id']}", result.stdout)
                 self.assertFalse(any(write.startswith("DELETE /rulesets/") for write in json.loads(self.path.read_text())["writes"]))
 
