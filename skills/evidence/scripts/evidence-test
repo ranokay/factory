@@ -806,10 +806,13 @@ def case_no_attachments(work):
         "The CLI change has no visual surface."
     )
     ok(tool(work, repo, receipt_args(pr="7", summary=summary)))
+    target = work / "cache" / "a" / "one" / "7"
+    (target / "notes.txt").write_text("command output\n")
     dry = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
     expect("--attach" not in dry, dry)
-    body = (work / "cache" / "a" / "one" / "7" / "body.md").read_text()
+    body = (target / "body.md").read_text()
     expect("### Attachments" not in body, body)
+    expect("notes.txt" not in body, body)
     expect(summary.splitlines()[0] in body, body)
     expect("<details>\n<summary>Run receipt</summary>" in body, body)
     expect("<summary>Run receipt</summary>" in body, body)
@@ -844,6 +847,31 @@ def case_caption_merge(work):
     ok(tool(work, wt, ["attach", "--repo", "a/one", "--pr", "7"]))
     recorded = comment(work, "101")
     expect(len(recorded["attachments"]) == 2, f"attachments were {recorded['attachments']}")
+
+
+@case
+def case_legacy_receipt(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    summary = "\n".join(f"line {index}" for index in range(11))
+    (target / "receipt.json").write_text(
+        json.dumps(
+            {
+                "model": "m",
+                "variant": "max",
+                "fallback": "no",
+                "attempts": 1,
+                "cost": "1k tokens",
+                "gates": ["`mise run check` \u2014 exit 0"],
+                "summary": summary,
+            }
+        )
+    )
+    out = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
+    expect("dry run: no comment posted" in out, out)
+    body = (target / "body.md").read_text()
+    expect("line 10" in body, body)
 
 
 def main():

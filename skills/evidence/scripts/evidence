@@ -21,7 +21,6 @@ VIDEO_SUFFIXES = {".mp4", ".mov", ".webm"}
 REPOSITORY = re.compile(r"^[a-z0-9_.-]+/[a-z0-9_.-]+$")
 UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 UNAVAILABLE = re.compile(r"^unavailable \([^)]+\)$")
-RESERVED = {"body.md", "receipt.json", CAPTIONS}
 ENCODERS = ("libx264", "libopenh264", "h264_videotoolbox")
 SUPPORTED = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
 
@@ -295,7 +294,8 @@ def fit_video(path):
     size = path.stat().st_size
     if size <= limit:
         return path
-    compressed = path.with_name(f"{path.stem}-compressed.mp4")
+    stem = re.sub(r"-compressed(-\d+)?$", "", path.stem)
+    compressed = path.with_name(f"{stem}-compressed.mp4")
     index = 2
     while compressed.exists():
         compressed = path.with_name(f"{path.stem}-compressed-{index}.mp4")
@@ -357,8 +357,9 @@ def cmd_add(args):
             continue
         if suffix in IMAGE_SUFFIXES:
             require_size(source)
+        replaced = destination.exists()
         shutil.copy2(source, destination)
-        print(f"added {name} ({human(destination.stat().st_size)}) to {target}")
+        print(f"{'replaced' if replaced else 'added'} {name} ({human(destination.stat().st_size)}) to {target}")
         if suffix in VIDEO_SUFFIXES:
             try:
                 final = fit_video(destination)
@@ -451,7 +452,6 @@ def load_receipt(path):
             fail(f"{path} is missing {key}; run `evidence receipt` again")
     if data["fallback"] not in ("yes", "no"):
         fail(f"{path} has fallback {data['fallback']!r}, expected yes or no")
-    check_summary(str(data["summary"]), f"{path} summary")
     return data
 
 
@@ -460,7 +460,9 @@ def attachments(directory):
         return []
     files = []
     for item in sorted(directory.iterdir()):
-        if not item.is_file() or item.name in RESERVED or item.name.startswith("."):
+        if not item.is_file() or item.name.startswith("."):
+            continue
+        if item.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
             continue
         files.append(item)
     return files
@@ -480,7 +482,8 @@ def load_captions(directory):
         fail(f"{path} must map each file name to a one-line caption")
     for key, value in data.items():
         caption_text(value, f"{path} caption for {key}")
-    return data
+    names = {item.name for item in attachments(directory)}
+    return {key: value for key, value in data.items() if key in names}
 
 
 def rekey_caption(captions, old, new):
@@ -506,9 +509,6 @@ def attachment_limit(count, where, state="in"):
 def attachment_entries(directory):
     files = attachments(directory)
     attachment_limit(len(files), directory)
-    for item in files:
-        if item.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
-            fail(f"{item.name} is not an image or video; attachments accept {SUPPORTED}")
     captions = load_captions(directory)
     entries = []
     for item in files:

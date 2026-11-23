@@ -1148,6 +1148,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "no_attachments" }
         expect { code = 0 }
       }
+      ["a receipt written before the summary cap still attaches"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "legacy_receipt" }
+        expect { code = 0 }
+      }
       ["staged captions merge with attachments already in the PR directory"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "caption_merge" }
