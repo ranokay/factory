@@ -300,10 +300,14 @@ def fit_video(path):
     while compressed.exists():
         compressed = path.with_name(f"{path.stem}-compressed-{index}.mp4")
         index += 1
-    encode(path, compressed, limit)
-    final = compressed.stat().st_size
-    if final > limit:
-        fail(f"{compressed.name} is still {human(final)} and the limit is {human(limit)}")
+    try:
+        encode(path, compressed, limit)
+        final = compressed.stat().st_size
+        if final > limit:
+            fail(f"{compressed.name} is still {human(final)} and the limit is {human(limit)}")
+    except Refused:
+        compressed.unlink(missing_ok=True)
+        raise
     path.unlink()
     print(f"compressed {path.name} ({human(size)}) to {compressed.name} ({human(final)})")
     return compressed
@@ -360,7 +364,6 @@ def cmd_add(args):
                 final = fit_video(destination)
             except Refused:
                 destination.unlink(missing_ok=True)
-                (target / f"{destination.stem}-compressed.mp4").unlink(missing_ok=True)
                 raise
             if final.name != name:
                 rekey_caption(captions, name, final.name)

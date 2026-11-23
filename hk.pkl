@@ -1078,6 +1078,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "add_dest_inside" }
         expect { code = 0 }
       }
+      ["a failed add keeps stored attachments and its captions"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_video_rollback" }
+        expect { code = 0 }
+      }
       ["staged evidence moves to the PR directory before the comment"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "stage_attach" }
@@ -1101,6 +1106,11 @@ steps {
       ["a compressed video takes a unique name when its target exists"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "attach_video_collision" }
+        expect { code = 0 }
+      }
+      ["a rekeyed caption survives a later failure"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_rekey_survives_failure" }
         expect { code = 0 }
       }
       ["a file over the limit fails before upload"] {

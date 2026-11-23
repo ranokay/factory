@@ -291,6 +291,27 @@ def case_add_dest_inside(work):
 
 
 @case
+def case_add_video_rollback(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    shutil.copy2(make_video(work / "demo-compressed.mp4", seconds=1), target / "demo-compressed.mp4")
+    (target / "captions.json").write_text(json.dumps({"demo-compressed.mp4": "Old flow"}))
+    big = make_video(work / "demo.mp4", seconds=3)
+    result = tool(
+        work,
+        repo,
+        ["add", str(big), "--caption", "New flow", "--repo", "a/one", "--pr", "7"],
+        env={"EVIDENCE_MAX_BYTES": "1000"},
+    )
+    refused(result, "cannot fit")
+    expect((target / "demo-compressed.mp4").is_file(), "the failed add deleted a stored attachment")
+    expect(not (target / "demo.mp4").exists(), "the failed add left its copy behind")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"demo-compressed.mp4": "Old flow"}, f"captions were {captions}")
+
+
+@case
 def case_stage_attach(work):
     repo, _ = make_repo(work)
     wt = make_worktree(repo, work)
@@ -440,6 +461,29 @@ def case_attach_video_collision(work):
     recorded = comment(work, "101")
     expected = sorted([str(target / "demo-compressed.mp4"), str(compressed)])
     expect(sorted(recorded["attachments"]) == expected, f"attachments were {recorded['attachments']}")
+
+
+@case
+def case_attach_rekey_survives_failure(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    shutil.copy2(make_video(work / "a.mp4", seconds=3), target / "a.mp4")
+    image = make_image(target / "z.png", size="3840x2160")
+    expect(image.stat().st_size > 500000, f"the fixture image is only {image.stat().st_size} bytes")
+    (target / "captions.json").write_text(json.dumps({"a.mp4": "The flow records"}))
+    result = tool(
+        work,
+        repo,
+        ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"],
+        env={"EVIDENCE_MAX_BYTES": "500000"},
+    )
+    refused(result, "attachment limit")
+    compressed = target / "a-compressed.mp4"
+    expect(compressed.is_file(), "the video was not compressed")
+    expect(not (target / "a.mp4").exists(), "the original video remains")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"a-compressed.mp4": "The flow records"}, f"captions were {captions}")
 
 
 @case
