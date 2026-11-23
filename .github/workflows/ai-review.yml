@@ -66,7 +66,11 @@ jobs:
           llm_auth_token: ${{ secrets.OPENCODE_ZEN_API_KEY }}
           llm_extra_headers: x-opencode-session=ses-${{ github.repository_id }}-${{ github.event.pull_request.number }}-${{ github.run_id }}
           background: ${{ steps.context.outputs.background }}
-          rule: ai-review-rule.json
+          # OCR resolves a rule file's nested REVIEW.md against the JSON's
+          # directory and rejects a bare filename as escaping the repo root, so
+          # pass the workspace-qualified path. See tryReadRuleFile in
+          # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/internal/config/rules/system_rules.go
+          rule: ${{ github.workspace }}/ai-review-rule.json
           sticky_summary: 'true'
           incremental: 'true'
           checkpoint_range: 'true'

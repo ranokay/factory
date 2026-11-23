@@ -91,7 +91,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
         with_ = review_step(workflow("ai-review.yml"))["with"]
         expected = {
             "ocr_version": "1.14.0",
-            "rule": "ai-review-rule.json",
+            "rule": "${{ github.workspace }}/ai-review-rule.json",
             "sticky_summary": "true",
             "incremental": "true",
             "checkpoint_range": "true",
@@ -105,7 +105,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
                 self.assertEqual(with_.get(name), value)
         self.assertNotIn("max_tokens_budget", with_)
 
-    def test_rule_file_points_at_review_markdown(self):
+    def test_rule_file_points_at_review_markdown_through_an_absolute_path(self):
         path = ROOT / "ai-review-rule.json"
         self.assertEqual(json.loads(path.read_text()), {
             "rules": [{
@@ -115,7 +115,10 @@ class AiReviewWorkflowTests(unittest.TestCase):
             }],
         })
         self.assertTrue((ROOT / "REVIEW.md").is_file())
-        self.assertEqual(review_step(workflow("ai-review.yml"))["with"]["rule"], path.name)
+        self.assertEqual(
+            review_step(workflow("ai-review.yml"))["with"]["rule"],
+            "${{ github.workspace }}/" + path.name,
+        )
 
     def test_draft_pull_requests_skip_review_until_ready(self):
         callee = workflow("ai-review.yml")
