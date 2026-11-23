@@ -115,8 +115,7 @@ executing only the command that prints. The command exits nonzero if any verdict
 missing or any check run or commit status on the head is not successful; `skipped`
 and `neutral` pass only for a check the ruleset does not require. Its `--admin` flag
 stands in only for the `review_ruleset_name` in `repo-settings.json` (signature,
-authorship and review-thread resolution). The configured `ruleset_name` holds required checks without a bypass. The command gates verdicts and checks; it does
-not inspect review threads, so resolve them first. The promotion at
+authorship and review-thread resolution). The configured `ruleset_name` holds required checks without a bypass. The command also requires a verified signature on the Sync merge commit and all review threads resolved. The promotion at
 https://github.com/ranokay/factory/issues/105 tracks the guard that enforces this.
 
 Never merge a Sync PR whose verdicts fail. Never force-push its branch.

@@ -294,6 +294,20 @@ def merge_command(args):
     problems = []
     if base != info["default_branch"]:
         problems.append(f"PR base {base} is not {info['default_branch']}")
+    commit = json.loads(run(["gh", "api", f"repos/{repo}/commits/{head}"]).stdout)
+    if commit.get("commit", {}).get("verification", {}).get("verified") is not True:
+        problems.append("Sync merge commit signature is not verified")
+    owner, name = repo.split("/", 1)
+    query = "query($owner: String!, $name: String!, $number: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $endCursor) { nodes { isResolved } pageInfo { hasNextPage endCursor } } } } }"
+    pages = json.loads(run(["gh", "api", "graphql", "--paginate", "--slurp", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"number={args.pr}"]).stdout)
+    try:
+        if not isinstance(pages, list) or not pages or any(page.get("errors") for page in pages):
+            raise ValueError
+        threads = [node for page in pages for node in page["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]]
+        if any(thread["isResolved"] is not True for thread in threads):
+            problems.append("PR has unresolved review threads")
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise SyncError("could not verify PR review threads") from None
     current = git("rev-parse", "HEAD", check=False)
     if current.returncode or current.stdout.strip() != head:
         problems.append(f"HEAD is not the PR head {head}")

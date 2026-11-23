@@ -376,7 +376,11 @@ def main():
     if not personal_fork:
         stale_review = find_ruleset(CONFIG["review_ruleset_name"])
         if stale_review:
-            change(f"ruleset {CONFIG['review_ruleset_name']}: delete", "DELETE", base + "/rulesets/" + str(stale_review["id"]))
+            expected_review = review_ruleset()
+            if matches(stale_review, expected_review) and matches(expected_review["rules"], stale_review["rules"]) and matches(expected_review["bypass_actors"], stale_review["bypass_actors"]):
+                change(f"ruleset {CONFIG['review_ruleset_name']}: delete", "DELETE", base + "/rulesets/" + str(stale_review["id"]))
+            else:
+                manual_drift.append(f"ruleset {stale_review['name']} differs from Factory review rules: {json.dumps(stale_review, sort_keys=True)}; gh api -X DELETE {base}/rulesets/{stale_review['id']}")
     secret_pages = json.loads(command(["gh", "api", "--paginate", "--slurp", base + "/actions/secrets?per_page=100"]))
     secrets = [secret for page in secret_pages for secret in page["secrets"]]
     secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)

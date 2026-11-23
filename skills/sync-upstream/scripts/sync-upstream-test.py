@@ -241,6 +241,19 @@ class SyncUpstream(SyncFixture):
     def merge_command(self, repo, pr=7):
         return self.cli("merge-command", "--repo", "o/r", "--pr", str(pr), cwd=repo, check=False)
 
+    def test_merge_command_requires_verified_commit_and_resolved_threads(self):
+        repo, _ = self.command_fixture()
+        original = json.loads(self.repo_file.read_text())
+        self.assertEqual(self.merge_command(repo).returncode, 0)
+        for key, value, message in (("verified", False, "signature is not verified"), ("review_threads", [{"isResolved": False}], "unresolved review threads"), ("threads_unavailable", True, "gh")):
+            with self.subTest(key=key):
+                state = dict(original, **{key: value})
+                self.repo_file.write_text(json.dumps(state))
+                result = self.merge_command(repo)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("gh pr merge", result.stdout)
+
     def test_merge_command_prints_only_when_green(self):
         repo, head = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "success"}, {"name": "CodeRabbit", "status": "completed", "conclusion": "skipped"}], statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}])
         result = self.merge_command(repo)

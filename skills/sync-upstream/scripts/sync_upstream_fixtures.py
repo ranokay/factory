@@ -14,7 +14,12 @@ GH = '''#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_REPO"]))
 args = sys.argv[1:]
-if args[:2] == ["api", "repos/" + state["name"]]:
+if args[:2] == ["api", "graphql"]:
+    if state.get("threads_unavailable"):
+        print("review threads unavailable", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps([{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": state.get("review_threads", [])}}}}}]))
+elif args[:2] == ["api", "repos/" + state["name"]]:
     print(json.dumps(state["info"]))
 elif args[:2] == ["repo", "view"]:
     print(state.get("view", state["name"]))
@@ -31,6 +36,8 @@ elif args[0] == "api":
     key = endpoint.split("?", 1)[0]
     if key.startswith("repos/" + state["name"] + "/rules/branches/"):
         print(json.dumps([state.get("applied_rules", [])]))
+    elif "/commits/" in key and not key.endswith(("/check-runs", "/statuses", "/status")):
+        print(json.dumps({"commit": {"verification": {"verified": state.get("verified", True)}}}))
     elif key.endswith("/check-runs"):
         head = key.split("/commits/")[1].removesuffix("/check-runs")
         print(json.dumps([{"check_runs": state.get("check_runs", {}).get(head, [])}]))
