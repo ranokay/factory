@@ -105,6 +105,12 @@ class AiReviewWorkflowTests(unittest.TestCase):
                 self.assertEqual(with_.get(name), value)
         self.assertNotIn("max_tokens_budget", with_)
 
+    def test_checkpoint_session_header_is_stable_across_pushes(self):
+        headers = review_step(workflow("ai-review.yml"))["with"]["llm_extra_headers"]
+        self.assertNotIn("run_id", headers)
+        self.assertIn("github.repository_id", headers)
+        self.assertIn("github.event.pull_request.number", headers)
+
     def test_rule_file_points_at_review_markdown_through_an_absolute_path(self):
         path = ROOT / "ai-review-rule.json"
         self.assertEqual(json.loads(path.read_text()), {
