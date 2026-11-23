@@ -985,6 +985,26 @@ steps {
         env { ["BLOCK_ISSUE_CASE"] = "trailing_newline" }
         expect { code = 0 }
       }
+      ["refuses multi-line evidence"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "evidence_multiline" }
+        expect { code = 0 }
+      }
+      ["accepts a digit-leading evidence value"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "digit_value" }
+        expect { code = 0 }
+      }
+      ["refuses a summary tag in details"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "summary_tag" }
+        expect { code = 0 }
+      }
+      ["escapes a mention in the reason"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "reason_mention" }
+        expect { code = 0 }
+      }
       ["refuses an evidence list marker"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "leading_marker" }
@@ -1342,6 +1362,11 @@ steps {
       ["rejects a missing Why"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "missing_why" }
+        expect { code = 0 }
+      }
+      ["rejects an indented section heading"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "indented_heading" }
         expect { code = 0 }
       }
       ["rejects evidence without the comment link"] {

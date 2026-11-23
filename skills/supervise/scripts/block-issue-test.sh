@@ -72,8 +72,49 @@ case_reason_multiline() {
 case_trailing_newline() {
 	reset_gh_fixtures
 	"$block" o/one 6 --reason 'reason' --unblock "$(printf 'step\n')" >/dev/null
-	expect_body '**Unblock step:** step'
+	if ! grep -Fxq '**Unblock step:** step' "$GH_BODY"; then
+		printf 'expected the exact unblock line, got:\n%s\n' "$(cat "$GH_BODY")" >&2
+		return 1
+	fi
 	printf 'ok: accepts a trailing newline on a one-line value\n'
+}
+
+case_evidence_multiline() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason 'reason' --unblock 'step' --evidence "$(printf 'one\ntwo')" >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for multi-line evidence\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'must be one line'
+	printf 'ok: refuses multi-line evidence\n'
+}
+
+case_digit_value() {
+	reset_gh_fixtures
+	"$block" o/one 6 --reason 'reason' --unblock 'step' --evidence '10.0.0.1' >/dev/null
+	expect_body '- 10.0.0.1'
+	printf 'ok: accepts a digit-leading evidence value\n'
+}
+
+case_summary_tag() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason 'reason' --unblock 'step' --detail '</summary>' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for a summary tag\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'cannot contain a details block'
+	printf 'ok: refuses a summary tag in details\n'
+}
+
+case_reason_mention() {
+	reset_gh_fixtures
+	"$block" o/one 6 --reason 'ping @alice' --unblock 'step' >/dev/null
+	expect_body 'ping &#64;alice'
+	if grep -Fq '@alice' "$GH_BODY"; then
+		printf 'expected the reason mention to be escaped\n' >&2
+		return 1
+	fi
+	printf 'ok: escapes a mention in the reason\n'
 }
 
 case_leading_marker() {
@@ -225,6 +266,10 @@ order) case_order ;;
 unblock_multiline) case_unblock_multiline ;;
 reason_multiline) case_reason_multiline ;;
 trailing_newline) case_trailing_newline ;;
+evidence_multiline) case_evidence_multiline ;;
+digit_value) case_digit_value ;;
+summary_tag) case_summary_tag ;;
+reason_mention) case_reason_mention ;;
 leading_marker) case_leading_marker ;;
 detail_breakout) case_detail_breakout ;;
 detail_mention) case_detail_mention ;;
@@ -242,6 +287,10 @@ all)
 	case_unblock_multiline
 	case_reason_multiline
 	case_trailing_newline
+	case_evidence_multiline
+	case_digit_value
+	case_summary_tag
+	case_reason_mention
 	case_leading_marker
 	case_detail_breakout
 	case_detail_mention

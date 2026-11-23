@@ -254,18 +254,26 @@ def case_evidence_enterprise():
 
 @case
 def case_body_file():
-    path = Path(tempfile.mkdtemp(prefix="pr-text-test-")) / "body.md"
-    path.write_text(GOOD)
-    result = run(["body", str(path)])
+    with tempfile.TemporaryDirectory(prefix="pr-text-test-") as directory:
+        path = Path(directory) / "body.md"
+        path.write_text(GOOD)
+        result = run(["body", str(path)])
     expect(result.returncode == 0, f"expected success, got {result.returncode}: {result.stderr.strip()}")
 
 
 @case
 def case_body_missing():
-    path = Path(tempfile.mkdtemp(prefix="pr-text-test-")) / "missing.md"
-    result = run(["body", str(path)])
+    with tempfile.TemporaryDirectory(prefix="pr-text-test-") as directory:
+        path = Path(directory) / "missing.md"
+        result = run(["body", str(path)])
     expect(result.returncode == 1, f"expected exit 1, got {result.returncode}")
     expect("cannot read" in result.stderr, result.stderr)
+
+
+@case
+def case_indented_heading():
+    body = GOOD.replace("## Why", "  ## Why")
+    rejected(body, "must be inside <details>")
 
 
 @case

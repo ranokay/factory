@@ -57,7 +57,7 @@ while [ "$#" -gt 0 ]; do
   case $1 in
   --reason)
     [ "$#" -ge 2 ] || fail "missing value for --reason"
-    reason=$(printf '%s\n' "$2")
+    reason=$(printf '%s\n' "$2" | sed 's/@/\&#64;/g')
     one_line --reason "$reason"
     shift 2
     ;;
@@ -73,10 +73,11 @@ while [ "$#" -gt 0 ]; do
     case $item in
     '') fail "--evidence must not be empty" ;;
     esac
-    if printf '%s' "$item" | grep -Eq '^([-+*#>|]|[0-9]+[.)])'; then
+    if printf '%s' "$item" | grep -Eq '^([-+*#>|][[:space:]]|[0-9]+[.)][[:space:]])'; then
       fail "--evidence must not start with a list marker"
     fi
     one_line --evidence "$item"
+    item=$(printf '%s' "$item" | sed 's/@/\&#64;/g')
     evidence="$evidence${evidence:+
 }$item"
     shift 2
@@ -87,17 +88,18 @@ while [ "$#" -gt 0 ]; do
     case $item in
     '') fail "--finding must not be empty" ;;
     esac
-    if printf '%s' "$item" | grep -Eq '^([-+*#>|]|[0-9]+[.)])'; then
+    if printf '%s' "$item" | grep -Eq '^([-+*#>|][[:space:]]|[0-9]+[.)][[:space:]])'; then
       fail "--finding must not start with a list marker"
     fi
     one_line --finding "$item"
+    item=$(printf '%s' "$item" | sed 's/@/\&#64;/g')
     findings="$findings${findings:+
 }$item"
     shift 2
     ;;
   --detail)
     [ "$#" -ge 2 ] || fail "missing value for --detail"
-    if printf '%s' "$2" | grep -Eqi '</?details|<summary'; then
+    if printf '%s' "$2" | grep -Eqi '</?(details|summary)'; then
       fail "--detail cannot contain a details block"
     fi
     if printf '%s' "$2" | grep -Fq '<!-- factory:blocker -->'; then
