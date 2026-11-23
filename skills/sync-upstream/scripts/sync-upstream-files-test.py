@@ -53,6 +53,13 @@ class SyncUpstreamFiles(SyncFixture):
         self.branch(repo, "delete", "GLOSSARY.md", "", delete=True)
         self.assertEqual(self.factory_files(repo, "delete").returncode, 0)
 
+    def test_factory_files_rejects_non_ascii_workflow_marker(self):
+        repo = self.factory_repo()
+        self.branch(repo, "unicode-workflow", ".github/workflows/café.yaml", "jobs:\n  test:\n    uses: ranokay/factory/.github/workflows/gates.yml@main\n")
+        result = self.factory_files(repo, "unicode-workflow")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("café.yaml: adds ranokay/factory", result.stderr)
+
     def target(self, existing=None):
         path = self.root / "target"
         path.mkdir()
