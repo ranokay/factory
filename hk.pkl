@@ -1304,6 +1304,11 @@ steps {
         env { ["PR_TEXT_CASE"] = "long_fence" }
         expect { code = 0 }
       }
+      ["accepts a fence that looks like structure"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "fenced_structure" }
+        expect { code = 0 }
+      }
       ["rejects text after details"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "text_after_details" }

@@ -90,8 +90,8 @@ Review `review / review` threads are threads like any other, not only human
 comments.
 
 Post the reply only after the fix commit is pushed, so the `<sha>` in
-`Fixed in <sha>` resolves on GitHub. Use exactly one line, then resolve the
-thread:
+`Fixed in <sha>` resolves on GitHub. Use exactly one line of at most 200
+characters, then resolve the thread:
 
 - `Fixed in <sha>`: a valid finding fixed by that commit.
 - `Not a bug: <reason>`: an incorrect finding, with the source or validation

@@ -70,16 +70,21 @@ def check_sections(body):
                 in_details = False
                 details_closed = True
             continue
-        if line.startswith("<details"):
-            if details_seen:
-                fail(f"line {number}: use one <details> block")
-            if order != list(SECTIONS):
-                fail(f"line {number}: <details> comes after Merge Danger")
-            details_seen = True
-            in_details = True
-            continue
         if details_closed and line:
             fail(f"line {number}: text after </details> must stay inside the block")
+        if fence:
+            fence_lines += 1
+            sections[current].append((number, line))
+            if line:
+                visible += 1
+            if line.startswith("```") or line.startswith("~~~"):
+                fence = False
+                if fence_lines > FENCE_MAX_LINES:
+                    fail(
+                        f"line {fence_start}: fenced block has {fence_lines} lines outside "
+                        f"<details>; the limit is {FENCE_MAX_LINES}"
+                    )
+            continue
         if line.startswith("## "):
             title = line[3:].strip()
             if title not in SECTIONS:
@@ -93,37 +98,27 @@ def check_sections(body):
             current = title
             visible += 1
             continue
-        if line.startswith("#"):
-            fail(f"line {number}: heading {line!r} must be inside <details>")
         if not order:
             if line:
                 fail(f"line {number}: text before ## Summary")
             continue
         if line.startswith("```") or line.startswith("~~~"):
-            if fence:
-                fence_lines += 1
-                sections[current].append((number, line))
-                if line:
-                    visible += 1
-                fence = False
-                if fence_lines > FENCE_MAX_LINES:
-                    fail(
-                        f"line {fence_start}: fenced block has {fence_lines} lines outside "
-                        f"<details>; the limit is {FENCE_MAX_LINES}"
-                    )
-                continue
             fence = True
             fence_start = number
             fence_lines = 1
             sections[current].append((number, line))
             visible += 1
             continue
-        if fence:
-            fence_lines += 1
-            sections[current].append((number, line))
-            if line:
-                visible += 1
+        if line.startswith("<details"):
+            if details_seen:
+                fail(f"line {number}: use one <details> block")
+            if order != list(SECTIONS):
+                fail(f"line {number}: <details> comes after Merge Danger")
+            details_seen = True
+            in_details = True
             continue
+        if line.startswith("#"):
+            fail(f"line {number}: heading {line!r} must be inside <details>")
         if not line:
             continue
         visible += 1

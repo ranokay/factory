@@ -186,6 +186,15 @@ def case_long_fence():
 
 
 @case
+def case_fenced_structure():
+    body = GOOD.replace(
+        "PR bodies and review threads read like logs.",
+        "```text\n## not a section\n# a comment\n<details>\n```",
+    )
+    accepted(body)
+
+
+@case
 def case_text_after_details():
     rejected(GOOD + "\ntrailing\n", "must stay inside the block")
 
