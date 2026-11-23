@@ -13,6 +13,18 @@ from pathlib import Path
 CONFIG = json.loads((Path(__file__).resolve().parent.parent / "repo-settings.json").read_text())
 
 
+def validate_config():
+    names = (CONFIG.get("ruleset_name"), CONFIG.get("review_ruleset_name"))
+    if any(not isinstance(name, str) or not name.strip() for name in names) or names[0].casefold() == names[1].casefold():
+        raise RuntimeError("repo-settings.json: ruleset names must be nonempty and distinct")
+    rules = CONFIG.get("branch_rules")
+    required = {"deletion", "non_fast_forward", "required_signatures", "pull_request"}
+    if not isinstance(rules, list) or not required.issubset({rule.get("type") for rule in rules if isinstance(rule, dict)}):
+        raise RuntimeError("repo-settings.json: branch_rules must include deletion, non_fast_forward, required_signatures and pull_request")
+    if CONFIG.get("fork_bypass_actor") != {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}:
+        raise RuntimeError("repo-settings.json: fork_bypass_actor must be the admin role in pull_request mode")
+
+
 def command(args, data=None, env=None):
     result = subprocess.run(args, input=data, capture_output=True, env=env, check=False)
     if result.returncode:
@@ -170,6 +182,7 @@ def main():
     args = parser.parse_args()
     if len(args.repo.split("/")) != 2 or not all(args.repo.split("/")):
         parser.error("repo must be OWNER/REPO")
+    validate_config()
     owner, name = args.repo.split("/")
     base = "repos/" + args.repo
 

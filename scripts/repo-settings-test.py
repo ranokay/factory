@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 GH = '''#!/usr/bin/env python3
 import base64, json, os, sys
 a = sys.argv[1:]
+if os.environ.get("FAKE_GH_LOG"):
+    open(os.environ["FAKE_GH_LOG"], "a").write("called\\n")
 path = os.environ["FAKE_STATE"]
 s = json.load(open(path))
 if a[0] == "secret":
@@ -353,6 +356,33 @@ class RepoSettings(unittest.TestCase):
         self.assertTrue(all("includes_parents=false" in endpoint for endpoint in state["ruleset_list_requests"]))
         self.assertFalse(any(request["path"] == "/rulesets/90" for request in state["ruleset_requests"]))
         self.assertFalse(any(request["path"] == "/rulesets/91" for request in state["ruleset_requests"]))
+
+    def test_invalid_ruleset_config_fails_before_api_calls(self):
+        copied = self.root / "copy"
+        (copied / "scripts").mkdir(parents=True)
+        script = copied / "scripts" / "repo-settings.py"
+        shutil.copyfile(ROOT / "scripts" / "repo-settings.py", script)
+        config = json.loads((ROOT / "repo-settings.json").read_text())
+        path = copied / "repo-settings.json"
+        log = self.root / "gh-calls"
+        env = dict(self.env, FAKE_GH_LOG=str(log))
+        invalid = []
+        for key, value in (("ruleset_name", ""), ("review_ruleset_name", ""), ("review_ruleset_name", config["ruleset_name"]), ("fork_bypass_actor", {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"})):
+            modified = dict(config, **{key: value})
+            invalid.append(modified)
+        for kind in ("deletion", "non_fast_forward", "required_signatures", "pull_request"):
+            invalid.append(dict(config, branch_rules=[rule for rule in config["branch_rules"] if rule["type"] != kind]))
+        for modified in invalid:
+            with self.subTest(config=modified):
+                path.write_text(json.dumps(modified))
+                result = subprocess.run([sys.executable, str(script), "o/r", "--apply"], env=env, capture_output=True, text=True)  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs a local script
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("repo-settings.json:", result.stderr)
+                self.assertFalse(log.exists())
+        path.write_text(json.dumps(config))
+        result = subprocess.run([sys.executable, str(script), "o/r"], env=env, capture_output=True, text=True)  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs a local script
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(log.exists())
 
     def test_ruleset_ownership_must_be_known_before_any_write(self):
         state = json.loads(self.path.read_text())
