@@ -813,10 +813,13 @@ def install_files(args):
         raise SyncError(f"{template} does not exist")
     if not template.is_dir():
         raise SyncError(f"{template} is not a directory")
+    resolved_template = template.resolve()
     target = Path(args.target)
     resolved_target = target.resolve()
     changes = []
     for source in sorted(path for path in template.rglob("*") if path.is_file()):
+        if not source.resolve().is_relative_to(resolved_template):
+            raise SyncError(f"install-files: {source.relative_to(template)} resolves outside the template; change it by hand")
         destination = target / source.relative_to(template)
         name = destination.relative_to(target).as_posix()
         if not destination.resolve().is_relative_to(resolved_target):

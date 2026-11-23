@@ -83,6 +83,20 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertIn("no merge rule", result.stderr)
         self.assertEqual((target / "extra.txt").read_text(), "upstream\n")
 
+    def test_install_files_refuses_sources_outside_template(self):
+        template = self.root / "template"
+        template.mkdir()
+        outside = self.root / "outside"
+        outside.write_text("private fixture\n")
+        (template / "leak.txt").symlink_to(outside)
+        target = self.target()
+        for args in ((), ("--check",)):
+            result = self.cli("install-files", "--target", str(target), "--template", str(template), *args, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("resolves outside the template", result.stderr)
+            self.assertEqual(list(target.iterdir()), [])
+            self.assertEqual(outside.read_text(), "private fixture\n")
+
     def test_install_files_refuses_destinations_outside_target(self):
         template = self.root / "template"
         template.mkdir()
