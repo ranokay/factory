@@ -397,6 +397,8 @@ class RepoSettings(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("repo-settings.json:", result.stderr)
                 self.assertIn(field, result.stderr)
+                if modified.get("public_check") == {"context": "Gates / Gates"}:
+                    self.assertIn("required_checks", result.stderr)
                 self.assertFalse(log.exists())
         path.write_text(json.dumps(config))
         result = subprocess.run([sys.executable, str(script), "o/r"], env=env, capture_output=True, text=True)  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs a local script
