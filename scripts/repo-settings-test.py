@@ -333,7 +333,7 @@ class RepoSettings(unittest.TestCase):
         state = json.loads(self.path.read_text())
         state["repo"]["fork"] = False
         state["topics"]["names"] = []
-        for kind in ("rule", "parameter", "actor", "condition"):
+        for kind in ("rule", "parameter", "actor", "condition", "enforcement"):
             with self.subTest(kind=kind):
                 candidate = json.loads(json.dumps(state))
                 review = next(item for item in candidate["rulesets"] if item["name"] == "Factory review rules")
@@ -347,9 +347,12 @@ class RepoSettings(unittest.TestCase):
                 elif kind == "actor":
                     review["bypass_actors"].append({"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"})
                     difference = "bypass_actors"
-                else:
+                elif kind == "condition":
                     review["conditions"]["ref_name"]["extra"] = ["protected"]
                     difference = "conditions"
+                else:
+                    review["enforcement"] = "evaluate"
+                    difference = "enforcement"
                 candidate["writes"] = []
                 self.write(candidate)
                 result = self.run_command("--apply")

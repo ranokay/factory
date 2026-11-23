@@ -116,9 +116,9 @@ and execute only the command it prints. The command exits nonzero if any verdict
 missing or any check run or commit status on the head is not successful; `skipped`
 and `neutral` pass only for a check the ruleset does not require. Its `--admin` flag
 stands in only for the Personal Fork's `review_ruleset_name` in `repo-settings.json`;
-the configured `ruleset_name` holds required checks without a bypass. It also
-refuses unless the head commit's signature is verified and every review thread is
-resolved. Bind every merge to the verified head
+the configured `ruleset_name` holds required checks without a bypass. The command
+also refuses unless the head commit's signature is verified and every review thread
+is resolved. Bind every merge to the verified head
 with `--match-head-commit <sha>` or
 the forge's equivalent guard. For an ordinary PR, apply the repository merge
 preflight and execute only its printed, head-pinned command; a Sync PR executes

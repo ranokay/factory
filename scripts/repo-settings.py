@@ -218,7 +218,8 @@ def matches(actual, expected):
 
 
 def review_ruleset_differences(actual, expected):
-    return [key for key in ("rules", "bypass_actors", "conditions") if not (matches(actual[key], expected[key]) and matches(expected[key], actual[key]))]
+    keys = ("name", "target", "enforcement", "rules", "bypass_actors", "conditions")
+    return [key for key in keys if not (matches(actual[key], expected[key]) and matches(expected[key], actual[key]))]
 
 
 def main():
@@ -382,11 +383,10 @@ def main():
         if stale_review:
             expected_review = review_ruleset()
             differences = review_ruleset_differences(stale_review, expected_review)
-            if matches(stale_review, expected_review) and not differences:
+            if not differences:
                 change(f"ruleset {CONFIG['review_ruleset_name']}: delete", "DELETE", base + "/rulesets/" + str(stale_review["id"]))
             else:
-                where = ", ".join(differences) or "name, target or enforcement"
-                manual_drift.append(f"ruleset {stale_review['name']} differs from Factory review rules in {where}: {json.dumps(stale_review, sort_keys=True)}; gh api -X DELETE {base}/rulesets/{stale_review['id']}")
+                manual_drift.append(f"ruleset {stale_review['name']} differs from Factory review rules in {', '.join(differences)}: {json.dumps(stale_review, sort_keys=True)}; gh api -X DELETE {base}/rulesets/{stale_review['id']}")
     secret_pages = json.loads(command(["gh", "api", "--paginate", "--slurp", base + "/actions/secrets?per_page=100"]))
     secrets = [secret for page in secret_pages for secret in page["secrets"]]
     secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)

@@ -113,7 +113,7 @@ Supervisor thread stands in for the Supervisor's confirmation.
   is missing or any check run or commit status on the head is not successful;
   `skipped` and `neutral` pass only for a check the ruleset does not require. Its
   `--admin` flag stands in only for the Personal Fork's `review_ruleset_name` in
-  `repo-settings.json`. The configured `ruleset_name` holds required checks without a bypass. It
+  `repo-settings.json`. The configured `ruleset_name` holds required checks without a bypass. The command
   also refuses unless the head commit's signature is verified and every review thread is resolved.
 - Before readiness, a Sync PR passes
   `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream verdicts --pr <n>`;

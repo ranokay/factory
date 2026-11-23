@@ -53,6 +53,11 @@ class SyncUpstreamFiles(SyncFixture):
         self.branch(repo, "delete", "GLOSSARY.md", "", delete=True)
         self.assertEqual(self.factory_files(repo, "delete").returncode, 0)
 
+    def test_factory_files_ignores_fenced_profiles_examples(self):
+        repo = self.factory_repo()
+        self.branch(repo, "fenced-profiles", "AGENTS.md", "# upstream\n\n```text\nProfiles: universal\n```\n")
+        self.assertEqual(self.factory_files(repo, "fenced-profiles").returncode, 0)
+
     def test_factory_files_rejects_non_ascii_workflow_marker(self):
         repo = self.factory_repo()
         self.branch(repo, "unicode-workflow", ".github/workflows/café.yaml", "jobs:\n  test:\n    uses: ranokay/factory/.github/workflows/gates.yml@main\n")

@@ -257,6 +257,25 @@ class SyncUpstream(SyncFixture):
         self.repo_file.write_text(json.dumps(state))
         self.assertIn("unresolved review threads", self.merge_command(repo).stderr)
 
+    def test_merge_command_fails_closed_on_malformed_api_pages(self):
+        repo, _ = self.command_fixture()
+        original = json.loads(self.repo_file.read_text())
+        for key, value, message in (
+            ("rules_pages", {"message": "Not Found"}, "could not read the default branch rules"),
+            ("rules_pages", [["not-a-rule"]], "could not read the default branch rules"),
+            ("check_pages", {"message": "Not Found"}, "could not read the PR head check runs"),
+            ("check_pages", [{"check_runs": [None]}], "could not read the PR head check runs"),
+            ("status_pages", {"message": "Not Found"}, "could not read the PR head statuses"),
+            ("status_pages", [[None]], "could not read the PR head statuses"),
+        ):
+            with self.subTest(key=key, value=value):
+                state = dict(original, **{key: value})
+                self.repo_file.write_text(json.dumps(state))
+                result = self.merge_command(repo)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("gh pr merge", result.stdout)
+
     def test_merge_command_prints_only_when_green(self):
         repo, head = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "success"}, {"name": "CodeRabbit", "status": "completed", "conclusion": "skipped"}], statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}])
         result = self.merge_command(repo)

@@ -36,12 +36,12 @@ elif args[0] == "api":
     endpoint = next(x for x in args if x.startswith("repos/"))
     key = endpoint.split("?", 1)[0]
     if key.startswith("repos/" + state["name"] + "/rules/branches/"):
-        print(json.dumps([state.get("applied_rules", [])]))
+        print(json.dumps(state.get("rules_pages", [state.get("applied_rules", [])])))
     elif "/commits/" in key and not key.endswith(("/check-runs", "/statuses", "/status")):
         print(json.dumps({"commit": {"verification": {"verified": state.get("verified", True)}}}))
     elif key.endswith("/check-runs"):
         head = key.split("/commits/")[1].removesuffix("/check-runs")
-        print(json.dumps([{"check_runs": state.get("check_runs", {}).get(head, [])}]))
+        print(json.dumps(state.get("check_pages", [{"check_runs": state.get("check_runs", {}).get(head, [])}])))
     elif key.endswith("/status"):
         print(json.dumps({"state": "success", "statuses": state.get("statuses", [])}))
     elif key.endswith("/statuses"):

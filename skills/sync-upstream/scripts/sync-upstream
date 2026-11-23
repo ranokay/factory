@@ -21,7 +21,6 @@ from profiles_reader import profiles_entries
 
 FORK_TOPICS = {"factory-personal-fork": "personal", "factory-upstream-fork": "upstream"}
 FACTORY_MARKERS = ("ranokay/factory",)
-PROFILES_LINE = re.compile(r"^\s*Profiles:")
 VERDICT_LINE = re.compile(r"^[-*]\s+`?([0-9a-fA-F]{7,40})`?\s+(\S+)")
 VERDICT_SECTION = re.compile(r"^##\s+Verdicts\s*$", re.IGNORECASE)
 SECTION = re.compile(r"^##\s+")
@@ -330,6 +329,8 @@ def merge_command(args):
         if verdicts(argparse.Namespace(first=fork_base, last=upstream_tip, body_file=None, pr=args.pr, repo=repo), quiet=True):
             problems.append("verdicts failed")
     rules_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/rules/branches/{info['default_branch']}"]).stdout)
+    if not isinstance(rules_pages, list) or not all(isinstance(page, list) and all(isinstance(rule, dict) for rule in page) for page in rules_pages):
+        raise SyncError("could not read the default branch rules")
     rules = [rule for page in rules_pages for rule in page]
     required = set()
     for rule in rules:
@@ -345,8 +346,12 @@ def merge_command(args):
                     raise SyncError("required_status_checks rule has a check without context")
                 required.add(check["context"])
     check_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/commits/{head}/check-runs?per_page=100"]).stdout)
-    checks = [check for page in check_pages for check in page.get("check_runs", [])]
+    if not isinstance(check_pages, list) or not all(isinstance(page, dict) and isinstance(page.get("check_runs"), list) and all(isinstance(check, dict) for check in page["check_runs"]) for page in check_pages):
+        raise SyncError("could not read the PR head check runs")
+    checks = [check for page in check_pages for check in page["check_runs"]]
     status_pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/commits/{head}/statuses?per_page=100"]).stdout)
+    if not isinstance(status_pages, list) or not all(isinstance(page, list) and all(isinstance(status, dict) for status in page) for page in status_pages):
+        raise SyncError("could not read the PR head statuses")
     statuses = {}
     for page in status_pages:
         for status in page:
@@ -428,7 +433,7 @@ def factory_files(args):
                 continue
             if any(marker in line for line in lines for marker in FACTORY_MARKERS):
                 problems.append(f"{path}: adds ranokay/factory")
-            if any(PROFILES_LINE.match(line) for line in lines):
+            if profiles_entries("\n".join(lines)):
                 problems.append(f"{path}: adds a Profiles: line")
         elif is_workflow(path):
             if any(marker in line for line in lines for marker in FACTORY_MARKERS):
