@@ -341,15 +341,18 @@ class RepoSettings(unittest.TestCase):
         state["repo"].update({"fork": True, "private": True})
         state["topics"]["names"] = ["factory-personal-fork"]
         inherited = {"id": 90, "name": "Factory review rules", "source_type": "Organization", "source": "o"}
-        state["rulesets"] = [inherited]
+        enterprise = {"id": 91, "name": "Factory default branch", "source_type": "Enterprise", "source": "enterprise"}
+        state["rulesets"] = [inherited, enterprise]
         self.write(state)
         result = self.run_command("--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
         state = json.loads(self.path.read_text())
         self.assertIn(inherited, state["rulesets"])
-        self.assertEqual(len(state["rulesets"]), 3)
+        self.assertIn(enterprise, state["rulesets"])
+        self.assertEqual(len(state["rulesets"]), 4)
         self.assertTrue(all("includes_parents=false" in endpoint for endpoint in state["ruleset_list_requests"]))
         self.assertFalse(any(request["path"] == "/rulesets/90" for request in state["ruleset_requests"]))
+        self.assertFalse(any(request["path"] == "/rulesets/91" for request in state["ruleset_requests"]))
 
     def test_ruleset_ownership_must_be_known_before_any_write(self):
         state = json.loads(self.path.read_text())
@@ -358,16 +361,24 @@ class RepoSettings(unittest.TestCase):
         self.write(state)
         self.assertEqual(self.run_command("--apply").returncode, 0)
         original = json.loads(self.path.read_text())
-        for field, value in (("source", None), ("source_type", None), ("source", "other/repo")):
+        for field, value in (("source", None), ("source_type", None), ("source_type", "Team"), ("source", "other/repo")):
             with self.subTest(field=field, value=value):
                 state = json.loads(json.dumps(original))
                 state["writes"] = []
+                state["repo"]["allow_squash_merge"] = False
                 state["rulesets"][0][field] = value
                 self.write(state)
                 result = self.run_command("--apply")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(state["rulesets"][0]["name"], result.stderr)
                 self.assertEqual(json.loads(self.path.read_text())["writes"], [])
+        state = json.loads(json.dumps(original))
+        state["writes"] = []
+        state["rulesets"][0]["source"] = None
+        self.write(state)
+        result = self.run_command("--apply", "--fork-kind", "upstream")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(json.loads(self.path.read_text())["writes"], [])
         state = json.loads(json.dumps(original))
         state["writes"] = []
         for ruleset in state["rulesets"]:
