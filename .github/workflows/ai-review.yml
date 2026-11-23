@@ -86,6 +86,8 @@ jobs:
           route_categories: style,documentation
           resolve_outdated: 'true'
           effort: high
+          # The checkpoint travels in the sticky summary comment, not in
+          # uploaded artifacts.
           upload_artifacts: 'false'
       - name: Require published review
         env:
