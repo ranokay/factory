@@ -1,0 +1,13 @@
+name: Gates
+description: Run the calling repository's Gates with mise.
+runs:
+  using: composite
+  steps:
+    - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      with:
+        version: 2026.11.10
+    - name: Run Gates
+      shell: bash
+      run: mise run check
+      env:
+        GITHUB_TOKEN: ${{ github.token }}

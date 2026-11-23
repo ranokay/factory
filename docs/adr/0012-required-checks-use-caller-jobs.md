@@ -1,0 +1,5 @@
+# Required checks use caller jobs, not reusable workflows
+
+GitHub names a reusable-workflow check `<caller job> / <callee job>`, so a reusable call cannot produce the single context `Gates` or `OCR PR Review`. The required checks therefore run as caller jobs named `Gates` and `OCR PR Review`, with the shared steps in the composite actions `.github/actions/gates` and `.github/actions/ocr-review`. A consuming repository can call the actions, but it owns the caller job and therefore the check name; the Project Template callers are a follow-up that pins the first release carrying both actions (issue #131).
+
+The alternative, keeping the reusable workflows and accepting the nested contexts, fails the requirement that the checks read `Gates` and `OCR PR Review`. The cost is that a consumer must add a caller job and reconcile its ruleset; until it does, the old contexts are gone and its PRs are blocked rather than admitted without the checks. The live ruleset swaps both contexts in one atomic update while the new checks are green, with Codacy in the same payload.

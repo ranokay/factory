@@ -41,8 +41,8 @@ Discover available facts before asking the user to supply them.
 After AI Review has completed on the current head, run
 `python3 ~/.agents/skills/babysit-pr/scripts/request-advisory-reviews OWNER/REPO PR`.
 The script requests each Advisory Reviewer once and requires ranokay's approval
-for an Outside Contributor PR. It identifies the run by the caller's
-`AI Review PR <number>` run name, which the caller must set from the event's
+for an Outside Contributor PR. It identifies the run by its
+`AI Review PR <number>` run name, which `ai-review.yml` sets from the event's
 pull request number; an unidentifiable run does not permit requests.
 
 ## Inspect and act on the current state
@@ -86,7 +86,7 @@ Stay quiet when there is no actionable change.
 ### Review replies
 
 Review-thread replies cover bot reviewers too: CodeRabbit, Codacy and the AI
-Review `review / review` threads are threads like any other, not only human
+Review `OCR PR Review` threads are threads like any other, not only human
 comments.
 
 Post the reply only after the fix commit is pushed, so the `<sha>` in
