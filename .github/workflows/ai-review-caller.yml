@@ -10,7 +10,7 @@ concurrency:
 jobs:
   review:
     permissions:
-      contents: read
+      contents: write
       issues: read
       pull-requests: write
     uses: $/.github/workflows/ai-review.yml

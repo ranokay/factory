@@ -180,6 +180,10 @@ in this thread.
 
 ## Prove readiness and merge
 
+A Worker opens the pull request as a draft and marks it ready (`gh pr ready <n>`)
+once the local `code-review` passes. AI Review starts on `ready_for_review` and on
+each later push, so a draft is not reviewed.
+
 Readiness requires all repository-required validation and independent review,
 acceptable live checks and review decisions, no unresolved actionable findings,
 and mergeability on the candidate head. Check the PR is open and not draft.

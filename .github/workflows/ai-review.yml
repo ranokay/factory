@@ -7,11 +7,11 @@ on:
 permissions: {}
 jobs:
   review:
-    if: github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.user.login == 'ranokay' || github.event.pull_request.user.login == 'renovate[bot]')
+    if: github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.user.login == 'ranokay' || github.event.pull_request.user.login == 'renovate[bot]') && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write
       issues: read
       pull-requests: write
     steps:
@@ -63,8 +63,14 @@ jobs:
           llm_auth_token: ${{ secrets.OPENCODE_ZEN_API_KEY }}
           llm_extra_headers: x-opencode-session=ses-${{ github.repository_id }}-${{ github.event.pull_request.number }}-${{ github.run_id }}
           background: ${{ steps.context.outputs.background }}
+          rule: ai-review-rule.json
           sticky_summary: 'true'
           incremental: 'true'
+          checkpoint_range: 'true'
+          route_severity_below: medium
+          route_categories: style,documentation
+          resolve_outdated: 'true'
+          effort: high
           upload_artifacts: 'false'
       - name: Require published review
         env:

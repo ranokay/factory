@@ -40,8 +40,25 @@ def assert_review_permissions(test, source):
     test.assertEqual(parsed["permissions"], {})
     test.assertEqual(set(parsed["jobs"]), {"review"})
     test.assertEqual(parsed["jobs"]["review"]["permissions"], {
-        "contents": "read", "issues": "read", "pull-requests": "write",
+        "contents": "write", "issues": "read", "pull-requests": "write",
     })
+
+
+def review_step(source):
+    for item in yaml.safe_load(source)["jobs"]["review"]["steps"]:
+        if item.get("id") == "review":
+            return item
+    raise AssertionError("missing review step")
+
+
+def assert_draft_guard(test, callee, caller=None):
+    condition = yaml.safe_load(callee)["jobs"]["review"]["if"]
+    test.assertIn(
+        "github.event.pull_request.head.repo.full_name == github.repository", condition
+    )
+    test.assertIn("github.event.pull_request.draft == false", condition)
+    if caller is not None:
+        test.assertNotIn("if", yaml.safe_load(caller)["jobs"]["review"])
 
 
 def assert_failure_propagation(test, source):
@@ -62,10 +79,67 @@ class AiReviewWorkflowTests(unittest.TestCase):
                 source = workflow(name)
                 assert_review_permissions(self, source)
                 assert_review_permissions(self, source.replace("permissions: {}", "permissions: {} # deny defaults"))
-                mutated = source.replace("      contents: read\n", "      actions: write\n      contents: read\n")
+                mutated = source.replace("      contents: write\n", "      actions: write\n      contents: write\n")
                 self.assertNotEqual(mutated, source)
                 with self.assertRaises(AssertionError):
                     assert_review_permissions(self, mutated)
+                mutated = source.replace("permissions: {}\n", "permissions:\n  contents: write\n", 1)
+                self.assertNotEqual(mutated, source)
+                with self.assertRaises(AssertionError):
+                    assert_review_permissions(self, mutated)
+
+    def test_review_uses_high_signal_inputs(self):
+        with_ = review_step(workflow("ai-review.yml"))["with"]
+        expected = {
+            "ocr_version": "1.14.0",
+            "rule": "ai-review-rule.json",
+            "sticky_summary": "true",
+            "incremental": "true",
+            "checkpoint_range": "true",
+            "route_severity_below": "medium",
+            "route_categories": "style,documentation",
+            "resolve_outdated": "true",
+            "effort": "high",
+        }
+        for name, value in expected.items():
+            with self.subTest(input=name):
+                self.assertEqual(with_.get(name), value)
+        self.assertNotIn("max_tokens_budget", with_)
+
+    def test_rule_file_points_at_review_markdown(self):
+        path = ROOT / "ai-review-rule.json"
+        self.assertEqual(json.loads(path.read_text()), {
+            "rules": [{
+                "path": "**/*",
+                "rule": "REVIEW.md",
+                "merge_system_rule": True,
+            }],
+        })
+        self.assertTrue((ROOT / "REVIEW.md").is_file())
+        self.assertEqual(review_step(workflow("ai-review.yml"))["with"]["rule"], path.name)
+
+    def test_draft_pull_requests_skip_review_until_ready(self):
+        callee = workflow("ai-review.yml")
+        caller = workflow("ai-review-caller.yml")
+        assert_draft_guard(self, callee, caller)
+        actions = set(re.search(r"(?m)^    types: \[([^]]+)\]$", caller).group(1).split(", "))
+        self.assertIn("ready_for_review", actions)
+        self.assertIn("synchronize", actions)
+        for mutation in (
+            callee.replace(" && github.event.pull_request.draft == false", ""),
+            callee.replace("github.event.pull_request.draft == false", "github.event.pull_request.draft == true"),
+            callee.replace("github.event.pull_request.draft == false", "github.event.pull_request.draft != false"),
+        ):
+            self.assertNotEqual(mutation, callee)
+            with self.assertRaises(AssertionError):
+                assert_draft_guard(self, mutation, caller)
+        guarded_caller = caller.replace(
+            "    uses: $/.github/workflows/ai-review.yml",
+            "    if: github.event.pull_request.draft == false\n    uses: $/.github/workflows/ai-review.yml",
+        )
+        self.assertNotEqual(guarded_caller, caller)
+        with self.assertRaises(AssertionError):
+            assert_draft_guard(self, callee, guarded_caller)
 
     def test_review_failures_propagate(self):
         for name in ("ai-review.yml", "ai-review-caller.yml"):
