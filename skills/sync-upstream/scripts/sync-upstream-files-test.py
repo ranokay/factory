@@ -83,6 +83,28 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertIn("no merge rule", result.stderr)
         self.assertEqual((target / "extra.txt").read_text(), "upstream\n")
 
+    def test_install_files_refuses_destinations_outside_target(self):
+        template = self.root / "template"
+        template.mkdir()
+        (template / "AGENTS.md").write_text("# Factory\n\nProfiles: universal\n")
+        (template / ".greptile").mkdir()
+        (template / ".greptile" / "config.json").write_text('{"autoReview": []}\n')
+        target = self.target()
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "agents").write_text("# Upstream\n")
+        (outside / "config.json").write_text('{}\n')
+        for link, destination in (("AGENTS.md", outside / "agents"), (".greptile", outside)):
+            with self.subTest(link=link):
+                (target / link).symlink_to(destination)
+                for args in ((), ("--check",)):
+                    result = self.cli("install-files", "--target", str(target), "--template", str(template), *args, check=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("resolves outside the target", result.stderr)
+                    self.assertEqual((outside / "agents").read_text(), "# Upstream\n")
+                    self.assertEqual((outside / "config.json").read_text(), '{}\n')
+                (target / link).unlink()
+
     def test_install_files_requires_an_existing_template(self):
         target = self.target()
         result = self.cli("install-files", "--target", str(target), "--template", str(self.root / "missing"), check=False)
