@@ -6,7 +6,7 @@ Review for three things, in this order:
 2. **Security** — secrets, injection, authorization, and unsafe handling of untrusted input.
 3. **Spec** — the change does what the linked issue asks, and nothing it does not.
 
-Point each finding at the line and the failure it causes. Prefer one precise comment over several variations of the same idea.
+Point each finding at the line and the failure it causes. Prefer one precise comment over several variations of the same idea. Check existing review threads before reporting, and do not repeat a finding they already cover.
 
 Do not report:
 
