@@ -244,6 +244,11 @@ def case_reply_fixed_without_sha():
     rejected_reply("Fixed in the next commit", "must be `Fixed in <sha>`")
 
 
+@case
+def case_reply_too_long():
+    rejected_reply("Not a bug: " + "x" * 190, "the limit is 200")
+
+
 def main():
     names = [CASE] if CASE != "all" else list(CASES)
     failures = []

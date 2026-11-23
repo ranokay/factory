@@ -30,8 +30,8 @@ The body runs Summary, Why, Evidence and Merge Danger, then one collapsed
 <details> block. The Evidence section is one line linking the PR's single
 evidence comment. Outside <details> the body allows 39 rendered lines, a
 5-line fenced block, a 3-line Summary, a 400-character Why and a 400-character
-Merge Danger. A review reply is one line: `Fixed in <sha>`,
-`Not a bug: <reason>` or `Deferred: #<issue>`.
+Merge Danger. A review reply is one line of at most 200 characters:
+`Fixed in <sha>`, `Not a bug: <reason>` or `Deferred: #<issue>`.
 """
 
 

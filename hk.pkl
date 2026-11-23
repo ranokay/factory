@@ -1359,6 +1359,11 @@ steps {
         env { ["PR_TEXT_CASE"] = "reply_fixed_without_sha" }
         expect { code = 0 }
       }
+      ["rejects a reply over 200 characters"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_too_long" }
+        expect { code = 0 }
+      }
     }
   }
 }
