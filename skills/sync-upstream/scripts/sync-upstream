@@ -377,7 +377,13 @@ def merge_command(args):
 
 
 def changed_files(first, last):
-    output = git("diff", "--name-status", "-z", "--no-renames", f"{first}...{last}").stdout
+    result = subprocess.run(["git", "diff", "--name-status", "-z", "--no-renames", f"{first}...{last}"], capture_output=True, check=False)  # nosec B603,B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- git inspects the local checkout
+    if result.returncode:
+        raise SyncError("factory-files: could not read changed paths")
+    try:
+        output = result.stdout.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SyncError("factory-files: changed path is not valid UTF-8") from error
     rows = []
     parts = output.split("\0")
     for index in range(0, len(parts) - 1, 2):

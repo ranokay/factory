@@ -60,6 +60,13 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("café.yaml: adds ranokay/factory", result.stderr)
 
+    def test_factory_files_rejects_workflow_with_carriage_return_in_path(self):
+        repo = self.factory_repo()
+        self.branch(repo, "control-workflow", ".github/workflows/with\rreturn.yaml", "jobs:\n  test:\n    uses: ranokay/factory/.github/workflows/gates.yml@main\n")
+        result = self.factory_files(repo, "control-workflow")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("adds ranokay/factory", result.stderr)
+
     def target(self, existing=None):
         path = self.root / "target"
         path.mkdir()
