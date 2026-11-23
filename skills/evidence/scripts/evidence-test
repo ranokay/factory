@@ -372,6 +372,37 @@ def case_video(work):
 
 
 @case
+def case_attach_video_compress(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    source = make_video(work / "demo.mp4")
+    expect(source.stat().st_size > 1000000, f"the fixture video is only {source.stat().st_size} bytes")
+    shutil.copy2(source, target / "demo.mp4")
+    (target / "captions.json").write_text(json.dumps({"demo.mp4": "The flow records end to end"}))
+    dry = ok(
+        tool(
+            work,
+            repo,
+            ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"],
+            env={"EVIDENCE_MAX_BYTES": "1000000"},
+        )
+    )
+    compressed = target / "demo-compressed.mp4"
+    expect(compressed.is_file(), "the video was not compressed")
+    expect(not (target / "demo.mp4").exists(), "the original video remains")
+    expect(f"--attach {compressed}" in dry, dry)
+    expect(f"--attach {target / 'demo.mp4'}" not in dry, dry)
+    body = (target / "body.md").read_text()
+    expect("![demo-compressed.mp4](./demo-compressed.mp4)\n\nThe flow records end to end" in body, body)
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"demo-compressed.mp4": "The flow records end to end"}, f"captions were {captions}")
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
+    recorded = comment(work, "101")
+    expect(recorded["attachments"] == [str(compressed)], f"attachments were {recorded['attachments']}")
+
+
+@case
 def case_oversize(work):
     repo, _ = make_repo(work)
     ok(tool(work, repo, receipt_args(pr="7")))

@@ -1093,6 +1093,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "video" }
         expect { code = 0 }
       }
+      ["a video over the limit is compressed at attach and keeps its caption"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_video_compress" }
+        expect { code = 0 }
+      }
       ["a file over the limit fails before upload"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "oversize" }

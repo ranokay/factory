@@ -345,11 +345,7 @@ def cmd_add(args):
         captions[name] = caption
     stored = {item.name for item in attachments(target)}
     projected = stored | set(captions)
-    if len(projected) > MAX_ATTACHMENTS:
-        fail(
-            f"{len(projected)} attachments would be stored in {target}; at most {MAX_ATTACHMENTS} per PR — "
-            "drop or merge files so a reviewer sees only the proof that matters"
-        )
+    attachment_limit(len(projected), target, future=True)
     target.mkdir(parents=True, exist_ok=True)
     for source, name, suffix in sources:
         destination = target / name
@@ -368,7 +364,7 @@ def cmd_add(args):
                 (target / f"{destination.stem}-compressed.mp4").unlink(missing_ok=True)
                 raise
             if final.name != name:
-                captions[final.name] = captions.pop(name)
+                rekey_caption(captions, name, final.name)
     merged = load_captions(target)
     merged.update(captions)
     write_captions(target, merged)
@@ -390,6 +386,18 @@ def cmd_list(args):
         print(f"no evidence in {target}")
 
 
+def summary_lines(summary):
+    return summary.strip().splitlines()
+
+
+def summary_limit(lines, label):
+    if len(lines) > MAX_SUMMARY_LINES:
+        fail(
+            f"{label} is {len(lines)} lines; keep it to {MAX_SUMMARY_LINES} lines or fewer: "
+            "one line per command with its exit code and a link to the CI run that holds the full log"
+        )
+
+
 def cmd_receipt(args):
     _, target = evidence_target(args)
     cost = args.cost.strip()
@@ -405,15 +413,11 @@ def cmd_receipt(args):
     gates = [gate.strip() for gate in args.gates]
     if not gates or any(not gate for gate in gates):
         fail("--gates is required and must name the gate command that ran")
-    summary = args.summary.strip()
-    if not summary:
+    lines = summary_lines(args.summary)
+    if not lines:
         fail("--summary is required")
-    lines = summary.splitlines()
-    if len(lines) > MAX_SUMMARY_LINES:
-        fail(
-            f"--summary is {len(lines)} lines; keep it to {MAX_SUMMARY_LINES} lines or fewer: "
-            "one line per command with its exit code and a link to the CI run that holds the full log"
-        )
+    summary_limit(lines, "--summary")
+    summary = "\n".join(lines)
     fields = {
         "model": args.model,
         "variant": args.variant,
@@ -440,12 +444,7 @@ def load_receipt(path):
             fail(f"{path} is missing {key}; run `evidence receipt` again")
     if data["fallback"] not in ("yes", "no"):
         fail(f"{path} has fallback {data['fallback']!r}, expected yes or no")
-    lines = str(data["summary"]).strip().splitlines()
-    if len(lines) > MAX_SUMMARY_LINES:
-        fail(
-            f"{path} has a {len(lines)}-line summary; keep it to {MAX_SUMMARY_LINES} lines or fewer: "
-            "one line per command with its exit code and a link to the CI run that holds the full log"
-        )
+    summary_limit(summary_lines(str(data["summary"])), f"{path} summary")
     return data
 
 
@@ -472,7 +471,15 @@ def load_captions(directory):
         not isinstance(key, str) or not isinstance(value, str) for key, value in data.items()
     ):
         fail(f"{path} must map each file name to a one-line caption")
+    for key, value in data.items():
+        if "\n" in value or "\r" in value:
+            fail(f"{path} caption for {key} must be one line")
     return data
+
+
+def rekey_caption(captions, old, new):
+    if old in captions:
+        captions[new] = captions.pop(old)
 
 
 def write_captions(directory, captions):
@@ -481,41 +488,52 @@ def write_captions(directory, captions):
     (directory / CAPTIONS).write_text(json.dumps(dict(sorted(captions.items())), indent=2) + "\n")
 
 
-def validated_attachments(directory):
+def attachment_limit(count, where, future=False):
+    if count <= MAX_ATTACHMENTS:
+        return
+    state = "would be stored in" if future else "in"
+    fail(
+        f"{count} attachments {state} {where}; at most {MAX_ATTACHMENTS} per PR — "
+        "drop or merge files so a reviewer sees only the proof that matters"
+    )
+
+
+def attachment_entries(directory):
     files = attachments(directory)
-    if len(files) > MAX_ATTACHMENTS:
-        fail(
-            f"{len(files)} attachments in {directory}; at most {MAX_ATTACHMENTS} per PR — "
-            "drop or merge files so a reviewer sees only the proof that matters"
-        )
+    attachment_limit(len(files), directory)
     for item in files:
         if item.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
             fail(f"{item.name} is not an image or video; attachments accept {SUPPORTED}")
+    captions = load_captions(directory)
+    rekeyed = False
+    entries = []
     for item in files:
         if item.suffix.lower() in VIDEO_SUFFIXES:
-            fit_video(item)
+            final = fit_video(item)
+            if final.name != item.name:
+                rekeyed = rekeyed or item.name in captions
+                rekey_caption(captions, item.name, final.name)
+                item = final
         else:
             require_size(item)
-    return files
-
-
-def attachment_captions(files, directory):
-    captions = load_captions(directory)
-    for item in files:
-        if not captions.get(item.name, "").strip():
+        caption = captions.get(item.name, "").strip()
+        if not caption:
             fail(
                 f"{item.name} has no caption; remove it or add it again with --caption "
                 "so the comment says what visible behaviour it proves"
             )
-    return captions
+        entries.append((item, caption))
+    if rekeyed:
+        write_captions(directory, captions)
+    return entries
 
 
-def render(data, files, captions):
+def render(data, entries):
     lines = [MARKER, "", "## Verification Evidence", "", data["summary"].strip(), ""]
-    if files:
+    if entries:
         lines += ["### Attachments", ""]
-        for item in files:
-            lines += [f"![{item.name}](./{item.name})", "", captions[item.name], ""]
+        for item, caption in entries:
+            lines += [f"![{item.name}](./{item.name})", "", caption, ""]
     lines += [
         "<details>",
         "<summary>Run receipt</summary>",
@@ -595,13 +613,12 @@ def cmd_attach(args):
     if not receipt_path.is_file():
         fail(f"{receipt_path} does not exist; run `evidence receipt ...` first")
     data = load_receipt(receipt_path)
-    files = validated_attachments(target)
-    captions = attachment_captions(files, target)
+    entries = attachment_entries(target)
     body_path = target / "body.md"
-    body_path.write_text(render(data, files, captions))
+    body_path.write_text(render(data, entries))
     print(f"body: {body_path}")
     cmd = ["gh", "pr", "comment", str(pr), "--repo", repo, "--body-file", str(body_path)]
-    for item in files:
+    for item, _ in entries:
         cmd += ["--attach", str(item)]
     if args.dry_run:
         print("dry run: no comment posted")

@@ -40,7 +40,7 @@ The command is `scripts/evidence` beside this file; from any other repository it
 
 ## Attachment limits
 
-Every attachment carries the one-line caption given to `add`, and the comment renders it under the image or video. At most 5 attachments are stored per PR, counting files already in the evidence directory; a sixth is refused with a message to drop or merge files. GitHub accepts images and videos: png, jpg, jpeg, gif, webp, svg, mp4, mov and webm; at most 10 MB each. The comment body references every attachment, so `gh` rewrites those references to the uploaded asset URLs and appends nothing after the receipt. A file still over the limit fails before any upload, with the size, the limit and what to do.
+Every attachment carries the one-line caption given to `add`, and the comment renders it under the image or video; files must have distinct names so each caption maps to one attachment. At most 5 attachments are stored per PR, counting files already in the evidence directory; a sixth is refused with a message to drop or merge files. GitHub accepts images and videos: png, jpg, jpeg, gif, webp, svg, mp4, mov and webm; at most 10 MB each. The comment body references every attachment, so `gh` rewrites those references to the uploaded asset URLs and appends nothing after the receipt. A file still over the limit fails before any upload, with the size, the limit and what to do.
 
 ## The Run receipt
 
