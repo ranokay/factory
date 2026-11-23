@@ -296,6 +296,10 @@ def fit_video(path):
     if size <= limit:
         return path
     compressed = path.with_name(f"{path.stem}-compressed.mp4")
+    index = 2
+    while compressed.exists():
+        compressed = path.with_name(f"{path.stem}-compressed-{index}.mp4")
+        index += 1
     encode(path, compressed, limit)
     final = compressed.stat().st_size
     if final > limit:
@@ -337,15 +341,10 @@ def cmd_add(args):
         )
     captions = {}
     for (_, name, _), raw in zip(sources, args.caption):
-        caption = raw.strip()
-        if not caption:
-            fail(f"caption for {name} is empty; say what visible behaviour it proves")
-        if "\n" in caption or "\r" in caption:
-            fail(f"caption for {name} must be one line")
-        captions[name] = caption
+        captions[name] = caption_text(raw, f"caption for {name}")
     stored = {item.name for item in attachments(target)}
     projected = stored | set(captions)
-    attachment_limit(len(projected), target, future=True)
+    attachment_limit(len(projected), target, "would be stored in")
     target.mkdir(parents=True, exist_ok=True)
     for source, name, suffix in sources:
         destination = target / name
@@ -386,16 +385,25 @@ def cmd_list(args):
         print(f"no evidence in {target}")
 
 
-def summary_lines(summary):
-    return summary.strip().splitlines()
+def caption_text(raw, label):
+    caption = raw.strip()
+    if not caption:
+        fail(f"{label} is empty; say what visible behaviour it proves")
+    if "\n" in caption or "\r" in caption:
+        fail(f"{label} must be one line")
+    return caption
 
 
-def summary_limit(lines, label):
+def check_summary(summary, label):
+    lines = summary.strip().splitlines()
+    if not lines:
+        fail(f"{label} is required")
     if len(lines) > MAX_SUMMARY_LINES:
         fail(
             f"{label} is {len(lines)} lines; keep it to {MAX_SUMMARY_LINES} lines or fewer: "
             "one line per command with its exit code and a link to the CI run that holds the full log"
         )
+    return "\n".join(lines)
 
 
 def cmd_receipt(args):
@@ -413,11 +421,7 @@ def cmd_receipt(args):
     gates = [gate.strip() for gate in args.gates]
     if not gates or any(not gate for gate in gates):
         fail("--gates is required and must name the gate command that ran")
-    lines = summary_lines(args.summary)
-    if not lines:
-        fail("--summary is required")
-    summary_limit(lines, "--summary")
-    summary = "\n".join(lines)
+    summary = check_summary(args.summary, "--summary")
     fields = {
         "model": args.model,
         "variant": args.variant,
@@ -444,7 +448,7 @@ def load_receipt(path):
             fail(f"{path} is missing {key}; run `evidence receipt` again")
     if data["fallback"] not in ("yes", "no"):
         fail(f"{path} has fallback {data['fallback']!r}, expected yes or no")
-    summary_limit(summary_lines(str(data["summary"])), f"{path} summary")
+    check_summary(str(data["summary"]), f"{path} summary")
     return data
 
 
@@ -472,8 +476,7 @@ def load_captions(directory):
     ):
         fail(f"{path} must map each file name to a one-line caption")
     for key, value in data.items():
-        if "\n" in value or "\r" in value:
-            fail(f"{path} caption for {key} must be one line")
+        caption_text(value, f"{path} caption for {key}")
     return data
 
 
@@ -488,10 +491,9 @@ def write_captions(directory, captions):
     (directory / CAPTIONS).write_text(json.dumps(dict(sorted(captions.items())), indent=2) + "\n")
 
 
-def attachment_limit(count, where, future=False):
+def attachment_limit(count, where, state="in"):
     if count <= MAX_ATTACHMENTS:
         return
-    state = "would be stored in" if future else "in"
     fail(
         f"{count} attachments {state} {where}; at most {MAX_ATTACHMENTS} per PR — "
         "drop or merge files so a reviewer sees only the proof that matters"
@@ -505,14 +507,14 @@ def attachment_entries(directory):
         if item.suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
             fail(f"{item.name} is not an image or video; attachments accept {SUPPORTED}")
     captions = load_captions(directory)
-    rekeyed = False
     entries = []
     for item in files:
         if item.suffix.lower() in VIDEO_SUFFIXES:
             final = fit_video(item)
             if final.name != item.name:
-                rekeyed = rekeyed or item.name in captions
-                rekey_caption(captions, item.name, final.name)
+                if item.name in captions:
+                    rekey_caption(captions, item.name, final.name)
+                    write_captions(directory, captions)
                 item = final
         else:
             require_size(item)
@@ -523,8 +525,6 @@ def attachment_entries(directory):
                 "so the comment says what visible behaviour it proves"
             )
         entries.append((item, caption))
-    if rekeyed:
-        write_captions(directory, captions)
     return entries
 
 

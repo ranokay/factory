@@ -1098,6 +1098,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "attach_video_compress" }
         expect { code = 0 }
       }
+      ["a compressed video takes a unique name when its target exists"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_video_collision" }
+        expect { code = 0 }
+      }
       ["a file over the limit fails before upload"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "oversize" }

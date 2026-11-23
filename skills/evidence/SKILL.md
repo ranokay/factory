@@ -30,7 +30,7 @@ The command is `scripts/evidence` beside this file; from any other repository it
 
 | Command | What it does |
 | --- | --- |
-| `add <file>... --caption <text>... [--pr N]` | Copies images and videos into the evidence directory. One `--caption` per file, in order, says what visible behaviour it proves and renders under it. Refuses other file types: put text in `--summary`. At most 5 attachments per PR, counting files already stored: a sixth is refused and must be dropped or merged. A video over 10 MB is compressed with ffmpeg to fit before it is stored. |
+| `add <file>... --caption <text>... [--pr N]` | Copies images and videos into the evidence directory. One `--caption` per file, in order, says what visible behaviour it proves and renders under it. Refuses other file types: put text in `--summary`. At most 5 attachments per PR, counting files already stored: a sixth is refused and must be dropped or merged. A video over 10 MB is compressed with ffmpeg to fit before it is stored or attached. |
 | `path`, `list` | Print the evidence directory, or every file with its byte size. |
 | `receipt ...` | Writes `receipt.json`: the comment summary and the Run receipt. Every field is required. The summary is at most 10 lines: one per command with its exit code and a link to the CI run that holds the full log. A longer summary is refused. |
 | `attach [--pr N] [--dry-run]` | Moves staged evidence into the PR directory, renders `body.md`, and posts or replaces the single evidence comment with `gh pr comment --attach`. With attachments it uploads them and renders each caption under it; with none it posts just the summary and the receipt, without any `--attach` flags. `--dry-run` copies staged files into the PR directory, writes `body.md` and prints the exact command, but posts nothing and leaves the staging directory. |
@@ -40,7 +40,7 @@ The command is `scripts/evidence` beside this file; from any other repository it
 
 ## Attachment limits
 
-Every attachment carries the one-line caption given to `add`, and the comment renders it under the image or video; files must have distinct names so each caption maps to one attachment. At most 5 attachments are stored per PR, counting files already in the evidence directory; a sixth is refused with a message to drop or merge files. GitHub accepts images and videos: png, jpg, jpeg, gif, webp, svg, mp4, mov and webm; at most 10 MB each. The comment body references every attachment, so `gh` rewrites those references to the uploaded asset URLs and appends nothing after the receipt. A file still over the limit fails before any upload, with the size, the limit and what to do.
+Every attachment carries the one-line caption given to `add`, and the comment renders it under the image or video; each file name maps to one caption, and re-adding a name replaces that attachment. At most 5 attachments are stored per PR, counting files already in the evidence directory; a sixth is refused with a message to drop or merge files. GitHub accepts images and videos: png, jpg, jpeg, gif, webp, svg, mp4, mov and webm; at most 10 MB each. A video over 10 MB is compressed when it is added or attached, and the compressed file keeps its caption. The comment body references every attachment, so `gh` rewrites those references to the uploaded asset URLs and appends nothing after the receipt. A file still over the limit fails before any upload, with the size, the limit and what to do.
 
 ## The Run receipt
 

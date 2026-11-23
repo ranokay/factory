@@ -403,6 +403,46 @@ def case_attach_video_compress(work):
 
 
 @case
+def case_attach_video_collision(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    big = make_video(work / "demo.mp4", seconds=3)
+    small = make_video(work / "demo-compressed.mp4", seconds=1)
+    limit = 1200000
+    expect(big.stat().st_size > limit, f"the big fixture video is only {big.stat().st_size} bytes")
+    expect(small.stat().st_size <= limit, f"the small fixture video is {small.stat().st_size} bytes")
+    shutil.copy2(big, target / "demo.mp4")
+    shutil.copy2(small, target / "demo-compressed.mp4")
+    (target / "captions.json").write_text(json.dumps({"demo.mp4": "New flow", "demo-compressed.mp4": "Old flow"}))
+    dry = ok(
+        tool(
+            work,
+            repo,
+            ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"],
+            env={"EVIDENCE_MAX_BYTES": str(limit)},
+        )
+    )
+    compressed = target / "demo-compressed-2.mp4"
+    expect(compressed.is_file(), "the compressed video did not get a unique name")
+    expect((target / "demo-compressed.mp4").is_file(), "the existing compressed video was overwritten")
+    expect(str(compressed) in dry, dry)
+    body = (target / "body.md").read_text()
+    expect("![demo-compressed.mp4](./demo-compressed.mp4)" in body, body)
+    expect("![demo-compressed-2.mp4](./demo-compressed-2.mp4)" in body, body)
+    expect("Old flow" in body and "New flow" in body, body)
+    captions = json.loads((target / "captions.json").read_text())
+    expect(
+        captions == {"demo-compressed-2.mp4": "New flow", "demo-compressed.mp4": "Old flow"},
+        f"captions were {captions}",
+    )
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": str(limit)}))
+    recorded = comment(work, "101")
+    expected = sorted([str(target / "demo-compressed.mp4"), str(compressed)])
+    expect(sorted(recorded["attachments"]) == expected, f"attachments were {recorded['attachments']}")
+
+
+@case
 def case_oversize(work):
     repo, _ = make_repo(work)
     ok(tool(work, repo, receipt_args(pr="7")))
@@ -695,6 +735,9 @@ def case_attach_caption_required(work):
     refused(result, "has no caption")
     expect("--caption" in result.stderr, result.stderr)
     expect(not (target / "body.md").exists(), "a body was written for an uncaptioned attachment")
+    (target / "captions.json").write_text(json.dumps({"shot.png": "first\nsecond"}))
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "must be one line")
 
 
 @case
