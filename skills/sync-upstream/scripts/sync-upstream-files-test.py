@@ -67,6 +67,21 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("adds ranokay/factory", result.stderr)
 
+    def test_factory_files_rejects_workflow_with_pathspec_characters(self):
+        repo = self.factory_repo()
+        self.branch(repo, "literal-workflow", ".github/workflows/café[1].yaml", "jobs:\n  test:\n    uses: ranokay/factory/.github/workflows/gates.yml@main\n")
+        result = self.factory_files(repo, "literal-workflow")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("adds ranokay/factory", result.stderr)
+
+    def test_factory_files_refuses_non_utf8_path(self):
+        fake = self.root / "bin" / "git"
+        fake.write_text("#!/bin/sh\nprintf 'A\\000bad\\377.yaml\\000'\n")
+        fake.chmod(0o755)
+        result = self.cli("factory-files", "--from", "base", "--head", "tip", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("changed path is not valid UTF-8", result.stderr)
+
     def target(self, existing=None):
         path = self.root / "target"
         path.mkdir()

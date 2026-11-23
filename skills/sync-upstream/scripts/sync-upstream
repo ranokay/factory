@@ -392,7 +392,7 @@ def changed_files(first, last):
 
 
 def added_lines(first, last, path):
-    output = git("diff", "--unified=0", f"{first}...{last}", "--", path).stdout
+    output = git("--literal-pathspecs", "diff", "--unified=0", f"{first}...{last}", "--", path).stdout
     return [line[1:] for line in output.splitlines() if line.startswith("+") and not line.startswith("+++")]
 
 
