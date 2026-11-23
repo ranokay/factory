@@ -19,7 +19,9 @@ def validate_config():
         raise RuntimeError("repo-settings.json: ruleset names must be nonempty and distinct")
     rules = CONFIG.get("branch_rules")
     required = {"deletion", "non_fast_forward", "required_signatures", "pull_request"}
-    if not isinstance(rules, list) or not required.issubset({rule.get("type") for rule in rules if isinstance(rule, dict)}):
+    if not isinstance(rules, list) or any(not isinstance(rule, dict) or not isinstance(rule.get("type"), str) or not rule["type"] for rule in rules):
+        raise RuntimeError("repo-settings.json: branch_rules must contain objects with a type")
+    if not required.issubset({rule["type"] for rule in rules}):
         raise RuntimeError("repo-settings.json: branch_rules must include deletion, non_fast_forward, required_signatures and pull_request")
     if CONFIG.get("fork_bypass_actor") != {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}:
         raise RuntimeError("repo-settings.json: fork_bypass_actor must be the admin role in pull_request mode")

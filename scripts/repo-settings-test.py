@@ -372,6 +372,8 @@ class RepoSettings(unittest.TestCase):
             invalid.append(modified)
         for kind in ("deletion", "non_fast_forward", "required_signatures", "pull_request"):
             invalid.append(dict(config, branch_rules=[rule for rule in config["branch_rules"] if rule["type"] != kind]))
+        for malformed in (None, {}, {"type": 7}):
+            invalid.append(dict(config, branch_rules=[*config["branch_rules"], malformed]))
         for modified in invalid:
             with self.subTest(config=modified):
                 path.write_text(json.dumps(modified))
