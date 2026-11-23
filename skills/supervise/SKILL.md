@@ -45,6 +45,8 @@ Fetch any issue or ticket the task names and state its title. Record the Run's i
 
 Decide whether the Worker plans first. Skip the plan only when the task names the exact change (the file and the value or wording), touches one file, and adds no behaviour and no tests. `--plan` and `--no-plan` override your call.
 
+When the repository carries `factory-upstream-fork`, put upstream's conventions in the acceptance conditions: branch from `upstream/<default>`, commit no Factory files, review with `ocr review --from upstream/<default>`, end at a green open PR, never merge. Run `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream factory-files --from upstream/<default>` on the head before approval; a hit is a blocking finding.
+
 Done when your reply states the acceptance conditions and the plan decision.
 
 ### 2. Launch the Worker
@@ -77,7 +79,7 @@ Repeat until a round ends with no blocking findings. Each round that ends with a
 
 ### 5. Approve
 
-Run the repository's documented Gate once in the worktree on the head commit. If the repository documents none, rerun the command-line checks from the report. A failure is a blocking finding and returns to step 4 as the next round; on the round-4 head it exhausts the budget and makes the Run a Blocker. Check the report's `processes:` receipt before you approve.
+Run the repository's documented Gate once in the worktree on the head commit. If the repository documents none, rerun the command-line checks from the report. A failure is a blocking finding and returns to step 4 as the next round; on the round-4 head it exhausts the budget and makes the Run a Blocker. Check the report's `processes:` receipt before you approve. For an Upstream Fork, also run `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream factory-files --from upstream/<default>` on the head; a hit is a blocking finding.
 
 When the Gate passes and there is a PR to open (a GitHub remote and new commits), fork the Worker thread with `t3_thread_transfer` (`action: "fork"`, `threadId` set to the Worker's thread). The fork keeps the Worker thread's model and variant: `opencode-go/deepseek-v4.1-flash` at `max`, or `opencode-go/glm-5.3` at `max` when the fallback ran. Send the PR handoff to the fork, filling `<Supervisor thread ID>` with `$T3CODE_THREAD_ID`. The fork records the evidence with `~/Developer/factory/skills/evidence/scripts/evidence add` and `receipt`, attaches it with `attach --pr <n>` before the done wake, and runs `cleanup` from the main checkout after the merge. T3 refuses PR watches on delegated children; a fork is a top-level thread with the Worker's context and worktree, so it can run `babysit-pr` alone. Without a PR to open, the run ends with the branch in the worktree.
 

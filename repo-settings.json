@@ -1,11 +1,13 @@
 {
   "factory_authors": ["ranokay", "renovate[bot]"],
   "ruleset_name": "Factory default branch",
+  "review_ruleset_name": "Factory review rules",
   "required_checks": [
     {"context": "Gates / Gates", "integration_id": 15368},
     {"context": "review / review", "integration_id": 15368}
   ],
   "public_check": {"context": "Codacy Static Code Analysis"},
+  "fork_bypass_actor": {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"},
   "merge_settings": {"allow_squash_merge": true, "allow_merge_commit": true, "allow_rebase_merge": false, "allow_auto_merge": true},
   "fork_approval": "all_external_contributors",
   "private_fork_settings": {"run_workflows_from_fork_pull_requests": true, "send_write_tokens_to_workflows": false, "send_secrets_and_variables": false, "require_approval_for_fork_pr_workflows": true},
@@ -17,7 +19,7 @@
     {"type": "deletion"},
     {"type": "non_fast_forward"},
     {"type": "required_signatures"},
-    {"type": "pull_request", "parameters": {"required_approving_review_count": 0, "dismiss_stale_reviews_on_push": false, "require_code_owner_review": false, "require_last_push_approval": false, "required_review_thread_resolution": true}}
+    {"type": "pull_request", "parameters": {"required_approving_review_count": 0, "dismiss_stale_reviews_on_push": false, "require_code_owner_review": false, "require_last_push_approval": false, "required_review_thread_resolution": true, "require_extra_approval_for_unattributed_changes": true}}
   ],
   "review_secret": "op://factory/qrrsnuyzxc7ckjkbpppxln4q4y/credential",
   "codacy_token": "op://factory/iejbxwg6nfbqxccnunlsitcu64/credential",

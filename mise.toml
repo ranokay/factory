@@ -88,6 +88,7 @@ depends = [
   "advisory-review-requests:test",
   "repo-settings:test",
   "codacy-gate:test",
+  "sync-upstream:test",
 ]
 
 [tasks."check:gates"]
@@ -105,6 +106,10 @@ run = "hk test --step repo-settings-test"
 
 [tasks."codacy-gate:test"]
 run = "hk test --step codacy-gate-test"
+
+[tasks."sync-upstream:test"]
+description = "Run the sync-upstream fixture tests"
+run = "hk test --step sync-upstream-test"
 
 [tasks."skills:test"]
 description = "Run the skills:sync tests"

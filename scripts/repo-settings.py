@@ -13,6 +13,62 @@ from pathlib import Path
 CONFIG = json.loads((Path(__file__).resolve().parent.parent / "repo-settings.json").read_text())
 
 
+def integer(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def validate_branch_rules():
+    rules = CONFIG.get("branch_rules")
+    required = {"deletion", "non_fast_forward", "required_signatures", "pull_request"}
+    if not isinstance(rules, list) or any(not isinstance(rule, dict) or not isinstance(rule.get("type"), str) or not rule["type"] for rule in rules):
+        raise RuntimeError("repo-settings.json: branch_rules must contain objects with a type")
+    if len(rules) != len(required) or {rule["type"] for rule in rules} != required:
+        raise RuntimeError("repo-settings.json: branch_rules must contain each required rule exactly once")
+    for rule in rules:
+        if rule["type"] != "pull_request" and (set(rule) - {"type", "parameters"} or ("parameters" in rule and rule["parameters"] != {})):
+            raise RuntimeError("repo-settings.json: branch_rules non-PR rules must have no parameters or an empty object")
+    pr = next(rule for rule in rules if rule["type"] == "pull_request")
+    flags = {"dismiss_stale_reviews_on_push", "require_code_owner_review", "require_last_push_approval", "required_review_thread_resolution", "require_extra_approval_for_unattributed_changes"}
+    parameters = pr.get("parameters")
+    count = "required_approving_review_count"
+    if set(pr) != {"type", "parameters"} or not isinstance(parameters, dict) or set(parameters) != flags | {count} or not integer(parameters[count]) or parameters[count] < 0 or any(not isinstance(parameters[flag], bool) for flag in flags):
+        raise RuntimeError("repo-settings.json: branch_rules pull_request parameters are invalid")
+
+
+def valid_check(check, require_integration):
+    if not isinstance(check, dict) or not {"context"}.issubset(check) or set(check) - {"context", "integration_id"}:
+        return False
+    if not isinstance(check["context"], str) or not check["context"].strip():
+        return False
+    if require_integration and "integration_id" not in check:
+        return False
+    return "integration_id" not in check or (integer(check["integration_id"]) and check["integration_id"] > 0)
+
+
+def validate_checks():
+    checks = CONFIG.get("required_checks")
+    if not isinstance(checks, list) or not checks or not all(valid_check(check, True) for check in checks):
+        raise RuntimeError("repo-settings.json: required_checks must contain valid checks")
+    contexts = [check["context"] for check in checks]
+    if len(set(contexts)) != len(contexts) or not {"Gates / Gates", "review / review"}.issubset(contexts):
+        raise RuntimeError("repo-settings.json: required_checks must uniquely include Gates / Gates and review / review")
+    if not valid_check(CONFIG.get("public_check"), False):
+        raise RuntimeError("repo-settings.json: public_check is invalid")
+    if CONFIG["public_check"]["context"] in contexts:
+        raise RuntimeError("repo-settings.json: public_check context must differ from required_checks")
+
+
+def validate_config():
+    names = (CONFIG.get("ruleset_name"), CONFIG.get("review_ruleset_name"))
+    if any(not isinstance(name, str) or not name.strip() for name in names) or names[0].casefold() == names[1].casefold():
+        raise RuntimeError("repo-settings.json: ruleset names must be nonempty and distinct")
+    validate_branch_rules()
+    validate_checks()
+    bypass = CONFIG.get("fork_bypass_actor")
+    if bypass != {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"} or not integer(bypass["actor_id"]):
+        raise RuntimeError("repo-settings.json: fork_bypass_actor must be the admin role in pull_request mode")
+
+
 def command(args, data=None, env=None):
     result = subprocess.run(args, input=data, capture_output=True, env=env, check=False)
     if result.returncode:
@@ -116,9 +172,15 @@ def codacy(path, token, body=None):
         return json.load(response)
 
 
-def ruleset(codacy_check):
+def ruleset(codacy_check, personal_fork=False):
     checks = CONFIG["required_checks"] + ([codacy_check] if codacy_check else [])
-    return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*CONFIG["branch_rules"], {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
+    review_types = {"required_signatures", "pull_request"}
+    branch_rules = [rule for rule in CONFIG["branch_rules"] if not personal_fork or rule["type"] not in review_types]
+    return {"name": CONFIG["ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [*branch_rules, {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": False, "required_status_checks": checks}}]}
+
+
+def review_ruleset():
+    return {"name": CONFIG["review_ruleset_name"], "target": "branch", "enforcement": "active", "bypass_actors": [CONFIG["fork_bypass_actor"]], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": [rule for rule in CONFIG["branch_rules"] if rule["type"] in {"required_signatures", "pull_request"}]}
 
 
 def codacy_check_seen(base, branch):
@@ -155,6 +217,11 @@ def matches(actual, expected):
     return actual == expected
 
 
+def review_ruleset_differences(actual, expected):
+    keys = ("name", "target", "enforcement", "rules", "bypass_actors", "conditions")
+    return [key for key in keys if not (matches(actual[key], expected[key]) and matches(expected[key], actual[key]))]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("repo")
@@ -164,8 +231,25 @@ def main():
     args = parser.parse_args()
     if len(args.repo.split("/")) != 2 or not all(args.repo.split("/")):
         parser.error("repo must be OWNER/REPO")
+    validate_config()
     owner, name = args.repo.split("/")
     base = "repos/" + args.repo
+
+    def owned_rulesets():
+        listed = gh(base + "/rulesets?per_page=100&includes_parents=false", paginate=True)
+        owned = []
+        for item in listed:
+            source = item.get("source")
+            source_type = item.get("source_type")
+            if not isinstance(source, str) or not source or not isinstance(source_type, str) or not source_type:
+                raise RuntimeError(f"ruleset {item['name']} ({item['id']}) has missing ownership information (source_type: {source_type!r})")
+            if source_type == "Repository":
+                if source.lower() != repo["full_name"].lower():
+                    raise RuntimeError(f"ruleset {item['name']} belongs to another repository: {source}")
+                owned.append(item)
+            elif source_type not in ("Organization", "Enterprise"):
+                raise RuntimeError(f"ruleset {item['name']} ({item['id']}) has unknown source_type: {source_type!r}")
+        return owned
     repo = gh(base)
     topics = set(gh(base + "/topics")["names"])
     kinds = {"factory-personal-fork", "factory-upstream-fork"}
@@ -182,6 +266,7 @@ def main():
         changes.append((description, method, endpoint, body))
 
     upstream = "factory-upstream-fork" in desired_topics
+    personal_fork = repo["fork"] and "factory-personal-fork" in desired_topics
     if desired_topics != topics:
         change(f"topics: {sorted(topics)} -> {sorted(desired_topics)}", "PUT", base + "/topics", {"names": sorted(desired_topics)})
     approval_path = base + "/actions/permissions/fork-pr-contributor-approval"
@@ -197,10 +282,13 @@ def main():
         if any(private_settings.get(k) != v for k, v in private_desired.items()):
             change(f"private fork workflows: {json.dumps(private_settings, sort_keys=True)} -> {json.dumps(private_desired, sort_keys=True)}", "PUT", private_path, private_desired)
     if upstream:
+        factory_rules = [item for item in owned_rulesets() if item["name"] in (CONFIG["ruleset_name"], CONFIG["review_ruleset_name"])]
         print("drift:")
         for description, _, _, _ in changes:
             print("  " + description)
-        if not changes:
+        for item in factory_rules:
+            print(f"  manual: ruleset {item['name']}: gh api -X DELETE {base}/rulesets/{item['id']}")
+        if not changes and not factory_rules:
             print("  no changes")
         print("Upstream Fork: skipped ruleset, merge settings, labels, vendor files, Codacy and CI review key")
         if args.apply:
@@ -265,10 +353,15 @@ def main():
         codacy_ready = enrolled and codacy_check_seen(base, repo["default_branch"])
         if not codacy_ready:
             manual_drift.append("Codacy check not yet reporting")
-    matching = [r for r in gh(base + "/rulesets?per_page=100", paginate=True) if r["name"] == CONFIG["ruleset_name"]]
-    if len(matching) > 1:
-        raise RuntimeError("multiple rulesets have the Factory name")
-    live = gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
+    listed_rulesets = owned_rulesets()
+
+    def find_ruleset(name):
+        matching = [item for item in listed_rulesets if item["name"] == name]
+        if len(matching) > 1:
+            raise RuntimeError(f"multiple rulesets have the name {name}")
+        return gh(base + "/rulesets/" + str(matching[0]["id"])) if matching else None
+
+    live = find_ruleset(CONFIG["ruleset_name"])
     existing_codacy = None
     if live and not repo["private"] and live.get("enforcement") == "active":
         for rule in live.get("rules", []):
@@ -276,10 +369,24 @@ def main():
                 for check in rule.get("parameters", {}).get("required_status_checks", []):
                     if check.get("context") == CONFIG["public_check"]["context"]:
                         existing_codacy = {key: check[key] for key in ("context", "integration_id") if check.get(key) is not None}
-    desired = ruleset(existing_codacy or (CONFIG["public_check"] if codacy_ready else None))
-    if not live or not matches(live, desired):
-        before = {key: live.get(key) for key in desired} if live else None
-        change(f"default branch ruleset: {json.dumps(before, sort_keys=True)} -> {json.dumps(desired, sort_keys=True)}", "PUT" if live else "POST", base + "/rulesets" + ("/" + str(live["id"]) if live else ""), desired)
+    desired = ruleset(existing_codacy or (CONFIG["public_check"] if codacy_ready else None), personal_fork)
+    planned = [(live, desired)]
+    if personal_fork:
+        review = review_ruleset()
+        planned.insert(0, (find_ruleset(review["name"]), review))
+    for current, target in planned:
+        if not current or not matches(current, target):
+            before = {key: current.get(key) for key in target} if current else None
+            change(f"ruleset {target['name']}: {json.dumps(before, sort_keys=True)} -> {json.dumps(target, sort_keys=True)}", "PUT" if current else "POST", base + "/rulesets" + ("/" + str(current["id"]) if current else ""), target)
+    if not personal_fork:
+        stale_review = find_ruleset(CONFIG["review_ruleset_name"])
+        if stale_review:
+            expected_review = review_ruleset()
+            differences = review_ruleset_differences(stale_review, expected_review)
+            if not differences:
+                change(f"ruleset {CONFIG['review_ruleset_name']}: delete", "DELETE", base + "/rulesets/" + str(stale_review["id"]))
+            else:
+                manual_drift.append(f"ruleset {stale_review['name']} differs from Factory review rules in {', '.join(differences)}: {json.dumps(stale_review, sort_keys=True)}; gh api -X DELETE {base}/rulesets/{stale_review['id']}")
     secret_pages = json.loads(command(["gh", "api", "--paginate", "--slurp", base + "/actions/secrets?per_page=100"]))
     secrets = [secret for page in secret_pages for secret in page["secrets"]]
     secret_needed = args.rotate_secret or not any(s["name"] == "OPENCODE_ZEN_API_KEY" for s in secrets)
