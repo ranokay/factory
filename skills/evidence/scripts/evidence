@@ -306,7 +306,7 @@ def fit_video(path):
         final = compressed.stat().st_size
         if final > limit:
             fail(f"{compressed.name} is still {human(final)} and the limit is {human(limit)}")
-    except Refused:
+    except BaseException:
         compressed.unlink(missing_ok=True)
         raise
     path.unlink()
@@ -565,7 +565,8 @@ def attachment_entries(directory):
 
 
 def escape_caption(caption):
-    text = html.escape(caption, quote=True).replace("[", "\\[").replace("]", "\\]")
+    text = caption.replace("\\", "\\\\")
+    text = html.escape(text, quote=True).replace("[", "\\[").replace("]", "\\]")
     text = re.sub(r"^(\d+)([.)])", r"\1\\\2", text)
     if text[:1] in {"#", ">", "-", "+", "*", "=", "|"}:
         text = "\\" + text

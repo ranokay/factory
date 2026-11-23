@@ -919,7 +919,7 @@ def case_add_caption(work):
 def case_caption_escape(work):
     repo, _ = make_repo(work)
     image = make_image(work / "shot.png")
-    caption = '- Banner <b>shows</b> [ok] & "quoted"'
+    caption = '- Banner <b>shows</b> [ok] & "quoted" \\ path'
     ok(tool(work, repo, ["add", str(image), "--caption", caption, "--repo", "a/one", "--pr", "7"]))
     ok(
         tool(
@@ -941,7 +941,7 @@ def case_caption_escape(work):
     )
     ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
     body = (work / "cache" / "a" / "one" / "7" / "body.md").read_text()
-    expect('\\- Banner &lt;b&gt;shows&lt;/b&gt; \\[ok\\] &amp; &quot;quoted&quot;' in body, body)
+    expect('\\- Banner &lt;b&gt;shows&lt;/b&gt; \\[ok\\] &amp; &quot;quoted&quot; \\\\ path' in body, body)
     expect(caption not in body, body)
     expect("&lt;b&gt;proof&lt;/b&gt;" in body, body)
     expect("1\\. first" in body, body)
