@@ -1088,6 +1088,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "add_multi_rollback" }
         expect { code = 0 }
       }
+      ["add compresses a video passed as the stored file"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_in_place_video" }
+        expect { code = 0 }
+      }
       ["staged evidence moves to the PR directory before the comment"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "stage_attach" }
@@ -1141,6 +1146,11 @@ steps {
       ["attach refuses stored evidence without a caption"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "attach_caption_required" }
+        expect { code = 0 }
+      }
+      ["captions escape Markdown and HTML"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "caption_escape" }
         expect { code = 0 }
       }
       ["a summary over ten lines is refused"] {

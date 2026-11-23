@@ -271,7 +271,7 @@ def case_defaults(work):
 def case_add_source_inside(work):
     repo, _ = make_repo(work)
     image = make_image(repo / "shot.png")
-    result = tool(work, repo, ["add", str(image), "--repo", "a/one", "--pr", "7"])
+    result = tool(work, repo, ["add", str(image), "--caption", "Login banner", "--repo", "a/one", "--pr", "7"])
     refused(result, "inside the repository")
     expect(not (work / "cache" / "a").exists(), "evidence was written for a refused source")
 
@@ -283,7 +283,7 @@ def case_add_dest_inside(work):
     result = tool(
         work,
         repo,
-        ["add", str(image), "--repo", "a/one", "--pr", "7"],
+        ["add", str(image), "--caption", "Login banner", "--repo", "a/one", "--pr", "7"],
         env={"EVIDENCE_CACHE_ROOT": str(repo / ".cache")},
     )
     refused(result, "inside the repository")
@@ -344,6 +344,27 @@ def case_add_multi_rollback(work):
     expect(not (target / "bad.mp4").exists(), "the failed file was left behind")
     captions = json.loads((target / "captions.json").read_text())
     expect(captions == {"shot.png": "Old state"}, f"captions were {captions}")
+
+
+@case
+def case_add_in_place_video(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    shutil.copy2(make_video(work / "demo.mp4", seconds=3), target / "demo.mp4")
+    (target / "captions.json").write_text(json.dumps({"demo.mp4": "Flow recording"}))
+    ok(
+        tool(
+            work,
+            repo,
+            ["add", str(target / "demo.mp4"), "--caption", "Flow recording", "--repo", "a/one", "--pr", "7"],
+            env={"EVIDENCE_MAX_BYTES": "1000000"},
+        )
+    )
+    expect((target / "demo-compressed.mp4").is_file(), "the in-place video was not compressed")
+    expect(not (target / "demo.mp4").exists(), "the original in-place video remains")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"demo-compressed.mp4": "Flow recording"}, f"captions were {captions}")
 
 
 @case
@@ -483,6 +504,7 @@ def case_attach_video_collision(work):
     expect(compressed.is_file(), "the compressed video did not get a unique name")
     expect((target / "demo-compressed.mp4").is_file(), "the existing compressed video was overwritten")
     expect(str(compressed) in dry, dry)
+    expect(not (target / "demo.mp4").exists(), "the original video remains")
     body = (target / "body.md").read_text()
     expect("![demo-compressed.mp4](./demo-compressed.mp4)" in body, body)
     expect("![demo-compressed-2.mp4](./demo-compressed-2.mp4)" in body, body)
@@ -605,6 +627,9 @@ def case_attachment_limit(work):
     expect("at most 5" in result.stderr, result.stderr)
     expect(not (target / "shot-5.png").exists(), "the sixth attachment was stored")
     shutil.copy2(image, target / "manual.png")
+    stored_captions = json.loads((target / "captions.json").read_text())
+    stored_captions["manual.png"] = "Manual state"
+    (target / "captions.json").write_text(json.dumps(stored_captions))
     result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
     refused(result, "drop or merge")
     over = tool(
@@ -841,6 +866,19 @@ def case_add_caption(work):
 
 
 @case
+def case_caption_escape(work):
+    repo, _ = make_repo(work)
+    image = make_image(work / "shot.png")
+    caption = "Banner <b>shows</b> [ok]"
+    ok(tool(work, repo, ["add", str(image), "--caption", caption, "--repo", "a/one", "--pr", "7"]))
+    ok(tool(work, repo, receipt_args(pr="7")))
+    ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
+    body = (work / "cache" / "a" / "one" / "7" / "body.md").read_text()
+    expect("Banner &lt;b&gt;shows&lt;/b&gt; \\[ok\\]" in body, body)
+    expect("<b>" not in body, body)
+
+
+@case
 def case_attach_caption_required(work):
     repo, _ = make_repo(work)
     ok(tool(work, repo, receipt_args(pr="7")))
@@ -862,6 +900,7 @@ def case_summary_limit(work):
         f"`cmd {index}` \u2014 exit 0 \u2014 https://github.com/a/one/actions/runs/{index}" for index in range(10)
     )
     ok(tool(work, repo, receipt_args(pr="7", summary=ten)))
+    ok(tool(work, repo, receipt_args(pr="9", summary=ten + "\n")))
     result = tool(work, repo, receipt_args(pr="8", summary=ten + "\nlast"))
     refused(result, "10 lines")
     expect("exit code" in result.stderr, result.stderr)
@@ -879,6 +918,12 @@ def case_no_attachments(work):
     ok(tool(work, repo, receipt_args(pr="7", summary=summary)))
     target = work / "cache" / "a" / "one" / "7"
     (target / "notes.txt").write_text("command output\n")
+    notes = work / "notes.txt"
+    notes.write_text("command output\n")
+    refused(
+        tool(work, repo, ["add", str(notes), "--caption", "Log output", "--repo", "a/one", "--pr", "7"]),
+        "not an image or video",
+    )
     dry = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
     expect("--attach" not in dry, dry)
     body = (target / "body.md").read_text()

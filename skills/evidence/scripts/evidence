@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import html
 import json
 import os
 import re
@@ -298,7 +299,7 @@ def fit_video(path):
     compressed = path.with_name(f"{stem}-compressed.mp4")
     index = 2
     while compressed.exists():
-        compressed = path.with_name(f"{path.stem}-compressed-{index}.mp4")
+        compressed = path.with_name(f"{stem}-compressed-{index}.mp4")
         index += 1
     try:
         encode(path, compressed, limit)
@@ -355,7 +356,14 @@ def cmd_add(args):
         for source, name, suffix in sources:
             destination = target / name
             if destination.resolve() == source:
-                print(f"already in place: {destination}")
+                final = source
+                if suffix in IMAGE_SUFFIXES:
+                    require_size(source)
+                if suffix in VIDEO_SUFFIXES:
+                    final = fit_video(source)
+                    if final.name != name:
+                        rekey_caption(captions, name, final.name)
+                print(f"already in place: {final}")
                 continue
             backup = None
             if destination.exists():
@@ -552,12 +560,16 @@ def attachment_entries(directory):
     return entries
 
 
+def escape_caption(caption):
+    return html.escape(caption, quote=False).replace("[", "\\[").replace("]", "\\]")
+
+
 def render(data, entries):
     lines = [MARKER, "", "## Verification Evidence", "", data["summary"].strip(), ""]
     if entries:
         lines += ["### Attachments", ""]
         for item, caption in entries:
-            lines += [f"![{item.name}](./{item.name})", "", caption, ""]
+            lines += [f"![{item.name}](./{item.name})", "", escape_caption(caption), ""]
     lines += [
         "<details>",
         "<summary>Run receipt</summary>",
@@ -582,6 +594,7 @@ def pr_branch(repo, pr):
 def move_staged(stage, target, copy=False):
     target.mkdir(parents=True, exist_ok=True)
     moved = []
+    captions_moved = False
     for item in sorted(stage.iterdir()):
         if not item.is_file():
             continue
@@ -591,15 +604,20 @@ def move_staged(stage, target, copy=False):
             write_captions(target, merged)
             if not copy:
                 item.unlink()
-        elif copy:
+            captions_moved = True
+            continue
+        if copy:
             shutil.copy2(item, target / item.name)
         else:
             os.replace(item, target / item.name)
         moved.append(item.name)
-    if not moved:
+    if not moved and not captions_moved:
         return
     if copy:
-        print(f"copied staged evidence from {stage} to {target} for the dry run")
+        if moved:
+            print(f"copied staged evidence from {stage} to {target} for the dry run")
+        else:
+            print(f"merged staged captions from {stage} to {target} for the dry run")
         return
     if any(stage.iterdir()):
         print(f"left {stage} in place; it still holds files")
@@ -607,7 +625,10 @@ def move_staged(stage, target, copy=False):
     stage.rmdir()
     if stage.parent.is_dir() and not any(stage.parent.iterdir()):
         stage.parent.rmdir()
-    print(f"moved staged evidence from {stage} to {target}")
+    if moved:
+        print(f"moved staged evidence from {stage} to {target}")
+    else:
+        print(f"moved staged captions from {stage} to {target}")
 
 
 def marked_comments(repo, pr):
