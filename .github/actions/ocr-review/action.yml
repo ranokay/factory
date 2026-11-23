@@ -24,10 +24,22 @@ runs:
       id: rule
       shell: bash
       env:
-        RULE: ${{ inputs.rule || format('{0}/ai-review-rule.json', github.workspace) }}
+        RULE: ${{ inputs.rule }}
+        DEFAULT_RULE: ${{ format('{0}/ai-review-rule.json', github.workspace) }}
+        WORKSPACE: ${{ github.workspace }}
       run: |
-        if [ -f "$RULE" ]; then
-          echo "path=$RULE" >> "$GITHUB_OUTPUT"
+        if [ -n "$RULE" ]; then
+          case "$RULE" in
+            /*) path="$RULE" ;;
+            *) path="$WORKSPACE/$RULE" ;;
+          esac
+          if [ ! -f "$path" ]; then
+            echo "::error::rule input does not exist: $RULE"
+            exit 1
+          fi
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+        elif [ -f "$DEFAULT_RULE" ]; then
+          echo "path=$DEFAULT_RULE" >> "$GITHUB_OUTPUT"
         fi
     - name: Gather review context
       id: context

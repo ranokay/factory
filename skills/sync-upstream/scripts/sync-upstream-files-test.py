@@ -46,7 +46,7 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertIn(".github/workflows/ci-gates.yml: adds ranokay/factory", self.factory_files(repo, "workflow").stderr)
         self.branch(repo, "yaml-workflow", ".github/workflows/ci-gates.yaml", "name: Gates\njobs:\n  gates:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ranokay/factory/.github/actions/gates@main\n")
         self.assertIn(".github/workflows/ci-gates.yaml: adds ranokay/factory", self.factory_files(repo, "yaml-workflow").stderr)
-        self.branch(repo, "workflow-edit", ".github/workflows/ci.yml", "on: push\njobs:\n  test:\n    uses: ranokay/factory/.github/actions/gates@main\n")
+        self.branch(repo, "workflow-edit", ".github/workflows/ci.yml", "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ranokay/factory/.github/actions/gates@main\n")
         self.assertIn(".github/workflows/ci.yml: adds ranokay/factory", self.factory_files(repo, "workflow-edit").stderr)
         self.branch(repo, "workflow-plain", ".github/workflows/ci.yml", "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n")
         self.assertEqual(self.factory_files(repo, "workflow-plain").returncode, 0)
@@ -60,21 +60,21 @@ class SyncUpstreamFiles(SyncFixture):
 
     def test_factory_files_rejects_non_ascii_workflow_marker(self):
         repo = self.factory_repo()
-        self.branch(repo, "unicode-workflow", ".github/workflows/café.yaml", "jobs:\n  test:\n    uses: ranokay/factory/.github/actions/gates@main\n")
+        self.branch(repo, "unicode-workflow", ".github/workflows/café.yaml", "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ranokay/factory/.github/actions/gates@main\n")
         result = self.factory_files(repo, "unicode-workflow")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("café.yaml: adds ranokay/factory", result.stderr)
 
     def test_factory_files_rejects_workflow_with_carriage_return_in_path(self):
         repo = self.factory_repo()
-        self.branch(repo, "control-workflow", ".github/workflows/with\rreturn.yaml", "jobs:\n  test:\n    uses: ranokay/factory/.github/actions/gates@main\n")
+        self.branch(repo, "control-workflow", ".github/workflows/with\rreturn.yaml", "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ranokay/factory/.github/actions/gates@main\n")
         result = self.factory_files(repo, "control-workflow")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("adds ranokay/factory", result.stderr)
 
     def test_factory_files_rejects_workflow_with_pathspec_characters(self):
         repo = self.factory_repo()
-        self.branch(repo, "literal-workflow", ".github/workflows/café[1].yaml", "jobs:\n  test:\n    uses: ranokay/factory/.github/actions/gates@main\n")
+        self.branch(repo, "literal-workflow", ".github/workflows/café[1].yaml", "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ranokay/factory/.github/actions/gates@main\n")
         result = self.factory_files(repo, "literal-workflow")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("adds ranokay/factory", result.stderr)

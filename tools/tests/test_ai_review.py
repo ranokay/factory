@@ -54,8 +54,8 @@ def review_step(source):
     raise AssertionError("missing review step")
 
 
-def assert_draft_guard(test, caller):
-    job = yaml.safe_load(caller)["jobs"]["review"]
+def assert_draft_guard(test, source):
+    job = yaml.safe_load(source)["jobs"]["review"]
     condition = job["if"]
     test.assertIn(
         "github.event.pull_request.head.repo.full_name == github.repository", condition
@@ -131,24 +131,31 @@ class AiReviewWorkflowTests(unittest.TestCase):
         })
         self.assertTrue((ROOT / "REVIEW.md").is_file())
         rule_step = named_step(action_steps(action("ocr-review")), "Resolve rule path")
-        self.assertEqual(
-            rule_step["env"]["RULE"],
-            "${{ inputs.rule || format('{0}/ai-review-rule.json', github.workspace) }}",
-        )
+        self.assertEqual(rule_step["env"]["RULE"], "${{ inputs.rule }}")
+        self.assertEqual(rule_step["env"]["DEFAULT_RULE"], "${{ format('{0}/ai-review-rule.json', github.workspace) }}")
+        self.assertEqual(rule_step["env"]["WORKSPACE"], "${{ github.workspace }}")
         self.assertEqual(review_step(action("ocr-review"))["with"]["rule"], "${{ steps.rule.outputs.path }}")
-        caller = yaml.safe_load(workflow("ai-review.yml"))
-        self.assertNotIn("rule", caller["jobs"]["review"]["steps"][-1]["with"])
+        source = yaml.safe_load(workflow("ai-review.yml"))
+        self.assertNotIn("rule", source["jobs"]["review"]["steps"][-1]["with"])
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
             output.write_text("")
             existing = ROOT / "ai-review-rule.json"
-            result = run_step(rule_step, {"RULE": str(existing), "GITHUB_OUTPUT": str(output)})
+            result = run_step(rule_step, {"RULE": "", "DEFAULT_RULE": str(existing), "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output.read_text(), f"path={existing}\n")
             output.write_text("")
-            result = run_step(rule_step, {"RULE": str(Path(directory) / "missing.json"), "GITHUB_OUTPUT": str(output)})
+            result = run_step(rule_step, {"RULE": "", "DEFAULT_RULE": str(Path(directory) / "missing.json"), "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output.read_text(), "")
+            output.write_text("")
+            result = run_step(rule_step, {"RULE": "ai-review-rule.json", "DEFAULT_RULE": "", "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output.read_text(), f"path={existing}\n")
+            output.write_text("")
+            result = run_step(rule_step, {"RULE": str(Path(directory) / "missing.json"), "DEFAULT_RULE": "", "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("rule input does not exist", result.stdout)
 
     def test_draft_pull_requests_skip_review_until_ready(self):
         assert_draft_guard(self, workflow("ai-review.yml"))
@@ -178,9 +185,9 @@ class AiReviewWorkflowTests(unittest.TestCase):
             assert_failure_propagation(self, action_steps(mutated))
 
     def test_automatic_review_event_routing(self):
-        caller = workflow("ai-review.yml")
-        self.assertIn("run-name: AI Review PR ${{ github.event.pull_request.number }}", caller)
-        match = re.search(r"(?m)^    types: \[([^]]+)\]$", caller)
+        source = workflow("ai-review.yml")
+        self.assertIn("run-name: AI Review PR ${{ github.event.pull_request.number }}", source)
+        match = re.search(r"(?m)^    types: \[([^]]+)\]$", source)
         actions = {action.strip() for action in match.group(1).split(",")}
         for action, starts in (
             ("opened", True), ("reopened", True),
@@ -191,11 +198,11 @@ class AiReviewWorkflowTests(unittest.TestCase):
                 self.assertEqual(action in actions, starts)
 
     def test_secret_jobs_allow_only_same_repository_pull_requests(self):
-        caller = workflow("ai-review.yml")
-        triggers = caller.split("on:\n", 1)[1].split("permissions:", 1)[0]
+        source = workflow("ai-review.yml")
+        triggers = source.split("on:\n", 1)[1].split("permissions:", 1)[0]
         self.assertEqual(re.findall(r"(?m)^  ([a-z_]+):", triggers), ["pull_request"])
-        self.assertNotIn("pull_request_target:", caller + action("ocr-review"))
-        job = yaml.safe_load(caller)["jobs"]["review"]
+        self.assertNotIn("pull_request_target:", source + action("ocr-review"))
+        job = yaml.safe_load(source)["jobs"]["review"]
         condition = job["if"]
         self.assertTrue(condition.startswith("github.event.pull_request.head.repo.full_name == github.repository"))
         self.assertIn("github.event.pull_request.draft == false", condition)

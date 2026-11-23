@@ -25,6 +25,10 @@ def job_name(job_id, job):
     return job.get("name", job_id)
 
 
+def called_context(caller_id, caller, called_id, called):
+    return f"{job_name(caller_id, caller)} / {job_name(called_id, called)}"
+
+
 def main(directory, config_path):
     config = json.loads(Path(config_path).read_text())
     authors = config["factory_authors"]
@@ -85,7 +89,7 @@ def main(directory, config_path):
             for job_id, job in jobs.items():
                 callees = called_jobs(path, job)
                 if callees:
-                    produced.update(f"{job_name(job_id, job)} / {job_name(called_id, called)}" for called_id, called in callees.items())
+                    produced.update(called_context(job_id, job, called_id, called) for called_id, called in callees.items())
                 elif not job.get("uses"):
                     produced.add(job_name(job_id, job))
         if workflow.get("name") == "AI Review":
@@ -103,7 +107,7 @@ def main(directory, config_path):
         for job_id, job in jobs.items():
             callees = called_jobs(path, job)
             for called_id, called in callees.items():
-                context = f"{job_name(job_id, job)} / {job_name(called_id, called)}"
+                context = called_context(job_id, job, called_id, called)
                 if context in required and condition(job.get("if")):
                     failures.append(f"{path}: {job_id} guards required check {context} at the caller")
         if not {"pull_request", "pull_request_target", "workflow_run"} & names:
