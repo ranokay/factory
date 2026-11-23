@@ -85,7 +85,7 @@ A deterministic check (format, lint, type, test, build) that must pass locally a
 _Avoid_: hook, validation
 
 **Verification Evidence**:
-Artifacts proving a change works as intended at runtime, such as screenshots, videos, traces or statecharts, inspected by the Orchestrator and attached to the pull request.
+Artifacts proving a change works as intended at runtime, such as screenshots, videos, traces or statecharts, inspected by the Orchestrator and attached to the pull request only when the change has a visual surface.
 _Avoid_: proof files, test output, scratch
 
 **GC**:

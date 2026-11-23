@@ -1103,9 +1103,34 @@ steps {
         env { ["EVIDENCE_CASE"] = "receipt_rules" }
         expect { code = 0 }
       }
-      ["more than 50 attachments is refused"] {
+      ["add requires a one-line caption for every file"] {
         run = "check"
-        env { ["EVIDENCE_CASE"] = "too_many" }
+        env { ["EVIDENCE_CASE"] = "add_caption" }
+        expect { code = 0 }
+      }
+      ["attach refuses stored evidence without a caption"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_caption_required" }
+        expect { code = 0 }
+      }
+      ["a summary over ten lines is refused"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "summary_limit" }
+        expect { code = 0 }
+      }
+      ["a sixth attachment is refused"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attachment_limit" }
+        expect { code = 0 }
+      }
+      ["a non-visual change posts no attachments"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "no_attachments" }
+        expect { code = 0 }
+      }
+      ["staged captions merge with attachments already in the PR directory"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "caption_merge" }
         expect { code = 0 }
       }
       ["a gh failure names its cause"] {

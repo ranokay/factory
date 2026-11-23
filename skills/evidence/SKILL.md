@@ -5,7 +5,17 @@ description: "Record Verification Evidence outside the repository and post the s
 
 # Verification Evidence
 
-Use this skill for the proof a reviewer cannot get from tests: a screenshot, a screen recording, or a rendered statechart. The CLI stores evidence in the Factory cache, never in the repository, and turns it into one PR comment that ends with a Run receipt.
+Use this skill for the visual proof a reviewer cannot get from tests: a screenshot of a UI state, a recording of a flow, or a rendered diagram or statechart. The CLI stores evidence in the Factory cache, never in the repository, and turns it into one PR comment that ends with a collapsed Run receipt.
+
+## What to attach
+
+An attachment proves something a reviewer has to see:
+
+- a UI state, before or after the change;
+- a recording of a flow that a static image cannot show;
+- a rendered diagram or statechart.
+
+Never attach logs, command output, test output or diffs, and never render them as images. That proof belongs in the summary, the Run receipt, or the link to the CI run that holds the full log. A change with no visual surface, such as a CLI, workflow, infra, docs or Factory skill change, attaches nothing: the comment is just the summary and the Run receipt.
 
 The command is `scripts/evidence` beside this file; from any other repository it is `~/Developer/factory/skills/evidence/scripts/evidence`. In the Factory Repo it is also `mise run evidence -- <command> ...`. It uses `git`, the GitHub CLI `gh`, and `ffmpeg` with its `ffprobe`; `ffmpeg` and Python 3.13 are declared in `mise.toml`. In the Factory, run it on the Worker model: `opencode-go/deepseek-v4.1-flash` at variant `max`, or `opencode-go/glm-5.3` at variant `max` when the Worker fell back.
 
@@ -20,21 +30,21 @@ The command is `scripts/evidence` beside this file; from any other repository it
 
 | Command | What it does |
 | --- | --- |
-| `add <file>... [--pr N]` | Copies images and videos into the evidence directory. Refuses other file types: put text in `--summary`. A video over 10 MB is compressed with ffmpeg to fit before it is stored. |
+| `add <file>... --caption <text>... [--pr N]` | Copies images and videos into the evidence directory. One `--caption` per file, in order, says what visible behaviour it proves and renders under it. Refuses other file types: put text in `--summary`. At most 5 attachments per PR, counting files already stored: a sixth is refused and must be dropped or merged. A video over 10 MB is compressed with ffmpeg to fit before it is stored. |
 | `path`, `list` | Print the evidence directory, or every file with its byte size. |
-| `receipt ...` | Writes `receipt.json`: the comment summary and the Run receipt. Every field is required. |
-| `attach [--pr N] [--dry-run]` | Moves staged evidence into the PR directory, renders `body.md`, and posts or replaces the single evidence comment with `gh pr comment --attach`. `--dry-run` copies staged files into the PR directory, writes `body.md` and prints the exact command, but posts nothing and leaves the staging directory. |
+| `receipt ...` | Writes `receipt.json`: the comment summary and the Run receipt. Every field is required. The summary is at most 10 lines: one per command with its exit code and a link to the CI run that holds the full log. A longer summary is refused. |
+| `attach [--pr N] [--dry-run]` | Moves staged evidence into the PR directory, renders `body.md`, and posts or replaces the single evidence comment with `gh pr comment --attach`. With attachments it uploads them and renders each caption under it; with none it posts just the summary and the receipt, without any `--attach` flags. `--dry-run` copies staged files into the PR directory, writes `body.md` and prints the exact command, but posts nothing and leaves the staging directory. |
 | `cleanup --worktree <path> --pr N` | After a merge: deletes the remote and local branch, the worktree with its build outputs, and both evidence directories. Run it from the main checkout. |
 
 `--repo` defaults to the `origin` remote, or `gh repo view`; `--pr` defaults to the current branch's PR. Tests override the cache with `EVIDENCE_CACHE_ROOT` and the limit with `EVIDENCE_MAX_BYTES`.
 
-## Attachments
+## Attachment limits
 
-GitHub accepts images and videos: png, jpg, jpeg, gif, webp, svg, mp4, mov and webm; at most 50 files of 10 MB each. The comment body references every attachment, so `gh` rewrites those references to the uploaded asset URLs and appends nothing after the receipt. A file still over the limit fails before any upload, with the size, the limit and what to do.
+Every attachment carries the one-line caption given to `add`, and the comment renders it under the image or video. At most 5 attachments are stored per PR, counting files already in the evidence directory; a sixth is refused with a message to drop or merge files. GitHub accepts images and videos: png, jpg, jpeg, gif, webp, svg, mp4, mov and webm; at most 10 MB each. The comment body references every attachment, so `gh` rewrites those references to the uploaded asset URLs and appends nothing after the receipt. A file still over the limit fails before any upload, with the size, the limit and what to do.
 
 ## The Run receipt
 
-The receipt is the last block of the comment. Every value is required:
+The receipt is the last block of the comment, inside a collapsed `<details>` block so the summary stays readable. Every value is required:
 
 | Field | Source |
 | --- | --- |
