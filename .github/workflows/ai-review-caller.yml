@@ -10,6 +10,8 @@ concurrency:
 jobs:
   review:
     permissions:
+      # The callee resolves outdated bot threads, so the caller grants it
+      # repository write access.
       contents: write
       issues: read
       pull-requests: write

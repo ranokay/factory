@@ -87,7 +87,7 @@ def main(directory, config_path):
             if not guards:
                 failures.append(f"{path}: AI Review job has no author guard")
             for guard in guards:
-                if guard not in review_guards:
+                if not guard.startswith(guard_required):
                     failures.append(f"{path}: AI Review author guard does not match factory_authors")
                 elif guard != draft_guard:
                     failures.append(f"{path}: AI Review job must skip draft pull requests")

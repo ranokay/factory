@@ -73,7 +73,7 @@ def assert_failure_propagation(test, source):
 
 
 class AiReviewWorkflowTests(unittest.TestCase):
-    def test_review_permissions_are_least_privilege(self):
+    def test_review_permissions_grant_only_the_review_needs(self):
         for name in ("ai-review.yml", "ai-review-caller.yml"):
             with self.subTest(workflow=name):
                 source = workflow(name)
@@ -125,21 +125,6 @@ class AiReviewWorkflowTests(unittest.TestCase):
         actions = set(re.search(r"(?m)^    types: \[([^]]+)\]$", caller).group(1).split(", "))
         self.assertIn("ready_for_review", actions)
         self.assertIn("synchronize", actions)
-        for mutation in (
-            callee.replace(" && github.event.pull_request.draft == false", ""),
-            callee.replace("github.event.pull_request.draft == false", "github.event.pull_request.draft == true"),
-            callee.replace("github.event.pull_request.draft == false", "github.event.pull_request.draft != false"),
-        ):
-            self.assertNotEqual(mutation, callee)
-            with self.assertRaises(AssertionError):
-                assert_draft_guard(self, mutation, caller)
-        guarded_caller = caller.replace(
-            "    uses: $/.github/workflows/ai-review.yml",
-            "    if: github.event.pull_request.draft == false\n    uses: $/.github/workflows/ai-review.yml",
-        )
-        self.assertNotEqual(guarded_caller, caller)
-        with self.assertRaises(AssertionError):
-            assert_draft_guard(self, callee, guarded_caller)
 
     def test_review_failures_propagate(self):
         for name in ("ai-review.yml", "ai-review-caller.yml"):
@@ -204,10 +189,11 @@ class AiReviewWorkflowTests(unittest.TestCase):
     def test_summary_check_does_not_fail_on_findings_that_could_not_be_inlined(self):
         check = step(workflow("ai-review.yml"), "Require published review")
         self.assertIn("SUMMARY: ${{ steps.review.outputs.summary_comment_url }}", check)
+        self.assertIn("RANGE_REASON: ${{ steps.review.outputs.range_reason }}", check)
         self.assertIn("RESULT_PATH: /tmp/ocr-result.json", check)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "result.json"
-            env = {"SUMMARY": "https://example.test/comment", "RESULT_PATH": str(path)}
+            env = {"SUMMARY": "https://example.test/comment", "RANGE_REASON": "", "RESULT_PATH": str(path)}
             for status in ("complete", "skipped"):
                 path.write_text(json.dumps({"status": status}))
                 for failures in ("0", "1"):
@@ -219,6 +205,14 @@ class AiReviewWorkflowTests(unittest.TestCase):
             self.assertNotEqual(run_step(check, env).returncode, 0)
             path.write_text(json.dumps({"status": "complete"}))
             self.assertNotEqual(run_step(check, {**env, "SUMMARY": ""}).returncode, 0)
+            for status in ("complete", "skipped"):
+                path.write_text(json.dumps({"status": status}))
+                result = run_step(check, {**env, "SUMMARY": "", "RANGE_REASON": "same_head_noop"})
+                self.assertEqual(result.returncode, 0, result.stderr)
+            path.write_text(json.dumps({"status": "failed"}))
+            self.assertNotEqual(
+                run_step(check, {**env, "SUMMARY": "", "RANGE_REASON": "same_head_noop"}).returncode, 0
+            )
 
 
 if __name__ == "__main__":

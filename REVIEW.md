@@ -11,5 +11,5 @@ Point each finding at the line and the failure it causes. Prefer one precise com
 Do not report:
 
 - formatting, whitespace, line length, spelling, or pinned-action syntax the Gate already enforces;
-- `subprocess` use inside tests;
+- `subprocess` use inside tests, where it exercises the real hook;
 - hardening for callers, inputs, or deployments that do not exist.

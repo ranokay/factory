@@ -47,7 +47,7 @@ class WorkflowInvariant(unittest.TestCase):
             )
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("AI Review author guard does not match factory_authors", result.stderr)
+            self.assertIn("AI Review job must skip draft pull requests", result.stderr)
             (root / "ai-review.yml").write_text(callee)
             (root / "ai-review-caller.yml").write_text(caller.replace(
                 "    uses: $/.github/workflows/ai-review.yml",

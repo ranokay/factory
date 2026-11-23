@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
+      # resolve_outdated resolves outdated bot threads, which GitHub gates on
+      # repository write access rather than the pull-requests scope.
       contents: write
       issues: read
       pull-requests: write
@@ -75,9 +77,12 @@ jobs:
       - name: Require published review
         env:
           SUMMARY: ${{ steps.review.outputs.summary_comment_url }}
+          RANGE_REASON: ${{ steps.review.outputs.range_reason }}
           RESULT_PATH: /tmp/ocr-result.json
         run: |
-          if [ -z "$SUMMARY" ]; then
+          # A same-head rerun reviews an empty range and deliberately leaves the
+          # existing summary in place, so it publishes no new URL.
+          if [ -z "$SUMMARY" ] && [ "$RANGE_REASON" != "same_head_noop" ]; then
             echo '::error::Review summary publication failed'
             exit 1
           fi
