@@ -1093,6 +1093,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "add_in_place_video" }
         expect { code = 0 }
       }
+      ["a failed in-place video add restores the original"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_in_place_rollback" }
+        expect { code = 0 }
+      }
       ["staged evidence moves to the PR directory before the comment"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "stage_attach" }
@@ -1170,7 +1175,7 @@ steps {
       }
       ["a receipt written before the summary cap still attaches"] {
         run = "check"
-        env { ["EVIDENCE_CASE"] = "legacy_receipt" }
+        env { ["EVIDENCE_CASE"] = "legacy_receipt_over_ten_lines" }
         expect { code = 0 }
       }
       ["staged captions merge with attachments already in the PR directory"] {

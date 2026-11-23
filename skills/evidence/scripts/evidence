@@ -355,37 +355,39 @@ def cmd_add(args):
     try:
         for source, name, suffix in sources:
             destination = target / name
-            if destination.resolve() == source:
-                final = source
-                if suffix in IMAGE_SUFFIXES:
-                    require_size(source)
-                if suffix in VIDEO_SUFFIXES:
-                    final = fit_video(source)
-                    if final.name != name:
-                        rekey_caption(captions, name, final.name)
-                print(f"already in place: {final}")
-                continue
+            in_place = destination.resolve() == source
             backup = None
-            if destination.exists():
-                backup = target / f".{destination.name}.backup"
-                backup.unlink(missing_ok=True)
-                os.replace(destination, backup)
             final = destination
             try:
+                if in_place:
+                    if suffix in VIDEO_SUFFIXES:
+                        backup = target / f".{destination.name}.backup"
+                        backup.unlink(missing_ok=True)
+                        os.replace(destination, backup)
+                        shutil.copy2(backup, destination)
+                elif destination.exists():
+                    backup = target / f".{destination.name}.backup"
+                    backup.unlink(missing_ok=True)
+                    os.replace(destination, backup)
                 if suffix in IMAGE_SUFFIXES:
-                    require_size(source)
-                shutil.copy2(source, destination)
+                    require_size(destination if in_place else source)
+                if not in_place:
+                    shutil.copy2(source, destination)
                 if suffix in VIDEO_SUFFIXES:
                     final = fit_video(destination)
                     if final.name != name:
                         rekey_caption(captions, name, final.name)
-                print(f"{'replaced' if backup else 'added'} {final.name} ({human(final.stat().st_size)}) to {target}")
-            except (OSError, Refused):
-                final.unlink(missing_ok=True)
-                if backup is not None:
-                    os.replace(backup, destination)
+                action = "already in place" if in_place and backup is None else ("replaced" if backup else "added")
+                print(f"{action} {final.name} ({human(final.stat().st_size)}) to {target}")
+            except BaseException:
+                try:
+                    final.unlink(missing_ok=True)
+                finally:
+                    if backup is not None:
+                        os.replace(backup, destination)
                 raise
-            written.append((final, destination, backup))
+            if backup is not None or not in_place:
+                written.append((final, destination, backup))
     except BaseException:
         for final, destination, backup in reversed(written):
             final.unlink(missing_ok=True)
@@ -561,11 +563,14 @@ def attachment_entries(directory):
 
 
 def escape_caption(caption):
-    return html.escape(caption, quote=False).replace("[", "\\[").replace("]", "\\]")
+    text = html.escape(caption, quote=True).replace("[", "\\[").replace("]", "\\]")
+    if text[:1] in {"#", ">", "-", "+", "*", "=", "|"}:
+        text = "\\" + text
+    return text
 
 
 def render(data, entries):
-    lines = [MARKER, "", "## Verification Evidence", "", data["summary"].strip(), ""]
+    lines = [MARKER, "", "## Verification Evidence", "", html.escape(data["summary"].strip(), quote=False), ""]
     if entries:
         lines += ["### Attachments", ""]
         for item, caption in entries:
