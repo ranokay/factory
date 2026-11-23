@@ -20,6 +20,15 @@ runs:
           echo '::error::Missing OPENCODE_ZEN_API_KEY'
           exit 1
         fi
+    - name: Resolve rule path
+      id: rule
+      shell: bash
+      env:
+        RULE: ${{ inputs.rule || format('{0}/ai-review-rule.json', github.workspace) }}
+      run: |
+        if [ -f "$RULE" ]; then
+          echo "path=$RULE" >> "$GITHUB_OUTPUT"
+        fi
     - name: Gather review context
       id: context
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -72,7 +81,7 @@ runs:
         # directory and rejects a bare filename as escaping the repo root, so
         # pass the workspace-qualified path. See tryReadRuleFile in
         # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/internal/config/rules/system_rules.go
-        rule: ${{ inputs.rule || format('{0}/ai-review-rule.json', github.workspace) }}
+        rule: ${{ steps.rule.outputs.path }}
         sticky_summary: 'true'
         incremental: 'true'
         checkpoint_range: 'true'

@@ -65,6 +65,8 @@ def main(directory, config_path):
         return bool(callees) and all(condition(called.get("if")) in guards for called in callees.values())
 
     failures = []
+    produced = set()
+    repo_workflows = (Path(__file__).resolve().parent.parent / ".github" / "workflows").resolve()
     paths = sorted([*root.glob("*.yml"), *root.glob("*.yaml")])
     if not paths:
         raise ValueError("no workflows found")
@@ -79,6 +81,13 @@ def main(directory, config_path):
         if SECRET.search(json.dumps(workflow.get("env", {}))):
             failures.append(f"{path}: workflow-level environment references secrets")
         jobs = workflow.get("jobs", {})
+        if "pull_request" in names:
+            for job_id, job in jobs.items():
+                callees = called_jobs(path, job)
+                if callees:
+                    produced.update(f"{job_name(job_id, job)} / {job_name(called_id, called)}" for called_id, called in callees.items())
+                elif not job.get("uses"):
+                    produced.add(job_name(job_id, job))
         if workflow.get("name") == "AI Review":
             guards = [condition(job.get("if")) for job in jobs.values()]
             for job in jobs.values():
@@ -110,6 +119,10 @@ def main(directory, config_path):
             if not SECRET.search(json.dumps(job)) or guard in accepted or called_guarded(path, job, accepted):
                 continue
             failures.append(f"{path}: {name} has secrets without a same-repository guard")
+    if root.resolve() == repo_workflows:
+        missing = required - produced
+        if missing:
+            failures.append("pull_request workflows do not produce required check(s): " + ", ".join(sorted(missing)))
     if failures:
         raise ValueError("\n".join(failures))
 

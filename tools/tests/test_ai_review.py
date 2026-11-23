@@ -64,23 +64,17 @@ def assert_draft_guard(test, caller):
     test.assertFalse(any("if" in item for item in job["steps"]))
 
 
-def assert_failure_propagation(test, source):
-    jobs = yaml.safe_load(source)["jobs"]
-    test.assertEqual(set(jobs), {"review"})
-    for job in jobs.values():
-        for item in [job, *job.get("steps", [])]:
-            test.assertNotIn("continue-on-error", item)
-            if "if" in item:
-                test.assertIsInstance(item["if"], str)
-                test.assertNotRegex(item["if"], r"(?i)\b(?:always|failure)\s*\(")
-
-
-def assert_action_failure_propagation(test, source):
-    for item in action_steps(source):
+def assert_failure_propagation(test, items):
+    for item in items:
         test.assertNotIn("continue-on-error", item)
         if "if" in item:
             test.assertIsInstance(item["if"], str)
             test.assertNotRegex(item["if"], r"(?i)\b(?:always|failure)\s*\(")
+
+
+def workflow_items(source):
+    jobs = yaml.safe_load(source)["jobs"]
+    return jobs, [item for job in jobs.values() for item in [job, *job.get("steps", [])]]
 
 
 class AiReviewWorkflowTests(unittest.TestCase):
@@ -101,7 +95,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
         with_ = review_step(action("ocr-review"))["with"]
         expected = {
             "ocr_version": "1.14.0",
-            "rule": "${{ inputs.rule || format('{0}/ai-review-rule.json', github.workspace) }}",
+            "rule": "${{ steps.rule.outputs.path }}",
             "sticky_summary": "true",
             "incremental": "true",
             "checkpoint_range": "true",
@@ -136,34 +130,52 @@ class AiReviewWorkflowTests(unittest.TestCase):
             }],
         })
         self.assertTrue((ROOT / "REVIEW.md").is_file())
+        rule_step = named_step(action_steps(action("ocr-review")), "Resolve rule path")
         self.assertEqual(
-            review_step(action("ocr-review"))["with"]["rule"],
+            rule_step["env"]["RULE"],
             "${{ inputs.rule || format('{0}/ai-review-rule.json', github.workspace) }}",
         )
+        self.assertEqual(review_step(action("ocr-review"))["with"]["rule"], "${{ steps.rule.outputs.path }}")
         caller = yaml.safe_load(workflow("ai-review.yml"))
         self.assertNotIn("rule", caller["jobs"]["review"]["steps"][-1]["with"])
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            output.write_text("")
+            existing = ROOT / "ai-review-rule.json"
+            result = run_step(rule_step, {"RULE": str(existing), "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output.read_text(), f"path={existing}\n")
+            output.write_text("")
+            result = run_step(rule_step, {"RULE": str(Path(directory) / "missing.json"), "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output.read_text(), "")
 
     def test_draft_pull_requests_skip_review_until_ready(self):
         assert_draft_guard(self, workflow("ai-review.yml"))
 
     def test_review_failures_propagate(self):
         source = workflow("ai-review.yml")
-        assert_failure_propagation(self, source)
-        assert_action_failure_propagation(self, action("ocr-review"))
+        jobs, items = workflow_items(source)
+        self.assertEqual(set(jobs), {"review"})
+        assert_failure_propagation(self, items)
+        assert_failure_propagation(self, action_steps(action("ocr-review")))
         mutated = source.replace("      - name: Review\n", "      - name: Review\n        continue-on-error: true\n")
         self.assertNotEqual(mutated, source)
+        _, items = workflow_items(mutated)
         with self.assertRaises(AssertionError):
-            assert_failure_propagation(self, mutated)
+            assert_failure_propagation(self, items)
         mutated = source.replace("  review:\n", "  review:\n    continue-on-error: true\n")
+        _, items = workflow_items(mutated)
         with self.assertRaises(AssertionError):
-            assert_failure_propagation(self, mutated)
+            assert_failure_propagation(self, items)
         mutated = re.sub(r"(?m)^    if: .+$", "    if: always()", source)
+        _, items = workflow_items(mutated)
         with self.assertRaises(AssertionError):
-            assert_failure_propagation(self, mutated)
+            assert_failure_propagation(self, items)
         review = action("ocr-review")
         mutated = review.replace("    - name: Require published review\n", "    - name: Require published review\n      if: failure()\n")
         with self.assertRaises(AssertionError):
-            assert_action_failure_propagation(self, mutated)
+            assert_failure_propagation(self, action_steps(mutated))
 
     def test_automatic_review_event_routing(self):
         caller = workflow("ai-review.yml")

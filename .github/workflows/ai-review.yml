@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      # The callee resolves outdated bot threads, so the caller grants it
-      # repository write access. See
+      # resolve_outdated resolves outdated bot threads, which GitHub gates on
+      # repository write access rather than the pull-requests scope. See
       # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
       contents: write
       issues: read

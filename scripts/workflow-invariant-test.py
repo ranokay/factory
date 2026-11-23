@@ -17,6 +17,21 @@ class WorkflowInvariant(unittest.TestCase):
         self.assertNotEqual(bad.returncode, 0)
         self.assertIn("unsafe.yml", bad.stderr)
 
+    def test_required_contexts_must_be_produced_by_pull_request_jobs(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        config = json.loads((ROOT / "repo-settings.json").read_text())
+        config["required_checks"].append({"context": "Fabricated", "integration_id": 15368})
+        with tempfile.TemporaryDirectory() as temp:
+            config_path = Path(temp) / "settings.json"
+            config_path.write_text(json.dumps(config))
+            result = subprocess.run(
+                ["python3", str(script), str(ROOT / ".github/workflows"), str(config_path)],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("required check", result.stderr)
+            self.assertIn("Fabricated", result.stderr)
+
     def test_pull_request_target_ref_and_whole_secrets_context_fail(self):
         script = ROOT / "scripts/workflow-invariant.py"
         with tempfile.TemporaryDirectory() as temp:
