@@ -381,7 +381,8 @@ def cmd_add(args):
                 print(f"{action} {final.name} ({human(final.stat().st_size)}) to {target}")
             except BaseException:
                 try:
-                    final.unlink(missing_ok=True)
+                    if not in_place or backup is not None:
+                        final.unlink(missing_ok=True)
                 finally:
                     if backup is not None:
                         os.replace(backup, destination)
@@ -475,6 +476,8 @@ def load_receipt(path):
         data = json.loads(path.read_text())
     except (OSError, ValueError) as error:
         fail(f"{path} is not readable: {error}")
+    if not isinstance(data, dict):
+        fail(f"{path} must be a JSON object; run `evidence receipt` again")
     for key in ("model", "variant", "fallback", "attempts", "cost", "gates", "summary"):
         value = data.get(key)
         if value in (None, "", []):
@@ -542,6 +545,9 @@ def attachment_limit(count, where, state="in"):
 def attachment_entries(directory):
     files = attachments(directory)
     attachment_limit(len(files), directory)
+    for item in files:
+        if UNSAFE_NAME.search(item.name):
+            fail(f"{item.name} has characters that cannot be referenced in the comment; rename it")
     captions = load_captions(directory)
     entries = []
     for item in files:
@@ -583,10 +589,10 @@ def render(data, entries):
         "<details>",
         "<summary>Run receipt</summary>",
         "",
-        f"- Worker model: `{data['model']}` (variant `{data['variant']}`)",
+        f"- Worker model: `{html.escape(data['model'], quote=False)}` (variant `{html.escape(data['variant'], quote=False)}`)",
         f"- Fallback used: {data['fallback']}",
         f"- Attempts: {data['attempts']}",
-        f"- Token cost: {data['cost']}",
+        f"- Token cost: {html.escape(data['cost'], quote=False)}",
         "- Gates run:",
     ]
     for gate in data["gates"]:

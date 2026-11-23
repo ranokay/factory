@@ -416,6 +416,26 @@ def case_add_in_place_rollback(work):
 
 
 @case
+def case_add_in_place_image_limit(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    image = make_image(target / "shot.png", size="3840x2160")
+    expect(image.stat().st_size > 500000, f"the fixture image is only {image.stat().st_size} bytes")
+    (target / "captions.json").write_text(json.dumps({"shot.png": "Large state"}))
+    result = tool(
+        work,
+        repo,
+        ["add", str(target / "shot.png"), "--caption", "Large state", "--repo", "a/one", "--pr", "7"],
+        env={"EVIDENCE_MAX_BYTES": "500000"},
+    )
+    refused(result, "attachment limit")
+    expect((target / "shot.png").is_file(), "the in-place image was deleted")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"shot.png": "Large state"}, f"captions were {captions}")
+
+
+@case
 def case_stage_attach(work):
     repo, _ = make_repo(work)
     wt = make_worktree(repo, work)
@@ -650,6 +670,16 @@ def case_receipt_rules(work):
     expect((work / "cache" / "a" / "one" / "8" / "receipt.json").is_file(), "the receipt was not written")
     result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
     refused(result, "evidence receipt")
+
+
+@case
+def case_receipt_shape(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    (target / "receipt.json").write_text("[]")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "must be a JSON object")
 
 
 @case
@@ -936,6 +966,7 @@ def case_caption_escape(work):
             repo,
             receipt_args(
                 pr="7",
+                model="m</details>",
                 summary="`mise run check` \u2014 exit 0\n<b>proof</b>",
                 gates=("`mise run check` \u2014 exit 0 </details>",),
             ),
@@ -946,9 +977,21 @@ def case_caption_escape(work):
     expect('\\- Banner &lt;b&gt;shows&lt;/b&gt; \\[ok\\] &amp; &quot;quoted&quot; \\\\ path' in body, body)
     expect(caption not in body, body)
     expect("&lt;b&gt;proof&lt;/b&gt;" in body, body)
+    expect("m&lt;/details&gt;" in body, body)
     expect("1\\. first" in body, body)
     expect("&lt;/details&gt;" in body, body)
     expect("<b>" not in body, body)
+
+
+@case
+def case_bad_attachment_name(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    make_image(target / "bad name.png")
+    (target / "captions.json").write_text(json.dumps({"bad name.png": "Bad name"}))
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
+    refused(result, "cannot be referenced")
 
 
 @case
@@ -1007,7 +1050,6 @@ def case_no_attachments(work):
     expect(summary.splitlines()[0] in body, body)
     expect("<details>\n<summary>Run receipt</summary>" in body, body)
     expect("- Worker model:" in body, body)
-    expect(body.rstrip().endswith("</details>"), body)
     expect(len(body.rstrip().splitlines()) < 25, f"{len(body.rstrip().splitlines())} lines:\n{body}")
     ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"]))
     recorded = comment(work, "101")

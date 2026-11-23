@@ -1098,6 +1098,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "add_in_place_rollback" }
         expect { code = 0 }
       }
+      ["an oversize in-place image is refused and kept"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_in_place_image_limit" }
+        expect { code = 0 }
+      }
       ["staged evidence moves to the PR directory before the comment"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "stage_attach" }
@@ -1143,6 +1148,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "receipt_rules" }
         expect { code = 0 }
       }
+      ["a receipt that is not a JSON object is refused"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "receipt_shape" }
+        expect { code = 0 }
+      }
       ["add requires a one-line caption for every file"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "add_caption" }
@@ -1151,6 +1161,11 @@ steps {
       ["attach refuses stored evidence without a caption"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "attach_caption_required" }
+        expect { code = 0 }
+      }
+      ["attach refuses a media name that breaks the comment"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "bad_attachment_name" }
         expect { code = 0 }
       }
       ["captions escape Markdown and HTML"] {
