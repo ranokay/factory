@@ -160,7 +160,7 @@ def check_body(body):
     if not EVIDENCE_LINK.search(evidence_line):
         fail(f"line {evidence[0][0]}: ## Evidence links the PR's evidence comment")
     remainder = EVIDENCE_LINK.sub("", evidence_line)
-    remainder = re.sub(r"\[[^\]]*\]\(\)", "", remainder)
+    remainder = re.sub(r"\[[^\]]*\]\([^)]*\)", "", remainder)
     remainder = re.sub(r"<[^>]*>", "", remainder)
     remainder = remainder.strip(" -—:;,.()[]<>`•")
     if not re.search(r"[A-Za-z0-9]", remainder):

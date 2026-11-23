@@ -1319,6 +1319,11 @@ steps {
         env { ["PR_TEXT_CASE"] = "evidence_autolink" }
         expect { code = 0 }
       }
+      ["rejects a titled evidence link without a statement"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_titled_link" }
+        expect { code = 0 }
+      }
       ["rejects a six-line fence outside details"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "long_fence" }
