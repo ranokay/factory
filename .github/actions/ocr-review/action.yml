@@ -104,7 +104,7 @@ runs:
         # The checkpoint travels in the sticky summary comment, not in
         # uploaded artifacts. See the checkpoint outputs in
         # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
-        upload_artifacts: 'false' # No raw artifacts.
+        upload_artifacts: 'false'
     - name: Require published review
       shell: bash
       env:

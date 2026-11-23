@@ -139,11 +139,10 @@ class AiReviewWorkflowTests(unittest.TestCase):
         self.assertNotIn("rule", source["jobs"]["review"]["steps"][-1]["with"])
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
-            existing = ROOT / "ai-review-rule.json"
             cases = (
-                ({"RULE": "", "DEFAULT_RULE": str(existing)}, True, f"path={existing}\n"),
+                ({"RULE": "", "DEFAULT_RULE": str(path)}, True, f"path={path}\n"),
                 ({"RULE": "", "DEFAULT_RULE": str(Path(directory) / "missing.json")}, True, ""),
-                ({"RULE": "ai-review-rule.json", "DEFAULT_RULE": ""}, True, f"path={existing}\n"),
+                ({"RULE": "ai-review-rule.json", "DEFAULT_RULE": ""}, True, f"path={path}\n"),
                 ({"RULE": str(Path(directory) / "missing.json"), "DEFAULT_RULE": ""}, False, ""),
             )
             for environment, succeeds, expected in cases:

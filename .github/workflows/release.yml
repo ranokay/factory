@@ -12,6 +12,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Inline rather than the Gates action: the release path turns off tool
+      # caching, and a dynamic cache input still trips the cache-poisoning check.
+      # See https://jactionlint.jdx.dev/rules#cache-poisoning
       - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
           version: 2026.11.10
