@@ -497,7 +497,7 @@ def attachments(directory):
     return files
 
 
-def load_captions(directory):
+def load_captions(directory, prune=True):
     path = directory / CAPTIONS
     if not path.is_file():
         return {}
@@ -511,6 +511,8 @@ def load_captions(directory):
         fail(f"{path} must map each file name to a one-line caption")
     for key, value in data.items():
         caption_text(value, f"{path} caption for {key}")
+    if not prune:
+        return data
     names = {item.name for item in attachments(directory)}
     return {key: value for key, value in data.items() if key in names}
 
@@ -586,7 +588,7 @@ def render(data, entries):
         "- Gates run:",
     ]
     for gate in data["gates"]:
-        lines.append(f"  - {gate}")
+        lines.append(f"  - {html.escape(gate, quote=False)}")
     lines.append("</details>")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -598,14 +600,16 @@ def pr_branch(repo, pr):
 
 def move_staged(stage, target, copy=False):
     target.mkdir(parents=True, exist_ok=True)
+    merged = None
+    if (stage / CAPTIONS).is_file():
+        merged = load_captions(target)
+        merged.update(load_captions(stage, prune=False))
     moved = []
     captions_moved = False
     for item in sorted(stage.iterdir()):
         if not item.is_file():
             continue
         if item.name == CAPTIONS:
-            merged = load_captions(target)
-            merged.update(load_captions(stage))
             write_captions(target, merged)
             if not copy:
                 item.unlink()

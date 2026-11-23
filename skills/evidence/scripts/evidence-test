@@ -439,7 +439,6 @@ def case_stage_attach(work):
     body = Path(recorded["body"]).read_text()
     expect("![shot.png](./shot.png)\n\nLogin form shows the error banner" in body, body)
     expect("<details>\n<summary>Run receipt</summary>" in body, body)
-    expect("<summary>Run receipt</summary>" in body, body)
     expect(body.rstrip().endswith("</details>"), body)
 
 
@@ -672,6 +671,11 @@ def case_attachment_limit(work):
     refused(result, "drop or merge")
     expect("at most 5" in result.stderr, result.stderr)
     expect(not (target / "shot-5.png").exists(), "the sixth attachment was stored")
+    stored_captions = json.loads((target / "captions.json").read_text())
+    expect(
+        stored_captions == {f"shot-{index}.png": f"State {index}" for index in range(5)},
+        f"captions were {stored_captions}",
+    )
     shutil.copy2(image, target / "manual.png")
     stored_captions = json.loads((target / "captions.json").read_text())
     stored_captions["manual.png"] = "Manual state"
@@ -917,12 +921,23 @@ def case_caption_escape(work):
     image = make_image(work / "shot.png")
     caption = '- Banner <b>shows</b> [ok] & "quoted"'
     ok(tool(work, repo, ["add", str(image), "--caption", caption, "--repo", "a/one", "--pr", "7"]))
-    ok(tool(work, repo, receipt_args(pr="7", summary="`mise run check` \u2014 exit 0\n<b>proof</b>")))
+    ok(
+        tool(
+            work,
+            repo,
+            receipt_args(
+                pr="7",
+                summary="`mise run check` \u2014 exit 0\n<b>proof</b>",
+                gates=("`mise run check` \u2014 exit 0 </details>",),
+            ),
+        )
+    )
     ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
     body = (work / "cache" / "a" / "one" / "7" / "body.md").read_text()
     expect('\\- Banner &lt;b&gt;shows&lt;/b&gt; \\[ok\\] &amp; &quot;quoted&quot;' in body, body)
     expect(caption not in body, body)
     expect("&lt;b&gt;proof&lt;/b&gt;" in body, body)
+    expect("&lt;/details&gt;" in body, body)
     expect("<b>" not in body, body)
 
 
@@ -981,7 +996,6 @@ def case_no_attachments(work):
     expect(body.rstrip().endswith("</details>"), body)
     expect(summary.splitlines()[0] in body, body)
     expect("<details>\n<summary>Run receipt</summary>" in body, body)
-    expect("<summary>Run receipt</summary>" in body, body)
     expect("- Worker model:" in body, body)
     expect(body.rstrip().endswith("</details>"), body)
     expect(len(body.rstrip().splitlines()) < 25, f"{len(body.rstrip().splitlines())} lines:\n{body}")
@@ -1002,12 +1016,12 @@ def case_caption_merge(work):
             ["add", str(make_image(work / "existing.png")), "--caption", "Existing state", "--repo", "a/one", "--pr", "7"],
         )
     )
-    ok(tool(work, wt, ["add", str(make_image(work / "staged.png")), "--caption", "Staged state", "--repo", "a/one"]))
+    ok(tool(work, wt, ["add", str(make_image(work / "a-staged.png")), "--caption", "Staged state", "--repo", "a/one"]))
     ok(tool(work, wt, receipt_args(pr="7")))
     ok(tool(work, wt, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
     target = work / "cache" / "a" / "one" / "7"
     captions = json.loads((target / "captions.json").read_text())
-    expect(captions == {"existing.png": "Existing state", "staged.png": "Staged state"}, f"captions were {captions}")
+    expect(captions == {"existing.png": "Existing state", "a-staged.png": "Staged state"}, f"captions were {captions}")
     body = (target / "body.md").read_text()
     expect("Existing state" in body and "Staged state" in body, body)
     ok(tool(work, wt, ["attach", "--repo", "a/one", "--pr", "7"]))
