@@ -350,24 +350,43 @@ def cmd_add(args):
     projected = stored | set(captions)
     attachment_limit(len(projected), target, "would be stored in")
     target.mkdir(parents=True, exist_ok=True)
-    for source, name, suffix in sources:
-        destination = target / name
-        if destination.resolve() == source:
-            print(f"already in place: {destination}")
-            continue
-        if suffix in IMAGE_SUFFIXES:
-            require_size(source)
-        replaced = destination.exists()
-        shutil.copy2(source, destination)
-        print(f"{'replaced' if replaced else 'added'} {name} ({human(destination.stat().st_size)}) to {target}")
-        if suffix in VIDEO_SUFFIXES:
+    written = []
+    try:
+        for source, name, suffix in sources:
+            destination = target / name
+            if destination.resolve() == source:
+                print(f"already in place: {destination}")
+                continue
+            backup = None
+            if destination.exists():
+                backup = target / f".{destination.name}.backup"
+                backup.unlink(missing_ok=True)
+                os.replace(destination, backup)
+            final = destination
             try:
-                final = fit_video(destination)
-            except Refused:
-                destination.unlink(missing_ok=True)
+                if suffix in IMAGE_SUFFIXES:
+                    require_size(source)
+                shutil.copy2(source, destination)
+                if suffix in VIDEO_SUFFIXES:
+                    final = fit_video(destination)
+                    if final.name != name:
+                        rekey_caption(captions, name, final.name)
+                print(f"{'replaced' if backup else 'added'} {final.name} ({human(final.stat().st_size)}) to {target}")
+            except (OSError, Refused):
+                final.unlink(missing_ok=True)
+                if backup is not None:
+                    os.replace(backup, destination)
                 raise
-            if final.name != name:
-                rekey_caption(captions, name, final.name)
+            written.append((final, destination, backup))
+    except BaseException:
+        for final, destination, backup in reversed(written):
+            final.unlink(missing_ok=True)
+            if backup is not None:
+                os.replace(backup, destination)
+        raise
+    for _, _, backup in written:
+        if backup is not None:
+            backup.unlink(missing_ok=True)
     merged = load_captions(target)
     merged.update(captions)
     write_captions(target, merged)
@@ -492,9 +511,11 @@ def rekey_caption(captions, old, new):
 
 
 def write_captions(directory, captions):
+    path = directory / CAPTIONS
     if not captions:
+        path.unlink(missing_ok=True)
         return
-    (directory / CAPTIONS).write_text(json.dumps(dict(sorted(captions.items())), indent=2) + "\n")
+    path.write_text(json.dumps(dict(sorted(captions.items())), indent=2) + "\n")
 
 
 def attachment_limit(count, where, state="in"):
@@ -515,9 +536,8 @@ def attachment_entries(directory):
         if item.suffix.lower() in VIDEO_SUFFIXES:
             final = fit_video(item)
             if final.name != item.name:
-                if item.name in captions:
-                    rekey_caption(captions, item.name, final.name)
-                    write_captions(directory, captions)
+                rekey_caption(captions, item.name, final.name)
+                write_captions(directory, captions)
                 item = final
         else:
             require_size(item)
@@ -528,6 +548,7 @@ def attachment_entries(directory):
                 "so the comment says what visible behaviour it proves"
             )
         entries.append((item, caption))
+    write_captions(directory, captions)
     return entries
 
 

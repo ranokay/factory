@@ -312,6 +312,41 @@ def case_add_video_rollback(work):
 
 
 @case
+def case_add_multi_rollback(work):
+    repo, _ = make_repo(work)
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True)
+    old = make_image(target / "shot.png", size="320x180")
+    old_bytes = old.read_bytes()
+    (target / "captions.json").write_text(json.dumps({"shot.png": "Old state"}))
+    new = make_image(work / "shot.png", size="640x360")
+    bad = make_video(work / "bad.mp4", seconds=3)
+    result = tool(
+        work,
+        repo,
+        [
+            "add",
+            str(new),
+            str(bad),
+            "--caption",
+            "New state",
+            "--caption",
+            "Bad flow",
+            "--repo",
+            "a/one",
+            "--pr",
+            "7",
+        ],
+        env={"EVIDENCE_MAX_BYTES": "50000"},
+    )
+    refused(result, "cannot fit")
+    expect((target / "shot.png").read_bytes() == old_bytes, "the replaced attachment was not restored")
+    expect(not (target / "bad.mp4").exists(), "the failed file was left behind")
+    captions = json.loads((target / "captions.json").read_text())
+    expect(captions == {"shot.png": "Old state"}, f"captions were {captions}")
+
+
+@case
 def case_stage_attach(work):
     repo, _ = make_repo(work)
     wt = make_worktree(repo, work)
@@ -484,6 +519,35 @@ def case_attach_rekey_survives_failure(work):
     expect(not (target / "a.mp4").exists(), "the original video remains")
     captions = json.loads((target / "captions.json").read_text())
     expect(captions == {"a-compressed.mp4": "The flow records"}, f"captions were {captions}")
+    result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"], env={"EVIDENCE_MAX_BYTES": "500000"})
+    refused(result, "attachment limit")
+    expect(not (work / "gh" / "comment-101.json").exists(), "a failed attach posted a comment")
+
+
+@case
+def case_cap_after_compression(work):
+    repo, _ = make_repo(work)
+    ok(tool(work, repo, receipt_args(pr="7")))
+    target = work / "cache" / "a" / "one" / "7"
+    target.mkdir(parents=True, exist_ok=True)
+    image = make_image(work / "shot.png")
+    captions = {}
+    for index in range(4):
+        path = target / f"shot-{index}.png"
+        shutil.copy2(image, path)
+        captions[path.name] = f"State {index}"
+    video = make_video(work / "demo.mp4", seconds=3)
+    expect(video.stat().st_size > 1000000, f"the fixture video is only {video.stat().st_size} bytes")
+    shutil.copy2(video, target / "demo.mp4")
+    captions["demo.mp4"] = "Flow recording"
+    (target / "captions.json").write_text(json.dumps(captions))
+    dry = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"], env={"EVIDENCE_MAX_BYTES": "1000000"}))
+    expect("--attach " in dry, dry)
+    expect(dry.count("--attach ") == 5, dry)
+    body = (target / "body.md").read_text()
+    expect(body.count("![") == 5, body)
+    expect(not (target / "demo.mp4").exists(), "the original video remains")
+    expect((target / "demo-compressed.mp4").is_file(), "the video was not compressed")
 
 
 @case
@@ -543,6 +607,13 @@ def case_attachment_limit(work):
     shutil.copy2(image, target / "manual.png")
     result = tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"])
     refused(result, "drop or merge")
+    over = tool(
+        work,
+        repo,
+        ["add", *files, str(sixth), "--repo", "a/one", "--pr", "8", *captions, "--caption", "Sixth state"],
+    )
+    refused(over, "at most 5")
+    expect(not (work / "cache" / "a" / "one" / "8").exists(), "an over-cap add wrote evidence")
 
 
 @case
@@ -871,7 +942,7 @@ def case_legacy_receipt(work):
     out = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
     expect("dry run: no comment posted" in out, out)
     body = (target / "body.md").read_text()
-    expect("line 10" in body, body)
+    expect("line 0" in body and "line 10" in body, body)
 
 
 def main():

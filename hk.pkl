@@ -1083,6 +1083,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "add_video_rollback" }
         expect { code = 0 }
       }
+      ["a failed multi-file add restores what it replaced"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "add_multi_rollback" }
+        expect { code = 0 }
+      }
       ["staged evidence moves to the PR directory before the comment"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "stage_attach" }
@@ -1111,6 +1116,11 @@ steps {
       ["a rekeyed caption survives a later failure"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "attach_rekey_survives_failure" }
+        expect { code = 0 }
+      }
+      ["compression keeps the five-attachment cap"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "cap_after_compression" }
         expect { code = 0 }
       }
       ["a file over the limit fails before upload"] {
