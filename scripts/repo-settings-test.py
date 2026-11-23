@@ -369,17 +369,34 @@ class RepoSettings(unittest.TestCase):
         invalid = []
         for key, value in (("ruleset_name", ""), ("review_ruleset_name", ""), ("review_ruleset_name", config["ruleset_name"]), ("fork_bypass_actor", {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"})):
             modified = dict(config, **{key: value})
-            invalid.append(modified)
+            invalid.append((modified, "ruleset names" if key.endswith("ruleset_name") else key))
         for kind in ("deletion", "non_fast_forward", "required_signatures", "pull_request"):
-            invalid.append(dict(config, branch_rules=[rule for rule in config["branch_rules"] if rule["type"] != kind]))
+            invalid.append((dict(config, branch_rules=[rule for rule in config["branch_rules"] if rule["type"] != kind]), "branch_rules"))
         for malformed in (None, {}, {"type": 7}):
-            invalid.append(dict(config, branch_rules=[*config["branch_rules"], malformed]))
-        for modified in invalid:
+            invalid.append((dict(config, branch_rules=[*config["branch_rules"], malformed]), "branch_rules"))
+        for extra in ({"type": "deletion"}, {"type": "unknown"}):
+            invalid.append((dict(config, branch_rules=[*config["branch_rules"], extra]), "branch_rules"))
+        bad_non_pr = [{"type": "deletion", "parameters": {}} if rule["type"] == "deletion" else rule for rule in config["branch_rules"]]
+        invalid.append((dict(config, branch_rules=bad_non_pr), "branch_rules"))
+        pr_parameters = config["branch_rules"][-1]["parameters"]
+        parameter_cases = [None, {}, dict(pr_parameters, unexpected=True), dict(pr_parameters, required_approving_review_count=-1), dict(pr_parameters, required_approving_review_count=True)]
+        for key in pr_parameters:
+            parameter_cases.extend(({k: v for k, v in pr_parameters.items() if k != key}, dict(pr_parameters, **{key: "invalid"})))
+        for parameters in parameter_cases:
+            rules = [dict(rule, parameters=parameters) if rule["type"] == "pull_request" else rule for rule in config["branch_rules"]]
+            invalid.append((dict(config, branch_rules=rules), "branch_rules"))
+        checks = config["required_checks"]
+        for bad in ([], None, checks[:1], [*checks, checks[0]], [{"context": "Gates / Gates"}, checks[1]], [dict(checks[0], integration_id=0), checks[1]], [dict(checks[0], integration_id=True), checks[1]], [dict(checks[0], context=""), checks[1]], [dict(checks[0], extra=True), checks[1]]):
+            invalid.append((dict(config, required_checks=bad), "required_checks"))
+        for bad in (None, {}, {"context": ""}, {"context": "Codacy", "integration_id": 0}, {"context": "Codacy", "extra": True}):
+            invalid.append((dict(config, public_check=bad), "public_check"))
+        for modified, field in invalid:
             with self.subTest(config=modified):
                 path.write_text(json.dumps(modified))
                 result = subprocess.run([sys.executable, str(script), "o/r", "--apply"], env=env, capture_output=True, text=True)  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs a local script
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("repo-settings.json:", result.stderr)
+                self.assertIn(field, result.stderr)
                 self.assertFalse(log.exists())
         path.write_text(json.dumps(config))
         result = subprocess.run([sys.executable, str(script), "o/r"], env=env, capture_output=True, text=True)  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs a local script

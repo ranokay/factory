@@ -21,8 +21,33 @@ def validate_config():
     required = {"deletion", "non_fast_forward", "required_signatures", "pull_request"}
     if not isinstance(rules, list) or any(not isinstance(rule, dict) or not isinstance(rule.get("type"), str) or not rule["type"] for rule in rules):
         raise RuntimeError("repo-settings.json: branch_rules must contain objects with a type")
-    if not required.issubset({rule["type"] for rule in rules}):
-        raise RuntimeError("repo-settings.json: branch_rules must include deletion, non_fast_forward, required_signatures and pull_request")
+    if len(rules) != len(required) or {rule["type"] for rule in rules} != required:
+        raise RuntimeError("repo-settings.json: branch_rules must contain each required rule exactly once")
+    for rule in rules:
+        if rule["type"] != "pull_request" and set(rule) != {"type"}:
+            raise RuntimeError("repo-settings.json: branch_rules non-PR rules must not have parameters")
+    pr = next(rule for rule in rules if rule["type"] == "pull_request")
+    flags = {"dismiss_stale_reviews_on_push", "require_code_owner_review", "require_last_push_approval", "required_review_thread_resolution", "require_extra_approval_for_unattributed_changes"}
+    parameters = pr.get("parameters")
+    count = "required_approving_review_count"
+    if set(pr) != {"type", "parameters"} or not isinstance(parameters, dict) or set(parameters) != flags | {count} or type(parameters[count]) is not int or parameters[count] < 0 or any(type(parameters[flag]) is not bool for flag in flags):
+        raise RuntimeError("repo-settings.json: branch_rules pull_request parameters are invalid")
+    def valid_check(check, require_integration):
+        if not isinstance(check, dict) or not {"context"}.issubset(check) or set(check) - {"context", "integration_id"}:
+            return False
+        if not isinstance(check["context"], str) or not check["context"].strip():
+            return False
+        if require_integration and "integration_id" not in check:
+            return False
+        return "integration_id" not in check or (type(check["integration_id"]) is int and check["integration_id"] > 0)
+    checks = CONFIG.get("required_checks")
+    if not isinstance(checks, list) or not checks or not all(valid_check(check, True) for check in checks):
+        raise RuntimeError("repo-settings.json: required_checks must contain valid checks")
+    contexts = [check["context"] for check in checks]
+    if len(set(contexts)) != len(contexts) or not {"Gates / Gates", "review / review"}.issubset(contexts):
+        raise RuntimeError("repo-settings.json: required_checks must uniquely include Gates / Gates and review / review")
+    if not valid_check(CONFIG.get("public_check"), False):
+        raise RuntimeError("repo-settings.json: public_check is invalid")
     if CONFIG.get("fork_bypass_actor") != {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}:
         raise RuntimeError("repo-settings.json: fork_bypass_actor must be the admin role in pull_request mode")
 
