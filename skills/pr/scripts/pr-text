@@ -28,10 +28,10 @@ examples:
 
 The body runs Summary, Why, Evidence and Merge Danger, then one collapsed
 <details> block. The Evidence section is one line linking the PR's single
-evidence comment. Outside <details> the body allows 39 rendered lines, a
-5-line fenced block, a 3-line Summary, a 400-character Why and a 400-character
-Merge Danger. A review reply is one line of at most 200 characters:
-`Fixed in <sha>`, `Not a bug: <reason>` or `Deferred: #<issue>`.
+evidence comment and saying what it proves. Outside <details> the body allows
+39 rendered lines, a 5-line fenced block, a 3-line Summary, a 400-character Why
+and a 400-character Merge Danger. A review reply is one line of at most 200
+characters: `Fixed in <sha>`, `Not a bug: <reason>` or `Deferred: #<issue>`.
 """
 
 
@@ -160,8 +160,10 @@ def check_body(body):
     if not EVIDENCE_LINK.search(evidence_line):
         fail(f"line {evidence[0][0]}: ## Evidence links the PR's evidence comment")
     remainder = EVIDENCE_LINK.sub("", evidence_line)
-    remainder = re.sub(r"\[[^\]]*\]\(\)", "", remainder).strip(" -—:;,.()[]")
-    if not remainder:
+    remainder = re.sub(r"\[[^\]]*\]\(\)", "", remainder)
+    remainder = re.sub(r"<[^>]*>", "", remainder)
+    remainder = remainder.strip(" -—:;,.()[]<>`•")
+    if not re.search(r"[A-Za-z0-9]", remainder):
         fail(f"line {evidence[0][0]}: ## Evidence adds one line saying what the comment proves")
     danger = sections["Merge Danger"]
     if char_total(danger) > DANGER_MAX_CHARS:

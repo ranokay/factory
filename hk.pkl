@@ -1314,6 +1314,11 @@ steps {
         env { ["PR_TEXT_CASE"] = "evidence_link_only" }
         expect { code = 0 }
       }
+      ["rejects an autolinked evidence URL"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_autolink" }
+        expect { code = 0 }
+      }
       ["rejects a six-line fence outside details"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "long_fence" }

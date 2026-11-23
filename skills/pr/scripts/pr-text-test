@@ -198,6 +198,15 @@ def case_evidence_link_only():
 
 
 @case
+def case_evidence_autolink():
+    body = GOOD.replace(
+        "[Verification Evidence](https://github.com/ranokay/factory/pull/1#issuecomment-1) - the checker rejects bad fixtures.",
+        "<https://github.com/ranokay/factory/pull/1#issuecomment-1>",
+    )
+    rejected(body, "adds one line saying what the comment proves")
+
+
+@case
 def case_long_fence():
     body = GOOD.replace(
         "PR bodies and review threads read like logs.",
