@@ -12,7 +12,8 @@ jobs:
     timeout-minutes: 45
     permissions:
       # resolve_outdated resolves outdated bot threads, which GitHub gates on
-      # repository write access rather than the pull-requests scope.
+      # repository write access rather than the pull-requests scope. See
+      # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
       contents: write
       issues: read
       pull-requests: write
@@ -81,7 +82,9 @@ jobs:
           RESULT_PATH: /tmp/ocr-result.json
         run: |
           # A same-head rerun reviews an empty range and deliberately leaves the
-          # existing summary in place, so it publishes no new URL.
+          # existing summary in place, so it publishes no new URL. See the
+          # range_reason output in
+          # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
           if [ -z "$SUMMARY" ] && [ "$RANGE_REASON" != "same_head_noop" ]; then
             echo '::error::Review summary publication failed'
             exit 1

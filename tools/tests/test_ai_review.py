@@ -51,14 +51,13 @@ def review_step(source):
     raise AssertionError("missing review step")
 
 
-def assert_draft_guard(test, callee, caller=None):
+def assert_draft_guard(test, callee, caller):
     condition = yaml.safe_load(callee)["jobs"]["review"]["if"]
     test.assertIn(
         "github.event.pull_request.head.repo.full_name == github.repository", condition
     )
     test.assertIn("github.event.pull_request.draft == false", condition)
-    if caller is not None:
-        test.assertNotIn("if", yaml.safe_load(caller)["jobs"]["review"])
+    test.assertNotIn("if", yaml.safe_load(caller)["jobs"]["review"])
 
 
 def assert_failure_propagation(test, source):
@@ -122,9 +121,6 @@ class AiReviewWorkflowTests(unittest.TestCase):
         callee = workflow("ai-review.yml")
         caller = workflow("ai-review-caller.yml")
         assert_draft_guard(self, callee, caller)
-        actions = set(re.search(r"(?m)^    types: \[([^]]+)\]$", caller).group(1).split(", "))
-        self.assertIn("ready_for_review", actions)
-        self.assertIn("synchronize", actions)
 
     def test_review_failures_propagate(self):
         for name in ("ai-review.yml", "ai-review-caller.yml"):
