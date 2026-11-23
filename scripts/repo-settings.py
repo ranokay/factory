@@ -13,10 +13,11 @@ from pathlib import Path
 CONFIG = json.loads((Path(__file__).resolve().parent.parent / "repo-settings.json").read_text())
 
 
-def validate_config():
-    names = (CONFIG.get("ruleset_name"), CONFIG.get("review_ruleset_name"))
-    if any(not isinstance(name, str) or not name.strip() for name in names) or names[0].casefold() == names[1].casefold():
-        raise RuntimeError("repo-settings.json: ruleset names must be nonempty and distinct")
+def integer(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def validate_branch_rules():
     rules = CONFIG.get("branch_rules")
     required = {"deletion", "non_fast_forward", "required_signatures", "pull_request"}
     if not isinstance(rules, list) or any(not isinstance(rule, dict) or not isinstance(rule.get("type"), str) or not rule["type"] for rule in rules):
@@ -30,16 +31,21 @@ def validate_config():
     flags = {"dismiss_stale_reviews_on_push", "require_code_owner_review", "require_last_push_approval", "required_review_thread_resolution", "require_extra_approval_for_unattributed_changes"}
     parameters = pr.get("parameters")
     count = "required_approving_review_count"
-    if set(pr) != {"type", "parameters"} or not isinstance(parameters, dict) or set(parameters) != flags | {count} or type(parameters[count]) is not int or parameters[count] < 0 or any(type(parameters[flag]) is not bool for flag in flags):
+    if set(pr) != {"type", "parameters"} or not isinstance(parameters, dict) or set(parameters) != flags | {count} or not integer(parameters[count]) or parameters[count] < 0 or any(not isinstance(parameters[flag], bool) for flag in flags):
         raise RuntimeError("repo-settings.json: branch_rules pull_request parameters are invalid")
-    def valid_check(check, require_integration):
-        if not isinstance(check, dict) or not {"context"}.issubset(check) or set(check) - {"context", "integration_id"}:
-            return False
-        if not isinstance(check["context"], str) or not check["context"].strip():
-            return False
-        if require_integration and "integration_id" not in check:
-            return False
-        return "integration_id" not in check or (type(check["integration_id"]) is int and check["integration_id"] > 0)
+
+
+def valid_check(check, require_integration):
+    if not isinstance(check, dict) or not {"context"}.issubset(check) or set(check) - {"context", "integration_id"}:
+        return False
+    if not isinstance(check["context"], str) or not check["context"].strip():
+        return False
+    if require_integration and "integration_id" not in check:
+        return False
+    return "integration_id" not in check or (integer(check["integration_id"]) and check["integration_id"] > 0)
+
+
+def validate_checks():
     checks = CONFIG.get("required_checks")
     if not isinstance(checks, list) or not checks or not all(valid_check(check, True) for check in checks):
         raise RuntimeError("repo-settings.json: required_checks must contain valid checks")
@@ -50,7 +56,16 @@ def validate_config():
         raise RuntimeError("repo-settings.json: public_check is invalid")
     if CONFIG["public_check"]["context"] in contexts:
         raise RuntimeError("repo-settings.json: public_check context must differ from required_checks")
-    if CONFIG.get("fork_bypass_actor") != {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}:
+
+
+def validate_config():
+    names = (CONFIG.get("ruleset_name"), CONFIG.get("review_ruleset_name"))
+    if any(not isinstance(name, str) or not name.strip() for name in names) or names[0].casefold() == names[1].casefold():
+        raise RuntimeError("repo-settings.json: ruleset names must be nonempty and distinct")
+    validate_branch_rules()
+    validate_checks()
+    bypass = CONFIG.get("fork_bypass_actor")
+    if bypass != {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"} or not integer(bypass["actor_id"]):
         raise RuntimeError("repo-settings.json: fork_bypass_actor must be the admin role in pull_request mode")
 
 

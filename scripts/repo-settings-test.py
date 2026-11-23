@@ -367,7 +367,7 @@ class RepoSettings(unittest.TestCase):
         log = self.root / "gh-calls"
         env = dict(self.env, FAKE_GH_LOG=str(log))
         invalid = []
-        for key, value in (("ruleset_name", ""), ("review_ruleset_name", ""), ("review_ruleset_name", config["ruleset_name"]), ("fork_bypass_actor", {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"})):
+        for key, value in (("ruleset_name", ""), ("review_ruleset_name", ""), ("review_ruleset_name", config["ruleset_name"]), ("fork_bypass_actor", {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}), ("fork_bypass_actor", {"actor_id": 5.0, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"})):
             modified = dict(config, **{key: value})
             invalid.append((modified, "ruleset names" if key.endswith("ruleset_name") else key))
         for kind in ("deletion", "non_fast_forward", "required_signatures", "pull_request"):
