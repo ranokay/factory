@@ -700,7 +700,7 @@ def cmd_attach(args):
                 fail(f"{error}; previous comment {comment} remains and the new comment was withdrawn")
             fail(f"{error}; both comment {comment} and the new comment {url} remain")
         print(f"removed previous evidence comment {comment}")
-    print(f"posted {url}")
+    print(url)
 
 
 def main_checkout():

@@ -965,6 +965,16 @@ steps {
         env { ["BLOCK_ISSUE_CASE"] = "post" }
         expect { code = 0 }
       }
+      ["puts the unblock step first"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "order" }
+        expect { code = 0 }
+      }
+      ["refuses a multi-line unblock step"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "unblock_multiline" }
+        expect { code = 0 }
+      }
       ["keeps one comment on an already blocked issue"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "idempotent" }
@@ -1108,6 +1118,11 @@ steps {
         env { ["EVIDENCE_CASE"] = "stage_attach" }
         expect { code = 0 }
       }
+      ["attach prints the comment URL and a dry run prints none"] {
+        run = "check"
+        env { ["EVIDENCE_CASE"] = "attach_url" }
+        expect { code = 0 }
+      }
       ["attach without a PR resolves it and posts from the PR directory"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "attach_resolves_pr" }
@@ -1236,6 +1251,107 @@ steps {
       ["the mise task runs the command"] {
         run = "check"
         env { ["EVIDENCE_CASE"] = "mise_task" }
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["pr-text"] = new Step {
+    check = "python3 {{root}}/skills/pr/scripts/pr-text-test"
+    tests {
+      ["accepts a good PR body"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "good_body" }
+        expect { code = 0 }
+      }
+      ["accepts a long details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "long_details" }
+        expect { code = 0 }
+      }
+      ["rejects a four-line summary"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "summary_four_lines" }
+        expect { code = 0 }
+      }
+      ["rejects a summary line over 160 characters"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "summary_long_line" }
+        expect { code = 0 }
+      }
+      ["rejects a Why over 400 characters"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "why_too_long" }
+        expect { code = 0 }
+      }
+      ["rejects a missing Why"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "missing_why" }
+        expect { code = 0 }
+      }
+      ["rejects evidence without the comment link"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_unlinked" }
+        expect { code = 0 }
+      }
+      ["rejects a second evidence line"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_repeated" }
+        expect { code = 0 }
+      }
+      ["rejects a six-line fence outside details"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "long_fence" }
+        expect { code = 0 }
+      }
+      ["rejects text after details"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "text_after_details" }
+        expect { code = 0 }
+      }
+      ["accepts 39 rendered lines"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "39_lines" }
+        expect { code = 0 }
+      }
+      ["rejects 40 rendered lines"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "40_lines" }
+        expect { code = 0 }
+      }
+      ["accepts a short fixed reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_fixed" }
+        expect { code = 0 }
+      }
+      ["accepts a full fixed reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_fixed_full_sha" }
+        expect { code = 0 }
+      }
+      ["accepts a not-a-bug reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_not_a_bug" }
+        expect { code = 0 }
+      }
+      ["accepts a deferred reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_deferred" }
+        expect { code = 0 }
+      }
+      ["rejects a multi-line reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_multiline" }
+        expect { code = 0 }
+      }
+      ["rejects a free-form reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_freestyle" }
+        expect { code = 0 }
+      }
+      ["rejects a fixed reply without a sha"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_fixed_without_sha" }
         expect { code = 0 }
       }
     }

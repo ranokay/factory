@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+import argparse
+import re
+import sys
+from pathlib import Path
+
+SECTIONS = ("Summary", "Why", "Evidence", "Merge Danger")
+SUMMARY_MAX_LINES = 3
+SUMMARY_MAX_CHARS = 160
+WHY_MAX_CHARS = 400
+EVIDENCE_MAX_CHARS = 300
+DANGER_MAX_CHARS = 400
+FENCE_MAX_LINES = 5
+VISIBLE_MAX_LINES = 39
+REPLY_MAX_CHARS = 200
+EVIDENCE_LINK = re.compile(r"https://github\.com/[^\s)\]>]+/(?:issues|pull)/\d+#issuecomment-\d+")
+DOOR = re.compile(r"\*\*Door:\*\*\s+\S")
+BLAST_RADIUS = re.compile(r"\*\*Blast Radius:\*\*\s+\S")
+FIXED = re.compile(r"Fixed in [0-9a-f]{7,40}")
+NOT_A_BUG = re.compile(r"Not a bug: \S.*")
+DEFERRED = re.compile(r"Deferred: #\d+")
+
+USAGE = """\
+examples:
+  scripts/pr-text body body.md
+  gh pr view 41 --json body --jq .body | scripts/pr-text body -
+  scripts/pr-text reply 'Fixed in 50bd7aa'
+
+The body runs Summary, Why, Evidence and Merge Danger, then one collapsed
+<details> block. The Evidence section is one line linking the PR's single
+evidence comment. Outside <details> the body allows 39 rendered lines, a
+5-line fenced block, a 3-line Summary, a 400-character Why and a 400-character
+Merge Danger. A review reply is one line: `Fixed in <sha>`,
+`Not a bug: <reason>` or `Deferred: #<issue>`.
+"""
+
+
+class Problem(Exception):
+    pass
+
+
+def fail(message):
+    raise Problem(message)
+
+
+def read_input(path):
+    if path == "-":
+        return sys.stdin.read()
+    try:
+        return Path(path).read_text()
+    except OSError as error:
+        fail(f"cannot read {path}: {error.strerror}")
+
+
+def check_sections(body):
+    sections = {name: [] for name in SECTIONS}
+    order = []
+    current = None
+    in_details = False
+    details_seen = False
+    details_closed = False
+    fence = False
+    fence_start = 0
+    fence_lines = 0
+    visible = 0
+    for number, raw in enumerate(body.splitlines(), 1):
+        line = raw.strip()
+        if in_details:
+            if line.startswith("</details>"):
+                in_details = False
+                details_closed = True
+            continue
+        if line.startswith("<details"):
+            if details_seen:
+                fail(f"line {number}: use one <details> block")
+            if order != list(SECTIONS):
+                fail(f"line {number}: <details> comes after Merge Danger")
+            details_seen = True
+            in_details = True
+            continue
+        if details_closed and line:
+            fail(f"line {number}: text after </details> must stay inside the block")
+        if line.startswith("## "):
+            title = line[3:].strip()
+            if title not in SECTIONS:
+                fail(f"line {number}: unexpected section {title!r}")
+            if title in order:
+                fail(f"line {number}: duplicate section {title!r}")
+            expected = SECTIONS[len(order)] if len(order) < len(SECTIONS) else None
+            if title != expected:
+                fail(f"line {number}: sections run Summary, Why, Evidence, Merge Danger")
+            order.append(title)
+            current = title
+            visible += 1
+            continue
+        if line.startswith("#"):
+            fail(f"line {number}: heading {line!r} must be inside <details>")
+        if not order:
+            if line:
+                fail(f"line {number}: text before ## Summary")
+            continue
+        if line.startswith("```") or line.startswith("~~~"):
+            if fence:
+                fence_lines += 1
+                sections[current].append((number, line))
+                if line:
+                    visible += 1
+                fence = False
+                if fence_lines > FENCE_MAX_LINES:
+                    fail(
+                        f"line {fence_start}: fenced block has {fence_lines} lines outside "
+                        f"<details>; the limit is {FENCE_MAX_LINES}"
+                    )
+                continue
+            fence = True
+            fence_start = number
+            fence_lines = 1
+            sections[current].append((number, line))
+            visible += 1
+            continue
+        if fence:
+            fence_lines += 1
+            sections[current].append((number, line))
+            if line:
+                visible += 1
+            continue
+        if not line:
+            continue
+        visible += 1
+        sections[current].append((number, line))
+    if fence:
+        fail(f"line {fence_start}: fenced block is not closed")
+    if in_details:
+        fail("a <details> block is not closed")
+    if order != list(SECTIONS):
+        fail(f"the body needs ## {SECTIONS[len(order)]}")
+    return sections, visible
+
+
+def char_total(entries):
+    return sum(len(line) for _, line in entries)
+
+
+def check_body(body):
+    sections, visible = check_sections(body)
+    summary = sections["Summary"]
+    if len(summary) > SUMMARY_MAX_LINES:
+        fail(f"## Summary has {len(summary)} lines; the limit is {SUMMARY_MAX_LINES}")
+    for number, line in summary:
+        if len(line) > SUMMARY_MAX_CHARS:
+            fail(f"line {number}: {len(line)} characters; the Summary limit is {SUMMARY_MAX_CHARS}")
+    why = char_total(sections["Why"])
+    if why > WHY_MAX_CHARS:
+        fail(f"## Why has {why} characters; the limit is {WHY_MAX_CHARS}")
+    evidence = sections["Evidence"]
+    if len(evidence) != 1:
+        fail(f"## Evidence is exactly one line; found {len(evidence)}")
+    evidence_line = evidence[0][1]
+    if len(evidence_line) > EVIDENCE_MAX_CHARS:
+        fail(f"line {evidence[0][0]}: {len(evidence_line)} characters; the Evidence limit is {EVIDENCE_MAX_CHARS}")
+    if not EVIDENCE_LINK.search(evidence_line):
+        fail(f"line {evidence[0][0]}: ## Evidence links the PR's evidence comment")
+    danger = sections["Merge Danger"]
+    if char_total(danger) > DANGER_MAX_CHARS:
+        fail(f"## Merge Danger has {char_total(danger)} characters; the limit is {DANGER_MAX_CHARS}")
+    text = "\n".join(line for _, line in danger)
+    if not DOOR.search(text):
+        fail("## Merge Danger needs **Door:** and a value")
+    if not BLAST_RADIUS.search(text):
+        fail("## Merge Danger needs **Blast Radius:** and a value")
+    if visible > VISIBLE_MAX_LINES:
+        fail(
+            f"the body has {visible} rendered lines outside <details>; "
+            f"the limit is {VISIBLE_MAX_LINES}"
+        )
+    print("pr-text: body ok")
+
+
+def check_reply(reply):
+    body = reply.strip()
+    if not body:
+        fail("reply is empty")
+    if "\n" in body:
+        fail("reply must be one line")
+    if len(body) > REPLY_MAX_CHARS:
+        fail(f"reply has {len(body)} characters; the limit is {REPLY_MAX_CHARS}")
+    if FIXED.fullmatch(body) or NOT_A_BUG.fullmatch(body) or DEFERRED.fullmatch(body):
+        print("pr-text: reply ok")
+        return
+    fail("reply must be `Fixed in <sha>`, `Not a bug: <reason>` or `Deferred: #<issue>`")
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="pr-text",
+        description="Check a Factory PR body or a review-thread reply against its short shape.",
+        epilog=USAGE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    body = subparsers.add_parser("body", help="check a PR body")
+    body.add_argument("path", help="a file, or - for stdin")
+    reply = subparsers.add_parser("reply", help="check a one-line review reply")
+    reply.add_argument("text", help="the reply, or - for stdin")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "body":
+            check_body(read_input(args.path))
+        elif args.text == "-":
+            check_reply(sys.stdin.read())
+        else:
+            check_reply(args.text)
+    except Problem as problem:
+        print(f"pr-text: {problem}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

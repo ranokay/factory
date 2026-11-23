@@ -4,15 +4,17 @@ set -eu
 usage() {
   cat <<'EOF'
 Usage: block-issue <owner>/<repo> <issue> --reason <text> --unblock <text>
-                    [--evidence <text>]... [--finding <text>]...
+                    [--evidence <text>]... [--finding <text>]... [--detail <text>]...
 
 Adds the blocked label and posts the Run's one Blocker comment. The comment
 starts with a marker so blocker-notify.yml can find it. The comment is posted
 before the label, so the labeled event always sees it.
 
-The comment mentions @ranokay, states the unblock step, and carries the last
-evidence and the open findings. If the issue is already blocked with a Blocker
-comment, the script prints that comment's URL and changes nothing.
+The comment puts the unblock step first, as one command or question, then
+mentions @ranokay with the reason. Last evidence and open findings follow as
+one-line bullets; --detail renders longer text inside a collapsed block. If the
+issue is already blocked with a Blocker comment, the script prints that
+comment's URL and changes nothing.
 EOF
 }
 
@@ -21,6 +23,12 @@ marker='<!-- factory:blocker -->'
 fail() {
   printf 'block-issue: %s\n' "$1" >&2
   exit 2
+}
+
+one_line() {
+  if [ "$(printf '%s\n' "$2" | wc -l | tr -d ' ')" -ne 1 ]; then
+    fail "$1 must be one line; put longer text in --detail"
+  fi
 }
 
 script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
@@ -44,26 +52,40 @@ reason=
 unblock=
 evidence=
 findings=
+detail=
 while [ "$#" -gt 0 ]; do
   case $1 in
   --reason)
     [ "$#" -ge 2 ] || fail "missing value for --reason"
+    one_line --reason "$2"
     reason=$2
     shift 2
     ;;
   --unblock)
     [ "$#" -ge 2 ] || fail "missing value for --unblock"
+    one_line --unblock "$2"
     unblock=$2
     shift 2
     ;;
   --evidence)
     [ "$#" -ge 2 ] || fail "missing value for --evidence"
-    evidence="$evidence${evidence:+, }$2"
+    one_line --evidence "$2"
+    evidence="$evidence${evidence:+
+}$2"
     shift 2
     ;;
   --finding)
     [ "$#" -ge 2 ] || fail "missing value for --finding"
-    findings="$findings${findings:+; }$2"
+    one_line --finding "$2"
+    findings="$findings${findings:+
+}$2"
+    shift 2
+    ;;
+  --detail)
+    [ "$#" -ge 2 ] || fail "missing value for --detail"
+    detail="$detail${detail:+
+
+}$2"
     shift 2
     ;;
   *)
@@ -89,10 +111,24 @@ trap 'rm -f "$body"' EXIT
 {
   printf '%s\n\n' "$marker"
   printf '## Blocker\n\n'
-  printf '@ranokay %s\n\n' "$reason"
   printf '**Unblock step:** %s\n\n' "$unblock"
-  printf '**Last evidence:** %s\n\n' "${evidence:-none}"
-  printf '**Open findings:** %s\n' "${findings:-none}"
+  printf '@ranokay %s\n\n' "$reason"
+  if [ -n "$evidence" ]; then
+    printf '**Last evidence:**\n'
+    printf '%s\n' "$evidence" | sed 's/^/- /'
+  else
+    printf '**Last evidence:** none\n'
+  fi
+  printf '\n'
+  if [ -n "$findings" ]; then
+    printf '**Open findings:**\n'
+    printf '%s\n' "$findings" | sed 's/^/- /'
+  else
+    printf '**Open findings:** none\n'
+  fi
+  if [ -n "$detail" ]; then
+    printf '\n<details>\n<summary>Details</summary>\n\n%s\n\n</details>\n' "$detail"
+  fi
 } >"$body"
 
 url=$(gh issue comment "$issue" -R "$repo" --body-file "$body")

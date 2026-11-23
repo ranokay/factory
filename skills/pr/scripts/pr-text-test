@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+TOOL = Path(__file__).resolve().with_name("pr-text")
+CASE = os.environ.get("PR_TEXT_CASE", "all")
+CASES = {}
+
+GOOD = """## Summary
+
+Adds the short PR text shape and its checker.
+
+## Why
+
+PR bodies and review threads read like logs.
+
+## Evidence
+
+[Verification Evidence](https://github.com/ranokay/factory/pull/1#issuecomment-1) - the checker rejects bad fixtures.
+
+## Merge Danger
+
+**Door:** two-way
+**Blast Radius:** Factory skill text and scripts
+
+<details>
+<summary>Details</summary>
+
+Design notes live here.
+
+</details>
+"""
+
+
+def case(func):
+    CASES[func.__name__.removeprefix("case_")] = func
+    return func
+
+
+class Failure(AssertionError):
+    pass
+
+
+def expect(condition, message):
+    if not condition:
+        raise Failure(message)
+
+
+def run(args, text=None):
+    return subprocess.run([str(TOOL), *args], input=text, capture_output=True, text=True)
+
+
+def accepted(text):
+    result = run(["body", "-"], text)
+    expect(
+        result.returncode == 0,
+        f"expected success, got {result.returncode}: {result.stderr.strip()}",
+    )
+    return result.stdout
+
+
+def rejected(text, needle):
+    result = run(["body", "-"], text)
+    expect(result.returncode == 1, f"expected exit 1, got {result.returncode}: {result.stdout.strip()}")
+    expect(needle in result.stderr, f"expected {needle!r} in {result.stderr!r}")
+
+
+def reply(text):
+    return run(["reply", text])
+
+
+def accepted_reply(text):
+    result = reply(text)
+    expect(
+        result.returncode == 0,
+        f"expected success, got {result.returncode}: {result.stderr.strip()}",
+    )
+
+
+def rejected_reply(text, needle):
+    result = reply(text)
+    expect(result.returncode == 1, f"expected exit 1, got {result.returncode}: {result.stdout.strip()}")
+    expect(needle in result.stderr, f"expected {needle!r} in {result.stderr!r}")
+
+
+def numbered_body(why_lines):
+    why = "\n".join("a" for _ in range(why_lines))
+    return f"""## Summary
+
+a
+a
+a
+
+## Why
+
+{why}
+
+## Evidence
+
+[Evidence](https://github.com/ranokay/factory/pull/1#issuecomment-1)
+
+## Merge Danger
+
+**Door:** two-way
+**Blast Radius:** skills
+a
+a
+"""
+
+
+@case
+def case_good_body():
+    accepted(GOOD)
+
+
+@case
+def case_long_details():
+    details = "\n".join(f"detail {index}" for index in range(60))
+    body = GOOD.replace("Design notes live here.", details)
+    accepted(body)
+
+
+@case
+def case_summary_four_lines():
+    body = GOOD.replace(
+        "Adds the short PR text shape and its checker.",
+        "one\ntwo\nthree\nfour",
+    )
+    rejected(body, "## Summary has 4 lines; the limit is 3")
+
+
+@case
+def case_summary_long_line():
+    body = GOOD.replace(
+        "Adds the short PR text shape and its checker.",
+        "x" * 161,
+    )
+    rejected(body, "the Summary limit is 160")
+
+
+@case
+def case_why_too_long():
+    body = GOOD.replace(
+        "PR bodies and review threads read like logs.",
+        "x" * 401,
+    )
+    rejected(body, "the limit is 400")
+
+
+@case
+def case_missing_why():
+    body = GOOD.replace(
+        "## Why\n\nPR bodies and review threads read like logs.\n\n",
+        "",
+    )
+    rejected(body, "sections run Summary, Why, Evidence, Merge Danger")
+
+
+@case
+def case_evidence_unlinked():
+    body = GOOD.replace(
+        "https://github.com/ranokay/factory/pull/1#issuecomment-1",
+        "https://github.com/ranokay/factory/pull/1",
+    )
+    rejected(body, "links the PR's evidence comment")
+
+
+@case
+def case_evidence_repeated():
+    body = GOOD.replace(
+        "#issuecomment-1) - the checker rejects bad fixtures.",
+        "#issuecomment-1) - the checker rejects bad fixtures.\n\nAnd the receipt.",
+    )
+    rejected(body, "## Evidence is exactly one line; found 2")
+
+
+@case
+def case_long_fence():
+    body = GOOD.replace(
+        "PR bodies and review threads read like logs.",
+        "```text\none\ntwo\nthree\nfour\nfive\n```",
+    )
+    rejected(body, "the limit is 5")
+
+
+@case
+def case_text_after_details():
+    rejected(GOOD + "\ntrailing\n", "must stay inside the block")
+
+
+@case
+def case_39_lines():
+    accepted(numbered_body(27))
+
+
+@case
+def case_40_lines():
+    rejected(numbered_body(28), "the limit is 39")
+
+
+@case
+def case_reply_fixed():
+    accepted_reply("Fixed in 50bd7aa")
+
+
+@case
+def case_reply_fixed_full_sha():
+    accepted_reply("Fixed in 50bd7aae088ed982aa99d03ad7444285c4c9ea77")
+
+
+@case
+def case_reply_not_a_bug():
+    accepted_reply("Not a bug: the guard already rejects a missing head")
+
+
+@case
+def case_reply_deferred():
+    accepted_reply("Deferred: #126")
+
+
+@case
+def case_reply_multiline():
+    rejected_reply("Fixed in 50bd7aa\nAlso fixed the test", "must be one line")
+
+
+@case
+def case_reply_freestyle():
+    rejected_reply("I looked into this and it is fine", "must be `Fixed in <sha>`")
+
+
+@case
+def case_reply_fixed_without_sha():
+    rejected_reply("Fixed in the next commit", "must be `Fixed in <sha>`")
+
+
+def main():
+    names = [CASE] if CASE != "all" else list(CASES)
+    failures = []
+    for name in names:
+        try:
+            CASES[name]()
+            print(f"ok: {name}")
+        except Failure as error:
+            failures.append(f"{name}: {error}")
+    if failures:
+        print("\n\n".join(failures), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
