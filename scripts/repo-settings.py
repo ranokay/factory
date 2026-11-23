@@ -175,7 +175,17 @@ def main():
 
     def owned_rulesets():
         listed = gh(base + "/rulesets?per_page=100&includes_parents=false", paginate=True)
-        return [item for item in listed if item.get("source_type") == "Repository" and item.get("source", "").lower() == args.repo.lower()]
+        owned = []
+        for item in listed:
+            source = item.get("source")
+            source_type = item.get("source_type")
+            if not isinstance(source, str) or not source or not isinstance(source_type, str) or not source_type:
+                raise RuntimeError(f"ruleset {item['name']} has missing ownership information")
+            if source_type == "Repository":
+                if source.lower() != args.repo.lower():
+                    raise RuntimeError(f"ruleset {item['name']} belongs to another repository: {source}")
+                owned.append(item)
+        return owned
     repo = gh(base)
     topics = set(gh(base + "/topics")["names"])
     kinds = {"factory-personal-fork", "factory-upstream-fork"}
