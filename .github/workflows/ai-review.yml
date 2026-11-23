@@ -47,7 +47,11 @@ jobs:
             do {
               const data = await github.graphql(query, {owner: context.repo.owner, repo: context.repo.repo, number: context.issue.number, cursor});
               const pr = data.repository.pullRequest;
-              if (!background) background = `PR: ${pr.title}\n${pr.body || ''}`;
+              // The PR body changes when evidence is attached, so keep it out
+              // of this fingerprinted input; the title and linked issues hold
+              // the stable spec. See OCR_FP_BACKGROUND in
+              // https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
+              if (!background) background = `PR: ${pr.title}`;
               for (const issue of pr.closingIssuesReferences.nodes) {
                 background += `\n\nIssue ${issue.url}: ${issue.title}\n${issue.body || ''}`;
               }

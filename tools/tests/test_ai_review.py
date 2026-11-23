@@ -107,9 +107,15 @@ class AiReviewWorkflowTests(unittest.TestCase):
 
     def test_checkpoint_session_header_is_stable_across_pushes(self):
         headers = review_step(workflow("ai-review.yml"))["with"]["llm_extra_headers"]
-        self.assertNotIn("run_id", headers)
+        self.assertNotIn("github.run_", headers)
         self.assertIn("github.repository_id", headers)
         self.assertIn("github.event.pull_request.number", headers)
+
+    def test_checkpoint_context_ignores_the_editable_pr_body(self):
+        script = step(workflow("ai-review.yml"), "Gather review context")
+        self.assertNotIn("pr.body", script)
+        self.assertIn("PR: ${pr.title}", script)
+        self.assertIn("issue.body", script)
 
     def test_rule_file_points_at_review_markdown_through_an_absolute_path(self):
         path = ROOT / "ai-review-rule.json"
