@@ -139,11 +139,15 @@ def char_total(entries):
 def check_body(body):
     sections, visible = check_sections(body)
     summary = sections["Summary"]
+    if not summary:
+        fail("## Summary needs a line")
     if len(summary) > SUMMARY_MAX_LINES:
         fail(f"## Summary has {len(summary)} lines; the limit is {SUMMARY_MAX_LINES}")
     for number, line in summary:
         if len(line) > SUMMARY_MAX_CHARS:
             fail(f"line {number}: {len(line)} characters; the Summary limit is {SUMMARY_MAX_CHARS}")
+    if not sections["Why"]:
+        fail("## Why needs a line")
     why = char_total(sections["Why"])
     if why > WHY_MAX_CHARS:
         fail(f"## Why has {why} characters; the limit is {WHY_MAX_CHARS}")
@@ -155,6 +159,10 @@ def check_body(body):
         fail(f"line {evidence[0][0]}: {len(evidence_line)} characters; the Evidence limit is {EVIDENCE_MAX_CHARS}")
     if not EVIDENCE_LINK.search(evidence_line):
         fail(f"line {evidence[0][0]}: ## Evidence links the PR's evidence comment")
+    remainder = EVIDENCE_LINK.sub("", evidence_line)
+    remainder = re.sub(r"\[[^\]]*\]\(\)", "", remainder).strip(" -—:;,.()[]")
+    if not remainder:
+        fail(f"line {evidence[0][0]}: ## Evidence adds one line saying what the comment proves")
     danger = sections["Merge Danger"]
     if char_total(danger) > DANGER_MAX_CHARS:
         fail(f"## Merge Danger has {char_total(danger)} characters; the limit is {DANGER_MAX_CHARS}")

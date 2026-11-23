@@ -1274,6 +1274,16 @@ steps {
         env { ["PR_TEXT_CASE"] = "summary_four_lines" }
         expect { code = 0 }
       }
+      ["rejects an empty summary"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "empty_summary" }
+        expect { code = 0 }
+      }
+      ["rejects an empty Why"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "empty_why" }
+        expect { code = 0 }
+      }
       ["rejects a summary line over 160 characters"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "summary_long_line" }
@@ -1297,6 +1307,11 @@ steps {
       ["rejects a second evidence line"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "evidence_repeated" }
+        expect { code = 0 }
+      }
+      ["rejects a bare evidence link"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_link_only" }
         expect { code = 0 }
       }
       ["rejects a six-line fence outside details"] {

@@ -99,7 +99,7 @@ a
 
 ## Evidence
 
-[Evidence](https://github.com/ranokay/factory/pull/1#issuecomment-1)
+[Evidence](https://github.com/ranokay/factory/pull/1#issuecomment-1) - gate output
 
 ## Merge Danger
 
@@ -129,6 +129,18 @@ def case_summary_four_lines():
         "one\ntwo\nthree\nfour",
     )
     rejected(body, "## Summary has 4 lines; the limit is 3")
+
+
+@case
+def case_empty_summary():
+    body = GOOD.replace("Adds the short PR text shape and its checker.", "")
+    rejected(body, "## Summary needs a line")
+
+
+@case
+def case_empty_why():
+    body = GOOD.replace("PR bodies and review threads read like logs.", "")
+    rejected(body, "## Why needs a line")
 
 
 @case
@@ -174,6 +186,15 @@ def case_evidence_repeated():
         "#issuecomment-1) - the checker rejects bad fixtures.\n\nAnd the receipt.",
     )
     rejected(body, "## Evidence is exactly one line; found 2")
+
+
+@case
+def case_evidence_link_only():
+    body = GOOD.replace(
+        "[Verification Evidence](https://github.com/ranokay/factory/pull/1#issuecomment-1) - the checker rejects bad fixtures.",
+        "[Verification Evidence](https://github.com/ranokay/factory/pull/1#issuecomment-1)",
+    )
+    rejected(body, "adds one line saying what the comment proves")
 
 
 @case
