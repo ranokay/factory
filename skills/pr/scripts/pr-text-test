@@ -274,6 +274,42 @@ def case_text_after_details():
 
 
 @case
+def case_second_details():
+    body = GOOD + "\n<details>\n<summary>Again</summary>\n\nMore.\n\n</details>\n"
+    rejected(body, "must stay inside the block")
+
+
+@case
+def case_unclosed_details():
+    body = GOOD.replace("</details>\n", "")
+    rejected(body, "a <details> block is not closed")
+
+
+@case
+def case_why_at_limit():
+    body = GOOD.replace("PR bodies and review threads read like logs.", "x" * 400)
+    accepted(body)
+
+
+@case
+def case_why_multiline_over():
+    body = GOOD.replace(
+        "PR bodies and review threads read like logs.",
+        "x" * 200 + "\n" + "y" * 201,
+    )
+    rejected(body, "the limit is 400")
+
+
+@case
+def case_danger_over():
+    body = GOOD.replace(
+        "**Blast Radius:** Factory skill text and scripts",
+        "**Blast Radius:** Factory skill text and scripts\n" + "z" * 400,
+    )
+    rejected(body, "## Merge Danger has")
+
+
+@case
 def case_39_lines():
     accepted(numbered_body(27))
 
@@ -336,7 +372,7 @@ def case_reply_trailing_blank():
 
 @case
 def case_reply_leading_blank():
-    rejected_reply("\nFixed in 50bd7aa", "must be one line")
+    accepted_reply("\nFixed in 50bd7aa")
 
 
 @case
@@ -347,6 +383,9 @@ def case_reply_empty_stdin():
 
 
 def main():
+    if CASE != "all" and CASE not in CASES:
+        print(f"unknown case {CASE!r}; known: {', '.join(sorted(CASES))}", file=sys.stderr)
+        return 1
     names = [CASE] if CASE != "all" else list(CASES)
     failures = []
     for name in names:

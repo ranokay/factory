@@ -1000,6 +1000,26 @@ steps {
         env { ["BLOCK_ISSUE_CASE"] = "detail_mention" }
         expect { code = 0 }
       }
+      ["omits details without a detail value"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "no_detail" }
+        expect { code = 0 }
+      }
+      ["refuses empty evidence"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "empty_evidence" }
+        expect { code = 0 }
+      }
+      ["refuses a finding list marker"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "finding_marker" }
+        expect { code = 0 }
+      }
+      ["refuses the Blocker marker in details"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "blocker_marker" }
+        expect { code = 0 }
+      }
       ["keeps one comment on an already blocked issue"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "idempotent" }
@@ -1374,6 +1394,31 @@ steps {
         env { ["PR_TEXT_CASE"] = "text_after_details" }
         expect { code = 0 }
       }
+      ["rejects a second details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "second_details" }
+        expect { code = 0 }
+      }
+      ["rejects an unclosed details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "unclosed_details" }
+        expect { code = 0 }
+      }
+      ["accepts a Why at the character limit"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "why_at_limit" }
+        expect { code = 0 }
+      }
+      ["rejects a multi-line Why over the limit"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "why_multiline_over" }
+        expect { code = 0 }
+      }
+      ["rejects a Merge Danger over the limit"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "danger_over" }
+        expect { code = 0 }
+      }
       ["accepts 39 rendered lines"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "39_lines" }
@@ -1444,7 +1489,7 @@ steps {
         env { ["PR_TEXT_CASE"] = "reply_trailing_blank" }
         expect { code = 0 }
       }
-      ["rejects a reply with a leading blank line"] {
+      ["accepts a reply with a leading blank line"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "reply_leading_blank" }
         expect { code = 0 }

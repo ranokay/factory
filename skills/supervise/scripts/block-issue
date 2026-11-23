@@ -72,8 +72,10 @@ while [ "$#" -gt 0 ]; do
     item=$(printf '%s' "$2" | sed 's/^[[:space:]]*//')
     case $item in
     '') fail "--evidence must not be empty" ;;
-    -* | +* | \**) fail "--evidence must not start with a list marker" ;;
     esac
+    if printf '%s' "$item" | grep -Eq '^([-+*#>|]|[0-9]+[.)])'; then
+      fail "--evidence must not start with a list marker"
+    fi
     one_line --evidence "$item"
     evidence="$evidence${evidence:+
 }$item"
@@ -84,8 +86,10 @@ while [ "$#" -gt 0 ]; do
     item=$(printf '%s' "$2" | sed 's/^[[:space:]]*//')
     case $item in
     '') fail "--finding must not be empty" ;;
-    -* | +* | \**) fail "--finding must not start with a list marker" ;;
     esac
+    if printf '%s' "$item" | grep -Eq '^([-+*#>|]|[0-9]+[.)])'; then
+      fail "--finding must not start with a list marker"
+    fi
     one_line --finding "$item"
     findings="$findings${findings:+
 }$item"
@@ -93,8 +97,11 @@ while [ "$#" -gt 0 ]; do
     ;;
   --detail)
     [ "$#" -ge 2 ] || fail "missing value for --detail"
-    if printf '%s' "$2" | grep -qi '</details>'; then
-      fail "--detail cannot contain </details>"
+    if printf '%s' "$2" | grep -Eqi '</?details|<summary'; then
+      fail "--detail cannot contain a details block"
+    fi
+    if printf '%s' "$2" | grep -Fq '<!-- factory:blocker -->'; then
+      fail "--detail cannot contain the Blocker marker"
     fi
     escaped=$(printf '%s' "$2" | sed 's/@/\&#64;/g')
     detail="$detail${detail:+

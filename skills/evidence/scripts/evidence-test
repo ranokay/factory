@@ -470,7 +470,9 @@ def case_attach_url(work):
     ok(tool(work, repo, receipt_args(pr="7")))
     dry = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))
     expect("#issuecomment-" not in dry, f"the dry run printed a comment URL: {dry}")
+    (work / "gh" / "ids").write_text("100\n")
     posted = ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7"]))
+    expect("removed previous evidence comment 100" in posted, posted)
     expect(
         posted.splitlines()[-1] == "https://github.com/a/one/pull/7#issuecomment-101",
         posted,

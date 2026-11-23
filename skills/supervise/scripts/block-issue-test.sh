@@ -62,6 +62,10 @@ case_reason_multiline() {
 		return 1
 	fi
 	expect_contains "$(cat "$test_root/err")" 'must be one line'
+	if [ -s "$GH_LOG" ]; then
+		printf 'expected no gh calls, got:\n%s\n' "$(cat "$GH_LOG")" >&2
+		return 1
+	fi
 	printf 'ok: refuses a multi-line reason\n'
 }
 
@@ -88,8 +92,52 @@ case_detail_breakout() {
 		printf 'expected a refusal for a details breakout\n' >&2
 		return 1
 	fi
-	expect_contains "$(cat "$test_root/err")" 'cannot contain </details>'
+	expect_contains "$(cat "$test_root/err")" 'cannot contain a details block'
 	printf 'ok: refuses a details breakout\n'
+}
+
+case_no_detail() {
+	reset_gh_fixtures
+	"$block" o/one 6 --reason 'reason' --unblock 'step' >/dev/null
+	if grep -Fq '<details>' "$GH_BODY"; then
+		printf 'expected no details block without --detail\n' >&2
+		return 1
+	fi
+	printf 'ok: omits details without --detail\n'
+}
+
+case_empty_evidence() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason 'reason' --unblock 'step' --evidence '' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for empty evidence\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'must not be empty'
+	if [ -s "$GH_LOG" ]; then
+		printf 'expected no gh calls, got:\n%s\n' "$(cat "$GH_LOG")" >&2
+		return 1
+	fi
+	printf 'ok: refuses empty evidence\n'
+}
+
+case_finding_marker() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason 'reason' --unblock 'step' --finding '* item' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for a finding list marker\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'must not start with a list marker'
+	printf 'ok: refuses a finding list marker\n'
+}
+
+case_blocker_marker() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason 'reason' --unblock 'step' --detail '<!-- factory:blocker -->' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for a marker in details\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'cannot contain the Blocker marker'
+	printf 'ok: refuses the Blocker marker in details\n'
 }
 
 case_detail_mention() {
@@ -180,6 +228,10 @@ trailing_newline) case_trailing_newline ;;
 leading_marker) case_leading_marker ;;
 detail_breakout) case_detail_breakout ;;
 detail_mention) case_detail_mention ;;
+no_detail) case_no_detail ;;
+empty_evidence) case_empty_evidence ;;
+finding_marker) case_finding_marker ;;
+blocker_marker) case_blocker_marker ;;
 idempotent) case_idempotent ;;
 missing) case_missing ;;
 invalid_repo) case_invalid_repo ;;
@@ -193,6 +245,10 @@ all)
 	case_leading_marker
 	case_detail_breakout
 	case_detail_mention
+	case_no_detail
+	case_empty_evidence
+	case_finding_marker
+	case_blocker_marker
 	case_idempotent
 	case_missing
 	case_invalid_repo

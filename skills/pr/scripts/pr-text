@@ -29,10 +29,10 @@ examples:
 The body runs Summary, Why, Evidence and Merge Danger, then one collapsed
 <details> block. The Evidence section is one line linking the PR's single
 evidence comment and saying what it proves. Outside <details> the body allows
-39 rendered lines, a fenced block of at most 5 content lines, a 3-line Summary,
-a 400-character Why and a 400-character Merge Danger. A review reply is one
-line of at most 200 characters: `Fixed in <sha>`, `Not a bug: <reason>` or
-`Deferred: #<issue>`.
+39 rendered lines, a fenced block of at most 5 content lines, a 3-line Summary
+of 160 characters per line, a 400-character Why, a 300-character Evidence line
+and a 400-character Merge Danger. A review reply is one line of at most 200
+characters: `Fixed in <sha>`, `Not a bug: <reason>` or `Deferred: #<issue>`.
 """
 
 
@@ -48,9 +48,11 @@ def read_input(path):
     if path == "-":
         return sys.stdin.read()
     try:
-        return Path(path).read_text()
+        return Path(path).read_text(encoding="utf-8")
     except OSError as error:
         fail(f"cannot read {path}: {error.strerror}")
+    except UnicodeDecodeError as error:
+        fail(f"cannot read {path}: {error.reason}")
 
 
 def check_sections(body):
@@ -129,7 +131,8 @@ def check_sections(body):
     if in_details:
         fail("a <details> block is not closed")
     if order != list(SECTIONS):
-        fail(f"the body needs ## {SECTIONS[len(order)]}")
+        missing = SECTIONS[len(order)] if len(order) < len(SECTIONS) else None
+        fail(f"the body needs ## {missing}" if missing else "the body must have exactly the four sections")
     return sections, visible
 
 
@@ -183,7 +186,7 @@ def check_body(body):
 
 
 def check_reply(reply):
-    body = reply.rstrip()
+    body = reply.strip()
     if not body:
         fail("reply is empty")
     if "\n" in body:
@@ -212,10 +215,11 @@ def main(argv):
     try:
         if args.command == "body":
             check_body(read_input(args.path))
-        elif args.text == "-":
-            check_reply(sys.stdin.read())
-        else:
-            check_reply(args.text)
+        elif args.command == "reply":
+            if args.text == "-":
+                check_reply(sys.stdin.read())
+            else:
+                check_reply(args.text)
     except Problem as problem:
         print(f"pr-text: {problem}", file=sys.stderr)
         return 1
