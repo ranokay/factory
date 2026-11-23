@@ -237,7 +237,7 @@ def verdict_rows(text):
         if match:
             rows.append((match.group(1).lower(), match.group(2)))
     if fence is not None:
-        raise SyncError("verdicts: PR body has an unclosed fenced block")
+        raise SyncError("verdicts: PR body has an unclosed code fence; verdicts cannot be read safely")
     return rows
 
 
