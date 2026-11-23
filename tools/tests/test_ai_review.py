@@ -120,7 +120,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
         self.assertNotIn("pr.body", script)
         self.assertIn("issue.body", script)
 
-    def test_rule_file_points_at_review_markdown_through_an_absolute_path(self):
+    def test_rule_path_resolves_and_rejects_missing_files(self):
         path = ROOT / "ai-review-rule.json"
         self.assertEqual(json.loads(path.read_text()), {
             "rules": [{
@@ -139,23 +139,23 @@ class AiReviewWorkflowTests(unittest.TestCase):
         self.assertNotIn("rule", source["jobs"]["review"]["steps"][-1]["with"])
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
-            output.write_text("")
             existing = ROOT / "ai-review-rule.json"
-            result = run_step(rule_step, {"RULE": "", "DEFAULT_RULE": str(existing), "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(output.read_text(), f"path={existing}\n")
-            output.write_text("")
-            result = run_step(rule_step, {"RULE": "", "DEFAULT_RULE": str(Path(directory) / "missing.json"), "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(output.read_text(), "")
-            output.write_text("")
-            result = run_step(rule_step, {"RULE": "ai-review-rule.json", "DEFAULT_RULE": "", "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(output.read_text(), f"path={existing}\n")
-            output.write_text("")
-            result = run_step(rule_step, {"RULE": str(Path(directory) / "missing.json"), "DEFAULT_RULE": "", "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("rule input does not exist", result.stdout)
+            cases = (
+                ({"RULE": "", "DEFAULT_RULE": str(existing)}, True, f"path={existing}\n"),
+                ({"RULE": "", "DEFAULT_RULE": str(Path(directory) / "missing.json")}, True, ""),
+                ({"RULE": "ai-review-rule.json", "DEFAULT_RULE": ""}, True, f"path={existing}\n"),
+                ({"RULE": str(Path(directory) / "missing.json"), "DEFAULT_RULE": ""}, False, ""),
+            )
+            for environment, succeeds, expected in cases:
+                with self.subTest(environment=environment):
+                    output.write_text("")
+                    result = run_step(rule_step, {**environment, "WORKSPACE": str(ROOT), "GITHUB_OUTPUT": str(output)})
+                    if succeeds:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("rule input does not exist", result.stdout)
+                    self.assertEqual(output.read_text(), expected)
 
     def test_draft_pull_requests_skip_review_until_ready(self):
         assert_draft_guard(self, workflow("ai-review.yml"))
