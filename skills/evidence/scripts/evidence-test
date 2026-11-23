@@ -319,6 +319,7 @@ def case_add_multi_rollback(work):
     old = make_image(target / "shot.png", size="320x180")
     old_bytes = old.read_bytes()
     (target / "captions.json").write_text(json.dumps({"shot.png": "Old state"}))
+    expect((target / "captions.json").is_file(), "the captions fixture was not written")
     new = make_image(work / "shot.png", size="640x360")
     expect(new.stat().st_size < 50000, f"the image fixture is {new.stat().st_size} bytes")
     bad = make_video(work / "bad.mp4", seconds=3)
@@ -359,6 +360,7 @@ def case_add_in_place_video(work):
         shutil.copy2(image, path)
         captions[path.name] = f"State {index}"
     shutil.copy2(make_video(work / "demo.mp4", seconds=3), target / "demo.mp4")
+    expect((target / "demo.mp4").stat().st_size > 1000000, "the video fixture is under the limit")
     captions["demo.mp4"] = "Flow recording"
     (target / "captions.json").write_text(json.dumps(captions))
     ok(

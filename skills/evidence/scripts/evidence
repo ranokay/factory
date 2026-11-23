@@ -370,7 +370,7 @@ def cmd_add(args):
                     backup.unlink(missing_ok=True)
                     os.replace(destination, backup)
                 if suffix in IMAGE_SUFFIXES:
-                    require_size(destination if in_place else source)
+                    require_size(source)
                 if not in_place:
                     shutil.copy2(source, destination)
                 if suffix in VIDEO_SUFFIXES:
