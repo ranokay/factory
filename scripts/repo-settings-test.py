@@ -403,8 +403,9 @@ class RepoSettings(unittest.TestCase):
             invalid.append((dict(config, branch_rules=[*config["branch_rules"], malformed]), "branch_rules"))
         for extra in ({"type": "deletion"}, {"type": "unknown"}):
             invalid.append((dict(config, branch_rules=[*config["branch_rules"], extra]), "branch_rules"))
-        bad_non_pr = [{"type": "deletion", "parameters": {}} if rule["type"] == "deletion" else rule for rule in config["branch_rules"]]
-        invalid.append((dict(config, branch_rules=bad_non_pr), "branch_rules"))
+        for bad in (None, {"extra": True}, "invalid"):
+            bad_non_pr = [{"type": "deletion", "parameters": bad} if rule["type"] == "deletion" else rule for rule in config["branch_rules"]]
+            invalid.append((dict(config, branch_rules=bad_non_pr), "branch_rules"))
         pr_parameters = config["branch_rules"][-1]["parameters"]
         parameter_cases = [None, {}, dict(pr_parameters, unexpected=True), dict(pr_parameters, required_approving_review_count=-1), dict(pr_parameters, required_approving_review_count=True)]
         for key in pr_parameters:
@@ -431,6 +432,12 @@ class RepoSettings(unittest.TestCase):
         result = subprocess.run([sys.executable, str(script), "o/r"], env=env, capture_output=True, text=True)  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs a local script
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(log.exists())
+        for kind in ("deletion", "non_fast_forward", "required_signatures"):
+            with self.subTest(empty_parameters=kind):
+                rules = [dict(rule, parameters={}) if rule["type"] == kind else rule for rule in config["branch_rules"]]
+                path.write_text(json.dumps(dict(config, branch_rules=rules)))
+                result = subprocess.run([sys.executable, str(script), "o/r"], env=env, capture_output=True, text=True)  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs a local script
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_ruleset_ownership_must_be_known_before_any_write(self):
         state = json.loads(self.path.read_text())

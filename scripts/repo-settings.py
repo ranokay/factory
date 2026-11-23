@@ -25,8 +25,8 @@ def validate_branch_rules():
     if len(rules) != len(required) or {rule["type"] for rule in rules} != required:
         raise RuntimeError("repo-settings.json: branch_rules must contain each required rule exactly once")
     for rule in rules:
-        if rule["type"] != "pull_request" and set(rule) != {"type"}:
-            raise RuntimeError("repo-settings.json: branch_rules non-PR rules must not have parameters")
+        if rule["type"] != "pull_request" and (set(rule) - {"type", "parameters"} or ("parameters" in rule and rule["parameters"] != {})):
+            raise RuntimeError("repo-settings.json: branch_rules non-PR rules must have no parameters or an empty object")
     pr = next(rule for rule in rules if rule["type"] == "pull_request")
     flags = {"dismiss_stale_reviews_on_push", "require_code_owner_review", "require_last_push_approval", "required_review_thread_resolution", "require_extra_approval_for_unattributed_changes"}
     parameters = pr.get("parameters")
