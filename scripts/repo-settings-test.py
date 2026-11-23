@@ -388,7 +388,7 @@ class RepoSettings(unittest.TestCase):
         checks = config["required_checks"]
         for bad in ([], None, checks[:1], [*checks, checks[0]], [{"context": "Gates / Gates"}, checks[1]], [dict(checks[0], integration_id=0), checks[1]], [dict(checks[0], integration_id=True), checks[1]], [dict(checks[0], context=""), checks[1]], [dict(checks[0], extra=True), checks[1]]):
             invalid.append((dict(config, required_checks=bad), "required_checks"))
-        for bad in (None, {}, {"context": ""}, {"context": "Codacy", "integration_id": 0}, {"context": "Codacy", "extra": True}):
+        for bad in (None, {}, {"context": ""}, {"context": "Gates / Gates"}, {"context": "Codacy", "integration_id": 0}, {"context": "Codacy", "extra": True}):
             invalid.append((dict(config, public_check=bad), "public_check"))
         for modified, field in invalid:
             with self.subTest(config=modified):

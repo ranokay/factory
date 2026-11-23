@@ -48,6 +48,8 @@ def validate_config():
         raise RuntimeError("repo-settings.json: required_checks must uniquely include Gates / Gates and review / review")
     if not valid_check(CONFIG.get("public_check"), False):
         raise RuntimeError("repo-settings.json: public_check is invalid")
+    if CONFIG["public_check"]["context"] in contexts:
+        raise RuntimeError("repo-settings.json: public_check context must differ from required_checks")
     if CONFIG.get("fork_bypass_actor") != {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}:
         raise RuntimeError("repo-settings.json: fork_bypass_actor must be the admin role in pull_request mode")
 
