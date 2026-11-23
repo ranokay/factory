@@ -87,8 +87,9 @@ jobs:
           resolve_outdated: 'true'
           effort: high
           # The checkpoint travels in the sticky summary comment, not in
-          # uploaded artifacts.
-          upload_artifacts: 'false'
+          # uploaded artifacts. See the checkpoint outputs in
+          # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
+          upload_artifacts: 'false' # No raw artifacts.
       - name: Require published review
         env:
           SUMMARY: ${{ steps.review.outputs.summary_comment_url }}
