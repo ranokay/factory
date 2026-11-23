@@ -10,7 +10,10 @@ concurrency:
 jobs:
   review:
     permissions:
-      contents: read
+      # The callee resolves outdated bot threads, so the caller grants it
+      # repository write access. See
+      # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
+      contents: write
       issues: read
       pull-requests: write
     uses: $/.github/workflows/ai-review.yml

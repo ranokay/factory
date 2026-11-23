@@ -32,6 +32,8 @@ def main(directory, config_path):
         raise ValueError("invalid factory_authors")
     author_guard = " || ".join(f"github.event.pull_request.user.login == '{name}'" for name in authors)
     guard_required = f"github.event.pull_request.head.repo.full_name == github.repository && ({author_guard})"
+    draft_guard = f"{guard_required} && github.event.pull_request.draft == false"
+    review_guards = {guard_required, draft_guard}
     run_guard = "github.event.workflow_run.head_repository.full_name == github.repository"
     required = {check["context"] for check in config["required_checks"]}
     root = Path(directory)
@@ -58,9 +60,9 @@ def main(directory, config_path):
             raise ValueError(f"{caller}: {uses} is not a reusable workflow")
         return called.get("jobs", {})
 
-    def called_guarded(caller, job, guard):
+    def called_guarded(caller, job, guards):
         callees = called_jobs(caller, job)
-        return bool(callees) and all(condition(called.get("if")) == guard for called in callees.values())
+        return bool(callees) and all(condition(called.get("if")) in guards for called in callees.values())
 
     failures = []
     paths = sorted([*root.glob("*.yml"), *root.glob("*.yaml")])
@@ -85,8 +87,10 @@ def main(directory, config_path):
             if not guards:
                 failures.append(f"{path}: AI Review job has no author guard")
             for guard in guards:
-                if guard != guard_required:
+                if not guard.startswith(guard_required):
                     failures.append(f"{path}: AI Review author guard does not match factory_authors")
+                elif guard != draft_guard:
+                    failures.append(f"{path}: AI Review job must skip draft pull requests")
         for job_id, job in jobs.items():
             callees = called_jobs(path, job)
             for called_id, called in callees.items():
@@ -100,9 +104,10 @@ def main(directory, config_path):
             if not called_jobs(path, job) and "uses" in job and condition(job.get("if")) and any(check.startswith(prefix) for check in required):
                 failures.append(f"{path}: {job_id} guards an external reusable workflow at the caller")
         expected = guard_required if names & {"pull_request", "pull_request_target"} else run_guard
+        accepted = review_guards if names & {"pull_request", "pull_request_target"} else {expected}
         for name, job in jobs.items():
             guard = condition(job.get("if"))
-            if not SECRET.search(json.dumps(job)) or guard == expected or called_guarded(path, job, expected):
+            if not SECRET.search(json.dumps(job)) or guard in accepted or called_guarded(path, job, accepted):
                 continue
             failures.append(f"{path}: {name} has secrets without a same-repository guard")
     if failures:

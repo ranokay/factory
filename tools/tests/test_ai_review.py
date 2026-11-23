@@ -40,8 +40,24 @@ def assert_review_permissions(test, source):
     test.assertEqual(parsed["permissions"], {})
     test.assertEqual(set(parsed["jobs"]), {"review"})
     test.assertEqual(parsed["jobs"]["review"]["permissions"], {
-        "contents": "read", "issues": "read", "pull-requests": "write",
+        "contents": "write", "issues": "read", "pull-requests": "write",
     })
+
+
+def review_step(source):
+    for item in yaml.safe_load(source)["jobs"]["review"]["steps"]:
+        if item.get("id") == "review":
+            return item
+    raise AssertionError("missing review step")
+
+
+def assert_draft_guard(test, callee, caller):
+    condition = yaml.safe_load(callee)["jobs"]["review"]["if"]
+    test.assertIn(
+        "github.event.pull_request.head.repo.full_name == github.repository", condition
+    )
+    test.assertIn("github.event.pull_request.draft == false", condition)
+    test.assertNotIn("if", yaml.safe_load(caller)["jobs"]["review"])
 
 
 def assert_failure_propagation(test, source):
@@ -56,16 +72,69 @@ def assert_failure_propagation(test, source):
 
 
 class AiReviewWorkflowTests(unittest.TestCase):
-    def test_review_permissions_are_least_privilege(self):
+    def test_review_permissions_grant_only_the_review_needs(self):
         for name in ("ai-review.yml", "ai-review-caller.yml"):
             with self.subTest(workflow=name):
                 source = workflow(name)
                 assert_review_permissions(self, source)
                 assert_review_permissions(self, source.replace("permissions: {}", "permissions: {} # deny defaults"))
-                mutated = source.replace("      contents: read\n", "      actions: write\n      contents: read\n")
+                mutated = source.replace("      contents: write\n", "      actions: write\n      contents: write\n")
                 self.assertNotEqual(mutated, source)
                 with self.assertRaises(AssertionError):
                     assert_review_permissions(self, mutated)
+                mutated = source.replace("permissions: {}\n", "permissions:\n  contents: write\n", 1)
+                self.assertNotEqual(mutated, source)
+                with self.assertRaises(AssertionError):
+                    assert_review_permissions(self, mutated)
+
+    def test_review_uses_high_signal_inputs(self):
+        with_ = review_step(workflow("ai-review.yml"))["with"]
+        expected = {
+            "ocr_version": "1.14.0",
+            "rule": "${{ github.workspace }}/ai-review-rule.json",
+            "sticky_summary": "true",
+            "incremental": "true",
+            "checkpoint_range": "true",
+            "route_severity_below": "medium",
+            "route_categories": "style,documentation",
+            "resolve_outdated": "true",
+            "effort": "high",
+        }
+        for name, value in expected.items():
+            with self.subTest(input=name):
+                self.assertEqual(with_.get(name), value)
+        self.assertNotIn("max_tokens_budget", with_)
+
+    def test_checkpoint_session_header_is_stable_across_pushes(self):
+        headers = review_step(workflow("ai-review.yml"))["with"]["llm_extra_headers"]
+        self.assertNotIn("github.run_", headers)
+        self.assertIn("github.repository_id", headers)
+        self.assertIn("github.event.pull_request.number", headers)
+
+    def test_checkpoint_context_ignores_the_editable_pr_body(self):
+        script = step(workflow("ai-review.yml"), "Gather review context")
+        self.assertNotIn("pr.body", script)
+        self.assertIn("issue.body", script)
+
+    def test_rule_file_points_at_review_markdown_through_an_absolute_path(self):
+        path = ROOT / "ai-review-rule.json"
+        self.assertEqual(json.loads(path.read_text()), {
+            "rules": [{
+                "path": "**/*",
+                "rule": "REVIEW.md",
+                "merge_system_rule": True,
+            }],
+        })
+        self.assertTrue((ROOT / "REVIEW.md").is_file())
+        self.assertEqual(
+            review_step(workflow("ai-review.yml"))["with"]["rule"],
+            "${{ github.workspace }}/" + path.name,
+        )
+
+    def test_draft_pull_requests_skip_review_until_ready(self):
+        callee = workflow("ai-review.yml")
+        caller = workflow("ai-review-caller.yml")
+        assert_draft_guard(self, callee, caller)
 
     def test_review_failures_propagate(self):
         for name in ("ai-review.yml", "ai-review-caller.yml"):
@@ -130,10 +199,11 @@ class AiReviewWorkflowTests(unittest.TestCase):
     def test_summary_check_does_not_fail_on_findings_that_could_not_be_inlined(self):
         check = step(workflow("ai-review.yml"), "Require published review")
         self.assertIn("SUMMARY: ${{ steps.review.outputs.summary_comment_url }}", check)
+        self.assertIn("RANGE_REASON: ${{ steps.review.outputs.range_reason }}", check)
         self.assertIn("RESULT_PATH: /tmp/ocr-result.json", check)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "result.json"
-            env = {"SUMMARY": "https://example.test/comment", "RESULT_PATH": str(path)}
+            env = {"SUMMARY": "https://example.test/comment", "RANGE_REASON": "", "RESULT_PATH": str(path)}
             for status in ("complete", "skipped"):
                 path.write_text(json.dumps({"status": status}))
                 for failures in ("0", "1"):
@@ -145,6 +215,14 @@ class AiReviewWorkflowTests(unittest.TestCase):
             self.assertNotEqual(run_step(check, env).returncode, 0)
             path.write_text(json.dumps({"status": "complete"}))
             self.assertNotEqual(run_step(check, {**env, "SUMMARY": ""}).returncode, 0)
+            for status in ("complete", "skipped"):
+                path.write_text(json.dumps({"status": status}))
+                result = run_step(check, {**env, "SUMMARY": "", "RANGE_REASON": "same_head_noop"})
+                self.assertEqual(result.returncode, 0, result.stderr)
+            path.write_text(json.dumps({"status": "failed"}))
+            self.assertNotEqual(
+                run_step(check, {**env, "SUMMARY": "", "RANGE_REASON": "same_head_noop"}).returncode, 0
+            )
 
 
 if __name__ == "__main__":

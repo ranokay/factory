@@ -28,6 +28,35 @@ class WorkflowInvariant(unittest.TestCase):
             result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
 
+    def test_ai_review_skips_drafts_on_the_callee_not_the_caller(self):
+        script = ROOT / "scripts/workflow-invariant.py"
+        callee = (ROOT / ".github/workflows/ai-review.yml").read_text()
+        caller = (ROOT / ".github/workflows/ai-review-caller.yml").read_text()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "ai-review.yml").write_text(callee)
+            (root / "ai-review-caller.yml").write_text(caller)
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            (root / "ai-review.yml").write_text(callee.replace(" && github.event.pull_request.draft == false", ""))
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("AI Review job must skip draft pull requests", result.stderr)
+            (root / "ai-review.yml").write_text(
+                callee.replace("github.event.pull_request.draft == false", "github.event.pull_request.draft == true")
+            )
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("AI Review job must skip draft pull requests", result.stderr)
+            (root / "ai-review.yml").write_text(callee)
+            (root / "ai-review-caller.yml").write_text(caller.replace(
+                "    uses: $/.github/workflows/ai-review.yml",
+                "    if: github.event.pull_request.draft == false\n    uses: $/.github/workflows/ai-review.yml",
+            ))
+            result = subprocess.run(["python3", str(script), temp], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("guards required check review / review at the caller", result.stderr)
+
     def test_ai_review_callee_guard_must_match_factory_authors(self):
         script = ROOT / "scripts/workflow-invariant.py"
         caller = (ROOT / ".github/workflows/ai-review-caller.yml").read_text()
