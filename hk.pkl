@@ -1005,6 +1005,11 @@ steps {
         env { ["BLOCK_ISSUE_CASE"] = "reason_mention" }
         expect { code = 0 }
       }
+      ["strips a trailing newline from the reason"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "reason_newline" }
+        expect { code = 0 }
+      }
       ["refuses an evidence list marker"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "leading_marker" }
@@ -1038,6 +1043,11 @@ steps {
       ["refuses the Blocker marker in details"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "blocker_marker" }
+        expect { code = 0 }
+      }
+      ["refuses a details tag variant"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "detail_attributes" }
         expect { code = 0 }
       }
       ["keeps one comment on an already blocked issue"] {
@@ -1414,6 +1424,11 @@ steps {
         env { ["PR_TEXT_CASE"] = "evidence_enterprise" }
         expect { code = 0 }
       }
+      ["rejects a second bare evidence URL"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "evidence_second_url" }
+        expect { code = 0 }
+      }
       ["rejects text after details"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "text_after_details" }
@@ -1427,6 +1442,16 @@ steps {
       ["rejects an unclosed details block"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "unclosed_details" }
+        expect { code = 0 }
+      }
+      ["rejects an inline details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "inline_details" }
+        expect { code = 0 }
+      }
+      ["rejects a nested details block"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "nested_details" }
         expect { code = 0 }
       }
       ["accepts a Why at the character limit"] {
@@ -1507,6 +1532,11 @@ steps {
       ["accepts a reply from stdin"] {
         run = "check"
         env { ["PR_TEXT_CASE"] = "reply_stdin" }
+        expect { code = 0 }
+      }
+      ["accepts a CRLF reply"] {
+        run = "check"
+        env { ["PR_TEXT_CASE"] = "reply_crlf" }
         expect { code = 0 }
       }
       ["accepts a trailing blank line after a reply"] {

@@ -253,6 +253,15 @@ def case_evidence_enterprise():
 
 
 @case
+def case_evidence_second_url():
+    body = GOOD.replace(
+        "- the checker rejects bad fixtures.",
+        "- https://example.com/log",
+    )
+    rejected(body, "adds one line saying what the comment proves")
+
+
+@case
 def case_body_file():
     with tempfile.TemporaryDirectory(prefix="pr-text-test-") as directory:
         path = Path(directory) / "body.md"
@@ -291,6 +300,24 @@ def case_second_details():
 def case_unclosed_details():
     body = GOOD.replace("</details>\n", "")
     rejected(body, "a <details> block is not closed")
+
+
+@case
+def case_inline_details():
+    body = GOOD.replace(
+        "<details>\n<summary>Details</summary>\n\nDesign notes live here.\n\n</details>",
+        "<details><summary>Details</summary>Design notes.</details>",
+    )
+    rejected(body, "use a plain <details> line")
+
+
+@case
+def case_nested_details():
+    body = GOOD.replace(
+        "Design notes live here.",
+        "Design notes live here.\n\n<details>\n<summary>Nested</summary>\n\nMore.\n\n</details>",
+    )
+    rejected(body, "nested <details> is not allowed")
 
 
 @case
@@ -371,6 +398,11 @@ def case_reply_too_long():
 def case_reply_stdin():
     result = run(["reply", "-"], "Fixed in 50bd7aa\n")
     expect(result.returncode == 0, f"expected success, got {result.returncode}: {result.stderr.strip()}")
+
+
+@case
+def case_reply_crlf():
+    accepted_reply("Fixed in 50bd7aa\r\n")
 
 
 @case

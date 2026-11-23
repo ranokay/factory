@@ -117,6 +117,16 @@ case_reason_mention() {
 	printf 'ok: escapes a mention in the reason\n'
 }
 
+case_reason_newline() {
+	reset_gh_fixtures
+	"$block" o/one 6 --reason "$(printf 'reason\n')" --unblock 'step' >/dev/null
+	if ! grep -Fxq '@ranokay reason' "$GH_BODY"; then
+		printf 'expected the exact reason line, got:\n%s\n' "$(cat "$GH_BODY")" >&2
+		return 1
+	fi
+	printf 'ok: strips a trailing newline from the reason\n'
+}
+
 case_leading_marker() {
 	reset_gh_fixtures
 	if "$block" o/one 6 --reason 'reason' --unblock 'step' --evidence '- https://example.test/evidence' >/dev/null 2>"$test_root/err"; then
@@ -177,8 +187,18 @@ case_blocker_marker() {
 		printf 'expected a refusal for a marker in details\n' >&2
 		return 1
 	fi
-	expect_contains "$(cat "$test_root/err")" 'cannot contain the Blocker marker'
+	expect_contains "$(cat "$test_root/err")" 'cannot contain an HTML comment'
 	printf 'ok: refuses the Blocker marker in details\n'
+}
+
+case_detail_attributes() {
+	reset_gh_fixtures
+	if "$block" o/one 6 --reason 'reason' --unblock 'step' --detail '</details >' >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal for an attribute close tag\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'cannot contain a details block'
+	printf 'ok: refuses a details tag variant\n'
 }
 
 case_detail_mention() {
@@ -270,6 +290,7 @@ evidence_multiline) case_evidence_multiline ;;
 digit_value) case_digit_value ;;
 summary_tag) case_summary_tag ;;
 reason_mention) case_reason_mention ;;
+reason_newline) case_reason_newline ;;
 leading_marker) case_leading_marker ;;
 detail_breakout) case_detail_breakout ;;
 detail_mention) case_detail_mention ;;
@@ -277,6 +298,7 @@ no_detail) case_no_detail ;;
 empty_evidence) case_empty_evidence ;;
 finding_marker) case_finding_marker ;;
 blocker_marker) case_blocker_marker ;;
+detail_attributes) case_detail_attributes ;;
 idempotent) case_idempotent ;;
 missing) case_missing ;;
 invalid_repo) case_invalid_repo ;;
@@ -291,6 +313,7 @@ all)
 	case_digit_value
 	case_summary_tag
 	case_reason_mention
+	case_reason_newline
 	case_leading_marker
 	case_detail_breakout
 	case_detail_mention
@@ -298,6 +321,7 @@ all)
 	case_empty_evidence
 	case_finding_marker
 	case_blocker_marker
+	case_detail_attributes
 	case_idempotent
 	case_missing
 	case_invalid_repo

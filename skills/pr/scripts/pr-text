@@ -14,8 +14,8 @@ FENCE_MAX_LINES = 5
 VISIBLE_MAX_LINES = 39
 REPLY_MAX_CHARS = 200
 EVIDENCE_LINK = re.compile(r"https://[^\s)\]>]+/(?:issues|pull)/\d+#issuecomment-\d+")
-DOOR = re.compile(r"\*\*Door:\*\*\s+\S")
-BLAST_RADIUS = re.compile(r"\*\*Blast Radius:\*\*\s+\S")
+DOOR = re.compile(r"^\*\*Door:\*\*\s+\S", re.MULTILINE)
+BLAST_RADIUS = re.compile(r"^\*\*Blast Radius:\*\*\s+\S", re.MULTILINE)
 FIXED = re.compile(r"Fixed in [0-9a-f]{7,40}")
 NOT_A_BUG = re.compile(r"Not a bug: \S.*")
 DEFERRED = re.compile(r"Deferred: #\d+")
@@ -68,7 +68,9 @@ def check_sections(body):
     for number, raw in enumerate(body.splitlines(), 1):
         line = raw.strip()
         if in_details:
-            if line.startswith("</details>"):
+            if line.startswith("<details"):
+                fail(f"line {number}: nested <details> is not allowed")
+            if line == "</details>":
                 in_details = False
                 details_closed = True
             continue
@@ -112,6 +114,8 @@ def check_sections(body):
             visible += 1
             continue
         if line.startswith("<details"):
+            if line != "<details>":
+                fail(f"line {number}: use a plain <details> line")
             if order != list(SECTIONS):
                 fail(f"line {number}: <details> comes after Merge Danger")
             in_details = True
@@ -160,6 +164,7 @@ def check_body(body):
     if not EVIDENCE_LINK.search(evidence_line):
         fail(f"line {evidence[0][0]}: ## Evidence links the PR's evidence comment")
     remainder = EVIDENCE_LINK.sub("", evidence_line)
+    remainder = re.sub(r"https?://\S+", "", remainder)
     remainder = re.sub(r"\[[^\]]*\]\([^)]*\)", "", remainder)
     remainder = re.sub(r"<[^>]*>", "", remainder)
     remainder = remainder.strip(" -—:;,.()[]<>`•")
@@ -182,7 +187,7 @@ def check_body(body):
 
 
 def check_reply(reply):
-    body = reply.strip()
+    body = reply.replace("\r\n", "\n").strip()
     if not body:
         fail("reply is empty")
     if "\n" in body:
