@@ -995,6 +995,11 @@ steps {
         env { ["BLOCK_ISSUE_CASE"] = "detail_breakout" }
         expect { code = 0 }
       }
+      ["escapes mentions inside details"] {
+        run = "check"
+        env { ["BLOCK_ISSUE_CASE"] = "detail_mention" }
+        expect { code = 0 }
+      }
       ["keeps one comment on an already blocked issue"] {
         run = "check"
         env { ["BLOCK_ISSUE_CASE"] = "idempotent" }

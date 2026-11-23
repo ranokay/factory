@@ -92,6 +92,17 @@ case_detail_breakout() {
 	printf 'ok: refuses a details breakout\n'
 }
 
+case_detail_mention() {
+	reset_gh_fixtures
+	"$block" o/one 6 --reason 'reason' --unblock 'step' --detail 'Context for @alice' >/dev/null
+	expect_body 'Context for &#64;alice'
+	if grep -Fq '@alice' "$GH_BODY"; then
+		printf 'expected the detail mention to be escaped\n' >&2
+		return 1
+	fi
+	printf 'ok: escapes mentions inside details\n'
+}
+
 case_unblock_multiline() {
 	reset_gh_fixtures
 	if "$block" o/one 6 --reason 'reason' --unblock "$(printf 'one\ntwo')" >/dev/null 2>"$test_root/err"; then
@@ -168,6 +179,7 @@ reason_multiline) case_reason_multiline ;;
 trailing_newline) case_trailing_newline ;;
 leading_marker) case_leading_marker ;;
 detail_breakout) case_detail_breakout ;;
+detail_mention) case_detail_mention ;;
 idempotent) case_idempotent ;;
 missing) case_missing ;;
 invalid_repo) case_invalid_repo ;;
@@ -180,6 +192,7 @@ all)
 	case_trailing_newline
 	case_leading_marker
 	case_detail_breakout
+	case_detail_mention
 	case_idempotent
 	case_missing
 	case_invalid_repo

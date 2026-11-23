@@ -96,9 +96,10 @@ while [ "$#" -gt 0 ]; do
     if printf '%s' "$2" | grep -qi '</details>'; then
       fail "--detail cannot contain </details>"
     fi
+    escaped=$(printf '%s' "$2" | sed 's/@/\&#64;/g')
     detail="$detail${detail:+
 
-}$2"
+}$escaped"
     shift 2
     ;;
   *)
