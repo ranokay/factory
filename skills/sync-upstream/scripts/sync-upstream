@@ -338,6 +338,8 @@ def merge_command(args):
             check_list = parameters.get("required_status_checks") if isinstance(parameters, dict) else None
             if not isinstance(check_list, list):
                 raise SyncError("required_status_checks rule has no check list")
+            if not check_list:
+                raise SyncError("required_status_checks rule lists no checks")
             for check in check_list:
                 if not isinstance(check, dict) or not isinstance(check.get("context"), str) or not check["context"]:
                     raise SyncError("required_status_checks rule has a check without context")

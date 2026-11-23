@@ -275,6 +275,20 @@ class SyncUpstream(SyncFixture):
                 self.assertIn("required_status_checks rule", result.stderr)
                 self.assertEqual(result.stdout, "")
 
+    def test_merge_command_refuses_empty_check_rule_but_allows_no_rule(self):
+        repo, _ = self.command_fixture()
+        state = json.loads(self.repo_file.read_text())
+        state["applied_rules"] = [{"type": "required_status_checks", "parameters": {"required_status_checks": []}}]
+        self.repo_file.write_text(json.dumps(state))
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("required_status_checks rule lists no checks", result.stderr)
+        self.assertEqual(result.stdout, "")
+        state["applied_rules"] = []
+        self.repo_file.write_text(json.dumps(state))
+        result = self.merge_command(repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_merge_command_blocks_a_failing_check(self):
         repo, _ = self.command_fixture(check_runs=[{"name": "Gates / Gates", "status": "completed", "conclusion": "failure"}])
         result = self.merge_command(repo)
