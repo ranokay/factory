@@ -473,7 +473,7 @@ def cmd_receipt(args):
 def load_receipt(path):
     try:
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, ValueError) as error:
         fail(f"{path} is not readable: {error}")
     for key in ("model", "variant", "fallback", "attempts", "cost", "gates", "summary"):
         value = data.get(key)
@@ -503,7 +503,7 @@ def load_captions(directory, prune=True):
         return {}
     try:
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, ValueError) as error:
         fail(f"{path} is not readable: {error}")
     if not isinstance(data, dict) or any(
         not isinstance(key, str) or not isinstance(value, str) for key, value in data.items()
@@ -556,7 +556,7 @@ def attachment_entries(directory):
         caption = captions.get(item.name, "").strip()
         if not caption:
             fail(
-                f"{item.name} has no caption; remove it or add it again with --caption "
+                f"{item.name} has no caption; remove it or re-add it in place with --caption "
                 "so the comment says what visible behaviour it proves"
             )
         entries.append((item, caption))
@@ -566,6 +566,7 @@ def attachment_entries(directory):
 
 def escape_caption(caption):
     text = html.escape(caption, quote=True).replace("[", "\\[").replace("]", "\\]")
+    text = re.sub(r"^(\d+)([.)])", r"\1\\\2", text)
     if text[:1] in {"#", ">", "-", "+", "*", "=", "|"}:
         text = "\\" + text
     return text
@@ -610,7 +611,7 @@ def move_staged(stage, target, copy=False):
         if not item.is_file():
             continue
         if item.name == CAPTIONS:
-            write_captions(target, merged)
+            write_captions(target, merged or {})
             if not copy:
                 item.unlink()
             captions_moved = True

@@ -925,6 +925,13 @@ def case_caption_escape(work):
         tool(
             work,
             repo,
+            ["add", str(make_image(work / "second.png")), "--caption", "1. first", "--repo", "a/one", "--pr", "7"],
+        )
+    )
+    ok(
+        tool(
+            work,
+            repo,
             receipt_args(
                 pr="7",
                 summary="`mise run check` \u2014 exit 0\n<b>proof</b>",
@@ -937,6 +944,7 @@ def case_caption_escape(work):
     expect('\\- Banner &lt;b&gt;shows&lt;/b&gt; \\[ok\\] &amp; &quot;quoted&quot;' in body, body)
     expect(caption not in body, body)
     expect("&lt;b&gt;proof&lt;/b&gt;" in body, body)
+    expect("1\\. first" in body, body)
     expect("&lt;/details&gt;" in body, body)
     expect("<b>" not in body, body)
 
