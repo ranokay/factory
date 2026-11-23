@@ -817,9 +817,11 @@ def install_files(args):
     target = Path(args.target)
     resolved_target = target.resolve()
     changes = []
-    for source in sorted(path for path in template.rglob("*") if path.is_file()):
+    for source in sorted(template.rglob("*")):
         if not source.resolve().is_relative_to(resolved_template):
             raise SyncError(f"install-files: {source.relative_to(template)} resolves outside the template; change it by hand")
+        if not source.is_file():
+            continue
         destination = target / source.relative_to(template)
         name = destination.relative_to(target).as_posix()
         if not destination.resolve().is_relative_to(resolved_target):

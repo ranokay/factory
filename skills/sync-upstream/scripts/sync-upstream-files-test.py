@@ -88,14 +88,21 @@ class SyncUpstreamFiles(SyncFixture):
         template.mkdir()
         outside = self.root / "outside"
         outside.write_text("private fixture\n")
-        (template / "leak.txt").symlink_to(outside)
+        (template / "regular.txt").write_text("normal\n")
         target = self.target()
-        for args in ((), ("--check",)):
-            result = self.cli("install-files", "--target", str(target), "--template", str(template), *args, check=False)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("resolves outside the template", result.stderr)
-            self.assertEqual(list(target.iterdir()), [])
-            self.assertEqual(outside.read_text(), "private fixture\n")
+        external_dir = self.root / "external-dir"
+        external_dir.mkdir()
+        for destination in (outside, external_dir, self.root / "missing"):
+            with self.subTest(destination=destination):
+                link = template / "leak.txt"
+                link.symlink_to(destination)
+                for args in ((), ("--check",)):
+                    result = self.cli("install-files", "--target", str(target), "--template", str(template), *args, check=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("resolves outside the template", result.stderr)
+                    self.assertEqual(list(target.iterdir()), [])
+                    self.assertEqual(outside.read_text(), "private fixture\n")
+                link.unlink()
 
     def test_install_files_refuses_destinations_outside_target(self):
         template = self.root / "template"
