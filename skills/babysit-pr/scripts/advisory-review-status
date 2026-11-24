@@ -19,8 +19,8 @@ from advisory_reviewers import (  # noqa: E402 -- the shared table ships beside 
 )
 
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-# CodeRabbit and Greptile put status text at the top of a comment; their later walkthroughs can quote a placeholder from the diff (https://github.com/Jgocunha/dynamic-neural-field-composer/pull/80).
-PLACEHOLDER_SCAN_CHARS = 600
+# CodeRabbit and Greptile put status text at the top of a comment; their later walkthroughs can quote status or placeholder text from the diff (https://github.com/Jgocunha/dynamic-neural-field-composer/pull/80).
+STATUS_SCAN_CHARS = 600
 READ_ERRORS = (
     ValueError,
     KeyError,
@@ -45,12 +45,12 @@ def covers(item, head, head_date):
 
 
 def placeholder(item):
-    body = (item.get("body") or "").lower()[:PLACEHOLDER_SCAN_CHARS]
+    body = (item.get("body") or "").lower()[:STATUS_SCAN_CHARS]
     return any(marker in body for marker in PLACEHOLDERS)
 
 
 def skip_reason(name, item):
-    body = (item.get("body") or "").lower()[:PLACEHOLDER_SCAN_CHARS]
+    body = (item.get("body") or "").lower()[:STATUS_SCAN_CHARS]
     for phrase, reason in REVIEWERS[name]["skip_phrases"].items():
         if phrase in body:
             return reason
