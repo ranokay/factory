@@ -288,6 +288,22 @@ if pgrep -f "$stubborn/stubborn.py" >/dev/null 2>&1; then
 	fail "a SIGTERM-ignoring leaked process survived the check"
 fi
 
+doctor_leak=$(prepare doctor-leak)
+insert_after "$doctor_leak/.agents/skills/verify-counter/scripts/verify.py" '    command, *args = argv' '    if command == "doctor" and not args: Path("doctor-leak").write_text("changed"); return emit({"ok": True, "running": True})'
+expect_failure doctor-leak "doctor changed the tree: doctor-leak"
+
+doctor_process=$(prepare doctor-process)
+printf 'import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)\n' >"$doctor_process/stubborn.py"
+insert_after "$doctor_process/.agents/skills/verify-counter/scripts/verify.py" '    command, *args = argv' '    if command == "doctor" and not args: subprocess.Popen([sys.executable, str(ROOT / "stubborn.py")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); return emit({"ok": True, "running": True})'
+expect_failure doctor-process "left a process running"
+if pgrep -f "$doctor_process/stubborn.py" >/dev/null 2>&1; then
+	fail "a leaked doctor process survived the check"
+fi
+
+doctor_temp_leak=$(prepare doctor-temp-leak)
+insert_after "$doctor_temp_leak/.agents/skills/verify-counter/scripts/verify.py" '    command, *args = argv' '    if command == "doctor" and not args: Path(os.environ["TMPDIR"], "doctor-temp-leak").write_text("changed"); return emit({"ok": True, "running": True})'
+expect_failure doctor-temp-leak "doctor changed its temp state: doctor-temp-leak"
+
 doctor_no_ok=$(prepare doctor-no-ok)
 replace "$doctor_no_ok/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": False, "error": message, "alternative": alternative}, code)' 'return emit({"error": message, "alternative": alternative}, code)'
 expect_failure doctor-no-ok "a failing doctor must report ok: false"

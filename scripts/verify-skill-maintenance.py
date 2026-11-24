@@ -13,7 +13,7 @@ import json
 import re
 import subprocess  # nosec B404 -- the maintenance tool runs local git and gh
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent
 MARKER = "factory:verify-maintenance"
@@ -21,6 +21,8 @@ HEAD_MARKER = re.compile(r"<!--\s*factory:verify-maintenance\s+head=([0-9a-f]{40
 SKILL_ROOT = ".agents/skills"
 CLAUDE_ROOT = ".claude/skills"
 EXCLUDES = [f":(exclude){SKILL_ROOT}", f":(exclude){CLAUDE_ROOT}"]
+SEARCH_PAGE_SIZE = 100
+SEARCH_MAX_PAGES = 10
 
 
 def load_canonical_clones():
@@ -59,9 +61,6 @@ def default_branch(repo):
     result = git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
-    upstream = git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-    if upstream.returncode == 0 and upstream.stdout.strip():
-        return upstream.stdout.strip()
     return None
 
 
@@ -94,11 +93,20 @@ def fetch(repo):
         raise RuntimeError(f"git fetch failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
-def verify_skills(repo):
-    root = repo / SKILL_ROOT
-    if not root.is_dir():
-        return []
-    return sorted(path.name for path in root.glob("verify-*") if (path / "SKILL.md").is_file())
+def verify_skills(repo, branch):
+    result = git(repo, "ls-tree", "-r", "--name-only", branch, "--", SKILL_ROOT)
+    if result.returncode != 0:
+        raise RuntimeError(f"cannot list {SKILL_ROOT} on {branch}: {result.stderr.strip()}")
+    skills = set()
+    for line in result.stdout.splitlines():
+        path = PurePosixPath(line)
+        if (
+            path.parent.parent == PurePosixPath(SKILL_ROOT)
+            and path.parent.name.startswith("verify-")
+            and path.name == "SKILL.md"
+        ):
+            skills.add(path.parent.name)
+    return sorted(skills)
 
 
 def last_skill_commit(repo, branch, skills):
@@ -108,27 +116,48 @@ def last_skill_commit(repo, branch, skills):
 
 
 def issues(repo_slug, state):
-    result = gh(
-        "issue",
-        "list",
-        "--repo",
-        repo_slug,
-        "--state",
-        state,
-        "--limit",
-        "200",
-        "--json",
-        "number,title,body,closedAt",
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"gh issue list --state {state} failed: {result.stderr.strip() or result.stdout.strip()}")
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"gh issue list --state {state} returned invalid JSON: {error}") from None
-    if not isinstance(data, list):
-        raise RuntimeError(f"gh issue list --state {state} did not return a list")
-    return [issue for issue in data if isinstance(issue, dict) and MARKER in str(issue.get("body") or "")]
+    query = f'repo:{repo_slug} is:issue state:{state} "{MARKER}" in:body'
+    label = f"gh api search/issues for {state} issues"
+    found = []
+    for page in range(1, SEARCH_MAX_PAGES + 1):
+        result = gh(
+            "api",
+            "-X",
+            "GET",
+            "search/issues",
+            "-f",
+            f"q={query}",
+            "-f",
+            f"per_page={SEARCH_PAGE_SIZE}",
+            "-f",
+            f"page={page}",
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"{label} failed: {result.stderr.strip() or result.stdout.strip()}")
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(f"{label} returned invalid JSON: {error}") from None
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise RuntimeError(f"{label} did not return items")
+        if data.get("incomplete_results") is True:
+            raise RuntimeError(f"{label} returned incomplete results")
+        found.extend(
+            {
+                "number": item.get("number"),
+                "title": item.get("title"),
+                "body": item.get("body"),
+                "closedAt": item.get("closed_at"),
+            }
+            for item in items
+            if isinstance(item, dict) and MARKER in str(item.get("body") or "")
+        )
+        if len(items) < SEARCH_PAGE_SIZE:
+            break
+    else:
+        raise RuntimeError(f"{label} filled all {SEARCH_MAX_PAGES} pages; narrow the search")
+    return found
 
 
 def closed_head(repo, repo_slug, branch):
@@ -213,9 +242,6 @@ def main(argv=None):
         if not identity.startswith("github.com/ranokay/"):
             continue
         repo_slug = identity.removeprefix("github.com/")
-        skills = verify_skills(repo)
-        if not skills:
-            continue
         try:
             if not args.no_fetch:
                 fetch(repo)
@@ -225,6 +251,9 @@ def main(argv=None):
             head = git_out(repo, "rev-parse", "--verify", f"{branch}^{{commit}}")
             if not head:
                 raise RuntimeError(f"cannot resolve {branch}")
+            skills = verify_skills(repo, branch)
+            if not skills:
+                continue
             skill_commit = last_skill_commit(repo, branch, skills)
             recorded = closed_head(repo, repo_slug, branch)
             last = newer(repo, skill_commit, recorded)
