@@ -29,6 +29,8 @@ if args[:1] == ["api"]:
             "sha": state.get("head", "b" * 40),
             "repo": None if state.get("deleted") else {"full_name": state.get("head_repo", "o/r")},
         },
+        "merged": state.get("merged", True),
+        "state": "merged" if state.get("merged", True) else "open",
     }))
 elif args[:2] == ["pr", "merge"]:
     if state.get("merge_fail"):
@@ -86,11 +88,12 @@ class Merge(unittest.TestCase):
         result = self.merge("--squash")
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls()
-        self.assertEqual(len(calls), 2, calls)
+        self.assertEqual(len(calls), 3, calls)
         self.assertEqual(calls[0][0], "api")
         self.assertEqual(
             calls[1], ["pr", "merge", "7", "-R", "o/r", "--match-head-commit", SHA, "--squash"]
         )
+        self.assertEqual(calls[2][0], "api")
 
     def test_merge_commit_uses_merge(self):
         result = self.merge("--merge-commit")
@@ -101,7 +104,14 @@ class Merge(unittest.TestCase):
         self.reset(author="renovate[bot]")
         result = self.merge("--squash")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(self.calls()), 2)
+        self.assertEqual(len(self.calls()), 3)
+
+    def test_queued_merge_is_reported_as_requested(self):
+        self.reset(merged=False)
+        result = self.merge("--squash")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("merge requested for o/r#7", result.stdout)
+        self.assertNotIn("merged o/r#7", result.stdout)
 
     def test_outside_contributor_is_refused_before_merging(self):
         for state in ({"author": "other"}, {"head_repo": "other/r"}, {"deleted": True}):

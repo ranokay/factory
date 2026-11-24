@@ -64,7 +64,22 @@ def merge(args):
     if merged.returncode != 0:
         detail = (merged.stderr or merged.stdout).strip()
         problem(f"merging {args.repo}#{args.pr} failed: {detail}")
-    print(f"merged {args.repo}#{args.pr} at {args.head}")
+    state = gh("api", f"repos/{args.repo}/pulls/{args.pr}")
+    if state.returncode != 0:
+        print(f"merge requested for {args.repo}#{args.pr} at {args.head}; state unknown")
+        return
+    try:
+        payload = json.loads(state.stdout)
+    except json.JSONDecodeError:
+        print(f"merge requested for {args.repo}#{args.pr} at {args.head}; state unknown")
+        return
+    if payload.get("merged") is True or payload.get("state") == "merged":
+        print(f"merged {args.repo}#{args.pr} at {args.head}")
+    else:
+        print(
+            f"merge requested for {args.repo}#{args.pr} at {args.head}; "
+            f"still {payload.get('state', 'open')}"
+        )
 
 
 def main(argv=None):

@@ -219,6 +219,15 @@ def cell(value):
     return text.replace("|", "\\|")
 
 
+def code_span(value):
+    text = cell(value)
+    runs = re.findall(r"`+", text)
+    if not runs:
+        return f"`{text}`"
+    fence = "`" * (max(len(run) for run in runs) + 1)
+    return f"{fence} {text} {fence}"
+
+
 def comment_body(issue, rows, executions, cleanup):
     lines = [
         DISCLAIMER,
@@ -235,7 +244,7 @@ def comment_body(issue, rows, executions, cleanup):
         "",
     ]
     for item in executions:
-        lines.append(f"- `{cell(' '.join(item['argv']))}` — exit {item['exit']}")
+        lines.append(f"- {code_span(' '.join(item['argv']))} — exit {item['exit']}")
     lines.extend(
         [
             "",
@@ -248,8 +257,8 @@ def comment_body(issue, rows, executions, cleanup):
     for row in rows:
         result = "match" if row["match"] else "mismatch"
         lines.append(
-            f"| `{row['step']}` | `{row['key']}` | `{cell(row['expected'])}` "
-            f"| `{cell(row['observed'])}` | {result} |"
+            f"| {code_span(row['step'])} | {code_span(row['key'])} "
+            f"| {code_span(row['expected'])} | {code_span(row['observed'])} | {result} |"
         )
     lines.append("")
     if cleanup is not None:
@@ -340,7 +349,11 @@ def reproduce(args):
     (directory / "issue.json").write_text(json.dumps(issue, indent=2) + "\n")
     try:
         executions, cleanup = capture(project, task, steps, args.cleanup)
-        (directory / "steps.json").write_text(json.dumps(executions, indent=2) + "\n")
+        (directory / "steps.json").write_text(
+            json.dumps({"steps": executions, "cleanup": cleanup}, indent=2) + "\n"
+        )
+        if cleanup["exit"] != 0:
+            problem(f"cleanup {args.cleanup!r} exited {cleanup['exit']}")
         rows = evaluate(observes, executions)
         outcome = "reproduced" if all(row["match"] for row in rows) else "not-reproduced"
         url = post_comment(

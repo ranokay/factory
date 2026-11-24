@@ -464,6 +464,58 @@ class Triage(unittest.TestCase):
         self.assertIn("Cleanup `teardown` exited 0.", self.comment.read_text())
         self.assertNotEqual(self.doctor().returncode, 0)
 
+    def test_cleanup_failure_keeps_evidence_and_fails(self):
+        script = self.project / ".agents/skills/verify-counter/scripts/verify.py"
+        text = script.read_text()
+        old_return = '    shutil.rmtree(STATE, ignore_errors=True)\n    return emit({"ok": True, "stopped": True})'
+        new_return = '    shutil.rmtree(STATE, ignore_errors=True)\n    return fail("cleanup failed", f"{TASK} launch")'
+        self.assertIn(old_return, text)
+        script.write_text(text.replace(old_return, new_return, 1))
+        result = self.triage(
+            "reproduce",
+            "--project",
+            str(self.project),
+            "o/one",
+            "6",
+            "--app",
+            "counter",
+            "--step",
+            "launch",
+            "--step",
+            "count",
+            "--observe",
+            "count:count=0",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cleanup 'stop' exited 1", result.stderr)
+        self.assertTrue((self.evidence() / "steps.json").is_file())
+        self.assertIn('"exit": 1', (self.evidence() / "steps.json").read_text())
+        self.assertFalse(self.comment.exists())
+        self.assertEqual(sorted(self.labels()), ["blocked", "enhancement", "needs-triage"])
+        self.assertNotEqual(self.doctor().returncode, 0)
+
+    def test_backticks_in_observed_values_stay_in_code_spans(self):
+        result = self.triage(
+            "reproduce",
+            "--project",
+            str(self.project),
+            "o/one",
+            "6",
+            "--app",
+            "counter",
+            "--step",
+            "launch",
+            "--step",
+            "count",
+            "--observe",
+            "count:count=1` @someone [link](https://example.com)",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["outcome"], "not-reproduced")
+        body = self.comment.read_text()
+        self.assertIn("`` 1` @someone [link](https://example.com) ``", body)
+        self.assertNotIn("`1` @someone", body)
+
     def test_label_failure_keeps_evidence(self):
         env = dict(self.env, FAKE_GH_FAIL_EDIT="1")
         result = self.triage(
