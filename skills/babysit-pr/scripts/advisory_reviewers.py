@@ -14,7 +14,7 @@ status-check documentation; ranokay/factory has no rate-limit comment.
 """
 
 import json
-import subprocess
+import subprocess  # nosec B404 -- gh runs with an argument list, never a shell
 
 REVIEWERS = {
     "copilot": {
@@ -60,7 +60,9 @@ PLACEHOLDERS = (
 
 
 def gh(*args):
-    result = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
+    result = subprocess.run(  # nosec B603 B607 -- gh from PATH with an argument list
+        ["gh", *args], check=True, capture_output=True, text=True
+    )
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 

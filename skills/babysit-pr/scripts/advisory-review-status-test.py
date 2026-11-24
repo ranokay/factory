@@ -2,7 +2,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- the tests run the script and a fake gh with argument lists
 import tempfile
 import unittest
 from pathlib import Path
@@ -111,7 +111,7 @@ class AdvisoryReviewStatus(unittest.TestCase):
             (root / "gh").chmod(0o755)
             (root / "state").write_text(json.dumps(value))
             env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", FAKE_STATE=str(root / "state"))
-            return subprocess.run(
+            return subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list
                 ["python3", str(SCRIPT), "o/r", "1", *arguments],
                 env=env,
                 capture_output=True,
@@ -251,9 +251,13 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertEqual(sleeps, [12, 12, 6])
 
     def test_usage_error_is_exit_2(self):
-        result = subprocess.run(["python3", str(SCRIPT), "o/r"], capture_output=True, text=True)
+        result = subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list
+            ["python3", str(SCRIPT), "o/r"], capture_output=True, text=True
+        )
         self.assertEqual(result.returncode, 2, result.stderr)
-        result = subprocess.run(["python3", str(SCRIPT), "o", "1"], capture_output=True, text=True)
+        result = subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list
+            ["python3", str(SCRIPT), "o", "1"], capture_output=True, text=True
+        )
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("usage", result.stderr)
 
