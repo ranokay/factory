@@ -267,8 +267,10 @@ def check_inventory(root, task, text, environment):
     return names, sorted(name for name, is_destructive in names.items() if is_destructive)
 
 
-def check_doctor(root, task, environment):
-    doctor = run_task(root, task, "doctor", environment=environment)
+def check_doctor(root, task, sandbox, environment):
+    before = snapshot(root)
+    before_sandbox = snapshot(sandbox)
+    doctor = run_task(root, task, "doctor", environment=environment, cleanup_group=True)
     payload = parse_json(doctor, "doctor")
     if doctor.returncode != 0:
         if payload.get("ok") is not False:
@@ -279,6 +281,12 @@ def check_doctor(root, task, environment):
             problem("a failing doctor must report an alternative command")
     elif payload.get("ok") is not True:
         problem("doctor must report ok: true when it exits zero")
+    sandbox_changes = differing(before_sandbox, snapshot(sandbox))
+    if sandbox_changes:
+        problem(f"doctor changed its temp state: {', '.join(sandbox_changes[:5])}")
+    changed = differing(before, snapshot(root))
+    if changed:
+        problem(f"doctor changed the tree: {', '.join(changed[:5])}")
 
 
 def check_dry_runs(root, task, destructive, sandbox, environment):
@@ -325,7 +333,7 @@ def check_command_errors(root, task, names, environment):
 
 def check_cli_in(root, task, text, sandbox, environment):
     names, destructive = check_inventory(root, task, text, environment)
-    check_doctor(root, task, environment)
+    check_doctor(root, task, sandbox, environment)
     check_dry_runs(root, task, destructive, sandbox, environment)
     check_command_errors(root, task, names, environment)
     return len(names)
