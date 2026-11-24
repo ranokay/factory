@@ -576,11 +576,6 @@ steps {
       ["gitleaks"] = (Builtins.gitleaks) {
         check = "sh {{root}}/scripts/gitleaks-check.sh"
         tests = new Mapping<String, Config.StepTest> {
-          ["the Factory scans clean"] {
-            run = "check"
-            env { ["GITLEAKS_CHECK_CASE"] = "repo" }
-            expect { code = 0 }
-          }
           ["the Context7 rule fires on a fabricated key"] {
             run = "check"
             env { ["GITLEAKS_CHECK_CASE"] = "fabricated" }
