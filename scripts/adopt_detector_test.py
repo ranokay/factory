@@ -333,3 +333,47 @@ class AdoptDetectorTests(AdoptCase):
             {category for issue in issues for category in self.categories(issue)},
         )
 
+    def test_outside_symlink_is_not_scanned(self):
+        outside = self.root / "outside.sh"
+        outside.write_text("#!/bin/sh\n# TODO: leak\n")
+        (self.project / "src/leak.sh").symlink_to(outside)
+        self.commit("add an outside symlink")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        comments = self.issue_for(self.issues(), "comments")
+        self.assertNotIn("leak.sh", comments["body"])
+        self.assertIn("src/used.ts", comments["body"])
+        self.assertIn("resolves outside the checkout", result.stderr)
+
+    def test_raw_url_query_ref_does_not_override_path(self):
+        include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/main/profiles/universal/hk.pkl?ref=v0.2.0"
+        self.write_tooling([include], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 1)
+        self.assertIn("hk.pkl", tooling["body"])
+
+    def test_factory_other_repo_is_not_the_baseline(self):
+        include = "git::https://github.com/ranokay/factory-other.git//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 1)
+        self.assertIn("mise.toml", tooling["body"])
+
+    def test_fenced_profiles_example_does_not_count(self):
+        (self.project / "AGENTS.md").write_text(
+            "# Fixture\n\n```md\nProfiles: universal\n```\n"
+        )
+        self.commit("fenced Profiles example")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        agents = self.issue_for(self.issues(), "agents")
+        self.assertIn("no Profiles", agents["body"])
+

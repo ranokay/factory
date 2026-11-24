@@ -12,14 +12,15 @@ from adopt_common import (
     Finding,
     Problem,
     finding,
+    inside_checkout,
     problem,
     read_file,
     read_reference,
     run,
 )
+from profiles_reader import profiles_entries
 
 COMMENT_RE = re.compile(r"^(?P<path>.+?):(?P<line>\d+): (?P<message>.+)$")
-PROFILES_RE = re.compile(r"(?m)^Profiles:\s*\S+")
 TEST_NAME_RE = re.compile(
     r"(?:\.(?:test|spec)\.[^./]+|_test\.[^./]+|Tests?\.swift|\.bats)$"
 )
@@ -84,8 +85,43 @@ def comment_rule(message):
     return "comment"
 
 
-def comment_findings(project, tracked, _repo):
-    files = [path for path in tracked if not path.lower().endswith((".md", ".markdown"))]
+def comment_sources(project, tracked):
+    files = []
+    for path in tracked:
+        if path.lower().endswith((".md", ".markdown")):
+            continue
+        if not inside_checkout(project, path):
+            print(
+                f"adopt: warning: {path} resolves outside the checkout; "
+                "skipping it as a comment source",
+                file=sys.stderr,
+            )
+            continue
+        files.append(path)
+    return files
+
+
+def add_comment_lines(result, occurrences):
+    parsed = 0
+    for line in (result.stdout + "\n" + result.stderr).splitlines():
+        match = COMMENT_RE.match(line.strip())
+        if not match:
+            continue
+        try:
+            number = int(match.group("line"))
+        except ValueError:
+            print(f"adopt: warning: cannot parse comment-ban line: {line}", file=sys.stderr)
+            continue
+        path = match.group("path").removeprefix("./")
+        rule = comment_rule(match.group("message"))
+        key = f"comments:{path}:{rule}"
+        entry = occurrences.setdefault(key, {"path": path, "rule": rule, "items": []})
+        entry["items"].append((number, match.group("message")))
+        parsed += 1
+    return parsed
+
+
+def collect_comments(project, files):
     occurrences = {}
     for start in range(0, len(files), BATCH_SIZE):
         batch = [f"./{path}" for path in files[start : start + BATCH_SIZE]]
@@ -93,27 +129,17 @@ def comment_findings(project, tracked, _repo):
         if result.returncode not in (0, 1):
             detail = (result.stderr or result.stdout).strip()
             problem(f"comment-ban exited {result.returncode}: {detail}")
-        parsed = 0
-        for line in (result.stdout + "\n" + result.stderr).splitlines():
-            match = COMMENT_RE.match(line.strip())
-            if not match:
-                continue
-            try:
-                number = int(match.group("line"))
-            except ValueError:
-                print(f"adopt: warning: cannot parse comment-ban line: {line}", file=sys.stderr)
-                continue
-            path = match.group("path").removeprefix("./")
-            rule = comment_rule(match.group("message"))
-            key = f"comments:{path}:{rule}"
-            entry = occurrences.setdefault(key, {"path": path, "rule": rule, "items": []})
-            entry["items"].append((number, match.group("message")))
-            parsed += 1
+        parsed = add_comment_lines(result, occurrences)
         if result.returncode == 1 and parsed == 0:
             print(
                 "adopt: warning: comment-ban exited 1 with no parsed findings for a batch",
                 file=sys.stderr,
             )
+    return occurrences
+
+
+def comment_findings(project, tracked, _repo):
+    occurrences = collect_comments(project, comment_sources(project, tracked))
     found = []
     for key in sorted(occurrences):
         entry = occurrences[key]
@@ -205,7 +231,7 @@ def agents_file_findings(project, tracked):
             )
         ]
     found = []
-    if not PROFILES_RE.search(text):
+    if not profiles_entries(text):
         found.append(
             finding("agents", "AGENTS.md", "profiles", "AGENTS.md has no Profiles: line.")
         )

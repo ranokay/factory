@@ -92,6 +92,8 @@ def valid_repo(value):
 
 def read_file(project, path):
     target = project / path
+    if not inside_checkout(project, path):
+        problem(f"{path} resolves outside the checkout")
     try:
         with target.open("rb") as handle:
             head = handle.read(1024)
@@ -105,10 +107,23 @@ def read_file(project, path):
     return data.decode("utf-8", "ignore")
 
 
+def inside_checkout(project, path):
+    root = project.resolve()
+    target = (project / path).resolve()
+    return target == root or target.is_relative_to(root)
+
+
 def read_reference(project, path):
     target = project / path
     if target.is_dir():
         return ""
+    if not inside_checkout(project, path):
+        print(
+            f"adopt: warning: {path} resolves outside the checkout; "
+            "skipping it as a reference source",
+            file=sys.stderr,
+        )
+        return None
     try:
         return read_file(project, path)
     except Problem as error:
