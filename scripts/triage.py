@@ -108,7 +108,7 @@ def fetch_issue(repo, issue):
 def run_mise(project, task, arguments):
     command = ["mise", "run", task, "--", *arguments]
     try:
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- the project's own mise task
+        # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- the project's own mise task
         return subprocess.run(  # nosec B603 B607 -- the project's own mise task and argv
             command, cwd=str(project), capture_output=True, text=True, timeout=TIMEOUT
         )
