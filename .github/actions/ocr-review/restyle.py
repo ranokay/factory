@@ -28,6 +28,7 @@ from restyle_summary import (
     title_of,
 )
 
+# GitHub caps a comment body; stay well under it so a rewrite cannot be rejected.
 MAX_BODY = 65000
 CHECKPOINT = re.compile(r"<!--\s*ocr-checkpoint:v1\s+(\S+)\s*-->")
 
