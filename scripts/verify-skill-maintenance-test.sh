@@ -23,31 +23,21 @@ cat >"$tmp/bin/gh" <<'STUB'
 #!/bin/sh
 set -eu
 repo=
-state=
 all=$*
 case "$1 $2" in
-"issue list")
-	while [ "$#" -gt 0 ]; do
-		case $1 in
-		--repo) repo=$2; shift 2 ;;
-		--state) state=$2; shift 2 ;;
-		*) shift ;;
-		esac
-	done
-	file="$GH_STATE/$(printf '%s' "$repo" | tr '/' '_')-$state.json"
-	[ -f "$file" ] && cat "$file" || printf '[]\n'
-	;;
 "api -X")
 	page=1
+	per_page=
 	query=
 	while [ "$#" -gt 0 ]; do
 		case $1 in
 		q=*) query=${1#q=} ;;
+		per_page=*) per_page=${1#per_page=} ;;
 		page=*) page=${1#page=} ;;
 		esac
 		shift
 	done
-	printf 'search %s page %s\n' "$query" "$page" >>"$GH_QUERY_LOG"
+	printf 'search %s per_page %s page %s\n' "$query" "$per_page" "$page" >>"$GH_QUERY_LOG"
 	repo=${query#repo:}
 	repo=${repo%% *}
 	state=open
@@ -154,7 +144,6 @@ commit_all "$tmp/repos/open" "change the app"
 set_github_origin "$tmp/repos/open" open
 set_origin_head "$tmp/repos/open" main
 open_head=$(git -C "$tmp/repos/open" rev-parse HEAD)
-printf '[{"number":7,"title":"Maintain verify-open skill","body":"Keep this open.\\n\\n<!-- factory:verify-maintenance head=%s -->\\n","closedAt":null}]\n' "$open_head" >"$GH_STATE/ranokay_open-open.json"
 write_issue_page "ranokay/open" open 7 "Maintain verify-open skill" "Keep this open. <!-- factory:verify-maintenance head=$open_head -->"
 
 new_remote other main
@@ -176,7 +165,6 @@ commit_all "$tmp/closed-root/closed" "change the app"
 set_github_origin "$tmp/closed-root/closed" closed
 set_origin_head "$tmp/closed-root/closed" trunk
 closed_head=$(git -C "$tmp/closed-root/closed" rev-parse HEAD)
-printf '[{"number":9,"title":"Maintain verify-closed skill","body":"Clean pass.\\n\\n<!-- factory:verify-maintenance head=%s -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' "$closed_head" >"$GH_STATE/ranokay_closed-closed.json"
 write_issue_page "ranokay/closed" closed 9 "Maintain verify-closed skill" "Clean pass. <!-- factory:verify-maintenance head=$closed_head -->"
 
 new_remote no-head main
@@ -188,7 +176,6 @@ printf 'two\n' >>"$tmp/no-head-root/no-head/app.txt"
 commit_all "$tmp/no-head-root/no-head" "change the app"
 set_github_origin "$tmp/no-head-root/no-head" no-head
 set_origin_head "$tmp/no-head-root/no-head" main
-printf '[{"number":11,"title":"Maintain verify-no-head skill","body":"No head recorded.\\n\\n<!-- factory:verify-maintenance -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' >"$GH_STATE/ranokay_no-head-closed.json"
 write_issue_page "ranokay/no-head" closed 11 "Maintain verify-no-head skill" "No head recorded. <!-- factory:verify-maintenance -->"
 
 new_remote no-default main
@@ -253,12 +240,12 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 head = sys.argv[2]
+
+
 def item(number, body):
 	return {"number": number, "title": f"Maintain verification skills ({number})", "body": body, "closed_at": None}
 
 
-unrelated = [{"number": number, "title": f"Issue {number}", "body": "unrelated", "closedAt": None} for number in range(1, 201)]
-(root / "ranokay_paged-open.json").write_text(json.dumps(unrelated))
 for index, numbers in enumerate([range(1, 101), range(101, 201), range(201, 251)], start=1):
 	items = [item(number, "unrelated maintenance text") for number in numbers]
 	if index == 3:
@@ -267,6 +254,29 @@ for index, numbers in enumerate([range(1, 101), range(101, 201), range(201, 251)
 	path = root / f"ranokay_paged-open-page{index}.json"
 	path.write_text(json.dumps({"total_count": 251, "items": items}))
 PAGED
+
+new_remote flooded main
+clone_repo flooded "$tmp/flooded-root"
+printf 'one\n' >"$tmp/flooded-root/flooded/app.txt"
+write_skill "$tmp/flooded-root/flooded" flooded
+commit_all "$tmp/flooded-root/flooded" "add verify skill"
+printf 'two\n' >>"$tmp/flooded-root/flooded/app.txt"
+commit_all "$tmp/flooded-root/flooded" "change the app"
+set_github_origin "$tmp/flooded-root/flooded" flooded
+set_origin_head "$tmp/flooded-root/flooded" main
+python3 - "$GH_STATE" <<'FLOODED'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+for page in range(1, 11):
+	items = [
+		{"number": page * 1000 + number, "title": f"Issue {number}", "body": "unrelated", "closed_at": "2026-11-20T00:00:00Z"}
+		for number in range(100)
+	]
+	(root / f"ranokay_flooded-closed-page{page}.json").write_text(json.dumps({"total_count": 1000, "items": items}))
+FLOODED
 
 run_maintenance() {
 	uv run --offline --no-project --no-config --python "$python" python "$root/scripts/verify-skill-maintenance.py" "$@"
@@ -339,6 +349,17 @@ grep -q 'page 3' "$GH_QUERY_LOG" || fail "the search stopped before the last pag
 : >"$GH_LOG"
 run_maintenance --root "$tmp/paged-root" --no-fetch >"$tmp/paged-run"
 [ ! -s "$GH_LOG" ] || fail "a marker issue past the first page allowed a duplicate filing"
+
+: >"$GH_LOG"
+: >"$GH_QUERY_LOG"
+if run_maintenance --root "$tmp/flooded-root" --no-fetch --dry-run >"$tmp/flooded-out" 2>"$tmp/flooded-err"; then
+	cat "$tmp/flooded-out" "$tmp/flooded-err" >&2
+	fail "a search that filled every page returned success"
+fi
+grep -q 'filled all 10 pages' "$tmp/flooded-err" || fail "a search that filled every page did not fail loudly"
+grep -q 'per_page 100' "$GH_QUERY_LOG" || fail "the search did not ask for 100 results per page"
+grep -q 'page 10' "$GH_QUERY_LOG" || fail "the search did not page through every result"
+[ ! -s "$GH_LOG" ] || fail "a search that filled every page filed an issue"
 
 : >"$GH_LOG"
 if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false run_maintenance --root "$tmp/fetch-root" --dry-run >"$tmp/fetch-out" 2>"$tmp/fetch-err"; then

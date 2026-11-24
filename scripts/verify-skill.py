@@ -4,7 +4,8 @@
 The checker starts nothing. It reads the skill and feature map, then invokes the
 mise task for `commands`, `doctor`, every destructive command with `--dry-run`,
 and an unknown command. Doctor may fail when the app is stopped; that failure must
-carry an actionable alternative.
+carry an actionable alternative. Doctor and every dry run must leave the tree and
+the temp directory unchanged and start no process.
 """
 
 import argparse
@@ -267,6 +268,15 @@ def check_inventory(root, task, text, environment):
     return names, sorted(name for name, is_destructive in names.items() if is_destructive)
 
 
+def check_unchanged(label, root, sandbox, before, before_sandbox):
+    sandbox_changes = differing(before_sandbox, snapshot(sandbox))
+    if sandbox_changes:
+        problem(f"{label} changed its temp state: {', '.join(sandbox_changes[:5])}")
+    changed = differing(before, snapshot(root))
+    if changed:
+        problem(f"{label} changed the tree: {', '.join(changed[:5])}")
+
+
 def check_doctor(root, task, sandbox, environment):
     before = snapshot(root)
     before_sandbox = snapshot(sandbox)
@@ -281,12 +291,7 @@ def check_doctor(root, task, sandbox, environment):
             problem("a failing doctor must report an alternative command")
     elif payload.get("ok") is not True:
         problem("doctor must report ok: true when it exits zero")
-    sandbox_changes = differing(before_sandbox, snapshot(sandbox))
-    if sandbox_changes:
-        problem(f"doctor changed its temp state: {', '.join(sandbox_changes[:5])}")
-    changed = differing(before, snapshot(root))
-    if changed:
-        problem(f"doctor changed the tree: {', '.join(changed[:5])}")
+    check_unchanged("doctor", root, sandbox, before, before_sandbox)
 
 
 def check_dry_runs(root, task, destructive, sandbox, environment):
@@ -296,16 +301,11 @@ def check_dry_runs(root, task, destructive, sandbox, environment):
         result = run_task(root, task, name, "--dry-run", environment=environment, cleanup_group=True)
         label = f"{name} --dry-run"
         dry = parse_json(result, label)
-        sandbox_changes = differing(before_sandbox, snapshot(sandbox))
-        if sandbox_changes:
-            problem(f"{label} changed its temp state: {', '.join(sandbox_changes[:5])}")
+        check_unchanged(label, root, sandbox, before, before_sandbox)
         if result.returncode != 0:
             problem(f"{label} exited {result.returncode}; a dry-run must succeed")
         if dry.get("dry_run") is not True:
             problem(f"{label} did not report dry_run: true")
-        changed = differing(before, snapshot(root))
-        if changed:
-            problem(f"{label} changed the tree: {', '.join(changed[:5])}")
 
 
 def check_command_errors(root, task, names, environment):

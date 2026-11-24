@@ -13,7 +13,7 @@ import json
 import re
 import subprocess  # nosec B404 -- the maintenance tool runs local git and gh
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent
 MARKER = "factory:verify-maintenance"
@@ -97,17 +97,15 @@ def verify_skills(repo, branch):
     result = git(repo, "ls-tree", "-r", "--name-only", branch, "--", SKILL_ROOT)
     if result.returncode != 0:
         raise RuntimeError(f"cannot list {SKILL_ROOT} on {branch}: {result.stderr.strip()}")
-    root = SKILL_ROOT.split("/")
     skills = set()
     for line in result.stdout.splitlines():
-        parts = line.split("/")
+        path = PurePosixPath(line)
         if (
-            len(parts) == len(root) + 2
-            and parts[: len(root)] == root
-            and parts[-2].startswith("verify-")
-            and parts[-1] == "SKILL.md"
+            path.parent.parent == PurePosixPath(SKILL_ROOT)
+            and path.parent.name.startswith("verify-")
+            and path.name == "SKILL.md"
         ):
-            skills.add(parts[-2])
+            skills.add(path.parent.name)
     return sorted(skills)
 
 
@@ -155,6 +153,8 @@ def issues(repo_slug, state):
         )
         if len(items) < SEARCH_PAGE_SIZE:
             break
+    else:
+        raise RuntimeError(f"{label} filled all {SEARCH_MAX_PAGES} pages; narrow the search")
     return found
 
 
