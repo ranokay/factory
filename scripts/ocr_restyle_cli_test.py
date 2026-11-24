@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
-import subprocess  # nosec B404 -- the tests run the local script with argv
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ocr_restyle_test_support import (
     CHECKPOINT,
     CLEAN_CHECKPOINT,
     FINGERPRINT,
     INLINE_BODY,
-    SCRIPT,
     STALE_CHECKPOINT,
     SUMMARY_BODY,
     SUMMARY_MARKER,
@@ -20,6 +22,7 @@ from ocr_restyle_test_support import (
     carrier,
     finding,
     ocr_result,
+    restyle,
 )
 
 
@@ -34,7 +37,6 @@ class CommandLineTests(unittest.TestCase):
 
     def run_cli(self, environment=None):
         env = {
-            **os.environ,
             "GITHUB_API_URL": self.github.url,
             "GITHUB_REPOSITORY": "o/r",
             "GITHUB_RUN_ID": "1",
@@ -52,15 +54,11 @@ class CommandLineTests(unittest.TestCase):
             "OCR_VERSION": "1.14.0",
         }
         env.update(environment or {})
-        # The audit rule flags the variable first argument; this test runs
-        # the script with argv and no shell. See
-        # https://semgrep.dev/r/python.lang.security.audit.dangerous-subprocess-use-audit
-        return subprocess.run(  # nosec B603, B607 -- local script, argv, no shell
-            ["python3", str(SCRIPT)],
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(output):
+            code = restyle.main([])
+        return types.SimpleNamespace(
+            returncode=code, stdout=output.getvalue(), stderr=""
         )
 
     def write(self, result):
