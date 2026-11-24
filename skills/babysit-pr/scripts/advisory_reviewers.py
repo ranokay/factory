@@ -1,9 +1,10 @@
-"""The Advisory Reviewer table shared by request-advisory-reviews and advisory-review-status.
+"""The Advisory Reviewer table and GitHub helpers shared by the two scripts.
 
 Logins, marker comments and message text were read from ranokay/factory: the
 REST reviews on #133, #145 and #150 show copilot-pull-request-reviewer[bot] and
 greptile-apps[bot], issue comments show coderabbitai[bot], and the
-review_requested timeline entries name the Copilot reviewer as `Copilot`.
+review_requested timeline entries name the Copilot reviewer as `Copilot`
+(https://github.com/ranokay/factory/pull/133, /pull/145, /pull/150).
 CodeRabbit's "Review skipped" comment and Copilot's "insufficient remaining
 quota" review are from #133. Greptile's summary marker and CodeRabbit's
 generated-comment marker are from #133 and #150. CodeRabbit's "Review rate
@@ -11,27 +12,38 @@ limited" wording is from its status-check documentation; ranokay/factory has no
 rate-limit comment.
 """
 
+import json
+import subprocess
+
 REVIEWERS = {
     "copilot": {
         "logins": ("copilot-pull-request-reviewer[bot]", "copilot"),
+        "timeline": True,
         "command": None,
         "marker": None,
         "summary_marker": None,
-        "skip_phrases": ("insufficient remaining quota",),
+        "skip_phrases": {"insufficient remaining quota": "quota"},
     },
     "coderabbit": {
         "logins": ("coderabbitai[bot]",),
+        "timeline": False,
         "command": "@coderabbitai review",
         "marker": "<!-- factory:advisory-review:coderabbit -->",
         "summary_marker": None,
-        "skip_phrases": ("review skipped", "review rate limited", "rate limit"),
+        "skip_phrases": {
+            "review skipped": "review skipped",
+            "skip review by coderabbit.ai": "review skipped",
+            "review rate limited": "rate limit",
+            "rate limit exceeded": "rate limit",
+        },
     },
     "greptile": {
         "logins": ("greptile-apps[bot]", "greptile[bot]"),
+        "timeline": False,
         "command": "@greptileai",
         "marker": "<!-- factory:advisory-review:greptile -->",
         "summary_marker": "<!-- greptile_summary -->",
-        "skip_phrases": (),
+        "skip_phrases": {},
     },
 }
 
@@ -42,6 +54,15 @@ PLACEHOLDERS = (
     "greptile is reviewing",
     "currently reviewing",
 )
+
+
+def gh(*args):
+    result = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
+    return json.loads(result.stdout) if result.stdout.strip() else None
+
+
+def pages(endpoint):
+    return gh("api", "--paginate", "--slurp", endpoint)
 
 
 def normalize(login):

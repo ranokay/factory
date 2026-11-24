@@ -10,9 +10,10 @@ from pathlib import Path
 SCRIPT = Path(__file__).with_name("advisory-review-status")
 
 # Fixture strings from ranokay/factory: CodeRabbit's "Review skipped" comment and
-# Copilot's "insufficient remaining quota" review are from #133; the Greptile
-# summary marker is from #133 and #150. "Review rate limited" is CodeRabbit's
-# documented status wording; the repository has no rate-limit comment.
+# Copilot's "insufficient remaining quota" review are from
+# https://github.com/ranokay/factory/pull/133; the Greptile summary marker is from
+# https://github.com/ranokay/factory/pull/133 and /pull/150. "Review rate limited"
+# is CodeRabbit's documented status wording; the repository has no rate-limit comment.
 FAKE = '''#!/usr/bin/env python3
 import json, os, sys
 a = sys.argv[1:]
@@ -217,6 +218,30 @@ class AdvisoryReviewStatus(unittest.TestCase):
         )
         self.assertTrue(timed_out)
         self.assertEqual(sleeps, [12, 12, 6])
+
+
+    def test_wait_retries_a_transient_read_error(self):
+        module = load_module()
+        now = [0.0]
+        sleeps = []
+        calls = [0]
+
+        def check():
+            calls[0] += 1
+            if calls[0] == 1:
+                raise ValueError("temporary gh failure")
+            return [{"name": "greptile", "terminal": True, "reason": "summary posted"}]
+
+        states, timed_out = module.wait_for_terminal(
+            check, 60, 30, lambda: now[0], lambda seconds: (sleeps.append(seconds), now.__setitem__(0, now[0] + seconds))
+        )
+        self.assertFalse(timed_out)
+        self.assertTrue(states[0]["terminal"])
+        self.assertEqual(sleeps, [30])
+
+    def test_usage_error_is_exit_2(self):
+        result = subprocess.run(["python3", str(SCRIPT), "o/r"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
 
 
 if __name__ == "__main__":

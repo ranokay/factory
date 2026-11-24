@@ -80,9 +80,9 @@ Readiness requires all of:
   coverage;
 - every requested Advisory Reviewer is terminal on that head. Run
   `~/Developer/factory/skills/babysit-pr/scripts/advisory-review-status
-  <owner>/<repo> <pr>`; a pending reviewer means this skill does not merge, and
-  the PR needs `babysit-pr`'s bounded wait. A reviewer that timed out is recorded
-  there, not inferred here;
+  <owner>/<repo> <pr>`; exit 1 means a reviewer is still pending, so this skill
+  does not merge and the PR needs `babysit-pr`'s bounded wait. A reviewer that
+  timed out is recorded there, not inferred here;
 - no unresolved thread contains an actionable finding that the current head has
   not addressed. A thread whose finding is already fixed but still open does not
   block unless repository rules require resolution;

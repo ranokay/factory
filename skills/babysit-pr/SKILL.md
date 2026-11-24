@@ -198,7 +198,8 @@ and before the done wake or any merge, run
 It reports Copilot, CodeRabbit and Greptile as terminal — a review or summary
 posted for the head, an explicit skip or quota message, or never requested — and
 polls until every requested reviewer is terminal, bounded to 20 minutes by
-default. Exit 0 means all terminal, exit 3 means the wait timed out and prints
+default. Exit 0 means all terminal, exit 1 means a reviewer is still pending
+(the one-shot report), exit 3 means the wait timed out and prints
 `timed out after 20m: <names>`, and exit 2 is an operational error and a Blocker.
 Proceed on 0 or 3, and rerun the wait whenever the head changes.
 

@@ -45,7 +45,7 @@ Every attachment carries the one-line caption given to `add`, and the comment re
 
 ## The Run receipt
 
-The receipt is the last block of the comment, inside a collapsed `<details>` block so the summary stays readable. Every value is required:
+The receipt is the last block of the comment, inside a collapsed `<details>` block so the summary stays readable. Every value is required except `Advisory reviews`, which is present only after the bounded wait records it:
 
 | Field | Source |
 | --- | --- |

@@ -10,46 +10,48 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from advisory_reviewers import PLACEHOLDERS, REVIEWERS, is_reviewer  # noqa: E402 -- the shared table sits beside this script
+from advisory_reviewers import (  # noqa: E402 -- the shared table ships beside this script
+    PLACEHOLDERS,
+    REVIEWERS,
+    gh,
+    is_reviewer,
+    pages,
+)
 
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+READ_ERRORS = (
+    ValueError,
+    KeyError,
+    TypeError,
+    AttributeError,
+    OSError,
+    subprocess.CalledProcessError,
+    json.JSONDecodeError,
+)
 
 
 class Problem(Exception):
     pass
 
 
-def gh(*args):
-    result = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
-    return json.loads(result.stdout) if result.stdout.strip() else None
-
-
-def pages(endpoint):
-    return gh("api", "--paginate", "--slurp", endpoint)
-
-
-def stamp(item):
+def item_timestamp(item):
     return item.get("updated_at") or item.get("created_at") or item.get("submitted_at") or ""
 
 
 def covers(item, head, head_date):
-    return item.get("commit_id") == head or stamp(item) > head_date
+    return item.get("commit_id") == head or item_timestamp(item) > head_date
 
 
 def placeholder(item):
-    body = (item.get("body") or "").lower()
+    body = (item.get("body") or "").lower()[:600]
     return any(marker in body for marker in PLACEHOLDERS)
 
 
 def skip_reason(name, item):
     body = (item.get("body") or "").lower()
-    for phrase in REVIEWERS[name]["skip_phrases"]:
+    for phrase, reason in REVIEWERS[name]["skip_phrases"].items():
         if phrase in body:
-            if "quota" in phrase:
-                return "quota"
-            if "rate" in phrase:
-                return "rate limit"
-            return "review skipped"
+            return reason
     return None
 
 
@@ -61,7 +63,7 @@ def reviewer_state(name, head, head_date, reviews, comments, timeline):
     requested = bool(bot_reviews or bot_comments) or (
         marker is not None and any(marker in (item.get("body") or "") for item in comments)
     )
-    if name == "copilot":
+    if spec["timeline"]:
         requested = requested or any(
             item.get("event") == "review_requested"
             and is_reviewer((item.get("requested_reviewer") or {}).get("login"), name)
@@ -103,12 +105,24 @@ def report(repo, number):
 
 def wait_for_terminal(check, timeout_seconds, interval_seconds, clock=time.monotonic, sleep=time.sleep):
     started = clock()
+    failures = 0
+    last_error = None
     while True:
-        states = check()
-        if all(state["terminal"] for state in states):
+        states = None
+        try:
+            states = check()
+            failures = 0
+        except READ_ERRORS as error:
+            last_error = error
+            failures += 1
+            if failures >= 3:
+                raise
+        if states is not None and all(state["terminal"] for state in states):
             return states, False
         remaining = timeout_seconds - (clock() - started)
         if remaining <= 0:
+            if states is None:
+                raise last_error
             return states, True
         sleep(min(interval_seconds, remaining))
 
@@ -153,7 +167,7 @@ def main(argv=None):
             return 1
         print("all advisory reviewers terminal")
         return 0
-    except (Problem, ValueError, KeyError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+    except READ_ERRORS + (Problem,) as error:
         print(f"advisory-review-status: {error}", file=sys.stderr)
         return 2
 
