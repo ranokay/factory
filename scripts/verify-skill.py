@@ -90,8 +90,9 @@ def run_task(root, task, *args, environment=None):
     if environment:
         env.update(environment)
     try:
-        return subprocess.run(  # nosec B603 B607 -- mise from PATH with an argument list; nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args
-            [mise, "--cd", str(root), "run", task, "--", *args],  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args
+        # nosemgrep
+        return subprocess.run(  # nosec B603 B607 -- mise from PATH with an argument list
+            [mise, "--cd", str(root), "run", task, "--", *args],  # nosemgrep
             capture_output=True,
             text=True,
             timeout=TIMEOUT,

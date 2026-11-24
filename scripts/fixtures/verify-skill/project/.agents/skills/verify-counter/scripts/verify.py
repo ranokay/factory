@@ -97,8 +97,9 @@ def launch(dry):
         probe.bind(("127.0.0.1", 0))
         chosen = probe.getsockname()[1]
     log = LOG_FILE.open("ab")
-    process = subprocess.Popen(  # nosec B603 -- this checkout's app.py and interpreter; nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args
-        [sys.executable, str(ROOT / "app.py"), "--port", str(chosen)],  # nosec B603; nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args
+    # nosemgrep
+    process = subprocess.Popen(  # nosec B603 -- this checkout's app.py and interpreter
+        [sys.executable, str(ROOT / "app.py"), "--port", str(chosen)],  # nosec B603; nosemgrep
         stdout=log,
         stderr=log,
         start_new_session=True,
