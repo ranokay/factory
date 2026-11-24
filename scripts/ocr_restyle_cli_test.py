@@ -43,6 +43,9 @@ class CommandLineTests(unittest.TestCase):
             "PR_NUMBER": "7",
             "GITHUB_TOKEN": "unused",  # nosec B105 -- dummy credential for the local fake server
             "OCR_RESULT": str(self.result_path),
+            "OCR_RANGE_REASON": "full",
+            "OCR_INLINE": "1",
+            "OCR_SKIPPED": "0",
             "OCR_ROUTE_SEVERITY_BELOW": "medium",
             "OCR_ROUTE_CATEGORIES": "style,documentation",
             "OCR_EFFORT": "high",
@@ -230,6 +233,20 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(
             [p for p in self.github.patches if "/issues/comments/3" in p[0]], []
         )
+
+    def test_missing_range_reason_is_a_warning_noop(self):
+        self.write(ocr_result([finding()]))
+        result = self.run_cli(environment={"OCR_RANGE_REASON": ""})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("OCR_RANGE_REASON is missing", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_missing_counts_are_a_warning_noop(self):
+        self.write(ocr_result([finding()]))
+        result = self.run_cli(environment={"OCR_INLINE": ""})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("OCR_INLINE is missing", result.stdout)
+        self.assertEqual(self.github.patches, [])
 
     def test_two_summaries_with_the_same_run_tag_are_a_warning_noop(self):
         self.github.issue_comments.append(

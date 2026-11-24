@@ -367,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
             args.result or os.environ.get("OCR_RESULT", "/tmp/ocr-result.json")
         )
         range_reason = args.range_reason or os.environ.get("OCR_RANGE_REASON", "")
+        if not range_reason:
+            raise RewriteError("OCR_RANGE_REASON is missing")
         if range_reason == "same_head_noop":
             print("OCR restyle: same head as the checkpoint; nothing to rewrite")
             return 0
@@ -387,13 +389,12 @@ def main(argv: list[str] | None = None) -> int:
         summary = find_summary(github, repo, pr, str(run_id), str(attempt))
         posted = find_inline(github, repo, pr, str(run_id), str(attempt))
         links, pairs = match_inline(result, posted)
-        expected: dict[str, int | None] = {}
+        expected: dict[str, int] = {}
         for name in ("OCR_INLINE", "OCR_SKIPPED"):
             value = os.environ.get(name, "")
-            if value:
-                if not value.isdigit():
-                    raise RewriteError(f"{name} is not numeric: {value!r}")
-                expected[name.removeprefix("OCR_").lower()] = int(value)
+            if not value.isdigit():
+                raise RewriteError(f"{name} is missing or not numeric: {value!r}")
+            expected[name.removeprefix("OCR_").lower()] = int(value)
         summary_body = rewrite_summary(
             str(summary.get("body") or ""), result, links, meta, policy, expected
         )

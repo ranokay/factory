@@ -146,6 +146,8 @@ runs:
       # fail the job and never lose a finding. The step lives beside this
       # action so a caller that uses the action remotely still has it, and
       # github.action_path resolves it without this repository's workspace.
+      # A caller must grant issues: write and pull-requests: write; a read-only
+      # token leaves each rewrite warning and OCR's comments in place.
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
