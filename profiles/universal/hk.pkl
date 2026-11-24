@@ -259,6 +259,16 @@ steps = new Mapping<String, Step | Group> {
               stderr = "has no viewBox"
             }
           }
+          ["rejects a viewBox that is not on the root"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\"><svg viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\"/></svg></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has no viewBox"
+            }
+          }
           ["rejects an external url reference"] {
             run = "check"
             tmpdir = true

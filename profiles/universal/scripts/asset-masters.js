@@ -24,6 +24,7 @@ With no files, checks assets/brand/**/*.svg in the current directory.
 Rules:
   - reject <image>, <foreignObject>, <script> and <text>
   - reject data URIs, base64 payloads and empty, raster or external href/src references
+  - require a root viewBox
   - reject ${SHORT_RUN} or more consecutive short axis-aligned segments
     (short means at most 0.5% of the longest viewBox side, and at least 0.5)
   - reject a single path over ${PATH_BUDGET} drawing commands
@@ -197,7 +198,8 @@ function checkSource(source) {
   if (!/<svg[\s>]/i.test(source)) {
     problems.add("is not an SVG document");
   }
-  if (!/<svg\b[^>]*\bviewBox\s*=\s*["'][^"']+["']/i.test(source)) {
+  const root = source.match(/<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i);
+  if (root === null || tagAttributes(root[1]).viewbox === undefined) {
     problems.add("has no viewBox");
   }
   if (DATA_URI.test(source)) {

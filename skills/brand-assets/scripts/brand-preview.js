@@ -91,6 +91,18 @@ function loadSvg(file) {
   return source;
 }
 
+function namespaceIds(source, prefix) {
+  const ids = new Set();
+  for (const match of source.matchAll(/\sid\s*=\s*(["'])([^"']+)\1/g)) {
+    ids.add(match[2]);
+  }
+  if (ids.size === 0) {
+    return source;
+  }
+  const renamed = source.replace(/\sid\s*=\s*(["'])([^"']+)\1/g, (match, quote, id) => ` id=${quote}${prefix}${id}${quote}`);
+  return renamed.replace(/#([^"')\s]+)/g, (match, id) => (ids.has(id) ? `#${prefix}${id}` : match));
+}
+
 function mark(svg, size, extra = "") {
   const classes = extra === "" ? "mark" : `mark ${extra}`;
   return `<span class="${classes}" style="width:${size}px;height:${size}px" aria-hidden="true">${svg}</span>`;
@@ -204,20 +216,20 @@ function main(argv) {
   }
   const names = new Set();
   try {
-    for (const concept of options.concepts) {
+    for (const [index, concept] of options.concepts.entries()) {
       if (names.has(concept.name)) {
         throw new Error(`duplicate concept name ${concept.name}`);
       }
       names.add(concept.name);
-      concept.svg = loadSvg(concept.file);
+      concept.svg = namespaceIds(loadSvg(concept.file), `concept-${index + 1}-icon-`);
       concept.note = options.notes.has(concept.name) ? options.notes.get(concept.name) : "One direction";
     }
     for (const [name, file] of options.lockups) {
-      const concept = options.concepts.find((candidate) => candidate.name === name);
-      if (concept === undefined) {
+      const index = options.concepts.findIndex((candidate) => candidate.name === name);
+      if (index === -1) {
         throw new Error(`--lockup names no concept: ${name}`);
       }
-      concept.lockup = loadSvg(file);
+      options.concepts[index].lockup = namespaceIds(loadSvg(file), `concept-${index + 1}-lockup-`);
     }
     for (const name of options.notes.keys()) {
       if (!names.has(name)) {

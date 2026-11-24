@@ -105,6 +105,19 @@ try {
   assert.ok(markerHtml.includes("%%CONCEPTS%%"));
   assert.equal((markerHtml.match(/<section class="concept"/g) ?? []).length, 1);
 
+  const gradient = (color) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/></linearGradient></defs><rect width="64" height="64" fill="url(#g)"/></svg>\n`;
+  const gradientA = write("gradient-a.svg", gradient("#111827"));
+  const gradientB = write("gradient-b.svg", gradient("#e4572e"));
+  const namespaced = path.join(workspace, "out", "namespaced.html");
+  run(["--title", "Gradients", "--concept", `A=${gradientA}`, "--concept", `B=${gradientB}`, "--output", namespaced]);
+  const namespacedHtml = fs.readFileSync(namespaced, "utf8");
+  assert.ok(namespacedHtml.includes('id="concept-1-icon-g"'));
+  assert.ok(namespacedHtml.includes('id="concept-2-icon-g"'));
+  assert.ok(namespacedHtml.includes("url(#concept-1-icon-g)"));
+  assert.ok(namespacedHtml.includes("url(#concept-2-icon-g)"));
+  assert.ok(!namespacedHtml.includes("url(#g)"));
+
   const noViewBox = write("no-viewbox.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n");
   expectFailure(fails(["--title", "Bad", "--concept", `No=${noViewBox}`, "--output", path.join(workspace, "bad.html")]), "has no viewBox");
 
