@@ -282,13 +282,13 @@
       "patches": [
         {
           "path": "0001-factory-shape.patch",
-          "sha256": "17db380ceca95b60b3e41977a6ed64c7bb1688d8da5dd00a0e8c0c37e89f3cf2"
+          "sha256": "3804710a4a563e6f21e8a69a43c2e6101dcb2edc2e667202d4e175e49aa76bec"
         }
       ],
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "2491ff357da0a0a7421b63af19f0a0e7fa699b6dac0daadd2b21d4e614068235"
+          "sha256": "b6045725b055bed468da945479d9e4e1aaef2392f7381e641fa47e11d72646ef"
         },
         {
           "path": "references/feature-map-example/README.md",

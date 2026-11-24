@@ -30,7 +30,7 @@ Verify assertions in permitted comments and update or remove them when behaviour
 
 ## Verification
 
-- This table is the one verification-driver mapping; a Platform Profile adds the details for the surface it covers. Never invent a driver outside it.
+- This table is the one verification-driver mapping; a Platform Profile adds the details for the surface it covers.
 
   | Surface | Driver |
   | --- | --- |
@@ -40,15 +40,7 @@ Verify assertions in permitted comments and update or remove them when behaviour
   | CLI or TUI | tmux |
   | Server or API | HTTP |
 
-- A project's committed `verify-<app>` skill lives at `.agents/skills/verify-<app>/`; commit `.claude/skills/verify-<app>` as a relative symlink for Claude Code. Its feature map is `references/features/`, and its agent-facing CLI is the project's `verify:<app>` mise task.
-- Verification Evidence comes from that skill's CLI, not from a throwaway script.
-
-## Dependencies
-
-- Prefer the standard library, the platform, and dependencies already in the repo.
-- A new dependency needs a one-line reason in the PR body. Check its maintenance and known vulnerabilities before selecting it.
-- Update dependencies for a concrete need, review release notes, avoid unrelated churn and verify affected behaviour.
-- Tools come from `mise.toml`. JavaScript uses bun; Python uses uv.
+- A project commits its `verify-<app>` skill at `.agents/skills/verify-<app>/` with a relative `.claude/skills/verify-<app>` symlink, a `references/features/` map, and a `verify:<app>` mise CLI.
 
 ## Repo contents
 

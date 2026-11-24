@@ -264,6 +264,10 @@ doctor_no_ok=$(prepare doctor-no-ok)
 replace "$doctor_no_ok/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": False, "error": message, "alternative": alternative}, code)' 'return emit({"error": message, "alternative": alternative}, code)'
 expect_failure doctor-no-ok "a failing doctor must report ok: false"
 
+doctor_zero_false=$(prepare doctor-zero-false)
+replace "$doctor_zero_false/.agents/skills/verify-counter/scripts/verify.py" 'else fail("the app is not running", f"{TASK} launch")' 'else emit({"ok": False, "error": "the app is not running", "alternative": f"{TASK} launch"})'
+expect_failure doctor-zero-false "doctor must report ok: true when it exits zero"
+
 absolute_link=$(prepare absolute-link)
 ln -sfn "$absolute_link/.agents/skills/verify-counter" "$absolute_link/.claude/skills/verify-counter"
 expect_failure absolute-link "must be a relative symlink"
@@ -279,5 +283,20 @@ expect_failure invalid-ok "an invalid argument must exit non-zero"
 invalid_no_alternative=$(prepare invalid-no-alternative)
 replace "$invalid_no_alternative/.agents/skills/verify-counter/scripts/verify.py" 'return fail(f"unexpected argument {extra[0]!r}", f"{TASK} {command} --dry-run")' 'return fail(f"unexpected argument {extra[0]!r}", "")'
 expect_failure invalid-no-alternative "an invalid argument must report an error and an alternative"
+
+missing_feature_section() {
+	name=$1
+	heading=$2
+	directory=$(prepare "$name")
+	replace "$directory/.agents/skills/verify-counter/references/features/counter.md" "## $heading" "## Not $heading"
+	message="missing the \`## $heading\` section"
+	expect_failure "$name" "$message"
+}
+
+missing_feature_section no-sub-features "Sub-features"
+missing_feature_section no-entry-points "How to get to it (user POV)"
+no_driving=$(prepare no-driving)
+replace "$no_driving/.agents/skills/verify-counter/references/features/counter.md" "## Driving it with HTTP" "## Not Driving"
+expect_failure no-driving "missing a \`## Driving it with <harness>\` section"
 
 echo "verify-skill-test: passing fixture, lifecycle cleanup and every failing rule passed"

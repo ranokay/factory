@@ -463,9 +463,9 @@ def install_agent(home: Path, label: str, name: str, path: Path, data: bytes) ->
     return load_agent(launchctl, label, path)
 
 
-def agent_errors(home: Path, path: Path, expected: bytes) -> list[str]:
+def agent_errors(home: Path, path: Path, expected) -> list[str]:
     try:
-        if path.read_bytes() != expected:
+        if path.read_bytes() != expected():
             return [f"{display(path, home)} differs from what bootstrap writes now; run mise run bootstrap"]
     except (OSError, SystemExit) as error:
         return [f"{display(path, home)} missing or invalid: {error}; run mise run bootstrap"]
@@ -487,11 +487,7 @@ def install_gc_agent(home: Path) -> bool:
 
 
 def gc_agent_errors(home: Path) -> list[str]:
-    try:
-        expected = gc_agent_plist(home)
-    except SystemExit as error:
-        return [f"{display(gc_agent_path(home), home)} missing or invalid: {error}; run mise run bootstrap"]
-    return agent_errors(home, gc_agent_path(home), expected)
+    return agent_errors(home, gc_agent_path(home), lambda: gc_agent_plist(home))
 
 
 def verify_maintenance_agent_plist(home: Path) -> bytes:
@@ -516,13 +512,7 @@ def install_verify_maintenance_agent(home: Path) -> bool:
 
 
 def verify_maintenance_agent_errors(home: Path) -> list[str]:
-    try:
-        expected = verify_maintenance_agent_plist(home)
-    except SystemExit as error:
-        return [
-            f"{display(verify_maintenance_agent_path(home), home)} missing or invalid: {error}; run mise run bootstrap"
-        ]
-    return agent_errors(home, verify_maintenance_agent_path(home), expected)
+    return agent_errors(home, verify_maintenance_agent_path(home), lambda: verify_maintenance_agent_plist(home))
 
 
 def github_slug(url: str) -> tuple[str, str] | None:

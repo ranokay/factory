@@ -133,7 +133,7 @@ A Profile for one programming language: its tooling, lint and format rules, and 
 _Avoid_: language standards
 
 **Platform Profile**:
-A Profile for one target platform: its stack choices, architecture rules and verification driver.
+A Profile for one target platform: its stack choices and architecture rules.
 _Avoid_: domain, target standards
 
 ### Skills

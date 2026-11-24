@@ -175,7 +175,9 @@ def check_task(root, task):
         problem(f"mise.toml is not valid TOML: {error}")
     if task not in tasks:
         problem(f"""mise.toml has no [tasks."{task}"] entry""")
-    if not tasks[task].get("run"):
+    entry = tasks[task]
+    command = entry.get("run") if isinstance(entry, dict) else entry
+    if not command:
         problem(f"""[tasks."{task}"] has no run command""")
 
 
@@ -208,8 +210,8 @@ def check_cli(root, task, text):
             problem("a failing doctor must report an error")
         if not payload.get("alternative"):
             problem("a failing doctor must report an alternative command")
-    elif "ok" not in payload:
-        problem("doctor JSON must report ok")
+    elif payload.get("ok") is not True:
+        problem("doctor must report ok: true when it exits zero")
 
     before = snapshot(root)
     for name in destructive:

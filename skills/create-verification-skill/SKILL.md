@@ -40,7 +40,7 @@ Write `.agents/skills/verify-<app>/SKILL.md` with YAML frontmatter (`name: verif
 - **`## Cleanup`** — how to tear down instances the run created. Never kill by process name; kill what you started. Cleanup removes instances and scratch state, never the evidence: proof artifacts survive the teardown, in a location the skill names.
 - **`## Helpers`** — any script the skill ships is executable and its invocation is shown in the skill body. A helper the reader has to reverse-engineer is not a helper.
 
-The Factory's `verify-skill` shape check fails when `Launch`, `Doctor`, `Drive`, `Evidence` or `Cleanup` is missing, so keep all five even when a project has little to say in one of them.
+Run the Factory's `scripts/verify-skill.py --root <repo>` check (from the `~/.agents` checkout) after generating; it fails when `Launch`, `Doctor`, `Drive`, `Evidence` or `Cleanup` is missing, so keep all five even when a project has little to say in one of them.
 
 ## 3. Ship the CLI and its mise task
 

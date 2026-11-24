@@ -760,8 +760,8 @@ steps {
     }
   }
 
-  ["verify-maintenance"] = new Step {
-    check = "sh {{root}}/scripts/verify-maintenance-test.sh"
+  ["verify-skill-maintenance"] = new Step {
+    check = "sh {{root}}/scripts/verify-skill-maintenance-test.sh"
     tests {
       ["a changed app files one issue and unchanged or open ones file none"] {
         run = "check"

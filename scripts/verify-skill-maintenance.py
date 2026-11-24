@@ -91,7 +91,7 @@ def newer(repo, first, second):
 def fetch(repo):
     result = git(repo, "fetch", "--quiet", "--prune", "origin", timeout=120)
     if result.returncode != 0:
-        print(f"verify-maintenance: warning: cannot fetch {repo}: {result.stderr.strip()}", file=sys.stderr)
+        raise RuntimeError(f"git fetch failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
 def verify_skills(repo):
@@ -210,13 +210,15 @@ def main(argv=None):
     clones = load_canonical_clones()
     failures = 0
     for identity, repo in clones.github_repos(root):
+        if not identity.startswith("github.com/ranokay/"):
+            continue
         repo_slug = identity.removeprefix("github.com/")
         skills = verify_skills(repo)
         if not skills:
             continue
-        if not args.no_fetch and not args.dry_run:
-            fetch(repo)
         try:
+            if not args.no_fetch and not args.dry_run:
+                fetch(repo)
             branch = default_branch(repo)
             if not branch:
                 raise RuntimeError("cannot resolve origin/HEAD; run `git remote set-head origin --auto`")

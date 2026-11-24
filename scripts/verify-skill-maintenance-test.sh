@@ -8,7 +8,7 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-verify-maintenance.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 fail() {
-	printf 'verify-maintenance-test: %s\n' "$*" >&2
+	printf 'verify-skill-maintenance-test: %s\n' "$*" >&2
 	exit 1
 }
 
@@ -115,6 +115,15 @@ set_github_origin "$tmp/repos/open" open
 open_head=$(git -C "$tmp/repos/open" rev-parse HEAD)
 printf '[{"number":7,"title":"Maintain verify-open skill","body":"Keep this open.\\n\\n<!-- factory:verify-maintenance head=%s -->\\n","closedAt":null}]\n' "$open_head" >"$GH_STATE/ranokay_open-open.json"
 
+new_remote other main
+clone_repo other "$tmp/repos"
+printf 'one\n' >"$tmp/repos/other/app.txt"
+write_skill "$tmp/repos/other" other
+commit_all "$tmp/repos/other" "add verify skill"
+printf 'two\n' >>"$tmp/repos/other/app.txt"
+commit_all "$tmp/repos/other" "change the app"
+git -C "$tmp/repos/other" remote set-url origin https://github.com/other/repo.git
+
 new_remote closed trunk
 clone_repo closed "$tmp/closed-root"
 printf 'one\n' >"$tmp/closed-root/closed/app.txt"
@@ -126,8 +135,18 @@ set_github_origin "$tmp/closed-root/closed" closed
 closed_head=$(git -C "$tmp/closed-root/closed" rev-parse HEAD)
 printf '[{"number":9,"title":"Maintain verify-closed skill","body":"Clean pass.\\n\\n<!-- factory:verify-maintenance head=%s -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' "$closed_head" >"$GH_STATE/ranokay_closed-closed.json"
 
+new_remote no-head main
+clone_repo no-head "$tmp/no-head-root"
+printf 'one\n' >"$tmp/no-head-root/no-head/app.txt"
+write_skill "$tmp/no-head-root/no-head" no-head
+commit_all "$tmp/no-head-root/no-head" "add verify skill"
+printf 'two\n' >>"$tmp/no-head-root/no-head/app.txt"
+commit_all "$tmp/no-head-root/no-head" "change the app"
+set_github_origin "$tmp/no-head-root/no-head" no-head
+printf '[{"number":11,"title":"Maintain verify-no-head skill","body":"No head recorded.\\n\\n<!-- factory:verify-maintenance -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' >"$GH_STATE/ranokay_no-head-closed.json"
+
 run_maintenance() {
-	uv run --offline --no-project --no-config --python "$python" python "$root/scripts/verify-maintenance.py" "$@"
+	uv run --offline --no-project --no-config --python "$python" python "$root/scripts/verify-skill-maintenance.py" "$@"
 }
 
 : >"$GH_LOG"
@@ -142,7 +161,7 @@ grep -q 'unchanged ranokay/closed' "$tmp/closed-dry" || fail "a clean close at t
 : >"$GH_LOG"
 run_maintenance --root "$tmp/repos" --no-fetch >"$tmp/run"
 [ "$(grep -c '^create ranokay/changed$' "$GH_LOG" || true)" -eq 1 ] || fail "changed repo did not file exactly one issue"
-[ "$(grep -c '^create ' "$GH_LOG" || true)" -eq 1 ] || fail "an unchanged or open-issue repo filed an issue"
+[ "$(grep -c '^create ' "$GH_LOG" || true)" -eq 1 ] || fail "an unchanged, open-issue or third-party repo filed an issue"
 grep -q -- '--label ready-for-agent' "$GH_LOG" || fail "the issue is not ready-for-agent"
 grep -q '/maintain-verification-skill' "$GH_LOG" || fail "the issue does not name the maintenance skill"
 grep -q "<!-- factory:verify-maintenance head=$changed_head -->" "$GH_LOG" || fail "the issue did not record the filed head"
@@ -160,4 +179,9 @@ run_maintenance --root "$tmp/closed-root" --no-fetch >"$tmp/closed-run"
 [ "$(grep -c '^create ranokay/closed$' "$GH_LOG" || true)" -eq 1 ] || fail "an app commit after a clean close did not file"
 grep -q "<!-- factory:verify-maintenance head=$closed_after -->" "$GH_LOG" || fail "the new issue did not record the new head"
 
-echo "verify-maintenance-test: changed files one issue, unchanged and clean-close file none, open issue blocks a duplicate"
+: >"$GH_LOG"
+run_maintenance --root "$tmp/no-head-root" --no-fetch >"$tmp/no-head-run" 2>"$tmp/no-head-err"
+grep -q 'has no head marker' "$tmp/no-head-err" || fail "a closed marker issue without a head did not warn"
+[ "$(grep -c '^create ranokay/no-head$' "$GH_LOG" || true)" -eq 1 ] || fail "a closed marker without a head did not fall back to the skill commit"
+
+echo "verify-skill-maintenance-test: changed files one issue, unchanged, third-party and clean-close file none, open issue blocks a duplicate"
