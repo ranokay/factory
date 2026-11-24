@@ -22,6 +22,7 @@ import sys
 import tempfile
 import tomllib
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +45,9 @@ SECRET_LOG = Path("Library") / "Logs" / "factory-secrets.log"
 GC_LABEL = "dev.factory.gc"
 GC_LOG = Path("Library") / "Logs" / "factory-gc.log"
 GC_ERROR_LOG = Path("Library") / "Logs" / "factory-gc-error.log"
+VERIFY_LABEL = "dev.factory.verify-skill-maintenance"
+VERIFY_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance.log"
+VERIFY_ERROR_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance-error.log"
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
 SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
 GITHUB_HOST_RE = re.compile(r"(?i)^\s*Host\s+github\.com(?![A-Za-z0-9.-])")
@@ -404,59 +408,113 @@ def secret_agent_errors(home: Path) -> list[str]:
     return []
 
 
-def gc_agent_plist(home: Path) -> bytes:
-    mise = shutil.which("mise")
-    if not mise or not Path(mise).is_file():
-        raise SystemExit("bootstrap: cannot resolve mise for the gc agent")
-    gh = shutil.which("gh")
-    if not gh:
-        raise SystemExit("bootstrap: cannot resolve gh for the gc agent")
-    uv = shutil.which("uv")
-    if not uv:
-        raise SystemExit("bootstrap: cannot resolve uv for the gc agent")
-    path = os.pathsep.join(
+def agent_path() -> str:
+    binaries = {}
+    for name in ("mise", "gh", "uv"):
+        resolved = shutil.which(name)
+        if not resolved:
+            raise SystemExit(f"bootstrap: cannot resolve {name} for the launchd agents")
+        binaries[name] = resolved
+    return os.pathsep.join(
         dict.fromkeys(
-            [str(Path(mise).parent), str(Path(gh).parent), str(Path(uv).parent), "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+            [
+                str(Path(binaries["mise"]).parent),
+                str(Path(binaries["gh"]).parent),
+                str(Path(binaries["uv"]).parent),
+                "/usr/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin",
+            ]
         )
     )
+
+
+def launchd_agent_plist(
+    home: Path, label: str, arguments: list[str], schedule: dict[str, int], log: Path, error_log: Path
+) -> bytes:
+    mise = shutil.which("mise")
+    if not mise or not Path(mise).is_file():
+        raise SystemExit(f"bootstrap: cannot resolve mise for the {label} agent")
     data = {
-        "Label": GC_LABEL,
-        "EnvironmentVariables": {"PATH": path},
-        "ProgramArguments": [str(Path(mise).resolve()), "--cd", str(home / ".agents"), "run", "gc"],
-        "StartCalendarInterval": {"Weekday": 0, "Hour": 3, "Minute": 0},
-        "StandardOutPath": str(home / GC_LOG),
-        "StandardErrorPath": str(home / GC_ERROR_LOG),
+        "Label": label,
+        "EnvironmentVariables": {"PATH": agent_path()},
+        "ProgramArguments": [str(Path(mise).resolve()), "--cd", str(home / ".agents"), *arguments],
+        "StartCalendarInterval": schedule,
+        "StandardOutPath": str(home / log),
+        "StandardErrorPath": str(home / error_log),
     }
     return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False)
 
 
-def gc_agent_path(home: Path) -> Path:
-    return home / "Library" / "LaunchAgents" / f"{GC_LABEL}.plist"
+def launchd_agent_path(home: Path, label: str) -> Path:
+    return home / "Library" / "LaunchAgents" / f"{label}.plist"
 
 
-def install_gc_agent(home: Path) -> bool:
-    path = gc_agent_path(home)
+def install_agent(home: Path, label: str, name: str, path: Path, data: bytes) -> bool:
     (home / "Library" / "Logs").mkdir(parents=True, exist_ok=True)
-    write_agent(path, gc_agent_plist(home), home)
+    write_agent(path, data, home)
     if home != Path.home().resolve():
-        print("bootstrap: not the real home; the gc agent is not loaded")
+        print(f"bootstrap: not the real home; the {name} agent is not loaded")
         return True
     launchctl = launchctl_binary()
     if not launchctl:
-        print("bootstrap: launchctl is not available; the gc agent cannot be loaded", file=sys.stderr)
+        print(f"bootstrap: launchctl is not available; the {name} agent cannot be loaded", file=sys.stderr)
         return False
-    return load_agent(launchctl, GC_LABEL, path)
+    return load_agent(launchctl, label, path)
 
 
-def gc_agent_errors(home: Path) -> list[str]:
-    path = gc_agent_path(home)
+def agent_errors(home: Path, path: Path, expected: Callable[[], bytes]) -> list[str]:
     try:
-        expected = gc_agent_plist(home)
-        if path.read_bytes() != expected:
+        if path.read_bytes() != expected():
             return [f"{display(path, home)} differs from what bootstrap writes now; run mise run bootstrap"]
     except (OSError, SystemExit) as error:
         return [f"{display(path, home)} missing or invalid: {error}; run mise run bootstrap"]
     return []
+
+
+def gc_agent_plist(home: Path) -> bytes:
+    return launchd_agent_plist(
+        home, GC_LABEL, ["run", "gc"], {"Weekday": 0, "Hour": 3, "Minute": 0}, GC_LOG, GC_ERROR_LOG
+    )
+
+
+def gc_agent_path(home: Path) -> Path:
+    return launchd_agent_path(home, GC_LABEL)
+
+
+def install_gc_agent(home: Path) -> bool:
+    return install_agent(home, GC_LABEL, "gc", gc_agent_path(home), gc_agent_plist(home))
+
+
+def gc_agent_errors(home: Path) -> list[str]:
+    return agent_errors(home, gc_agent_path(home), lambda: gc_agent_plist(home))
+
+
+def verify_skill_maintenance_agent_plist(home: Path) -> bytes:
+    return launchd_agent_plist(
+        home,
+        VERIFY_LABEL,
+        ["run", "verify-skill:maintain"],
+        {"Weekday": 1, "Hour": 3, "Minute": 0},
+        VERIFY_LOG,
+        VERIFY_ERROR_LOG,
+    )
+
+
+def verify_skill_maintenance_agent_path(home: Path) -> Path:
+    return launchd_agent_path(home, VERIFY_LABEL)
+
+
+def install_verify_skill_maintenance_agent(home: Path) -> bool:
+    return install_agent(
+        home, VERIFY_LABEL, "verify-skill-maintenance", verify_skill_maintenance_agent_path(home), verify_skill_maintenance_agent_plist(home)
+    )
+
+
+def verify_skill_maintenance_agent_errors(home: Path) -> list[str]:
+    return agent_errors(home, verify_skill_maintenance_agent_path(home), lambda: verify_skill_maintenance_agent_plist(home))
+
 
 def github_slug(url: str) -> tuple[str, str] | None:
     for pattern in (GITHUB_HTTPS, GITHUB_SSH):
@@ -820,6 +878,7 @@ def discovery(home: Path) -> int:
         return 1
     errors.extend(secret_agent_errors(home))
     errors.extend(gc_agent_errors(home))
+    errors.extend(verify_skill_maintenance_agent_errors(home))
     errors.extend(github_push_errors())
     reference_check = mcp_sync(home, "--check-references")
     if reference_check.returncode != 0:
@@ -1036,6 +1095,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--check-tool-skills", action="store_true", help="fail if a tool-owned skill is tracked")
     parser.add_argument("--root", type=Path, default=ROOT, help="checkout to inspect with --check-tool-skills")
+    parser.add_argument(
+        "--install-verify-agent",
+        action="store_true",
+        help="write and load only the weekly verification-skill maintenance agent",
+    )
     args = parser.parse_args(argv)
     home = args.home.expanduser().resolve()
     if args.check_tool_skills:
@@ -1043,6 +1107,13 @@ def main(argv: list[str] | None = None) -> int:
     if not home.is_dir():
         print(f"bootstrap: home directory does not exist: {home}", file=sys.stderr)
         return 1
+    if args.install_verify_agent:
+        guard = worktree_guard(home)
+        if guard:
+            for line in guard:
+                print(f"bootstrap: {line}", file=sys.stderr)
+            return 2
+        return 0 if install_verify_skill_maintenance_agent(home) else 1
     if args.check:
         return discovery(home)
     guard = worktree_guard(home)
@@ -1072,6 +1143,8 @@ def main(argv: list[str] | None = None) -> int:
     if not install_secret_agent(home):
         return 1
     if not install_gc_agent(home):
+        return 1
+    if not install_verify_skill_maintenance_agent(home):
         return 1
     if not setup_github_ssh(home):
         return 1

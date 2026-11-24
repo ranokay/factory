@@ -750,6 +750,26 @@ steps {
     }
   }
 
+  ["verify-skill"] = new Step {
+    check = "sh {{root}}/scripts/verify-skill-test.sh"
+    tests {
+      ["the passing fixture, lifecycle cleanup and every failing rule pass"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["verify-skill-maintenance"] = new Step {
+    check = "sh {{root}}/scripts/verify-skill-maintenance-test.sh"
+    tests {
+      ["a changed app files one issue and unchanged or open ones file none"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
   ["bootstrap"] = new Step {
     check = "sh {{root}}/scripts/bootstrap-test.sh"
     tests {
@@ -836,6 +856,16 @@ steps {
       ["the gc agent is installed and drift is detected"] {
         run = "check"
         env { ["BOOTSTRAP_CASE"] = "gc-agent" }
+        expect { code = 0 }
+      }
+      ["the weekly verify maintenance agent is installed and drift is detected"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "verify-agent" }
+        expect { code = 0 }
+      }
+      ["the narrow verify-agent install writes only the plist"] {
+        run = "check"
+        env { ["BOOTSTRAP_CASE"] = "verify-agent-narrow" }
         expect { code = 0 }
       }
       ["the secrets agent uses an absolute interpreter and retries loudly"] {

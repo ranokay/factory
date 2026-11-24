@@ -58,6 +58,18 @@ run = "uv run --offline --no-project --no-config --python \"$(mise which python)
 description = "Run GC fixture tests"
 run = "hk test --step gc"
 
+[tasks."verify-skill:maintain"]
+description = "File weekly maintenance issues for repos whose app changed since its verify skill"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/verify-skill-maintenance.py"
+
+[tasks."verify-skill:test"]
+description = "Run the verify-skill shape fixture tests"
+run = "hk test --step verify-skill"
+
+[tasks."verify-skill-maintenance:test"]
+description = "Run the weekly verify maintenance fixture tests"
+run = "hk test --step verify-skill-maintenance"
+
 [tasks."canonical-clones"]
 description = "Report or migrate canonical clones"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/canonical-clones.py"
@@ -81,6 +93,8 @@ depends = [
   "pr-text:test",
   "bootstrap:test",
   "gc:test",
+  "verify-skill:test",
+  "verify-skill-maintenance:test",
   "canonical-clones:test",
   "mcp:test",
   "gitleaks:test",

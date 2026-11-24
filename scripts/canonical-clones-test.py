@@ -58,6 +58,13 @@ class ClonesTest(unittest.TestCase):
     def cli(self, *args, check=True):
         return run('python3', str(SCRIPT), *args, '--source-root', str(self.source), '--developer-root', str(self.developer), check=check)
 
+    def test_github_repos_lists_only_main_clones_with_a_github_origin(self):
+        canonical = self.repo(self.developer, 'repo')
+        self.repo(self.developer, 'unknown', None)
+        linked = self.developer / 'repo-linked'
+        self.git(canonical, 'worktree', 'add', '-q', '-b', 'linked', str(linked))
+        self.assertEqual(clones.github_repos(self.developer), [('github.com/owner/repo', canonical)])
+
     def test_identity_and_unknown(self):
         self.assertEqual(clones.identity('git@github.com:OWNER/Repo.git'), clones.identity('https://github.com/owner/repo'))
         self.assertNotEqual(clones.identity('https://github.com/owner/repo'), clones.identity('https://github.com/other/repo'))

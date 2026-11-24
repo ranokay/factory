@@ -279,11 +279,16 @@
       "source": "https://github.com/cursor/plugins.git",
       "path": "pstack/skills/create-verification-skill",
       "commit": "50b3a3234bf2e0293849a48784d72030948e44ee",
-      "patches": [],
+      "patches": [
+        {
+          "path": "0001-factory-shape.patch",
+          "sha256": "eb0c29a385245abf026142a1873f2904aa320f206ff1ad84cc8355e7a8e174f6"
+        }
+      ],
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "d353973547bf8ad8977eca645f4cd4feaed0d32f4b43d1448f906b0a76c4d694"
+          "sha256": "981c8fecb87ff79cf5e2845712449cef70854ad779a432e734bce4a9e873aa35"
         },
         {
           "path": "references/feature-map-example/README.md",
@@ -504,11 +509,16 @@
       "source": "https://github.com/cursor/plugins.git",
       "path": "pstack/skills/maintain-verification-skill",
       "commit": "50b3a3234bf2e0293849a48784d72030948e44ee",
-      "patches": [],
+      "patches": [
+        {
+          "path": "0001-factory-shape.patch",
+          "sha256": "826a0f76228e6011c5fb2800e34468d62e0dffd86a0b0d1e4810762fff73d9b5"
+        }
+      ],
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "515c0eaa054b3f6be1b1fb06f2c2f173c80fddb58bbcac57576f89c479bc68e8"
+          "sha256": "4eb5a2c3c3a9857f701d34e93daf2fda261704b3484edaaa82574d444c140141"
         }
       ]
     },

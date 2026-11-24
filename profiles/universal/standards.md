@@ -28,6 +28,20 @@ Verify assertions in permitted comments and update or remove them when behaviour
 - Test current behaviour and meaningful edge cases, not deleted functionality. Keep fixtures simple. Name tests for behaviour, follow the project's test configuration and isolate external dependencies with test doubles where appropriate. Parameterize cases when it clarifies a shared contract; use coverage to find missing checks, not as proof of correctness.
 - No coverage targets.
 
+## Verification
+
+- This table is the one verification-driver mapping; a Platform Profile adds the details for the surface it covers.
+
+  | Surface | Driver |
+  | --- | --- |
+  | Web page | Ardia CLI for a signed-in flow, Playwright for a reproducible browser check |
+  | macOS app | cua-driver |
+  | iOS app | T3 device tools (`device_list`, `device_open`, `device_screenshot`) |
+  | CLI or TUI | tmux |
+  | Server or API | HTTP |
+
+- A project commits its `verify-<app>` skill at `.agents/skills/verify-<app>/` with a relative `.claude/skills/verify-<app>` symlink, a `references/features/` map, and a `verify:<app>` mise CLI.
+
 ## Dependencies
 
 - Prefer the standard library, the platform, and dependencies already in the repo.
