@@ -19,6 +19,7 @@ from restyle_summary import (
     RewriteError,
     badge_of,
     build_policy,
+    integer,
     is_diagram_carrier,
     markers,
     normalize,
@@ -114,23 +115,38 @@ def meta_from(result: dict[str, Any], environment: dict[str, str]) -> dict[str, 
 
 
 def inline_match(
+    comment: dict[str, Any],
     content: str,
     expected: str,
     posted: list[dict[str, Any]],
     used: set[int],
 ) -> tuple[int, dict[str, Any]] | None:
+    path = str(comment.get("path") or "")
+    start = integer(comment.get("start_line"))
+    end = integer(comment.get("end_line"))
+    matches = []
     for position, item in enumerate(posted):
         if position in used:
             continue
-        body = str(item.get("body") or "")
-        if content and content in body:
-            return position, item
+        item_path = str(item.get("path") or "")
+        if path and item_path and item_path != path:
+            continue
+        if content and content in str(item.get("body") or ""):
+            matches.append((position, item))
+    if matches:
+        for position, item in matches:
+            line = integer(item.get("line"))
+            if line and line in (start, end):
+                return position, item
+        return matches[0]
     if content:
         return None
     titled = [
         (position, item)
         for position, item in enumerate(posted)
-        if position not in used and expected in str(item.get("body") or "")
+        if position not in used
+        and (not path or not item.get("path") or item.get("path") == path)
+        and expected in str(item.get("body") or "")
     ]
     return titled[0] if len(titled) == 1 else None
 
@@ -146,7 +162,7 @@ def match_inline(
             continue
         content = str(comment.get("content") or "").strip()
         expected = f"**{badge_of(comment)} · {title_of(comment)}**"
-        match = inline_match(content, expected, posted, used)
+        match = inline_match(comment, content, expected, posted, used)
         if match is None:
             continue
         position, item = match

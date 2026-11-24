@@ -14,11 +14,11 @@ inputs:
   # step leaves its checkpoint fingerprint byte-identical; the action tests
   # pin each default to its literal.
   route_severity_below:
-    description: Severity threshold the Review step routes to the summary.
+    description: Severity threshold the Review and restyle steps route to the summary.
     required: false
     default: medium
   route_categories:
-    description: Categories the Review step routes to the summary.
+    description: Categories the Review and restyle steps route to the summary.
     required: false
     default: style,documentation
   effort:
@@ -114,10 +114,10 @@ runs:
         sticky_summary: 'true'
         incremental: 'true'
         checkpoint_range: 'true'
-        route_severity_below: medium
-        route_categories: style,documentation
+        route_severity_below: ${{ inputs.route_severity_below }}
+        route_categories: ${{ inputs.route_categories }}
         resolve_outdated: 'true'
-        effort: high
+        effort: ${{ inputs.effort }}
         # The checkpoint travels in the sticky summary comment, not in
         # uploaded artifacts. See the checkpoint outputs in
         # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml

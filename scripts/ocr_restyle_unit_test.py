@@ -97,6 +97,17 @@ class RestyleTests(unittest.TestCase):
         self.assertEqual(links, {0: "u1", 1: "u2"})
         self.assertEqual(len(pairs), 2)
 
+    def test_inline_matching_uses_path_to_disambiguate_duplicate_content(self):
+        content = "**Same title**\n\nSame explanation."
+        first = finding(path="scripts/a.py", content=content)
+        second = finding(path="scripts/b.py", start=20, end=20, content=content)
+        posted = [
+            {"body": content, "html_url": "u2", "path": "scripts/b.py", "line": 20},
+            {"body": content, "html_url": "u1", "path": "scripts/a.py", "line": 12},
+        ]
+        links, _ = restyle.match_inline(ocr_result([first, second]), posted)
+        self.assertEqual(links, {0: "u1", 1: "u2"})
+
     def test_inline_matching_does_not_link_on_a_title_alone(self):
         comment = finding(content="**Same title**\n\nUnique explanation.")
         posted = [{"body": "**🟠 P1 · Same title**", "html_url": "u1"}]

@@ -99,10 +99,10 @@ class AiReviewWorkflowTests(unittest.TestCase):
             "sticky_summary": "true",
             "incremental": "true",
             "checkpoint_range": "true",
-            "route_severity_below": "medium",
-            "route_categories": "style,documentation",
+            "route_severity_below": "${{ inputs.route_severity_below }}",
+            "route_categories": "${{ inputs.route_categories }}",
             "resolve_outdated": "true",
-            "effort": "high",
+            "effort": "${{ inputs.effort }}",
         }
         for name, value in expected.items():
             with self.subTest(input=name):
@@ -242,13 +242,19 @@ class AiReviewWorkflowTests(unittest.TestCase):
         inputs = yaml.safe_load(source)["inputs"]
         with_ = review_step(source)["with"]
         restyle = named_step(action_steps(source), "Restyle review comments")
+        defaults = {
+            "route_severity_below": "medium",
+            "route_categories": "style,documentation",
+            "effort": "high",
+        }
         for name, variable in (
             ("route_severity_below", "OCR_ROUTE_SEVERITY_BELOW"),
             ("route_categories", "OCR_ROUTE_CATEGORIES"),
             ("effort", "OCR_EFFORT"),
         ):
             with self.subTest(input=name):
-                self.assertEqual(inputs[name]["default"], with_[name])
+                self.assertEqual(inputs[name]["default"], defaults[name])
+                self.assertEqual(with_[name], "${{ inputs." + name + " }}")
                 self.assertEqual(restyle["env"][variable], "${{ inputs." + name + " }}")
 
     def test_missing_key_fails_before_review(self):
