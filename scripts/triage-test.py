@@ -176,10 +176,7 @@ class Triage(unittest.TestCase):
     def test_patched_skill_uses_canonical_labels(self):
         skill = (ROOT / "skills/triage/SKILL.md").read_text()
         self.assertNotIn("setup-matt-pocock-skills", skill)
-        self.assertIn(
-            "apply `bug`, `enhancement`, `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` and `wontfix`",
-            skill,
-        )
+        self.assertIn("There is no separate label mapping to load", skill)
         self.assertIn("triage.py reproduce", skill)
 
     def test_labels_apply_exactly_one_category_and_state(self):
@@ -319,6 +316,42 @@ class Triage(unittest.TestCase):
         self.assertIn("destructive", result.stderr)
         self.assertEqual(self.calls(), [])
 
+    def test_dry_run_step_is_refused(self):
+        result = self.triage(
+            "reproduce",
+            "--project",
+            str(self.project),
+            "o/one",
+            "6",
+            "--app",
+            "counter",
+            "--step",
+            "launch --dry-run",
+            "--observe",
+            "launch:dry_run=true",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--dry-run", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_app_cannot_escape_the_skill_path(self):
+        result = self.triage(
+            "reproduce",
+            "--project",
+            str(self.project),
+            "o/one",
+            "6",
+            "--app",
+            "../counter",
+            "--step",
+            "launch",
+            "--observe",
+            "launch:exit=0",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--app must name", result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_cleanup_must_be_listed(self):
         result = self.triage(
             "reproduce",
@@ -383,6 +416,37 @@ class Triage(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["outcome"], "reproduced")
         self.assertIn("`increment` — exit 0", self.comment.read_text())
+        self.assertNotEqual(self.doctor().returncode, 0)
+
+    def test_non_default_cleanup_runs(self):
+        script = self.project / ".agents/skills/verify-counter/scripts/verify.py"
+        text = script.read_text()
+        text = text.replace(
+            '{"name": "stop", "destructive": True', '{"name": "teardown", "destructive": True'
+        )
+        text = text.replace('"stop": lambda: stop(dry),', '"teardown": lambda: stop(dry),')
+        script.write_text(text)
+        result = self.triage(
+            "reproduce",
+            "--project",
+            str(self.project),
+            "o/one",
+            "6",
+            "--app",
+            "counter",
+            "--step",
+            "launch",
+            "--step",
+            "increment",
+            "--step",
+            "count",
+            "--observe",
+            "count:count=1",
+            "--cleanup",
+            "teardown",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Cleanup `teardown` exited 0.", self.comment.read_text())
         self.assertNotEqual(self.doctor().returncode, 0)
 
     def test_label_failure_keeps_evidence(self):

@@ -129,17 +129,17 @@ def inventory(project, task):
     commands = payload.get("commands")
     if not isinstance(commands, list):
         problem(f"mise run {task} -- commands did not print a commands list")
-    names = {}
+    found = {}
     for item in commands:
         if not isinstance(item, dict) or not isinstance(item.get("name"), str):
             problem(f"mise run {task} -- commands has an entry without a name")
-        names[item["name"]] = bool(item.get("destructive"))
-    if not names:
+        found[item["name"]] = bool(item.get("destructive"))
+    if not found:
         problem(f"mise run {task} -- commands is empty")
-    return names
+    return found
 
 
-def parse_steps(values, names):
+def parse_steps(values, commands):
     steps = []
     for value in values:
         try:
@@ -148,11 +148,13 @@ def parse_steps(values, names):
             problem(f"--step {value!r} is not a valid command line: {error}")
         if not argv:
             problem("--step must name a command")
-        if argv[0] not in names:
+        if argv[0] not in commands:
             problem(
                 f"--step {value!r} names {argv[0]!r}, which the verify CLI does not list; "
-                f"commands: {', '.join(sorted(names))}"
+                f"commands: {', '.join(sorted(commands))}"
             )
+        if any(argument == "--dry-run" or argument.startswith("--dry-run=") for argument in argv[1:]):
+            problem(f"--step {value!r} uses --dry-run; a reproduction must change app state")
         steps.append(argv)
     return steps
 
@@ -216,7 +218,7 @@ def cell(value):
     return text.replace("|", "\\|")
 
 
-def comment_body(issue, rows, executions, cleanup, cleanup_name):
+def comment_body(issue, rows, executions, cleanup):
     lines = [
         DISCLAIMER,
         "",
@@ -250,7 +252,7 @@ def comment_body(issue, rows, executions, cleanup, cleanup_name):
         )
     lines.append("")
     if cleanup is not None:
-        lines.append(f"Cleanup `{cleanup_name}` exited {cleanup['exit']}.")
+        lines.append(f"Cleanup `{cleanup['name']}` exited {cleanup['exit']}.")
         lines.append("")
     return "\n".join(lines)
 
@@ -299,7 +301,12 @@ def capture(project, task, steps, cleanup):
             )
     finally:
         result = run_mise(project, task, [cleanup])
-        cleanup_result = {"exit": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+        cleanup_result = {
+            "name": cleanup,
+            "exit": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
     return executions, cleanup_result
 
 
@@ -311,14 +318,14 @@ def reproduce(args):
     if not skill.is_file():
         problem(f"{skill} is missing; the project needs a verify-{args.app} skill")
     task = f"verify:{args.app}"
-    names = inventory(project, task)
-    if args.cleanup not in names:
+    commands = inventory(project, task)
+    if args.cleanup not in commands:
         problem(
             f"--cleanup {args.cleanup!r} is not a command the verify CLI lists; "
-            f"commands: {', '.join(sorted(names))}"
+            f"commands: {', '.join(sorted(commands))}"
         )
-    steps = parse_steps(args.step, names)
-    if not any(names[argv[0]] and argv[0] != args.cleanup for argv in steps):
+    steps = parse_steps(args.step, commands)
+    if not any(commands[argv[0]] and argv[0] != args.cleanup for argv in steps):
         problem(
             "the plan needs at least one destructive command other than --cleanup, "
             "so the app is actually driven"
@@ -338,7 +345,7 @@ def reproduce(args):
         url = post_comment(
             args.repo,
             args.issue,
-            comment_body(issue, rows, executions, cleanup, args.cleanup),
+            comment_body(issue, rows, executions, cleanup),
         )
         state = "ready-for-agent" if outcome == "reproduced" else "needs-info"
         apply_labels(args.repo, args.issue, "bug", state)
