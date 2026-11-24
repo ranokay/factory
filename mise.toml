@@ -58,7 +58,7 @@ run = "uv run --offline --no-project --no-config --python \"$(mise which python)
 description = "Run GC fixture tests"
 run = "hk test --step gc"
 
-[tasks."verify:maintain"]
+[tasks."verify-skill:maintain"]
 description = "File weekly maintenance issues for repos whose app changed since its verify skill"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/verify-maintenance.py"
 

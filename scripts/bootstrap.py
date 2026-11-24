@@ -429,92 +429,100 @@ def agent_path() -> str:
     )
 
 
-def gc_agent_plist(home: Path) -> bytes:
+def launchd_agent_plist(
+    home: Path, label: str, arguments: list[str], schedule: dict[str, int], log: Path, error_log: Path
+) -> bytes:
     mise = shutil.which("mise")
     if not mise or not Path(mise).is_file():
-        raise SystemExit("bootstrap: cannot resolve mise for the gc agent")
+        raise SystemExit(f"bootstrap: cannot resolve mise for the {label} agent")
     data = {
-        "Label": GC_LABEL,
+        "Label": label,
         "EnvironmentVariables": {"PATH": agent_path()},
-        "ProgramArguments": [str(Path(mise).resolve()), "--cd", str(home / ".agents"), "run", "gc"],
-        "StartCalendarInterval": {"Weekday": 0, "Hour": 3, "Minute": 0},
-        "StandardOutPath": str(home / GC_LOG),
-        "StandardErrorPath": str(home / GC_ERROR_LOG),
+        "ProgramArguments": [str(Path(mise).resolve()), "--cd", str(home / ".agents"), *arguments],
+        "StartCalendarInterval": schedule,
+        "StandardOutPath": str(home / log),
+        "StandardErrorPath": str(home / error_log),
     }
     return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False)
+
+
+def launchd_agent_path(home: Path, label: str) -> Path:
+    return home / "Library" / "LaunchAgents" / f"{label}.plist"
+
+
+def install_agent(home: Path, label: str, name: str, path: Path, data: bytes) -> bool:
+    (home / "Library" / "Logs").mkdir(parents=True, exist_ok=True)
+    write_agent(path, data, home)
+    if home != Path.home().resolve():
+        print(f"bootstrap: not the real home; the {name} agent is not loaded")
+        return True
+    launchctl = launchctl_binary()
+    if not launchctl:
+        print(f"bootstrap: launchctl is not available; the {name} agent cannot be loaded", file=sys.stderr)
+        return False
+    return load_agent(launchctl, label, path)
+
+
+def agent_errors(home: Path, path: Path, expected: bytes) -> list[str]:
+    try:
+        if path.read_bytes() != expected:
+            return [f"{display(path, home)} differs from what bootstrap writes now; run mise run bootstrap"]
+    except (OSError, SystemExit) as error:
+        return [f"{display(path, home)} missing or invalid: {error}; run mise run bootstrap"]
+    return []
+
+
+def gc_agent_plist(home: Path) -> bytes:
+    return launchd_agent_plist(
+        home, GC_LABEL, ["run", "gc"], {"Weekday": 0, "Hour": 3, "Minute": 0}, GC_LOG, GC_ERROR_LOG
+    )
 
 
 def gc_agent_path(home: Path) -> Path:
-    return home / "Library" / "LaunchAgents" / f"{GC_LABEL}.plist"
+    return launchd_agent_path(home, GC_LABEL)
 
 
 def install_gc_agent(home: Path) -> bool:
-    path = gc_agent_path(home)
-    (home / "Library" / "Logs").mkdir(parents=True, exist_ok=True)
-    write_agent(path, gc_agent_plist(home), home)
-    if home != Path.home().resolve():
-        print("bootstrap: not the real home; the gc agent is not loaded")
-        return True
-    launchctl = launchctl_binary()
-    if not launchctl:
-        print("bootstrap: launchctl is not available; the gc agent cannot be loaded", file=sys.stderr)
-        return False
-    return load_agent(launchctl, GC_LABEL, path)
+    return install_agent(home, GC_LABEL, "gc", gc_agent_path(home), gc_agent_plist(home))
 
 
 def gc_agent_errors(home: Path) -> list[str]:
-    path = gc_agent_path(home)
     try:
         expected = gc_agent_plist(home)
-        if path.read_bytes() != expected:
-            return [f"{display(path, home)} differs from what bootstrap writes now; run mise run bootstrap"]
-    except (OSError, SystemExit) as error:
-        return [f"{display(path, home)} missing or invalid: {error}; run mise run bootstrap"]
-    return []
+    except SystemExit as error:
+        return [f"{display(gc_agent_path(home), home)} missing or invalid: {error}; run mise run bootstrap"]
+    return agent_errors(home, gc_agent_path(home), expected)
 
 
 def verify_maintenance_agent_plist(home: Path) -> bytes:
-    mise = shutil.which("mise")
-    if not mise or not Path(mise).is_file():
-        raise SystemExit("bootstrap: cannot resolve mise for the verify-maintenance agent")
-    data = {
-        "Label": VERIFY_LABEL,
-        "EnvironmentVariables": {"PATH": agent_path()},
-        "ProgramArguments": [str(Path(mise).resolve()), "--cd", str(home / ".agents"), "run", "verify:maintain"],
-        "StartCalendarInterval": {"Weekday": 1, "Hour": 3, "Minute": 0},
-        "StandardOutPath": str(home / VERIFY_LOG),
-        "StandardErrorPath": str(home / VERIFY_ERROR_LOG),
-    }
-    return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False)
+    return launchd_agent_plist(
+        home,
+        VERIFY_LABEL,
+        ["run", "verify-skill:maintain"],
+        {"Weekday": 1, "Hour": 3, "Minute": 0},
+        VERIFY_LOG,
+        VERIFY_ERROR_LOG,
+    )
 
 
 def verify_maintenance_agent_path(home: Path) -> Path:
-    return home / "Library" / "LaunchAgents" / f"{VERIFY_LABEL}.plist"
+    return launchd_agent_path(home, VERIFY_LABEL)
 
 
 def install_verify_maintenance_agent(home: Path) -> bool:
-    path = verify_maintenance_agent_path(home)
-    (home / "Library" / "Logs").mkdir(parents=True, exist_ok=True)
-    write_agent(path, verify_maintenance_agent_plist(home), home)
-    if home != Path.home().resolve():
-        print("bootstrap: not the real home; the verify-maintenance agent is not loaded")
-        return True
-    launchctl = launchctl_binary()
-    if not launchctl:
-        print("bootstrap: launchctl is not available; the verify-maintenance agent cannot be loaded", file=sys.stderr)
-        return False
-    return load_agent(launchctl, VERIFY_LABEL, path)
+    return install_agent(
+        home, VERIFY_LABEL, "verify-maintenance", verify_maintenance_agent_path(home), verify_maintenance_agent_plist(home)
+    )
 
 
 def verify_maintenance_agent_errors(home: Path) -> list[str]:
-    path = verify_maintenance_agent_path(home)
     try:
         expected = verify_maintenance_agent_plist(home)
-        if path.read_bytes() != expected:
-            return [f"{display(path, home)} differs from what bootstrap writes now; run mise run bootstrap"]
-    except (OSError, SystemExit) as error:
-        return [f"{display(path, home)} missing or invalid: {error}; run mise run bootstrap"]
-    return []
+    except SystemExit as error:
+        return [
+            f"{display(verify_maintenance_agent_path(home), home)} missing or invalid: {error}; run mise run bootstrap"
+        ]
+    return agent_errors(home, verify_maintenance_agent_path(home), expected)
 
 
 def github_slug(url: str) -> tuple[str, str] | None:

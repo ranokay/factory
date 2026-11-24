@@ -93,7 +93,7 @@ The committed `verify-<app>` skill that launches, doctors, drives and cleans up 
 _Avoid_: control skill, run skill, `.cursor` skill
 
 **Verification Driver**:
-The tool a Platform Profile names for a surface: Ardia CLI or Playwright for web, cua-driver for macOS, T3 device tools for iOS, tmux for a CLI or TUI, and HTTP for a server or API.
+The tool the universal Verification table names for a surface: Ardia CLI or Playwright for web, cua-driver for macOS, T3 device tools for iOS, tmux for a CLI or TUI, and HTTP for a server or API. A Platform Profile adds the details for the platforms it covers.
 _Avoid_: test harness, automation framework
 
 **Maintenance Issue**:

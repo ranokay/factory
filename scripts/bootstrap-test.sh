@@ -720,7 +720,7 @@ case_verify_agent() {
 	[ "$(plist_value "$plist" StartCalendarInterval.Minute)" = 0 ] || fail "wrong minute"
 	[ "$(plist_value "$plist" ProgramArguments.2)" = "$home/.agents" ] || fail "wrong working directory"
 	[ "$(plist_value "$plist" ProgramArguments.3)" = run ] || fail "does not run a task"
-	[ "$(plist_value "$plist" ProgramArguments.4)" = verify:maintain ] || fail "does not run verify:maintain"
+	[ "$(plist_value "$plist" ProgramArguments.4)" = verify-skill:maintain ] || fail "does not run verify-skill:maintain"
 	[ "$(plist_value "$plist" StandardOutPath)" = "$home/Library/Logs/factory-verify-maintenance.log" ] || fail "wrong log path"
 	[ "$(plist_value "$plist" StandardErrorPath)" = "$home/Library/Logs/factory-verify-maintenance-error.log" ] || fail "wrong error log path"
 	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v mise)")"
@@ -1069,7 +1069,10 @@ tracked = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_out
 for name in tracked.decode().split("\0"):
 	if not name:
 		continue
-	text = (root / name).read_text(errors="replace")
+	path = root / name
+	if path.is_symlink() or not path.is_file():
+		continue
+	text = path.read_text(errors="replace")
 	for match in re.finditer("op://", text):
 		rest = text[match.end():]
 		stop = terminator.search(rest)

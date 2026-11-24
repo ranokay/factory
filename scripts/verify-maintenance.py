@@ -62,7 +62,7 @@ def default_branch(repo):
     upstream = git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
     if upstream.returncode == 0 and upstream.stdout.strip():
         return upstream.stdout.strip()
-    return "HEAD"
+    return None
 
 
 def is_ancestor(repo, older, newer, timeout=60):
@@ -71,7 +71,9 @@ def is_ancestor(repo, older, newer, timeout=60):
 
 def commit_time(repo, commit):
     output = git_out(repo, "show", "-s", "--format=%ct", commit)
-    return int(output) if output and output.isdigit() else 0
+    if not output or not output.isdigit():
+        raise RuntimeError(f"cannot read the commit time of {commit}")
+    return int(output)
 
 
 def newer(repo, first, second):
@@ -90,8 +92,6 @@ def fetch(repo):
     result = git(repo, "fetch", "--quiet", "--prune", "origin", timeout=120)
     if result.returncode != 0:
         print(f"verify-maintenance: warning: cannot fetch {repo}: {result.stderr.strip()}", file=sys.stderr)
-        return False
-    return True
 
 
 def verify_skills(repo):
@@ -116,7 +116,7 @@ def issues(repo_slug, state):
         "--state",
         state,
         "--limit",
-        "50",
+        "200",
         "--json",
         "number,title,body,closedAt",
     )
@@ -138,6 +138,10 @@ def closed_head(repo, repo_slug, branch):
     latest = max(maintenance, key=lambda issue: (str(issue.get("closedAt") or ""), int(issue.get("number") or 0)))
     match = HEAD_MARKER.search(str(latest.get("body") or ""))
     if match is None:
+        print(
+            f"verify-maintenance: warning: closed maintenance issue #{latest.get('number')} has no head marker",
+            file=sys.stderr,
+        )
         return None
     head = match.group(1)
     if git(repo, "cat-file", "-e", f"{head}^{{commit}}").returncode != 0:
@@ -158,7 +162,9 @@ def changed_paths(repo, last, branch):
 
 def count_since(repo, last, branch):
     output = git_out(repo, "rev-list", "--count", f"{last}..{branch}")
-    return int(output) if output and output.isdigit() else 0
+    if not output or not output.isdigit():
+        raise RuntimeError(f"cannot count commits in {last}..{branch}")
+    return int(output)
 
 
 def subject(repo, commit):
@@ -208,10 +214,12 @@ def main(argv=None):
         skills = verify_skills(repo)
         if not skills:
             continue
-        if not args.no_fetch:
+        if not args.no_fetch and not args.dry_run:
             fetch(repo)
         try:
             branch = default_branch(repo)
+            if not branch:
+                raise RuntimeError("cannot resolve origin/HEAD; run `git remote set-head origin --auto`")
             head = git_out(repo, "rev-parse", "--verify", f"{branch}^{{commit}}")
             if not head:
                 raise RuntimeError(f"cannot resolve {branch}")

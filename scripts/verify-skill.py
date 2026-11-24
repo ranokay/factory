@@ -107,9 +107,7 @@ def parse_json(result, label):
     return data
 
 
-def check_skill(root, skill):
-    app = skill.name.removeprefix("verify-")
-    task = f"verify:{app}"
+def check_document(root, skill, task):
     entry = skill / "SKILL.md"
     if not entry.is_file():
         problem(f"{skill.relative_to(root)}/SKILL.md is missing")
@@ -126,12 +124,15 @@ def check_skill(root, skill):
             problem(f"SKILL.md is missing the `## {heading}` section")
     if f"mise run {task}" not in text:
         problem(f"SKILL.md does not show `mise run {task}`")
+    return text
 
+
+def check_features(root, skill):
     features = skill / "references/features"
     readme = features / "README.md"
     if not readme.is_file():
         problem(f"{features.relative_to(root)}/README.md is missing")
-    links = [link for link in re.findall(r"\]\(([^)]+?\.md)\)", readme.read_text())]
+    links = re.findall(r"\]\(([^)]+?\.md)\)", readme.read_text())
     indexed = set()
     for link in links:
         target = (readme.parent / link).resolve()
@@ -150,7 +151,10 @@ def check_skill(root, skill):
                 problem(f"{path.relative_to(root)} is missing the `## {heading}` section")
         if not any(heading.startswith(DRIVING_PREFIX) for heading in feature_sections):
             problem(f"{path.relative_to(root)} is missing a `## {DRIVING_PREFIX}<harness>` section")
+    return len(files)
 
+
+def check_claude_link(root, skill):
     link = root / CLAUDE_ROOT / skill.name
     if not link.is_symlink():
         problem(f"{link.relative_to(root)} must be a relative symlink to the skill for Claude Code")
@@ -160,6 +164,8 @@ def check_skill(root, skill):
     if (link.parent / stored).resolve() != skill.resolve():
         problem(f"{link.relative_to(root)} does not resolve to {skill.relative_to(root)}")
 
+
+def check_task(root, task):
     manifest = root / "mise.toml"
     if not manifest.is_file():
         problem("mise.toml is missing")
@@ -168,11 +174,12 @@ def check_skill(root, skill):
     except tomllib.TOMLDecodeError as error:
         problem(f"mise.toml is not valid TOML: {error}")
     if task not in tasks:
-        problem(f"mise.toml has no [tasks.\"{task}\"] entry")
-    command = tasks[task].get("run")
-    if not command:
-        problem(f"[tasks.\"{task}\"] has no run command")
+        problem(f"""mise.toml has no [tasks."{task}"] entry""")
+    if not tasks[task].get("run"):
+        problem(f"""[tasks."{task}"] has no run command""")
 
+
+def check_cli(root, task, text):
     inventory = parse_json(run_task(root, task, "commands"), "commands")
     if inventory.get("ok") is not True:
         problem("commands must report ok: true")
@@ -217,6 +224,15 @@ def check_skill(root, skill):
         if changed:
             problem(f"{label} changed the tree: {', '.join(changed[:5])}")
 
+    invalid = run_task(root, task, "doctor", "--not-an-argument")
+    invalid_error = parse_json(invalid, "invalid argument")
+    if invalid.returncode == 0:
+        problem("an invalid argument must exit non-zero")
+    if invalid_error.get("ok") is not False:
+        problem("an invalid argument must report ok: false")
+    if not invalid_error.get("error") or not invalid_error.get("alternative"):
+        problem("an invalid argument must report an error and an alternative")
+
     unknown = run_task(root, task, "__not_a_command__")
     error = parse_json(unknown, "unknown command")
     if unknown.returncode == 0:
@@ -228,7 +244,17 @@ def check_skill(root, skill):
     alternative = str(error["alternative"])
     if "mise run" not in alternative and not any(name in alternative for name in names):
         problem("an unknown command's alternative must name a command to run instead")
-    return skill.name, len(names), len(files)
+    return len(names)
+
+
+def check_skill(root, skill):
+    task = f"verify:{skill.name.removeprefix('verify-')}"
+    text = check_document(root, skill, task)
+    features = check_features(root, skill)
+    check_claude_link(root, skill)
+    check_task(root, task)
+    commands = check_cli(root, task, text)
+    return skill.name, commands, features
 
 
 def check(root):

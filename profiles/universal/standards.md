@@ -30,13 +30,13 @@ Verify assertions in permitted comments and update or remove them when behaviour
 
 ## Verification
 
-- The Platform Profile names the verification driver; this table is the one mapping. Never invent a driver outside it.
+- This table is the one verification-driver mapping; a Platform Profile adds the details for the surface it covers. Never invent a driver outside it.
 
   | Surface | Driver |
   | --- | --- |
   | Web page | Ardia CLI for a signed-in flow, Playwright for a reproducible browser check |
   | macOS app | cua-driver |
-  | iOS or Android app | T3 device tools (`device_list`, `device_open`, `device_screenshot`) |
+  | iOS app | T3 device tools (`device_list`, `device_open`, `device_screenshot`) |
   | CLI or TUI | tmux |
   | Server or API | HTTP |
 
