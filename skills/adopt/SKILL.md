@@ -13,7 +13,7 @@ works a filed issue.
 
 ## Run it
 
-Work from the target's canonical clone under `~/Developer`. The tree must be
+Work from the target's Canonical Clone under `~/Developer`. The tree must be
 clean and `origin` must match `<owner>/<repo>`.
 
 Dry run:
@@ -63,9 +63,11 @@ line number or file content. Its marker is:
 
 The body carries one marker per finding it reports. A run searches open and
 closed adopt issues, collects every marker, and files one issue per category
-containing only unseen findings. An unchanged tree files nothing. After a
-cleanup PR merges, rerun; a new finding gets one new issue for its category
-while earlier issues keep suppressing their own findings.
+containing only unseen findings. A category with more than 100 unseen findings
+is split across numbered issues so every finding is shown and marked. An
+unchanged tree files nothing. After a cleanup PR merges, rerun; a new finding
+gets one new issue for its category while earlier issues keep suppressing their
+own findings.
 
 ## Upstream Forks
 

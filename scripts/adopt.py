@@ -35,9 +35,10 @@ TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 SEARCH_PAGE_SIZE = 100
 SEARCH_MAX_PAGES = 10
 BATCH_SIZE = 100
-FINDING_LIMIT = 100
+CHUNK_SIZE = 100
 AGENTS_LINE_LIMIT = 120
 MAX_TEXT = 2_000_000
+TIMEOUT = 300
 SOURCE_ROOTS = {"src", "lib", "Sources", "cmd", "internal", "pkg"}
 SOURCE_SUFFIXES = {
     ".ts",
@@ -143,10 +144,16 @@ def digest(key):
 def run(arguments, cwd=None):
     try:
         return subprocess.run(  # nosec B603 B607 -- argument lists, never a shell
-            arguments, cwd=str(cwd) if cwd else None, capture_output=True, text=True
+            arguments,
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT,
         )
     except FileNotFoundError as error:
         problem(f"cannot run {arguments[0]}: {error}")
+    except subprocess.TimeoutExpired:
+        problem(f"{arguments[0]} timed out after {TIMEOUT}s")
 
 
 def gh(*arguments):
@@ -159,6 +166,14 @@ def gh(*arguments):
 
 def git(project, *arguments):
     return run(["git", "-C", str(project), *arguments])
+
+
+def git_out(project, *arguments):
+    result = git(project, *arguments)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        problem(f"git {arguments[0]} failed: {detail}")
+    return result.stdout
 
 
 def parse_json(text, label):
@@ -175,11 +190,14 @@ def valid_repo(value):
 
 
 def read_file(project, path):
+    target = project / path
     try:
-        data = (project / path).read_bytes()
-    except OSError:
-        return ""
+        data = target.read_bytes()
+    except OSError as error:
+        problem(f"cannot read {path}: {error}")
     if len(data) > MAX_TEXT:
+        problem(f"{path} is larger than {MAX_TEXT} bytes; adopt cannot inventory it")
+    if b"\0" in data[:1024]:
         return ""
     return data.decode("utf-8", "ignore")
 
@@ -252,7 +270,7 @@ def comment_findings(project, tracked):
     files = [path for path in tracked if not path.lower().endswith((".md", ".markdown"))]
     occurrences = {}
     for start in range(0, len(files), BATCH_SIZE):
-        batch = files[start : start + BATCH_SIZE]
+        batch = [f"./{path}" for path in files[start : start + BATCH_SIZE]]
         result = run(["sh", str(COMMENT_BAN), *batch], cwd=project)
         if result.returncode not in (0, 1):
             detail = (result.stderr or result.stdout).strip()
@@ -261,7 +279,7 @@ def comment_findings(project, tracked):
             match = COMMENT_RE.match(line.strip())
             if not match:
                 continue
-            path = match.group("path")
+            path = match.group("path").removeprefix("./")
             rule = comment_rule(match.group("message"))
             key = f"comments:{path}:{rule}"
             occurrences.setdefault(key, []).append(
@@ -572,11 +590,8 @@ def body_for(category, findings, repo, head):
             "",
         ]
     )
-    for item in findings[:FINDING_LIMIT]:
+    for item in findings:
         lines.append(f"- {code_span(item.display)}")
-    hidden = count - FINDING_LIMIT
-    if hidden > 0:
-        lines.append(f"- {hidden} more {noun} not shown.")
     lines.extend(
         [
             "",
@@ -588,6 +603,17 @@ def body_for(category, findings, repo, head):
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def markers_in_body(body):
+    found = []
+    for line in str(body).splitlines():
+        match = MARKER_RE.fullmatch(line.strip())
+        if match:
+            found.append((match.group(1), match.group(2)))
+        elif found:
+            break
+    return found
 
 
 def existing_markers(repo):
@@ -615,9 +641,8 @@ def existing_markers(repo):
             if data.get("incomplete_results") is True:
                 problem(f"{label} returned incomplete results")
             for item in items:
-                body = str(item.get("body") or "")
-                for match in MARKER_RE.finditer(body):
-                    seen.add((match.group(1), match.group(2)))
+                for category, identifier in markers_in_body(item.get("body") or ""):
+                    seen.add((category, identifier))
             if len(items) < SEARCH_PAGE_SIZE:
                 break
         else:
@@ -634,7 +659,7 @@ def show(text, stream):
     stream.flush()
 
 
-def settings(repo, apply):
+def apply_settings(repo, apply):
     command = [sys.executable, str(ROOT / "repo-settings.py"), repo]
     if apply:
         command.append("--apply")
@@ -687,15 +712,22 @@ def adopt(args):
     )
     topics = topics_payload.get("names") or []
     upstream = "factory-upstream-fork" in topics
-    drift = settings(repo, apply=not args.dry_run)
+    drift = apply_settings(repo, apply=not args.dry_run)
     if upstream:
         print(
             "adopt: Upstream Fork (topic factory-upstream-fork): upstream "
             "conventions win, so filing nothing."
         )
+        if drift:
+            print(
+                "adopt: repository settings still have unresolved drift; see "
+                "the repo-settings output above.",
+                file=sys.stderr,
+            )
+            return 1
         return 0
     seen = existing_markers(repo)
-    head = git(project, "rev-parse", "--short", "HEAD").stdout.strip()
+    head = git_out(project, "rev-parse", "--short", "HEAD").strip()
     filed = 0
     for category in CATEGORIES:
         findings = category["findings"](project, tracked)
@@ -715,23 +747,31 @@ def adopt(args):
             for item in unseen:
                 print(f"  {item.key}")
             continue
-        body = body_for(category, unseen, repo, head)
-        created = gh(
-            "issue",
-            "create",
-            "--repo",
-            repo,
-            "--title",
-            category["title"],
-            "--body",
-            body,
-            "--label",
-            category["state"],
-            "--label",
-            "enhancement",
-        )
-        print(f"adopt: filed {created.strip()}")
-        filed += 1
+        chunks = [
+            unseen[start : start + CHUNK_SIZE]
+            for start in range(0, len(unseen), CHUNK_SIZE)
+        ]
+        for number, chunk in enumerate(chunks, start=1):
+            title = category["title"]
+            if len(chunks) > 1:
+                title = f"{title} ({number}/{len(chunks)})"
+            body = body_for(category, chunk, repo, head)
+            created = gh(
+                "issue",
+                "create",
+                "--repo",
+                repo,
+                "--title",
+                title,
+                "--body",
+                body,
+                "--label",
+                category["state"],
+                "--label",
+                "enhancement",
+            )
+            print(f"adopt: filed {created.strip()}")
+            filed += 1
     if not args.dry_run and filed == 0:
         print("adopt: no new findings")
     if drift:
