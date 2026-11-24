@@ -156,6 +156,23 @@ set_github_origin "$tmp/fetch-root/fetch-fail" fetch-fail
 git -C "$tmp/fetch-root/fetch-fail" config http.proxy http://127.0.0.1:1
 git -C "$tmp/fetch-root/fetch-fail" config https.proxy http://127.0.0.1:1
 
+new_remote stale trunk
+clone_repo stale "$tmp/stale-root"
+printf 'one\n' >"$tmp/stale-root/stale/app.txt"
+commit_all "$tmp/stale-root/stale" "add the app"
+stale_base=$(git -C "$tmp/stale-root/stale" rev-parse HEAD)
+write_skill "$tmp/stale-root/stale" stale
+commit_all "$tmp/stale-root/stale" "add verify skill"
+printf 'two\n' >>"$tmp/stale-root/stale/app.txt"
+commit_all "$tmp/stale-root/stale" "change the app"
+stale_head=$(git -C "$tmp/stale-root/stale" rev-parse HEAD)
+set_github_origin "$tmp/stale-root/stale" stale
+git -C "$tmp/stale-root/stale" reset -q --hard "$stale_base"
+git -C "$tmp/stale-root/stale" update-ref -d refs/remotes/origin/trunk
+git -C "$tmp/stale-root/stale" remote set-url origin "git@github.com:ranokay/stale.git"
+printf '#!/bin/sh\nexec git-upload-pack "%s"\n' "$tmp/remotes/stale.git" >"$tmp/bin/stale-ssh"
+chmod +x "$tmp/bin/stale-ssh"
+
 run_maintenance() {
 	uv run --offline --no-project --no-config --python "$python" python "$root/scripts/verify-skill-maintenance.py" "$@"
 }
@@ -194,6 +211,14 @@ grep -q "<!-- factory:verify-maintenance head=$closed_after -->" "$GH_LOG" || fa
 run_maintenance --root "$tmp/no-head-root" --no-fetch >"$tmp/no-head-run" 2>"$tmp/no-head-err"
 grep -q 'has no head marker' "$tmp/no-head-err" || fail "a closed marker issue without a head did not warn"
 [ "$(grep -c '^create ranokay/no-head$' "$GH_LOG" || true)" -eq 1 ] || fail "a closed marker without a head did not fall back to the skill commit"
+
+: >"$GH_LOG"
+GIT_SSH_COMMAND="$tmp/bin/stale-ssh" run_maintenance --root "$tmp/stale-root" >"$tmp/stale-run"
+[ "$(grep -c '^create ranokay/stale$' "$GH_LOG" || true)" -eq 1 ] || fail "a stale checkout did not file from the fetched default branch"
+grep -q "<!-- factory:verify-maintenance head=$stale_head -->" "$GH_LOG" || fail "the stale checkout filed a stale head"
+[ ! -d "$tmp/stale-root/stale/.agents/skills/verify-stale" ] || fail "discovery checked the skill out into the worktree"
+[ -z "$(git -C "$tmp/stale-root/stale" status --porcelain)" ] || fail "discovery dirtied the worktree"
+git -C "$tmp/stale-root/stale" rev-parse --verify --quiet refs/remotes/origin/trunk >/dev/null || fail "the maintenance run did not fetch"
 
 : >"$GH_LOG"
 if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false run_maintenance --root "$tmp/fetch-root" --dry-run >"$tmp/fetch-out" 2>"$tmp/fetch-err"; then

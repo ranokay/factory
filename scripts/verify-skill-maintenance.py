@@ -94,11 +94,22 @@ def fetch(repo):
         raise RuntimeError(f"git fetch failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
-def verify_skills(repo):
-    root = repo / SKILL_ROOT
-    if not root.is_dir():
-        return []
-    return sorted(path.name for path in root.glob("verify-*") if (path / "SKILL.md").is_file())
+def verify_skills(repo, branch):
+    result = git(repo, "ls-tree", "-r", "--name-only", branch, "--", SKILL_ROOT)
+    if result.returncode != 0:
+        raise RuntimeError(f"cannot list {SKILL_ROOT} on {branch}: {result.stderr.strip()}")
+    root = SKILL_ROOT.split("/")
+    skills = set()
+    for line in result.stdout.splitlines():
+        parts = line.split("/")
+        if (
+            len(parts) == len(root) + 2
+            and parts[: len(root)] == root
+            and parts[-2].startswith("verify-")
+            and parts[-1] == "SKILL.md"
+        ):
+            skills.add(parts[-2])
+    return sorted(skills)
 
 
 def last_skill_commit(repo, branch, skills):
@@ -213,9 +224,6 @@ def main(argv=None):
         if not identity.startswith("github.com/ranokay/"):
             continue
         repo_slug = identity.removeprefix("github.com/")
-        skills = verify_skills(repo)
-        if not skills:
-            continue
         try:
             if not args.no_fetch:
                 fetch(repo)
@@ -225,6 +233,9 @@ def main(argv=None):
             head = git_out(repo, "rev-parse", "--verify", f"{branch}^{{commit}}")
             if not head:
                 raise RuntimeError(f"cannot resolve {branch}")
+            skills = verify_skills(repo, branch)
+            if not skills:
+                continue
             skill_commit = last_skill_commit(repo, branch, skills)
             recorded = closed_head(repo, repo_slug, branch)
             last = newer(repo, skill_commit, recorded)
