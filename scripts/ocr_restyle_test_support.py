@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse
+
+SCRIPT = Path(__file__).resolve().parent.parent / ".github/actions/ocr-review/restyle.py"
+sys.path.insert(0, str(SCRIPT.parent))
+SPEC = importlib.util.spec_from_file_location("ocr_restyle", SCRIPT)
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError("cannot load the restyler")
+restyle = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(restyle)
 
 
 class FakeGitHub:
@@ -178,3 +189,20 @@ The explanation names the failure and the line.
 ```suggestion
 subprocess.run(["git", "fetch"], check=True)
 ```"""
+
+
+def summary_for(result, links=None, policy=None, body=SUMMARY_BODY):
+    return restyle.rewrite_summary(
+        body,
+        result,
+        links or {},
+        {
+            "head": "abc1234def567890123456789abcdef0123456789",
+            "from": "def56789abcdef0123456789abcdef0123456789",
+            "to": "abc1234def567890123456789abcdef0123456789",
+            "version": "v1.14.0",
+            "model": "deepseek-v4.1-flash",
+            "effort": "high",
+        },
+        policy or restyle.build_policy("medium", "style,documentation"),
+    )

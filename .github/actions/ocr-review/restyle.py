@@ -24,7 +24,6 @@ from restyle_summary import (
     normalize,
     rewrite_inline,
     rewrite_summary,
-    strip_markers,
     title_of,
 )
 
@@ -145,7 +144,7 @@ def match_inline(
     for index, comment in enumerate(result.get("comments") or []):
         if is_diagram_carrier(comment):
             continue
-        content = strip_markers(str(comment.get("content") or "")).strip()
+        content = str(comment.get("content") or "").strip()
         expected = f"**{badge_of(comment)} · {title_of(comment)}**"
         match = inline_match(content, expected, posted, used)
         if match is None:
@@ -229,19 +228,43 @@ def find_summary(
     github: GitHub, repo: str, pr: Any, run_id: str, attempt: str
 ) -> dict[str, Any]:
     tag = f"<!-- ocr-summary-run:{run_id}-{attempt} -->"
-    found: dict[str, Any] | None = None
+    tagged: dict[str, Any] | None = None
+    candidates: list[dict[str, Any]] = []
+    malformed = 0
     for comment in github.paginate(f"/repos/{repo}/issues/{pr}/comments"):
         body = comment.get("body")
         if not isinstance(body, str) or SUMMARY_MARKER not in body:
             continue
+        if tag in body:
+            if tagged is not None:
+                raise RewriteError("more than one sticky summary carries this run's tag")
+            tagged = comment
+            continue
         # A clean run posts no findings, so OCR omits the per-run tag and only
         # the checkpoint carries its run id; see the zero-comment exit in
         # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/scripts/github-actions/post-review-comments.js
-        if tag in body or checkpoint_run(body) == run_id:
-            found = comment
-    if found is None:
-        raise RewriteError("no sticky summary comment for this run")
-    return found
+        # Any comment can quote the marker, so a corrupt checkpoint on a
+        # foreign comment means "not ours"; if nothing else matches, the count
+        # is named in the error instead of passing silently.
+        try:
+            ours = checkpoint_run(body) == run_id
+        except RewriteError:
+            malformed += 1
+            continue
+        if ours:
+            candidates.append(comment)
+    if tagged is not None:
+        return tagged
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise RewriteError("more than one sticky summary matches this run")
+    if malformed:
+        raise RewriteError(
+            "no sticky summary comment for this run "
+            f"({malformed} malformed candidate(s) ignored)"
+        )
+    raise RewriteError("no sticky summary comment for this run")
 
 
 def find_inline(
