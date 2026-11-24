@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess  # nosec B404 -- the tests run the local script with argv
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,8 +55,8 @@ class CommandLineTests(unittest.TestCase):
         # The audit rule flags the variable first argument; this test runs
         # the script with argv and no shell. See
         # https://semgrep.dev/r/python.lang.security.audit.dangerous-subprocess-use-audit
-        return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit  # nosec B603 -- local script, argv, no shell
-            [sys.executable, str(SCRIPT)],
+        return subprocess.run(  # nosec B603, B607 -- local script, argv, no shell
+            ["python3", str(SCRIPT)],
             env=env,
             capture_output=True,
             text=True,
