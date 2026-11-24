@@ -14,8 +14,9 @@ This skill runs on the frontier model `claudeAgent/claude-opus-5-5` at effort `m
 
 ## What it produces
 
-Before the pick: three concept SVGs and one preview page under
-`~/.cache/factory/<owner>/<repo>/brand-assets/`. Nothing enters the repository.
+Before the pick: three concept icons, three logo lockups and one preview page
+under `~/.cache/factory/<owner>/<repo>/brand-assets/`. Nothing enters the
+repository.
 
 After the pick: `assets/brand/icon.svg` and `assets/brand/logo.svg`, hand-built
 from primitives and Bezier curves, checked, and committed.
