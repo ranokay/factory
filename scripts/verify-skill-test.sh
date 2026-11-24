@@ -116,6 +116,12 @@ if ! output=$(check "$read_only"); then
 	fail "a read-only inventory failed: $output"
 fi
 
+plain=$(prepare plain)
+(cd "$plain" && env -u MISE_STATE_DIR -u MISE_CACHE_DIR -u MISE_DATA_DIR -u MISE_CONFIG_DIR -u MISE_GLOBAL_CONFIG_FILE mise trust -q mise.toml)
+if ! output=$(env -u MISE_STATE_DIR -u MISE_CACHE_DIR -u MISE_DATA_DIR -u MISE_CONFIG_DIR -u MISE_GLOBAL_CONFIG_FILE python3 "$root/scripts/verify-skill.py" --root "$plain"); then
+	fail "the checker failed without MISE state shielding: $output"
+fi
+
 stopped=$(prepare stopped)
 export VERIFY_COUNTER_STATE="$tmp/stopped-state" VERIFY_COUNTER_EVIDENCE="$tmp/stopped-evidence"
 mkdir -p "$VERIFY_COUNTER_EVIDENCE"
@@ -270,6 +276,27 @@ expect_failure dry-fails "a dry-run must succeed"
 dry_process=$(prepare dry-process)
 replace "$dry_process/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": True, "dry_run": True, "action": action})' 'return launch(False)'
 expect_failure dry-process "left a process running"
+
+stubborn=$(prepare stubborn)
+printf 'import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)\n' >"$stubborn/stubborn.py"
+replace "$stubborn/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": True, "dry_run": True, "action": action})' 'return subprocess.Popen([sys.executable, str(ROOT / "stubborn.py")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True) and emit({"ok": True, "dry_run": True, "action": action})'
+expect_failure stubborn "left a process running"
+if pgrep -f "$stubborn/stubborn.py" >/dev/null 2>&1; then
+	fail "a SIGTERM-ignoring leaked process survived the check"
+fi
+
+ps_bin="$tmp/ps-bin"
+mkdir -p "$ps_bin"
+printf '#!/bin/sh\nexit 1\n' >"$ps_bin/ps"
+chmod +x "$ps_bin/ps"
+ps_fail=$(prepare ps-fail)
+if output=$(PATH="$ps_bin:$PATH" check "$ps_fail" 2>&1); then
+	fail "a broken ps passed the dry-run process check"
+fi
+case $output in
+*'cannot inspect processes with ps'*) ;;
+*) fail "a broken ps did not fail loudly: $output" ;;
+esac
 
 doctor_no_ok=$(prepare doctor-no-ok)
 replace "$doctor_no_ok/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": False, "error": message, "alternative": alternative}, code)' 'return emit({"error": message, "alternative": alternative}, code)'

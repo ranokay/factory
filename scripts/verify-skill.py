@@ -220,10 +220,12 @@ def terminate_process(pid):
         return
     except OSError as error:
         problem(f"cannot stop leaked process {pid}: {error}")
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return
+    for _ in range(20):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.1)
     problem(f"leaked process {pid} survived SIGKILL")
 
 
