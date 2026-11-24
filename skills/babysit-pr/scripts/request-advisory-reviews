@@ -4,6 +4,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from merge_guard import is_outside  # noqa: E402 -- the Merge Guard ships beside this script
+
 
 def gh(*args):
     result = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
@@ -31,8 +34,7 @@ def main():
     conclusions = ", ".join(sorted({str(c.get("conclusion")) for c in matching}))
     print(f"AI Review completed: workflow={latest.get('conclusion')}, checks={conclusions}")
     reviews = [item for page in pages(f"{prefix}/pulls/{number}/reviews?per_page=100") for item in page]
-    config = json.loads((Path(__file__).resolve().parents[3] / "repo-settings.json").read_text())
-    outside = pr["head"]["repo"] is None or pr["head"]["repo"]["full_name"].lower() != repo.lower() or pr["user"]["login"].lower() not in {name.lower() for name in config["factory_authors"]}
+    outside = is_outside(pr, repo)
     owner_reviews = [r for r in reviews if r["user"]["login"].lower() == "ranokay" and r["state"] in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED")]
     approved = bool(owner_reviews) and owner_reviews[-1]["state"] == "APPROVED" and owner_reviews[-1].get("commit_id") == head
     if outside and not approved:

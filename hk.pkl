@@ -987,6 +987,26 @@ steps {
     }
   }
 
+  ["triage"] = new Step {
+    check = "python3 {{root}}/scripts/triage-test.py"
+    tests {
+      ["derives both outcomes and labels after the comment"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["merge"] = new Step {
+    check = "python3 {{root}}/skills/merge-pr/scripts/merge-test.py"
+    tests {
+      ["refuses an Outside Contributor and merges a factory PR"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
   ["block-issue"] = new Step {
     check = "sh {{root}}/skills/supervise/scripts/block-issue-test.sh"
     tests {

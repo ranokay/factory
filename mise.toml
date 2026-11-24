@@ -87,6 +87,8 @@ depends = [
   "profiles:fixtures",
   "run-slot:test",
   "block-issue:test",
+  "triage:test",
+  "merge:test",
   "file-promotion:test",
   "process-receipt:test",
   "evidence:test",
@@ -141,6 +143,14 @@ run = "sh scripts/profiles-fixtures.sh"
 [tasks."run-slot:test"]
 description = "Run the full-send run-slot tests"
 run = "hk test --step run-slot"
+
+[tasks."triage:test"]
+description = "Run the triage CLI tests"
+run = "hk test --step triage"
+
+[tasks."merge:test"]
+description = "Run the guarded merge tests"
+run = "hk test --step merge"
 
 [tasks."block-issue:test"]
 description = "Run the block-issue tests"
