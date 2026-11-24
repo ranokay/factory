@@ -8,7 +8,7 @@ Review for three things, in this order:
 
 Point each finding at the line and the failure it causes. Prefer one precise comment over several variations of the same idea. Check existing review threads before reporting, and do not repeat a finding they already cover.
 
-Begin every finding with a one-line bold title naming the failure, for example `**Stale checkouts skip maintenance**`, then a blank line and the explanation. The comment restyler turns that title into the bold badge line; never write the literal word Title in place of a title.
+Begin every finding with a one-line bold title naming the specific failure, then a blank line and the explanation. The comment restyler turns that title into the bold badge line. Never use a generic placeholder such as `**Title**` in place of a real title.
 
 Do not report:
 

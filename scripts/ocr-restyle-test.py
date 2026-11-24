@@ -9,18 +9,19 @@ import os
 import subprocess  # nosec B404 -- the tests run the local script with argv
 import sys
 import tempfile
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 
+from ocr_restyle_test_support import FakeGitHub, carrier, finding, ocr_result
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / ".github/actions/ocr-review/restyle.py"
+sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("ocr_restyle", SCRIPT)
-assert SPEC is not None and SPEC.loader is not None
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError("cannot load the restyler")
 restyle = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(restyle)
 
@@ -70,47 +71,6 @@ subprocess.run(["git", "fetch"], check=True)
 ```"""
 
 
-def finding(path="scripts/a.py", severity="high", category="bug", start=10, end=12, content=None):
-    return {
-        "path": path,
-        "content": content
-        or "**A finding title**\n\nThe explanation names the failure and the line.",
-        "suggestion_code": "subprocess.run(['git', 'fetch'], check=True)",
-        "existing_code": "pass",
-        "start_line": start,
-        "end_line": end,
-        "category": category,
-        "severity": severity,
-    }
-
-
-def carrier():
-    return {
-        "path": "REVIEW.md",
-        "content": "**Diagram**\n\n```mermaid\nflowchart LR\n  A[action] --> B[script]\n```",
-        "start_line": 1,
-        "end_line": 1,
-        "category": "documentation",
-        "severity": "low",
-    }
-
-
-def ocr_result(comments, message=None, warnings=None):
-    return {
-        "status": "complete",
-        "message": message or f"Review complete: {len(comments)} finding(s) across 5 selected item(s).",
-        "comments": comments,
-        "warnings": warnings or [],
-        "manifest": {
-            "input": {
-                "resolved_base": "def56789abcdef0123456789abcdef0123456789",
-                "resolved_head": "abc1234def567890123456789abcdef0123456789",
-            },
-            "execution": {"ocr_version": "v1.14.0", "model": "deepseek-v4.1-flash"},
-        },
-    }
-
-
 def summary_for(result, links=None, policy=None, body=SUMMARY_BODY):
     return restyle.rewrite_summary(
         body,
@@ -119,91 +79,6 @@ def summary_for(result, links=None, policy=None, body=SUMMARY_BODY):
         {"head": "abc1234def567890123456789abcdef0123456789", "from": "def56789abcdef0123456789abcdef0123456789", "to": "abc1234def567890123456789abcdef0123456789", "version": "v1.14.0", "model": "deepseek-v4.1-flash", "effort": "high"},
         policy or restyle.build_policy("medium", "style,documentation"),
     )
-
-
-class FakeGitHub:
-    def __init__(self):
-        self.issue_comments = []
-        self.review_comments = []
-        self.patches = []
-        self.fail_path = ""
-        self.fail_once = False
-        outer = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
-
-            def do_GET(self):
-                path = urlparse(self.path).path
-                if path == "/repos/o/r/issues/7/comments":
-                    outer.reply(self, outer.issue_comments)
-                elif path == "/repos/o/r/pulls/7/comments":
-                    outer.reply(self, outer.review_comments)
-                else:
-                    outer.reply(self, {"message": "not found"}, 404)
-
-            def do_PATCH(self):
-                path = urlparse(self.path).path
-                length = int(self.headers.get("Content-Length", 0))
-                payload = json.loads(self.rfile.read(length) or b"{}")
-                if outer.fail_once and path == outer.fail_path:
-                    outer.fail_once = False
-                    outer.reply(self, {"message": "forced failure"}, 500)
-                    return
-                outer.patches.append((path, payload["body"]))
-                if path.startswith("/repos/o/r/issues/comments/"):
-                    ident = int(path.rsplit("/", 1)[1])
-                    for comment in outer.issue_comments:
-                        if comment["id"] == ident:
-                            comment["body"] = payload["body"]
-                elif path.startswith("/repos/o/r/pulls/comments/"):
-                    ident = int(path.rsplit("/", 1)[1])
-                    for comment in outer.review_comments:
-                        if comment["id"] == ident:
-                            comment["body"] = payload["body"]
-                else:
-                    outer.reply(self, {"message": "not found"}, 404)
-                    return
-                outer.reply(self, {"id": ident})
-
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-
-    @staticmethod
-    def reply(handler, payload, status=200):
-        body = json.dumps(payload).encode("utf-8")
-        handler.send_response(status)
-        handler.send_header("Content-Type", "application/json")
-        handler.send_header("Content-Length", str(len(body)))
-        handler.end_headers()
-        handler.wfile.write(body)
-
-    @property
-    def url(self):
-        host, port = self.server.server_address
-        return f"http://{host}:{port}"
-
-    def close(self):
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join()
-
-    def seed(self):
-        self.issue_comments.append(
-            {"id": 1, "body": SUMMARY_BODY, "html_url": "https://example.test/issues/1"}
-        )
-        self.review_comments.append(
-            {
-                "id": 2,
-                "body": INLINE_BODY,
-                "html_url": "https://example.test/pull/7#discussion_r2",
-                "path": "scripts/a.py",
-                "line": 12,
-                "start_line": 10,
-            }
-        )
 
 
 class RestyleTests(unittest.TestCase):
@@ -269,13 +144,19 @@ class RestyleTests(unittest.TestCase):
         for marker in restyle.markers(SUMMARY_BODY):
             self.assertIn(marker, body)
 
-    def test_inline_matching_accepts_posted_comments_without_an_id(self):
-        result = ocr_result([finding(), finding(path="scripts/b.py", start=20, end=20)])
+    def test_inline_matching_uses_content_to_disambiguate_titles(self):
+        first = finding(content="**Same title**\n\nFirst explanation.")
+        second = finding(
+            path="scripts/b.py",
+            start=20,
+            end=20,
+            content="**Same title**\n\nSecond explanation.",
+        )
         posted = [
-            {"body": INLINE_BODY, "html_url": "u1"},
-            {"body": INLINE_BODY, "html_url": "u2"},
+            {"body": "**Same title**\n\nSecond explanation.", "html_url": "u2"},
+            {"body": "**Same title**\n\nFirst explanation.", "html_url": "u1"},
         ]
-        links, pairs = restyle.match_inline(result, posted)
+        links, pairs = restyle.match_inline(ocr_result([first, second]), posted)
         self.assertEqual(links, {0: "u1", 1: "u2"})
         self.assertEqual(len(pairs), 2)
 
@@ -400,7 +281,7 @@ class CommandLineTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.result_path = Path(directory.name) / "result.json"
-        self.github.seed()
+        self.github.seed(SUMMARY_BODY, INLINE_BODY)
 
     def run_cli(self, environment=None):
         env = {
@@ -410,7 +291,7 @@ class CommandLineTests(unittest.TestCase):
             "GITHUB_RUN_ID": "1",
             "GITHUB_RUN_ATTEMPT": "1",
             "PR_NUMBER": "7",
-            "GITHUB_TOKEN": "test-token",
+            "GITHUB_TOKEN": "unused",  # nosec B105
             "OCR_RESULT": str(self.result_path),
             "OCR_ROUTE_SEVERITY_BELOW": "medium",
             "OCR_ROUTE_CATEGORIES": "style,documentation",
@@ -419,7 +300,8 @@ class CommandLineTests(unittest.TestCase):
             "OCR_VERSION": "1.14.0",
         }
         env.update(environment or {})
-        return subprocess.run(  # nosec B603 -- local script, argv, no shell
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        return subprocess.run(  # nosec B603
             [sys.executable, str(SCRIPT)],
             env=env,
             capture_output=True,
