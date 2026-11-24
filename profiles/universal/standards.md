@@ -55,7 +55,7 @@ Verify assertions in permitted comments and update or remove them when behaviour
 - The only Markdown the repo authors is `README.md`, `AGENTS.md`, `GLOSSARY.md`, `REVIEW.md` (the AI Review rule file), `docs/adr/`, a Profile's `standards.md`, the `verify-<app>` skill, and `skills/<name>/` for an Own Skill, meaning a skill authored in this repo and absent from `skills.lock`. Markdown under directories recorded in `skills.lock` is vendored verbatim and excluded from that rule.
 - Write an ADR only for a decision that is hard to reverse, surprising without context, and the result of a real trade-off.
 - Never commit scratch, generated reports, evidence or temporary files.
-- `mise run check` is the only Gate command. Never bypass hooks.
+- `mise run check` runs every Gate; the CI `Lint`, `Security` and `Tests` jobs run its three parts (`check:lint`, `check:security`, `check:test`). Never bypass hooks.
 
 
 ## Git and review

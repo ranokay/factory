@@ -7,7 +7,7 @@ local const commentBan = "{% raw %}" + read("scripts/comment-ban.sh").text + "{%
 local const pinactScript = read("scripts/pinact.sh").text
 local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")
 
-// Inline so a repository that amends this Profile by URL needs no profiles/universal/scripts path.
+// Inline so a repository that amends this Profile by URL needs no profiles/universal/scripts path; see https://hk.jdx.dev/configuration#share-configuration.
 local const gateGroups = """
   set -eu
 
@@ -58,6 +58,19 @@ local const gateGroups = """
   fi
 
   printf 'gate-groups: every step is in exactly one of: %s\n' "$groups"
+  """
+
+local const gitInit = "unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; git init -q"
+local function gateGroupsFixture(steps: String): String = """
+  amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+  steps = new Mapping<String, Step | Group> {
+  \(steps)
+  }
+  hooks {
+    ["lint"] { steps = (outer.steps["lint"] as Group).steps }
+    ["security"] { steps = (outer.steps["security"] as Group).steps }
+    ["tests"] { steps = (outer.steps["tests"] as Group).steps }
+  }
   """
 
 steps = new Mapping<String, Step | Group> {
@@ -270,21 +283,13 @@ steps = new Mapping<String, Step | Group> {
           ["accepts every step in exactly one group"] {
             run = "check"
             tmpdir = true
-            before = "unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; git init -q"
+            before = gitInit
             write {
-              ["hk.pkl"] = """
-                amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
-                steps = new Mapping<String, Step | Group> {
-                  ["lint"] = new Group { steps { ["lint-one"] = new Step { check = "true" } } }
-                  ["security"] = new Group { steps { ["security-one"] = new Step { check = "true" } } }
-                  ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
-                }
-                hooks {
-                  ["lint"] { steps = (outer.steps["lint"] as Group).steps }
-                  ["security"] { steps = (outer.steps["security"] as Group).steps }
-                  ["tests"] { steps = (outer.steps["tests"] as Group).steps }
-                }
-                """
+              ["hk.pkl"] = gateGroupsFixture("""
+                ["lint"] = new Group { steps { ["lint-one"] = new Step { check = "true" } } }
+                ["security"] = new Group { steps { ["security-one"] = new Step { check = "true" } } }
+                ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
+                """)
             }
             expect {
               code = 0
@@ -294,22 +299,14 @@ steps = new Mapping<String, Step | Group> {
           ["rejects a step in no group"] {
             run = "check"
             tmpdir = true
-            before = "unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; git init -q"
+            before = gitInit
             write {
-              ["hk.pkl"] = """
-                amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
-                steps = new Mapping<String, Step | Group> {
-                  ["lint"] = new Group { steps { ["lint-one"] = new Step { check = "true" } } }
-                  ["security"] = new Group { steps { ["security-one"] = new Step { check = "true" } } }
-                  ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
-                  ["stray"] = new Step { check = "true" }
-                }
-                hooks {
-                  ["lint"] { steps = (outer.steps["lint"] as Group).steps }
-                  ["security"] { steps = (outer.steps["security"] as Group).steps }
-                  ["tests"] { steps = (outer.steps["tests"] as Group).steps }
-                }
-                """
+              ["hk.pkl"] = gateGroupsFixture("""
+                ["lint"] = new Group { steps { ["lint-one"] = new Step { check = "true" } } }
+                ["security"] = new Group { steps { ["security-one"] = new Step { check = "true" } } }
+                ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
+                ["stray"] = new Step { check = "true" }
+                """)
             }
             expect {
               code = 1
@@ -319,21 +316,13 @@ steps = new Mapping<String, Step | Group> {
           ["rejects a step in two groups"] {
             run = "check"
             tmpdir = true
-            before = "unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; git init -q"
+            before = gitInit
             write {
-              ["hk.pkl"] = """
-                amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
-                steps = new Mapping<String, Step | Group> {
-                  ["lint"] = new Group { steps { ["shared"] = new Step { check = "true" } } }
-                  ["security"] = new Group { steps { ["shared"] = new Step { check = "true" } } }
-                  ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
-                }
-                hooks {
-                  ["lint"] { steps = (outer.steps["lint"] as Group).steps }
-                  ["security"] { steps = (outer.steps["security"] as Group).steps }
-                  ["tests"] { steps = (outer.steps["tests"] as Group).steps }
-                }
-                """
+              ["hk.pkl"] = gateGroupsFixture("""
+                ["lint"] = new Group { steps { ["shared"] = new Step { check = "true" } } }
+                ["security"] = new Group { steps { ["shared"] = new Step { check = "true" } } }
+                ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
+                """)
             }
             expect {
               code = 1
