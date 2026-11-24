@@ -113,7 +113,7 @@ depends = [
   "codacy-gate:test",
   "sync-upstream:test",
 ]
-run = ["hk run tests -S gate-groups --all", "hk test --step comment-ban", "hk test --step pinact", "hk test --step gate-groups", "hk test --step renovate-managers-test", "hk test --step renovate-re2-test"]
+run = ["hk run tests --all", "hk test --step comment-ban", "hk test --step pinact", "hk test --step gate-groups", "hk test --step renovate-managers-test", "hk test --step renovate-re2-test"]
 
 [tasks."check:gates"]
 description = "Run every hk step"
