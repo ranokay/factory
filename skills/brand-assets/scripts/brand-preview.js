@@ -5,7 +5,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const SIZES = [16, 32, 64, 128, 256, 512, 1024];
-const MAX_CONCEPTS = 6;
 
 const USAGE = `Usage: brand-preview.js --output <file> --title <title> --concept <name>=<svg> [--concept ...] [--lockup <name>=<svg>] [--note <name>=<text>] [--subtitle <text>] [--site <host>]
 
@@ -93,6 +92,9 @@ function loadSvg(file) {
   }
   if (/<foreignObject[\s>]/i.test(source)) {
     throw new Error(`${file}: contains <foreignObject>`);
+  }
+  if (/<text[\s>]/i.test(source)) {
+    throw new Error(`${file}: contains <text>; outline the wordmark as paths`);
   }
   if (/data:[a-z0-9.+-]+\//i.test(source) || /;base64,/i.test(source)) {
     throw new Error(`${file}: contains a data URI`);
@@ -218,8 +220,8 @@ function main(argv) {
     process.stderr.write("brand-preview: --output and --title are required\n");
     return 1;
   }
-  if (options.concepts.length === 0 || options.concepts.length > MAX_CONCEPTS) {
-    process.stderr.write(`brand-preview: pass between 1 and ${MAX_CONCEPTS} --concept values\n`);
+  if (options.concepts.length === 0) {
+    process.stderr.write("brand-preview: pass at least one --concept\n");
     return 1;
   }
   const names = new Set();

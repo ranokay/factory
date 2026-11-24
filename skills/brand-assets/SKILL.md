@@ -21,8 +21,8 @@ After the pick: `assets/brand/icon.svg` and `assets/brand/logo.svg`, hand-built
 from primitives and Bezier curves, checked, and committed.
 
 Platform exports (`.icns`, `.icon`, xcassets, favicon and `.ico`, PNG sizes, OG
-image, README header, store artwork) and `mise run assets` are story 101 and out
-of scope. Do not create or hand-edit them.
+image, README header, store artwork) and `mise run assets` are out of scope for
+this skill; they belong to a later issue. Do not create or hand-edit them.
 
 ## 1. Brief
 

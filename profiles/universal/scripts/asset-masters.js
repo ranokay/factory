@@ -22,8 +22,8 @@ Check brand masters for embedded rasters and traced staircase paths.
 With no files, checks assets/brand/**/*.svg in the current directory.
 
 Rules:
-  - reject <image>, <foreignObject>, <script>, data URIs and base64 payloads
-  - reject raster or external href/src references
+  - reject <image>, <foreignObject>, <script> and <text>
+  - reject data URIs, base64 payloads and empty, raster or external href/src references
   - reject ${SHORT_RUN} or more consecutive short axis-aligned segments
     (short means at most 0.5% of the longest viewBox side, and at least 0.5)
   - reject a single path over ${PATH_BUDGET} drawing commands
@@ -133,6 +133,14 @@ function endpoint(segment, current) {
   }
 }
 
+function axisAlignedRun(run, previous, next, short) {
+  const dx = next.x - previous.x;
+  const dy = next.y - previous.y;
+  const length = Math.hypot(dx, dy);
+  const axisAligned = Math.abs(dx) <= EPSILON || Math.abs(dy) <= EPSILON;
+  return axisAligned && length > EPSILON && length <= short ? run + 1 : 0;
+}
+
 function hasStaircase(segments, short) {
   let start = { x: 0, y: 0 };
   let current = start;
@@ -146,17 +154,9 @@ function hasStaircase(segments, short) {
     }
     const next = endpoint(segment, current);
     if (lower === "l" || lower === "h" || lower === "v") {
-      const dx = next.x - current.x;
-      const dy = next.y - current.y;
-      const length = Math.hypot(dx, dy);
-      const axisAligned = Math.abs(dx) <= EPSILON || Math.abs(dy) <= EPSILON;
-      if (axisAligned && length > EPSILON && length <= short) {
-        run += 1;
-        if (run >= SHORT_RUN) {
-          return true;
-        }
-      } else {
-        run = 0;
+      run = axisAlignedRun(run, current, next, short);
+      if (run >= SHORT_RUN) {
+        return true;
       }
     } else {
       run = 0;
@@ -184,17 +184,9 @@ function pointPairs(source) {
 function hasPolygonStaircase(points, short) {
   let run = 0;
   for (let index = 1; index < points.length; index += 1) {
-    const dx = points[index].x - points[index - 1].x;
-    const dy = points[index].y - points[index - 1].y;
-    const length = Math.hypot(dx, dy);
-    const axisAligned = Math.abs(dx) <= EPSILON || Math.abs(dy) <= EPSILON;
-    if (axisAligned && length > EPSILON && length <= short) {
-      run += 1;
-      if (run >= SHORT_RUN) {
-        return true;
-      }
-    } else {
-      run = 0;
+    run = axisAlignedRun(run, points[index - 1], points[index], short);
+    if (run >= SHORT_RUN) {
+      return true;
     }
   }
   return false;
@@ -226,11 +218,18 @@ function checkSource(source) {
     if (local === "script") {
       problems.add("contains <script>");
     }
+    if (local === "text") {
+      problems.add("contains <text>; outline the wordmark as paths");
+    }
     for (const [name, value] of Object.entries(tag.attributes)) {
       const localName = name.split(":").pop();
       if (localName === "href" || localName === "src") {
         const reference = value.trim();
-        if (reference.startsWith("#") || reference === "") {
+        if (reference.startsWith("#")) {
+          continue;
+        }
+        if (reference === "") {
+          problems.add("has an empty href");
           continue;
         }
         if (DATA_URI.test(reference)) {
