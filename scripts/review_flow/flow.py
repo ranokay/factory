@@ -4,13 +4,11 @@ import json
 
 
 def load_findings(path: str) -> list[dict]:
-    with open(path, encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def notify(channel: str, text: str) -> None:
-    with open(channel, "w", encoding="utf-8") as handle:
-        handle.write(text + "\n")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return []
 
 
 def summarise(findings: list[dict]) -> dict[str, int]:
