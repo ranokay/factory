@@ -62,8 +62,7 @@ class TriageCase(unittest.TestCase):
             }
         )
         (home / "config/mise/config.toml").write_text("")
-        # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- mise from PATH for the fixture
-        result = subprocess.run(  # nosec B603 B607 -- mise from PATH for the fixture
+        result = subprocess.run(  # nosec B603 B607 -- mise from PATH for the fixture  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- mise from PATH for the fixture
             ["mise", "trust", "-q", "mise.toml"], cwd=str(self.project), env=self.env, capture_output=True, text=True
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -89,8 +88,7 @@ class TriageCase(unittest.TestCase):
             self.comment.unlink()
 
     def triage(self, *arguments, env=None):
-        # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- this checkout's triage CLI
-        return subprocess.run(  # nosec B603 -- this checkout's triage CLI
+        return subprocess.run(  # nosec B603 -- this checkout's triage CLI  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's triage CLI
             [sys.executable, str(TRIAGE), *arguments],
             cwd=str(ROOT),
             env=env or self.env,
@@ -108,8 +106,7 @@ class TriageCase(unittest.TestCase):
         return Path(self.env["HOME"]) / ".cache/factory/o/one/issue-6"
 
     def doctor(self):
-        # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- the fixture's mise task
-        return subprocess.run(  # nosec B603 B607 -- the fixture's mise task
+        return subprocess.run(  # nosec B603 B607 -- the fixture's mise task  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture's mise task
             ["mise", "run", "verify:counter", "--", "doctor"],
             cwd=str(self.project),
             env=self.env,
