@@ -347,7 +347,8 @@ class SyncUpstream(SyncFixture):
         repo, _ = self.command_fixture(check_runs=[{"name": name, "status": "completed", "conclusion": "success"} for name in ("Security", "Tests", "OCR")])
         result = self.merge_command(repo)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("required check Lint has no result", result.stderr)
+        reported = sorted(line.split("required check ", 1)[1].split(" has no result", 1)[0] for line in result.stderr.splitlines() if "has no result" in line)
+        self.assertEqual(reported, ["Lint"])
 
     def test_merge_command_blocks_a_pending_status(self):
         repo, _ = self.command_fixture(statuses=[{"context": "Codacy Static Code Analysis", "state": "pending"}])
@@ -377,9 +378,10 @@ class SyncUpstream(SyncFixture):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_merge_command_accepts_a_required_check_from_a_status(self):
-        repo, _ = self.command_fixture(statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}])
+        repo, _ = self.command_fixture(statuses=[{"context": "Tests", "state": "success"}, {"context": "Codacy Static Code Analysis", "state": "success"}])
         state = json.loads(self.repo_file.read_text())
         state["applied_rules"] = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Tests"}, {"context": "Codacy Static Code Analysis"}]}}]
+        state["check_runs"][state["head"]] = [{"name": name, "status": "completed", "conclusion": "success"} for name in ("Lint", "Security", "OCR")]
         self.repo_file.write_text(json.dumps(state))
         result = self.merge_command(repo)
         self.assertEqual(result.returncode, 0, result.stderr)
