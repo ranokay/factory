@@ -91,8 +91,8 @@ Readiness requires all of:
 
 Hosted AI reviews are optional until `request-advisory-reviews` requests them.
 This skill never performs the bounded wait; a requested reviewer still pending
-on the head means the PR returns to `babysit-pr`. Inspect available findings and
-respect actual forge-enforced protections.
+for its request means the PR returns to `babysit-pr`. Inspect available findings
+and respect actual forge-enforced protections.
 
 Inside a Factory Run, the Verification Evidence is the single `evidence`
 comment on the PR. Its Run receipt takes the Worker model and variant from the

@@ -152,6 +152,17 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (review skipped)", result.stdout)
 
+    def test_an_auto_reviewer_response_before_the_head_stays_pending(self):
+        result = self.invoke(state(head_date="2026-11-24T04:00:00Z", comments=[CODERABBIT_SKIP]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("coderabbit: pending", result.stdout)
+
+    def test_a_request_without_a_timestamp_is_an_error(self):
+        marker = {"user": {"login": "ranokay"}, "body": "<!-- factory:advisory-review:greptile -->"}
+        result = self.invoke(state(comments=[marker]))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("request has no created_at", result.stderr)
+
     def test_coderabbit_rate_limit_is_terminal(self):
         result = self.invoke(state(comments=[CODERABBIT_RATE_LIMIT]))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -159,6 +170,11 @@ class AdvisoryReviewStatus(unittest.TestCase):
 
     def test_rate_limit_before_the_request_stays_pending(self):
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_RATE_LIMIT]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("coderabbit: pending", result.stdout)
+
+    def test_a_skip_before_the_request_stays_pending(self):
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_SKIP]))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
 

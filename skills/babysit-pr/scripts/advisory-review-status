@@ -59,17 +59,23 @@ def skip_reason(name, item):
 
 def request_anchor(name, comments, timeline):
     spec = REVIEWERS[name]
-    stamps = []
+    requests = []
     if spec["marker"]:
-        stamps += [item.get("created_at") for item in comments if spec["marker"] in (item.get("body") or "")]
+        requests += [item for item in comments if spec["marker"] in (item.get("body") or "")]
     if spec["timeline"]:
-        stamps += [
-            item.get("created_at")
+        requests += [
+            item
             for item in timeline
             if item.get("event") == "review_requested"
             and is_reviewer((item.get("requested_reviewer") or {}).get("login"), name)
         ]
-    return max((stamp for stamp in stamps if stamp), default=None)
+    stamps = []
+    for item in requests:
+        created = item.get("created_at")
+        if not created:
+            raise Problem(f"{name} request has no created_at")
+        stamps.append(created)
+    return max(stamps, default=None)
 
 
 def reviewer_state(name, head, head_date, reviews, comments, timeline):
