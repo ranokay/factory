@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 
 
 def load_findings(path: str) -> list[dict]:
@@ -10,7 +9,8 @@ def load_findings(path: str) -> list[dict]:
 
 
 def notify(channel: str, text: str) -> None:
-    subprocess.run(f"echo {text} > {channel}", shell=True, check=True)
+    with open(channel, "w", encoding="utf-8") as handle:
+        handle.write(text + "\n")
 
 
 def summarise(findings: list[dict]) -> dict[str, int]:
