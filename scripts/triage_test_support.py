@@ -25,8 +25,6 @@ See [the reproduction script](scripts/pwn.sh) and ping @someone.
 GH = (ROOT / "scripts/fixtures/triage/gh").read_text()
 
 
-
-
 class TriageCase(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -64,7 +62,7 @@ class TriageCase(unittest.TestCase):
             }
         )
         (home / "config/mise/config.toml").write_text("")
-        # nosemgrep
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- mise from PATH for the fixture
         result = subprocess.run(  # nosec B603 B607 -- mise from PATH for the fixture
             ["mise", "trust", "-q", "mise.toml"], cwd=str(self.project), env=self.env, capture_output=True, text=True
         )
@@ -91,7 +89,7 @@ class TriageCase(unittest.TestCase):
             self.comment.unlink()
 
     def triage(self, *arguments, env=None):
-        # nosemgrep
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- this checkout's triage CLI
         return subprocess.run(  # nosec B603 -- this checkout's triage CLI
             [sys.executable, str(TRIAGE), *arguments],
             cwd=str(ROOT),
@@ -110,7 +108,7 @@ class TriageCase(unittest.TestCase):
         return Path(self.env["HOME"]) / ".cache/factory/o/one/issue-6"
 
     def doctor(self):
-        # nosemgrep
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- the fixture's mise task
         return subprocess.run(  # nosec B603 B607 -- the fixture's mise task
             ["mise", "run", "verify:counter", "--", "doctor"],
             cwd=str(self.project),

@@ -108,8 +108,8 @@ def fetch_issue(repo, issue):
 def run_mise(project, task, arguments):
     command = ["mise", "run", task, "--", *arguments]
     try:
-        # nosemgrep
-        return subprocess.run(  # nosec B603 B607 -- the project's own mise task and argv; nosemgrep
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- the project's own mise task
+        return subprocess.run(  # nosec B603 B607 -- the project's own mise task and argv
             command, cwd=str(project), capture_output=True, text=True, timeout=TIMEOUT
         )
     except subprocess.TimeoutExpired:

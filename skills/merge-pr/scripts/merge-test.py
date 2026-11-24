@@ -36,7 +36,7 @@ if args[:1] == ["api"]:
             "repo": None if state.get("deleted") else {"full_name": state.get("head_repo", "o/r")},
         },
         "merged": state.get("merged", True),
-        "state": "merged" if state.get("merged", True) else "open",
+        "state": "closed" if state.get("merged", True) else "open",
     }))
 elif args[:2] == ["pr", "merge"]:
     if state.get("merge_fail"):
@@ -75,7 +75,7 @@ class Merge(unittest.TestCase):
         self.marker.unlink(missing_ok=True)
 
     def merge(self, *arguments):
-        # nosemgrep
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- this checkout's merge script
         return subprocess.run(  # nosec B603 -- this checkout's merge script
             [sys.executable, str(MERGE), "o/r", "7", "--head", SHA, *arguments],
             env=self.env,
@@ -161,7 +161,7 @@ class Merge(unittest.TestCase):
                 self.assertEqual(self.calls(), [])
 
     def test_short_head_is_refused(self):
-        # nosemgrep
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- this checkout's merge script
         result = subprocess.run(  # nosec B603 -- this checkout's merge script
             [sys.executable, str(MERGE), "o/r", "7", "--head", "abc", "--squash"],
             env=self.env,

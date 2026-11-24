@@ -73,7 +73,7 @@ def merge(args):
     except json.JSONDecodeError:
         print(f"merge requested for {args.repo}#{args.pr} at {args.head}; state unknown")
         return
-    if payload.get("merged") is True or payload.get("state") == "merged":
+    if payload.get("merged") is True:
         print(f"merged {args.repo}#{args.pr} at {args.head}")
     else:
         print(
