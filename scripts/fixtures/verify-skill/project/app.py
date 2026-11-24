@@ -37,9 +37,6 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_json(404, {"error": "not found"})
 
-    def log_message(self, fmt, *args):
-        pass
-
 
 def main():
     parser = argparse.ArgumentParser()
