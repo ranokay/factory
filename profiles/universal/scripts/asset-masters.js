@@ -11,7 +11,7 @@ const COMMAND_PARAMS = { m: 2, l: 2, h: 1, v: 1, c: 6, s: 4, q: 4, t: 2, a: 7, z
 const RASTER_EXTENSION = /\.(?:png|jpe?g|gif|webp|bmp|tiff?|avif|heic|ico)(?:[?#].*)?$/i;
 const DATA_URI = /data:[a-z0-9.+-]+\//i;
 const BASE64 = /;base64,/i;
-const EXTERNAL_URL = /url\(\s*['"]?(?:https?:|file:)/i;
+const EXTERNAL_URL = /url\(\s*['"]?(?!#)/i;
 const TAG = /<([A-Za-z][\w:.-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
 const ATTRIBUTE = /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const PATH_TOKEN = /([MmZzLlHhVvCcSsQqTtAa])|([-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?)/g;
@@ -197,6 +197,9 @@ function checkSource(source) {
   if (!/<svg[\s>]/i.test(source)) {
     problems.add("is not an SVG document");
   }
+  if (!/<svg\b[^>]*\bviewBox\s*=\s*["'][^"']+["']/i.test(source)) {
+    problems.add("has no viewBox");
+  }
   if (DATA_URI.test(source)) {
     problems.add("contains a data URI");
   }
@@ -331,4 +334,8 @@ function main(argv) {
   return 0;
 }
 
-process.exitCode = main(process.argv.slice(2));
+module.exports = { checkFile, checkSource, main };
+
+if (require.main === module || process.argv[1] === "asset-masters") {
+  process.exitCode = main(process.argv.slice(2));
+}

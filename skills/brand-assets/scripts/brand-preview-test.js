@@ -42,7 +42,8 @@ try {
   const orbit = write("orbit.svg", svg("#2563eb"));
   const fold = write("fold.svg", svg("#16a34a"));
   const signal = write("signal.svg", svg("#ea580c"));
-  const orbitLockup = write("orbit-lockup.svg", lockup("#2563eb"));  const foldLockup = write("fold-lockup.svg", lockup("#16a34a"));
+  const orbitLockup = write("orbit-lockup.svg", lockup("#2563eb"));
+  const foldLockup = write("fold-lockup.svg", lockup("#16a34a"));
   const signalLockup = write("signal-lockup.svg", lockup("#ea580c"));
   const output = path.join(workspace, "out", "preview.html");
   const args = [
@@ -105,7 +106,7 @@ try {
   assert.equal((markerHtml.match(/<section class="concept"/g) ?? []).length, 1);
 
   const noViewBox = write("no-viewbox.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n");
-  expectFailure(fails(["--title", "Bad", "--concept", `No=${noViewBox}`, "--output", path.join(workspace, "bad.html")]), "needs a viewBox");
+  expectFailure(fails(["--title", "Bad", "--concept", `No=${noViewBox}`, "--output", path.join(workspace, "bad.html")]), "has no viewBox");
 
   const defaults = path.join(workspace, "out", "defaults.html");
   run(["--title", "Defaults", "--concept", `Orbit=${orbit}`, "--output", defaults]);
@@ -119,7 +120,10 @@ try {
   expectFailure(fails(["--title", "Bad", "--concept", `Text=${texted}`, "--output", path.join(workspace, "bad.html")]), "contains <text>");
 
   const external = write("external.svg", svg("#111827", '<image href="logo.png" width="8" height="8"/>'));
-  expectFailure(fails(["--title", "Bad", "--concept", `External=${external}`, "--output", path.join(workspace, "bad.html")]), "references an external asset");
+  expectFailure(fails(["--title", "Bad", "--concept", `External=${external}`, "--output", path.join(workspace, "bad.html")]), "contains <image>");
+
+  const externalUrl = write("external-url.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\" fill=\"url(sprite.svg#p)\"/></svg>\n");
+  expectFailure(fails(["--title", "Bad", "--concept", `Url=${externalUrl}`, "--output", path.join(workspace, "bad.html")]), "references an external stylesheet or URL");
 
   expectFailure(fails(["--title", "Bad", "--concept", `Missing=${path.join(workspace, "missing.svg")}`, "--output", path.join(workspace, "bad.html")]), "cannot read");
 

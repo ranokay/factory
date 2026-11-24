@@ -4,13 +4,16 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+// The skill ships inside the Factory checkout, so it uses the profile's one master contract rather than a second copy.
+const { checkSource } = require(path.join(__dirname, "../../../profiles/universal/scripts/asset-masters.js"));
+
 const SIZES = [16, 32, 64, 128, 256, 512, 1024];
 
 const USAGE = `Usage: brand-preview.js --output <file> --title <title> --concept <name>=<svg> [--concept ...] [--lockup <name>=<svg>] [--note <name>=<text>] [--subtitle <text>] [--site <host>]
 
 Render brand concepts as one self-contained HTML page.
 Pass one --concept per direction; the skill passes three. Add one --lockup per direction to show its logo lockup.
-Each SVG must have a viewBox and no script, foreignObject, data URI or external reference.`;
+Each SVG must pass the brand master checker (viewBox, primitives and Bezier curves, no raster or external references).`;
 
 function escapeHtml(value) {
   return String(value)
@@ -81,29 +84,9 @@ function loadSvg(file) {
     throw new Error(`${file}: cannot read: ${error.message}`);
   }
   source = source.replace(/^<\?xml[^>]*\?>\s*/i, "").replace(/^<!DOCTYPE[^>]*>\s*/i, "").trim();
-  if (!/<svg[\s>]/i.test(source)) {
-    throw new Error(`${file}: not an SVG document`);
-  }
-  if (!/<svg\b[^>]*\bviewBox\s*=\s*["'][^"']+["']/i.test(source)) {
-    throw new Error(`${file}: the root <svg> needs a viewBox`);
-  }
-  if (/<script[\s>]/i.test(source)) {
-    throw new Error(`${file}: contains <script>`);
-  }
-  if (/<foreignObject[\s>]/i.test(source)) {
-    throw new Error(`${file}: contains <foreignObject>`);
-  }
-  if (/<text[\s>]/i.test(source)) {
-    throw new Error(`${file}: contains <text>; outline the wordmark as paths`);
-  }
-  if (/data:[a-z0-9.+-]+\//i.test(source) || /;base64,/i.test(source)) {
-    throw new Error(`${file}: contains a data URI`);
-  }
-  if (/\b(?:href|src)\s*=\s*["'](?!\s*#)/i.test(source)) {
-    throw new Error(`${file}: references an external asset`);
-  }
-  if (/url\(\s*['"]?(?:https?:|file:)/i.test(source) || /@import\b/i.test(source)) {
-    throw new Error(`${file}: references an external stylesheet or URL`);
+  const problems = checkSource(source);
+  if (problems.length > 0) {
+    throw new Error(`${file}: ${problems.join("; ")}`);
   }
   return source;
 }
@@ -111,11 +94,6 @@ function loadSvg(file) {
 function mark(svg, size, extra = "") {
   const classes = extra === "" ? "mark" : `mark ${extra}`;
   return `<span class="${classes}" style="width:${size}px;height:${size}px" aria-hidden="true">${svg}</span>`;
-}
-
-function hostFor(title) {
-  const host = title.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return host === "" ? "brand" : host;
 }
 
 function board(concept, theme, site, boardId) {

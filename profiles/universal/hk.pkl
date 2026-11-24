@@ -249,6 +249,26 @@ steps = new Mapping<String, Step | Group> {
               stderr = "has an empty href"
             }
           }
+          ["rejects a missing viewBox"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has no viewBox"
+            }
+          }
+          ["rejects an external url reference"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-url.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "references an external stylesheet or URL"
+            }
+          }
           ["rejects a staircase"] {
             run = "check"
             tmpdir = true
