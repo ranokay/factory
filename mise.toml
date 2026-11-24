@@ -35,8 +35,8 @@ description = "Run the MCP registry renderer and secrets agent tests"
 run = "hk test --step mcp-sync"
 
 [tasks."gitleaks:test"]
-description = "Run the gitleaks rule and repository scan tests"
-run = "hk test --step gitleaks"
+description = "Run the gitleaks rule tests"
+run = "hk test --step gitleaks-test"
 
 [tasks."tools:test"]
 description = "Run the agent hook helper tests"

@@ -575,38 +575,7 @@ steps {
     steps {
       ["gitleaks"] = (Builtins.gitleaks) {
         check = "sh {{root}}/scripts/gitleaks-check.sh"
-        tests = new Mapping<String, Config.StepTest> {
-          ["the Context7 rule fires on a fabricated key"] {
-            run = "check"
-            env { ["GITLEAKS_CHECK_CASE"] = "fabricated" }
-            expect { code = 0 }
-          }
-          ["an env reference is not a secret"] {
-            run = "check"
-            env { ["GITLEAKS_CHECK_CASE"] = "env-reference" }
-            expect { code = 0 }
-          }
-          ["a bare Context7 key is detected"] {
-            run = "check"
-            env { ["GITLEAKS_CHECK_CASE"] = "bare-key" }
-            expect { code = 0 }
-          }
-          ["a ctx7 URL host is not a key"] {
-            run = "check"
-            env { ["GITLEAKS_CHECK_CASE"] = "url-host" }
-            expect { code = 0 }
-          }
-          ["a key under the CONTEXT7_API_KEY name is detected"] {
-            run = "check"
-            env { ["GITLEAKS_CHECK_CASE"] = "named-value" }
-            expect { code = 0 }
-          }
-          ["the default rules still fire"] {
-            run = "check"
-            env { ["GITLEAKS_CHECK_CASE"] = "default-rules" }
-            expect { code = 0 }
-          }
-        }
+        tests = new Mapping<String, Config.StepTest> {}
       }
     }
   }
@@ -616,6 +585,15 @@ steps {
         check = "python3 {{root}}/scripts/codacy-gate-test.py"
         tests {
           ["runs private analysis and rejects zero tools"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["gitleaks-test"] = new Step {
+        check = "sh {{root}}/scripts/gitleaks-check-test.sh"
+        tests {
+          ["the gitleaks rules pass their cases"] {
             run = "check"
             expect { code = 0 }
           }

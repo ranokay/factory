@@ -121,12 +121,6 @@ case_default_rules() {
 	printf 'ok: the default rules still fire\n'
 }
 
-case_repo() {
-	run_command env -u GITLEAKS_CHECK_CASE sh "$root/scripts/gitleaks-check.sh"
-	[ "$code" -eq 0 ] || fail "the Factory is not clean: $output"
-	printf 'ok: the Factory scans clean\n'
-}
-
 case_all() {
 	case_fabricated
 	case_env_reference
@@ -134,7 +128,6 @@ case_all() {
 	case_url_host
 	case_named_value
 	case_default_rules
-	case_repo
 }
 
 case $case_name in
@@ -144,7 +137,6 @@ bare-key) case_bare_key ;;
 url-host) case_url_host ;;
 named-value) case_named_value ;;
 default-rules) case_default_rules ;;
-repo) case_repo ;;
 all) case_all ;;
 *)
 	printf 'unknown case: %s\n' "$case_name" >&2
