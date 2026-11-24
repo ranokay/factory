@@ -79,7 +79,6 @@ STALE_SUFFIXES = (
     ".pyc",
     ".tsbuildinfo",
 )
-BRAND_ROLES = ("icon", "logo", "wordmark", "menu-bar", "menubar")
 
 TOOLING_INSTRUCTION = (
     "Add the Factory baseline in a PR: `mise.toml` including the Factory Profile "
@@ -206,6 +205,17 @@ def read_file(project, path):
     return data.decode("utf-8", "ignore")
 
 
+def read_reference(project, path):
+    try:
+        return read_file(project, path)
+    except Problem as error:
+        print(
+            f"adopt: warning: {error}; skipping it as a reference source",
+            file=sys.stderr,
+        )
+        return ""
+
+
 def is_test_path(path):
     item = PurePosixPath(path)
     if any(part in TEST_DIRS for part in item.parts[:-1]):
@@ -227,10 +237,12 @@ def comment_rule(message):
 def valid_factory_include(value):
     if not isinstance(value, str) or "profiles/" not in value:
         return False
-    return (
-        "ranokay/factory" in value
-        or value.startswith("./profiles/")
-        or value.startswith("profiles/")
+    if value.startswith(("./profiles/", "profiles/")):
+        return True
+    if "ranokay/factory" not in value:
+        return False
+    return bool(
+        re.search(r"(?:[?&]ref=|/factory/)v\d+(?:\.\d+)*(?:[&#/]|$)", value)
     )
 
 
@@ -242,7 +254,7 @@ def tooling_findings(project, tracked):
             finding(
                 "tooling",
                 "mise.toml",
-                "missing",
+                "factory-include",
                 "mise.toml is missing the Factory Profile include.",
             )
         )
@@ -259,8 +271,13 @@ def tooling_findings(project, tracked):
                 )
             )
         else:
-            includes = mise.get("include") or []
-            tasks = (mise.get("task_config") or {}).get("includes") or []
+            includes = mise.get("include")
+            if not isinstance(includes, list):
+                includes = []
+            task_config = mise.get("task_config")
+            tasks = task_config.get("includes") if isinstance(task_config, dict) else []
+            if not isinstance(tasks, list):
+                tasks = []
             if not (
                 any(valid_factory_include(value) for value in includes)
                 and any(valid_factory_include(value) for value in tasks)
@@ -278,7 +295,7 @@ def tooling_findings(project, tracked):
             finding(
                 "tooling",
                 "hk.pkl",
-                "missing",
+                "factory-amend",
                 "hk.pkl is not amending a Factory Profile.",
             )
         )
@@ -298,7 +315,7 @@ def tooling_findings(project, tracked):
             finding(
                 "tooling",
                 "renovate.json",
-                "missing",
+                "factory-preset",
                 "renovate.json is not extending github>ranokay/factory.",
             )
         )
@@ -315,17 +332,32 @@ def tooling_findings(project, tracked):
                 )
             )
         else:
-            extends = renovate.get("extends") or []
-            values = [extends] if isinstance(extends, str) else extends
-            if "github>ranokay/factory" not in values:
+            if not isinstance(renovate, dict):
                 found.append(
                     finding(
                         "tooling",
                         "renovate.json",
-                        "factory-preset",
-                        "renovate.json is not extending github>ranokay/factory.",
+                        "invalid-json",
+                        "renovate.json must contain a JSON object.",
                     )
                 )
+            else:
+                extends = renovate.get("extends")
+                if isinstance(extends, str):
+                    values = [extends]
+                elif isinstance(extends, list):
+                    values = extends
+                else:
+                    values = []
+                if "github>ranokay/factory" not in values:
+                    found.append(
+                        finding(
+                            "tooling",
+                            "renovate.json",
+                            "factory-preset",
+                            "renovate.json is not extending github>ranokay/factory.",
+                        )
+                    )
     for path in (".coderabbit.yaml", ".greptile/config.json"):
         if path not in present:
             found.append(
@@ -378,7 +410,7 @@ def dead_code_findings(project, tracked):
     for path in tracked:
         if path.endswith(".d.ts"):
             continue
-        text = read_file(project, path)
+        text = read_reference(project, path)
         if not text:
             continue
         names = set(TOKEN_RE.findall(text))
@@ -503,7 +535,7 @@ def verification_findings(project, tracked):
             )
         ]
     found = []
-    mise = read_file(project, "mise.toml")
+    mise = read_file(project, "mise.toml") if "mise.toml" in tracked else ""
     for name in sorted(skills):
         app = name.removeprefix("verify-")
         link = f".claude/skills/{name}"
@@ -552,23 +584,21 @@ def test_pruning_findings(project, tracked):
 
 
 def brand_findings(project, tracked):
-    masters = [
+    icons = [
         path
         for path in tracked
         if path.startswith("assets/brand/")
         and path.endswith(".svg")
-        and any(
-            role in PurePosixPath(path).stem.lower() for role in BRAND_ROLES
-        )
+        and "icon" in PurePosixPath(path).stem.lower()
     ]
-    if masters:
+    if icons:
         return []
     return [
         finding(
             "brand",
             "assets/brand",
-            "no-master",
-            "No icon, logo, wordmark or menu-bar SVG master is committed under assets/brand/.",
+            "no-icon-master",
+            "No icon SVG master is committed under assets/brand/.",
         )
     ]
 
