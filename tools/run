@@ -4,7 +4,7 @@
 set -eu
 tool_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 if [ "$#" -eq 0 ]; then
-  echo 'Usage: run {command_guard|environment_check|tests} [arguments...]' >&2
+  echo 'Usage: run {command_guard|environment_check|report_flow|tests} [arguments...]' >&2
   exit 2
 fi
 tool=$1
@@ -15,6 +15,9 @@ command_guard | environment_check)
   ;;
 tests)
   exec uv run --no-project --no-config --python 3.13.18 --with PyYAML==6.0.3 python -m unittest discover -s "$tool_dir/tests" "$@"
+  ;;
+report_flow)
+  exec uv run --offline --no-project --no-config --python 3.13.18 python "$tool_dir/../scripts/report_flow/main.py" "$@"
   ;;
 *)
   echo "Unknown agent tool: $tool" >&2
