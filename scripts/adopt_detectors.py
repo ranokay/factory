@@ -210,12 +210,13 @@ def dead_code_findings(project, tracked, _repo):
 
 
 def agents_profiles_findings(text):
-    entries = [entry.strip() for entry in profiles_entries(text) if entry.strip()]
-    if not entries:
+    raw = profiles_entries(text)
+    entries = [entry.strip() for entry in raw]
+    if not any(entries):
         return [
             finding("agents", "AGENTS.md", "profiles", "AGENTS.md has no Profiles: line.")
         ]
-    if len(entries) > 1:
+    if len(raw) > 1:
         return [
             finding(
                 "agents",
@@ -324,8 +325,10 @@ def verification_mise_tasks(project, tracked):
         return None, None
     try:
         data = tomllib.loads(read_file(project, "mise.toml"))
-    except (Problem, tomllib.TOMLDecodeError) as error:
-        return None, error
+    except Problem as error:
+        return None, f"mise.toml could not be read: {error}"
+    except tomllib.TOMLDecodeError as error:
+        return None, f"mise.toml could not be parsed: {error}"
     tasks = data.get("tasks")
     return (tasks if isinstance(tasks, dict) else {}), None
 
@@ -385,7 +388,7 @@ def verification_findings(project, tracked, _repo):
                 "verification",
                 "mise.toml",
                 "read",
-                f"mise.toml could not be parsed: {error}",
+                error,
             )
         )
     for name in names:
@@ -411,7 +414,11 @@ def brand_findings(project, tracked, _repo):
     names = [
         path
         for path in masters
-        if any(role in PurePosixPath(path).stem.lower() for role in ("logo", "wordmark"))
+        if "wordmark" in PurePosixPath(path).stem.lower()
+        or (
+            "logo" in PurePosixPath(path).stem.lower()
+            and "icon" not in PurePosixPath(path).stem.lower()
+        )
     ]
     if icons and names:
         return []

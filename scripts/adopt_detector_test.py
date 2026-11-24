@@ -425,6 +425,37 @@ class AdoptDetectorTests(AdoptCase):
         agents = self.issue_for(self.issues(), "agents")
         self.assertIn("more than one Profiles", agents["body"])
 
+    def test_empty_duplicate_profiles_line_is_a_finding(self):
+        (self.project / "AGENTS.md").write_text(
+            "# Fixture\n\nProfiles: universal\nProfiles:\n"
+        )
+        self.commit("hollow duplicate Profiles line")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        agents = self.issue_for(self.issues(), "agents")
+        self.assertIn("more than one Profiles", agents["body"])
+
+    def test_comma_separated_profiles_line_is_clean(self):
+        (self.project / "AGENTS.md").write_text(
+            "# Fixture\n\nProfiles: universal, typescript\n\nRun `mise run check`.\n"
+        )
+        self.commit("valid Profiles line")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        agents = self.issue_for(self.issues(), "agents")
+        self.assertEqual(len(self.markers(agents)), 1)
+
+    def test_combined_icon_logo_file_does_not_satisfy_both(self):
+        master = self.project / "assets/brand/icon-logo.svg"
+        master.parent.mkdir(parents=True)
+        master.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 16"></svg>\n')
+        self.commit("add a combined icon-logo file")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 8)
+        self.assertIn("logo", self.issue_for(issues, "brand")["body"])
+
     def test_outside_directory_symlink_withholds_dead_code(self):
         outside = self.root / "outside-dir"
         outside.mkdir()
