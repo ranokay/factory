@@ -252,6 +252,17 @@ class AdoptDetectorTests(AdoptCase):
         verification = self.issue_for(self.issues(), "verification")
         self.assertIn("could not be parsed", verification["body"])
 
+    def test_verification_skill_with_unreadable_mise_reports_it(self):
+        self.add_verification_skill()
+        outside = self.root / "outside-mise.toml"
+        outside.write_text("include = []\n")
+        (self.project / "mise.toml").symlink_to(outside)
+        self.commit("add an outside mise symlink")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        verification = self.issue_for(self.issues(), "verification")
+        self.assertIn("could not be read", verification["body"])
+
     def test_unpinned_factory_includes_are_a_finding(self):
         (self.project / "mise.toml").write_text(
             'include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=main"]\n\n'
@@ -413,7 +424,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         agents = self.issue_for(self.issues(), "agents")
-        self.assertIn("no Profiles", agents["body"])
+        self.assertIn("empty Profiles", agents["body"])
 
     def test_duplicate_profiles_lines_are_a_finding(self):
         (self.project / "AGENTS.md").write_text(
@@ -446,15 +457,21 @@ class AdoptDetectorTests(AdoptCase):
         self.assertEqual(len(self.markers(agents)), 1)
 
     def test_combined_icon_logo_file_does_not_satisfy_both(self):
-        master = self.project / "assets/brand/icon-logo.svg"
-        master.parent.mkdir(parents=True)
-        master.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 16"></svg>\n')
-        self.commit("add a combined icon-logo file")
-        result = self.run_adopt()
-        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        issues = self.issues()
-        self.assertEqual(len(issues), 8)
-        self.assertIn("logo", self.issue_for(issues, "brand")["body"])
+        for name in ("icon-logo.svg", "icon-wordmark.svg"):
+            with self.subTest(name=name):
+                self.reset_state()
+                self.reset_log()
+                master = self.project / "assets/brand" / name
+                master.parent.mkdir(parents=True, exist_ok=True)
+                master.write_text(
+                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 16"></svg>\n'
+                )
+                self.commit(f"add {name}")
+                result = self.run_adopt()
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                issues = self.issues()
+                self.assertEqual(len(issues), 8)
+                self.assertIn("logo", self.issue_for(issues, "brand")["body"])
 
     def test_outside_directory_symlink_withholds_dead_code(self):
         outside = self.root / "outside-dir"
