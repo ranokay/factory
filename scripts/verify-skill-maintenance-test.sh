@@ -86,6 +86,10 @@ set_github_origin() {
 	git -C "$1" remote set-url origin "https://github.com/ranokay/$2.git"
 }
 
+set_origin_head() {
+	git -C "$1" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$2"
+}
+
 new_remote changed trunk
 clone_repo changed "$tmp/repos"
 printf 'one\n' >"$tmp/repos/changed/app.txt"
@@ -95,6 +99,7 @@ printf 'two\n' >>"$tmp/repos/changed/app.txt"
 commit_all "$tmp/repos/changed" "change the app"
 changed_head=$(git -C "$tmp/repos/changed" rev-parse HEAD)
 set_github_origin "$tmp/repos/changed" changed
+set_origin_head "$tmp/repos/changed" trunk
 
 new_remote unchanged main
 clone_repo unchanged "$tmp/repos"
@@ -103,6 +108,7 @@ commit_all "$tmp/repos/unchanged" "change the app"
 write_skill "$tmp/repos/unchanged" unchanged
 commit_all "$tmp/repos/unchanged" "update verify skill"
 set_github_origin "$tmp/repos/unchanged" unchanged
+set_origin_head "$tmp/repos/unchanged" main
 
 new_remote open main
 clone_repo open "$tmp/repos"
@@ -112,6 +118,7 @@ commit_all "$tmp/repos/open" "add verify skill"
 printf 'two\n' >>"$tmp/repos/open/app.txt"
 commit_all "$tmp/repos/open" "change the app"
 set_github_origin "$tmp/repos/open" open
+set_origin_head "$tmp/repos/open" main
 open_head=$(git -C "$tmp/repos/open" rev-parse HEAD)
 printf '[{"number":7,"title":"Maintain verify-open skill","body":"Keep this open.\\n\\n<!-- factory:verify-maintenance head=%s -->\\n","closedAt":null}]\n' "$open_head" >"$GH_STATE/ranokay_open-open.json"
 
@@ -132,6 +139,7 @@ commit_all "$tmp/closed-root/closed" "add verify skill"
 printf 'two\n' >>"$tmp/closed-root/closed/app.txt"
 commit_all "$tmp/closed-root/closed" "change the app"
 set_github_origin "$tmp/closed-root/closed" closed
+set_origin_head "$tmp/closed-root/closed" trunk
 closed_head=$(git -C "$tmp/closed-root/closed" rev-parse HEAD)
 printf '[{"number":9,"title":"Maintain verify-closed skill","body":"Clean pass.\\n\\n<!-- factory:verify-maintenance head=%s -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' "$closed_head" >"$GH_STATE/ranokay_closed-closed.json"
 
@@ -143,7 +151,23 @@ commit_all "$tmp/no-head-root/no-head" "add verify skill"
 printf 'two\n' >>"$tmp/no-head-root/no-head/app.txt"
 commit_all "$tmp/no-head-root/no-head" "change the app"
 set_github_origin "$tmp/no-head-root/no-head" no-head
+set_origin_head "$tmp/no-head-root/no-head" main
 printf '[{"number":11,"title":"Maintain verify-no-head skill","body":"No head recorded.\\n\\n<!-- factory:verify-maintenance -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' >"$GH_STATE/ranokay_no-head-closed.json"
+
+new_remote no-default main
+clone_repo no-default "$tmp/no-default-root"
+printf 'one\n' >"$tmp/no-default-root/no-default/app.txt"
+commit_all "$tmp/no-default-root/no-default" "add the app"
+write_skill "$tmp/no-default-root/no-default" no-default
+commit_all "$tmp/no-default-root/no-default" "add verify skill"
+git -C "$tmp/no-default-root/no-default" checkout -qb feature
+printf 'two\n' >>"$tmp/no-default-root/no-default/app.txt"
+commit_all "$tmp/no-default-root/no-default" "feature work"
+git -C "$tmp/no-default-root/no-default" fetch -q origin
+git -C "$tmp/no-default-root/no-default" branch --set-upstream-to=origin/feature feature
+set_github_origin "$tmp/no-default-root/no-default" no-default
+set_origin_head "$tmp/no-default-root/no-default" main
+git -C "$tmp/no-default-root/no-default" remote set-head origin -d
 
 new_remote fetch-fail main
 clone_repo fetch-fail "$tmp/fetch-root"
@@ -153,6 +177,7 @@ commit_all "$tmp/fetch-root/fetch-fail" "add verify skill"
 printf 'two\n' >>"$tmp/fetch-root/fetch-fail/app.txt"
 commit_all "$tmp/fetch-root/fetch-fail" "change the app"
 set_github_origin "$tmp/fetch-root/fetch-fail" fetch-fail
+set_origin_head "$tmp/fetch-root/fetch-fail" main
 git -C "$tmp/fetch-root/fetch-fail" config http.proxy http://127.0.0.1:1
 git -C "$tmp/fetch-root/fetch-fail" config https.proxy http://127.0.0.1:1
 
@@ -167,6 +192,7 @@ printf 'two\n' >>"$tmp/stale-root/stale/app.txt"
 commit_all "$tmp/stale-root/stale" "change the app"
 stale_head=$(git -C "$tmp/stale-root/stale" rev-parse HEAD)
 set_github_origin "$tmp/stale-root/stale" stale
+set_origin_head "$tmp/stale-root/stale" trunk
 git -C "$tmp/stale-root/stale" reset -q --hard "$stale_base"
 git -C "$tmp/stale-root/stale" update-ref -d refs/remotes/origin/trunk
 git -C "$tmp/stale-root/stale" remote set-url origin "git@github.com:ranokay/stale.git"
@@ -219,6 +245,15 @@ grep -q "<!-- factory:verify-maintenance head=$stale_head -->" "$GH_LOG" || fail
 [ ! -d "$tmp/stale-root/stale/.agents/skills/verify-stale" ] || fail "discovery checked the skill out into the worktree"
 [ -z "$(git -C "$tmp/stale-root/stale" status --porcelain)" ] || fail "discovery dirtied the worktree"
 git -C "$tmp/stale-root/stale" rev-parse --verify --quiet refs/remotes/origin/trunk >/dev/null || fail "the maintenance run did not fetch"
+
+: >"$GH_LOG"
+if run_maintenance --root "$tmp/no-default-root" --no-fetch --dry-run >"$tmp/no-default-out" 2>"$tmp/no-default-err"; then
+	cat "$tmp/no-default-out" "$tmp/no-default-err" >&2
+	fail "a clone without origin/HEAD filed maintenance for its feature branch"
+fi
+grep -q 'cannot resolve origin/HEAD' "$tmp/no-default-err" || fail "a missing origin/HEAD did not name the problem"
+grep -q 'git remote set-head origin --auto' "$tmp/no-default-err" || fail "a missing origin/HEAD did not print the fix"
+[ ! -s "$GH_LOG" ] || fail "a missing origin/HEAD called the GitHub create boundary"
 
 : >"$GH_LOG"
 if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false run_maintenance --root "$tmp/fetch-root" --dry-run >"$tmp/fetch-out" 2>"$tmp/fetch-err"; then

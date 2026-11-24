@@ -59,9 +59,6 @@ def default_branch(repo):
     result = git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
-    upstream = git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-    if upstream.returncode == 0 and upstream.stdout.strip():
-        return upstream.stdout.strip()
     return None
 
 
