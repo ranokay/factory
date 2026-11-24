@@ -167,6 +167,23 @@ steps {
         }
         expect { code = 0 }
       }
+      ["a mixed-case Factory URL matches"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal\n"
+          ["mise.toml"] = """
+            include = ["git::https://github.com/Ranokay/Factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
+
+            [task_config]
+            includes = ["git::https://github.com/Ranokay/Factory.git//profiles/universal/tasks.toml?ref=v0.2.0"]
+            """
+          ["hk.pkl"] = """
+            amends "https://raw.githubusercontent.com/Ranokay/Factory/v0.2.0/profiles/universal/hk.pkl"
+            """
+        }
+        expect { code = 0 }
+      }
       ["a task include provides a Profile"] {
         run = "check"
         tmpdir = true
@@ -1007,6 +1024,16 @@ steps {
     check = "python3 {{root}}/scripts/triage-test.py"
     tests {
       ["derives both outcomes and labels after the comment"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["adopt"] = new Step {
+    check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/adopt-test.py"
+    tests {
+      ["files one issue per category, then only new findings"] {
         run = "check"
         expect { code = 0 }
       }

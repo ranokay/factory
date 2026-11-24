@@ -50,6 +50,10 @@ run = "./skills/evidence/scripts/evidence"
 description = "Compare or reconcile repository settings"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/repo-settings.py"
 
+[tasks.adopt]
+description = "Inventory a repository and file unseen adoption findings"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/adopt.py"
+
 [tasks.gc]
 description = "Prune stale Factory data and tool caches"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/gc.py --notify"
@@ -88,6 +92,7 @@ depends = [
   "run-slot:test",
   "block-issue:test",
   "triage:test",
+  "adopt:test",
   "ocr-restyle:test",
   "merge:test",
   "file-promotion:test",
@@ -152,6 +157,10 @@ run = "hk test --step run-slot"
 [tasks."triage:test"]
 description = "Run the triage CLI tests"
 run = "hk test --step triage"
+
+[tasks."adopt:test"]
+description = "Run the adopt CLI fixture tests"
+run = "hk test --step adopt"
 
 [tasks."ocr-restyle:test"]
 description = "Run the OCR comment restyle tests"

@@ -8,24 +8,18 @@ import sys
 import tomllib
 from pathlib import Path
 
-from profiles_reader import profiles_entries
+from profiles_reader import (
+    FACTORY_REFERENCE,
+    FACTORY_REPO,
+    PROFILE_PATH,
+    TAG,
+    factory_ref,
+    profiles_entries,
+)
 
 PRUNE = {'.git', 'node_modules', '.venv', 'venv', 'skills', 'patches'}
 PROFILE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
-TAG = re.compile(r'^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$')
-PROFILE_PATH = re.compile(r'(?:^|/)profiles/([a-z0-9][a-z0-9-]*)/(?:mise\.toml|tasks\.toml|hk\.pkl)$')
 GIT_INCLUDE = re.compile(r'^git::(?P<repo>.+)//(?P<path>[^?]+)(?:\?ref=(?P<ref>[^&]+))?$')
-RAW_FACTORY = re.compile(r'^https?://raw\.githubusercontent\.com/ranokay/factory/(?P<ref>[^/]+)/')
-GITHUB_RAW = re.compile(r'^https?://github\.com/ranokay/factory/raw/(?P<ref>[^/]+)/')
-GITHUB_BLOB = re.compile(r'^https?://github\.com/ranokay/factory/blob/(?P<ref>[^/]+)/')
-GITHUB_TREE = re.compile(r'^https?://github\.com/ranokay/factory/tree/(?P<ref>[^/]+)/')
-REF_PATH = re.compile(
-    r'^https?://(?:raw\.githubusercontent\.com|github\.com)/ranokay/factory/refs/(?:heads|tags)/(?P<ref>[^/]+)/'
-)
-FACTORY_REFERENCE = re.compile(r'(?:^|/)ranokay/factory(?:\.git)?(?:/|$)')
-FACTORY_REPO = re.compile(
-    r'^(?:https?://github\.com/ranokay/factory(?:\.git)?|ssh://git@github\.com/ranokay/factory(?:\.git)?)/?$'
-)
 AMENDS = re.compile(r'^\s*amends\s+"([^"]+)"', re.MULTILINE)
 
 
@@ -45,17 +39,6 @@ def local_profile_name(reference):
     if '::' in reference or '://' in reference:
         return None
     return profile_name(reference)
-
-
-def factory_ref(reference):
-    match = REF_PATH.match(reference)
-    if match is not None:
-        return match.group('ref')
-    for pattern in (RAW_FACTORY, GITHUB_RAW, GITHUB_BLOB, GITHUB_TREE):
-        match = pattern.match(reference)
-        if match is not None:
-            return match.group('ref')
-    return None
 
 
 def check_tag(manifest, kind, reference, ref, problems):
