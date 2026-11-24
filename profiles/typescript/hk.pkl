@@ -3,146 +3,150 @@ amends "../universal/hk.pkl"
 import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
 
 steps {
-  ["oxlint"] = new Step {
-    types = List("javascript", "typescript")
-    check = "oxlint --deny-warnings {{files}}"
-    fix = "oxlint --fix {{files}}"
-    tests {
-      ["rejects an unused variable"] {
-        run = "check"
-        tmpdir = true
-        write { ["bad.ts"] = "const unused = 1;\n" }
-        files = List("bad.ts")
-        expect { code = 1 }
-      }
-      ["accepts clean source"] {
-        run = "check"
-        tmpdir = true
-        write { ["good.ts"] = "console.log(\"ok\");\n" }
-        files = List("good.ts")
-        expect { code = 0 }
-      }
-    }
-  }
-  ["oxfmt"] = new Step {
-    types = List("javascript", "typescript")
-    check = "oxfmt --check {{files}}"
-    fix = "oxfmt {{files}}"
-    tests {
-      ["rejects a formatting violation"] {
-        run = "check"
-        tmpdir = true
-        write { ["bad.ts"] = "const value=1;\n" }
-        files = List("bad.ts")
-        expect { code = 1 }
-      }
-      ["accepts formatted source"] {
-        run = "check"
-        tmpdir = true
-        write { ["good.ts"] = "const value = 1;\n" }
-        files = List("good.ts")
-        expect { code = 0 }
-      }
-    }
-  }
-  ["tsc"] = new Step {
-    types = List("typescript")
-    check = "tsc --noEmit"
-    tests {
-      ["rejects a type error"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["tsconfig.json"] = """
-            {
-              "compilerOptions": {
-                "strict": true,
-                "noEmit": true,
-                "module": "Preserve",
-                "moduleResolution": "bundler",
-                "target": "ES2023"
-              },
-              "include": ["bad.ts"]
-            }
-            """
-          ["bad.ts"] = "const value: number = \"text\";\n"
+  ["lint"] {
+    steps {
+      ["oxlint"] = new Step {
+        types = List("javascript", "typescript")
+        check = "oxlint --deny-warnings {{files}}"
+        fix = "oxlint --fix {{files}}"
+        tests {
+          ["rejects an unused variable"] {
+            run = "check"
+            tmpdir = true
+            write { ["bad.ts"] = "const unused = 1;\n" }
+            files = List("bad.ts")
+            expect { code = 1 }
+          }
+          ["accepts clean source"] {
+            run = "check"
+            tmpdir = true
+            write { ["good.ts"] = "console.log(\"ok\");\n" }
+            files = List("good.ts")
+            expect { code = 0 }
+          }
         }
-        files = List("bad.ts")
-        expect { code = 1 }
       }
-      ["accepts clean source"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["tsconfig.json"] = """
-            {
-              "compilerOptions": {
-                "strict": true,
-                "noEmit": true,
-                "module": "Preserve",
-                "moduleResolution": "bundler",
-                "target": "ES2023"
-              },
-              "include": ["good.ts"]
-            }
-            """
-          ["good.ts"] = "const value: number = 1;\n"
+      ["oxfmt"] = new Step {
+        types = List("javascript", "typescript")
+        check = "oxfmt --check {{files}}"
+        fix = "oxfmt {{files}}"
+        tests {
+          ["rejects a formatting violation"] {
+            run = "check"
+            tmpdir = true
+            write { ["bad.ts"] = "const value=1;\n" }
+            files = List("bad.ts")
+            expect { code = 1 }
+          }
+          ["accepts formatted source"] {
+            run = "check"
+            tmpdir = true
+            write { ["good.ts"] = "const value = 1;\n" }
+            files = List("good.ts")
+            expect { code = 0 }
+          }
         }
-        files = List("good.ts")
-        expect { code = 0 }
       }
-    }
-  }
-  ["knip"] = new Step {
-    types = List("typescript", "json")
-    check = "knip --no-progress"
-    tests {
-      ["rejects an unused export"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["package.json"] = """
-            {
-              "name": "fixture",
-              "private": true,
-              "type": "module",
-              "main": "src/index.ts"
+      ["tsc"] = new Step {
+        types = List("typescript")
+        check = "tsc --noEmit"
+        tests {
+          ["rejects a type error"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["tsconfig.json"] = """
+                {
+                  "compilerOptions": {
+                    "strict": true,
+                    "noEmit": true,
+                    "module": "Preserve",
+                    "moduleResolution": "bundler",
+                    "target": "ES2023"
+                  },
+                  "include": ["bad.ts"]
+                }
+                """
+              ["bad.ts"] = "const value: number = \"text\";\n"
             }
-            """
-          ["knip.json"] = """
-            {
-              "entry": ["src/index.ts"],
-              "project": ["src/**/*.ts"]
+            files = List("bad.ts")
+            expect { code = 1 }
+          }
+          ["accepts clean source"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["tsconfig.json"] = """
+                {
+                  "compilerOptions": {
+                    "strict": true,
+                    "noEmit": true,
+                    "module": "Preserve",
+                    "moduleResolution": "bundler",
+                    "target": "ES2023"
+                  },
+                  "include": ["good.ts"]
+                }
+                """
+              ["good.ts"] = "const value: number = 1;\n"
             }
-            """
-          ["src/index.ts"] = "import { used } from \"./helper\";\n\nconsole.log(used);\n"
-          ["src/helper.ts"] = "export const used = 1;\nexport const unused = 2;\n"
+            files = List("good.ts")
+            expect { code = 0 }
+          }
         }
-        files = List("src/index.ts")
-        expect { code = 1 }
       }
-      ["accepts clean source"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["package.json"] = """
-            {
-              "name": "fixture",
-              "private": true,
-              "type": "module",
-              "main": "src/index.ts"
+      ["knip"] = new Step {
+        types = List("typescript", "json")
+        check = "knip --no-progress"
+        tests {
+          ["rejects an unused export"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["package.json"] = """
+                {
+                  "name": "fixture",
+                  "private": true,
+                  "type": "module",
+                  "main": "src/index.ts"
+                }
+                """
+              ["knip.json"] = """
+                {
+                  "entry": ["src/index.ts"],
+                  "project": ["src/**/*.ts"]
+                }
+                """
+              ["src/index.ts"] = "import { used } from \"./helper\";\n\nconsole.log(used);\n"
+              ["src/helper.ts"] = "export const used = 1;\nexport const unused = 2;\n"
             }
-            """
-          ["knip.json"] = """
-            {
-              "entry": ["src/index.ts"],
-              "project": ["src/**/*.ts"]
+            files = List("src/index.ts")
+            expect { code = 1 }
+          }
+          ["accepts clean source"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["package.json"] = """
+                {
+                  "name": "fixture",
+                  "private": true,
+                  "type": "module",
+                  "main": "src/index.ts"
+                }
+                """
+              ["knip.json"] = """
+                {
+                  "entry": ["src/index.ts"],
+                  "project": ["src/**/*.ts"]
+                }
+                """
+              ["src/index.ts"] = "export const value = 1;\n"
             }
-            """
-          ["src/index.ts"] = "export const value = 1;\n"
+            files = List("src/index.ts")
+            expect { code = 0 }
+          }
         }
-        files = List("src/index.ts")
-        expect { code = 0 }
       }
     }
   }

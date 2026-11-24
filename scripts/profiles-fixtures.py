@@ -37,6 +37,7 @@ PROFILE_TOOLS = {
 COMMON_STEPS = {
     'comment-ban',
     'editorconfig-checker',
+    'gate-groups',
     'gitleaks',
     'jactionlint',
     'pinact',

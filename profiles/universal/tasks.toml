@@ -1,8 +1,22 @@
 [check]
 description = "Run every Gate"
-depends = ["check:gates", "check:codacy"]
+depends = ["check:lint", "check:security", "check:test"]
+
+["check:lint"]
+description = "Run the Lint group"
+run = "hk run lint --all"
+
+["check:security"]
+description = "Run the Security group and the local Codacy gate"
+depends = ["check:codacy"]
+run = "hk run security --all"
+
+["check:test"]
+description = "Run the Tests group and every step fixture"
+run = ["hk run tests --all", "hk test"]
 
 ["check:gates"]
+description = "Run every hk step and every step fixture"
 run = ["hk check --all", "hk test"]
 
 ["check:codacy"]

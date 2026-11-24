@@ -88,7 +88,7 @@ Stay quiet when there is no actionable change.
 ### Review replies
 
 Review-thread replies cover bot reviewers too: CodeRabbit, Codacy and the AI
-Review `OCR PR Review` threads are threads like any other, not only human
+Review `OCR` threads are threads like any other, not only human
 comments.
 
 Post the reply only after the fix commit is pushed, so the `<sha>` in

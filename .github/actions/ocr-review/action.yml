@@ -1,4 +1,4 @@
-name: OCR PR Review
+name: OCR
 description: Review a same-repository pull request with OpenCodeReview.
 inputs:
   opencode_zen_api_key:

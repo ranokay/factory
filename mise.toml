@@ -82,10 +82,9 @@ run = "uv run --offline --no-project --no-config --python \"$(mise which python)
 description = "Run canonical clone fixture tests"
 run = "hk test --step canonical-clones"
 
-[tasks.check]
-description = "Run every Gate"
+[tasks."check:test"]
+description = "Run the Tests group and every step fixture"
 depends = [
-  "check:codacy",
   "skills:test",
   "profiles:test",
   "profiles:fixtures",
@@ -114,10 +113,11 @@ depends = [
   "codacy-gate:test",
   "sync-upstream:test",
 ]
+run = ["hk run tests --all", "hk test --step comment-ban", "hk test --step pinact", "hk test --step gate-groups"]
 
 [tasks."check:gates"]
-description = "Run the Factory's shared Gates"
-run = ["hk check --all", "hk test --step comment-ban", "hk test --step pinact"]
+description = "Run every hk step"
+run = ["hk check --all"]
 
 [tasks."workflow-invariant:test"]
 run = "hk test --step workflow-invariant-test"

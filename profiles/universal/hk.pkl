@@ -7,196 +7,347 @@ local const commentBan = "{% raw %}" + read("scripts/comment-ban.sh").text + "{%
 local const pinactScript = read("scripts/pinact.sh").text
 local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")
 
-steps {
-  ["editorconfig-checker"] = Builtins.editorconfig_checker
-  ["typos"] = Builtins.typos
-  ["gitleaks"] = Builtins.gitleaks
-  ["comment-ban"] = new Step {
-    types = List("text")
-    env { ["COMMENT_BAN"] = commentBan }
-    check = new Command {
-      argv = List("sh", "-c", "eval \"$COMMENT_BAN\"", "comment-ban", "{{files}}")
-    }
-    tests {
-      ["rejects a TODO comment"] {
-        run = "check"
-        tmpdir = true
-        write { ["todo.sh"] = read("tests/fixtures/todo.sh").text }
-        files = List("todo.sh")
-        expect { code = 1 }
-      }
-      ["rejects a semicolon TODO comment"] {
-        run = "check"
-        tmpdir = true
-        write { ["todo.ini"] = read("tests/fixtures/todo.ini").text }
-        files = List("todo.ini")
-        expect { code = 1 }
-      }
-      ["rejects a block TODO comment"] {
-        run = "check"
-        tmpdir = true
-        write { ["todo.css"] = read("tests/fixtures/todo.css").text }
-        files = List("todo.css")
-        expect { code = 1 }
-      }
-      ["accepts a clean file"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["clean.sh"] = read("tests/fixtures/clean.sh").text
-          ["clean.pkl"] = read("tests/fixtures/clean.pkl").text
-          ["clean.ini"] = read("tests/fixtures/clean.ini").text
+// Inline so a repository that amends this Profile by URL needs no profiles/universal/scripts path.
+local const gateGroups = """
+  set -eu
+
+  groups='lint security tests'
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/hk-groups.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+  plan() {
+    if ! hk --cd . "$@" --plan --json --all >"$tmp/plan.json" 2>"$tmp/plan.err"; then
+      printf 'gate-groups: hk %s --plan failed\n' "$*" >&2
+      cat "$tmp/plan.err" >&2
+      exit 1
+    fi
+    grep -o '"name": "[^"]*"' "$tmp/plan.json" | cut -d'"' -f4 | sort -u
+  }
+
+  all=$(plan check)
+  printf '%s\n' "$all" >"$tmp/all"
+  : >"$tmp/grouped"
+
+  for group in $groups; do
+    names=$(plan run "$group")
+    if [ -z "$names" ]; then
+      printf 'gate-groups: the %s group is empty\n' "$group" >&2
+      exit 1
+    fi
+    printf '%s\n' "$names" | sed "s/^/$group /" >"$tmp/$group"
+    cat "$tmp/$group" >>"$tmp/grouped"
+  done
+
+  duplicates=$(awk '{print $2}' "$tmp/grouped" | sort | uniq -d)
+  if [ -n "$duplicates" ]; then
+    printf 'gate-groups: a step is in more than one group: %s\n' "$(printf '%s' "$duplicates" | tr '\n' ' ')" >&2
+    exit 1
+  fi
+
+  awk '{print $2}' "$tmp/grouped" | sort -u >"$tmp/union"
+  missing=$(comm -23 "$tmp/all" "$tmp/union")
+  if [ -n "$missing" ]; then
+    printf 'gate-groups: a step is in no group: %s\n' "$(printf '%s' "$missing" | tr '\n' ' ')" >&2
+    exit 1
+  fi
+
+  extra=$(comm -13 "$tmp/all" "$tmp/union")
+  if [ -n "$extra" ]; then
+    printf 'gate-groups: a group step is missing from the check hook: %s\n' "$(printf '%s' "$extra" | tr '\n' ' ')" >&2
+    exit 1
+  fi
+
+  printf 'gate-groups: every step is in exactly one of: %s\n' "$groups"
+  """
+
+steps = new Mapping<String, Step | Group> {
+  ["lint"] = new Group {
+    steps {
+      ["editorconfig-checker"] = Builtins.editorconfig_checker
+      ["typos"] = Builtins.typos
+      ["comment-ban"] = new Step {
+        types = List("text")
+        env { ["COMMENT_BAN"] = commentBan }
+        check = new Command {
+          argv = List("sh", "-c", "eval \"$COMMENT_BAN\"", "comment-ban", "{{files}}")
         }
-        files = List("clean.sh", "clean.pkl", "clean.ini")
-        expect { code = 0 }
+        tests {
+          ["rejects a TODO comment"] {
+            run = "check"
+            tmpdir = true
+            write { ["todo.sh"] = read("tests/fixtures/todo.sh").text }
+            files = List("todo.sh")
+            expect { code = 1 }
+          }
+          ["rejects a semicolon TODO comment"] {
+            run = "check"
+            tmpdir = true
+            write { ["todo.ini"] = read("tests/fixtures/todo.ini").text }
+            files = List("todo.ini")
+            expect { code = 1 }
+          }
+          ["rejects a block TODO comment"] {
+            run = "check"
+            tmpdir = true
+            write { ["todo.css"] = read("tests/fixtures/todo.css").text }
+            files = List("todo.css")
+            expect { code = 1 }
+          }
+          ["accepts a clean file"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["clean.sh"] = read("tests/fixtures/clean.sh").text
+              ["clean.pkl"] = read("tests/fixtures/clean.pkl").text
+              ["clean.ini"] = read("tests/fixtures/clean.ini").text
+            }
+            files = List("clean.sh", "clean.pkl", "clean.ini")
+            expect { code = 0 }
+          }
+          ["accepts a PEP 723 script block"] {
+            run = "check"
+            tmpdir = true
+            write { ["script.py"] = read("tests/fixtures/pep723.py").text }
+            files = List("script.py")
+            expect { code = 0 }
+          }
+          ["rejects an unterminated PEP 723 block"] {
+            run = "check"
+            tmpdir = true
+            write { ["script.py"] = "# /// script\n# dependencies = [\"x==1\"]\nprint(1)\n" }
+            files = List("script.py")
+            expect { code = 1 }
+          }
+          ["does not exempt a non-Python file"] {
+            run = "check"
+            tmpdir = true
+            write { ["script.sh"] = "# /// script\n# TODO: fix\n# ///\n" }
+            files = List("script.sh")
+            expect { code = 1 }
+          }
+          ["rejects commented-out code"] {
+            run = "check"
+            tmpdir = true
+            write { ["commented-code.sh"] = read("tests/fixtures/commented-code.sh").text }
+            files = List("commented-code.sh")
+            expect { code = 1 }
+          }
+          ["rejects a commented-out key line"] {
+            run = "check"
+            write { ["{{tmp}}/comment.sh"] = "# run: mise run check\n" }
+            expect { code = 1 }
+          }
+          ["rejects a commented-out list item"] {
+            run = "check"
+            write { ["{{tmp}}/comment.sh"] = "# - uses: actions/checkout@v4\n" }
+            expect { code = 1 }
+          }
+          ["rejects a commented-out path command"] {
+            run = "check"
+            write { ["{{tmp}}/comment.sh"] = "# ./build.sh --release\n" }
+            expect { code = 1 }
+          }
+          ["rejects a nested gitignore TODO"] {
+            run = "check"
+            write { ["{{tmp}}/sub/.gitignore"] = "# TODO: nested\n" }
+            expect { code = 1 }
+          }
+        }
       }
-      ["accepts a PEP 723 script block"] {
-        run = "check"
-        tmpdir = true
-        write { ["script.py"] = read("tests/fixtures/pep723.py").text }
-        files = List("script.py")
-        expect { code = 0 }
-      }
-      ["rejects an unterminated PEP 723 block"] {
-        run = "check"
-        tmpdir = true
-        write { ["script.py"] = "# /// script\n# dependencies = [\"x==1\"]\nprint(1)\n" }
-        files = List("script.py")
-        expect { code = 1 }
-      }
-      ["does not exempt a non-Python file"] {
-        run = "check"
-        tmpdir = true
-        write { ["script.sh"] = "# /// script\n# TODO: fix\n# ///\n" }
-        files = List("script.sh")
-        expect { code = 1 }
-      }
-      ["rejects commented-out code"] {
-        run = "check"
-        tmpdir = true
-        write { ["commented-code.sh"] = read("tests/fixtures/commented-code.sh").text }
-        files = List("commented-code.sh")
-        expect { code = 1 }
-      }
-      ["rejects a commented-out key line"] {
-        run = "check"
-        write { ["{{tmp}}/comment.sh"] = "# run: mise run check\n" }
-        expect { code = 1 }
-      }
-      ["rejects a commented-out list item"] {
-        run = "check"
-        write { ["{{tmp}}/comment.sh"] = "# - uses: actions/checkout@v4\n" }
-        expect { code = 1 }
-      }
-      ["rejects a commented-out path command"] {
-        run = "check"
-        write { ["{{tmp}}/comment.sh"] = "# ./build.sh --release\n" }
-        expect { code = 1 }
-      }
-      ["rejects a nested gitignore TODO"] {
-        run = "check"
-        write { ["{{tmp}}/sub/.gitignore"] = "# TODO: nested\n" }
-        expect { code = 1 }
+      ["shellcheck"] = Builtins.shellcheck
+      ["shfmt"] = Builtins.shfmt
+      ["jactionlint"] = Builtins.jactionlint
+      ["tombi"] = Builtins.tombi
+      ["yamlfmt"] = Builtins.yamlfmt
+    }
+  }
+  ["security"] = new Group {
+    steps {
+      ["gitleaks"] = Builtins.gitleaks
+      ["zizmor"] = Builtins.zizmor
+      ["pinact"] = (Builtins.pinact) {
+        env { ["PINACT_WRAPPER"] = pinactScript }
+        check = new Config.CommandSpec {
+          command = new Config.Command {
+            argv = pinactCmd + List("--check", "{{files}}")
+          }
+          effect = "read"
+        }
+        check_diff = new Config.CommandSpec {
+          command = new Config.Command {
+            argv =
+              List("hk", "util", "sarif-diff", "--") + pinactCmd + List(
+                "--check",
+                "--format",
+                "sarif",
+                "{{files}}",
+              )
+          }
+          effect = "read"
+        }
+        fix = new Config.CommandSpec {
+          command = new Config.Command { argv = pinactCmd + List("{{files}}") }
+          effect = "write"
+        }
+        tests = new Mapping<String, Config.StepTest> {
+          ["uses GITHUB_TOKEN without asking gh"] {
+            run = "check"
+            write {
+              ["{{tmp}}/bin/gh"] = "#!/bin/sh\nexit 9\n"
+              ["{{tmp}}/bin/pinact"] = "#!/bin/sh\n[ \"${GITHUB_TOKEN:-}\" = token-from-env ]\n"
+              ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
+            }
+            files = List("{{tmp}}/.github/workflows/test.yml")
+            before = "chmod +x bin/gh bin/pinact"
+            env {
+              ["PATH"] = "bin:/usr/bin:/bin"
+              ["GITHUB_TOKEN"] = "token-from-env"
+            }
+            expect { code = 0 }
+          }
+          ["reads the token from gh when GITHUB_TOKEN is empty"] {
+            run = "check"
+            write {
+              ["{{tmp}}/bin/gh"] = "#!/bin/sh\necho token-from-gh\n"
+              ["{{tmp}}/bin/pinact"] = "#!/bin/sh\n[ \"${GITHUB_TOKEN:-}\" = token-from-gh ]\n"
+              ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
+            }
+            files = List("{{tmp}}/.github/workflows/test.yml")
+            before = "chmod +x bin/gh bin/pinact"
+            env {
+              ["PATH"] = "bin:/usr/bin:/bin"
+              ["GITHUB_TOKEN"] = ""
+            }
+            expect { code = 0 }
+          }
+          ["asks for gh auth login when gh is not signed in"] {
+            run = "check"
+            write {
+              ["{{tmp}}/bin/gh"] = "#!/bin/sh\nexit 1\n"
+              ["{{tmp}}/bin/pinact"] = "#!/bin/sh\nexit 0\n"
+              ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
+            }
+            files = List("{{tmp}}/.github/workflows/test.yml")
+            before = "chmod +x bin/gh bin/pinact"
+            env {
+              ["PATH"] = "bin:/usr/bin:/bin"
+              ["GITHUB_TOKEN"] = ""
+            }
+            expect {
+              code = 1
+              stderr = "gh auth login"
+            }
+          }
+          ["passes gh's own error through"] {
+            run = "check"
+            write {
+              ["{{tmp}}/bin/gh"] = "#!/bin/sh\necho 'gh: authentication required' >&2\nexit 1\n"
+              ["{{tmp}}/bin/pinact"] = "#!/bin/sh\nexit 0\n"
+              ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
+            }
+            files = List("{{tmp}}/.github/workflows/test.yml")
+            before = "chmod +x bin/gh bin/pinact"
+            env {
+              ["PATH"] = "bin:/usr/bin:/bin"
+              ["GITHUB_TOKEN"] = ""
+            }
+            expect {
+              code = 1
+              stderr = "gh: authentication required"
+            }
+          }
+        }
       }
     }
   }
-  ["shellcheck"] = Builtins.shellcheck
-  ["shfmt"] = Builtins.shfmt
-  ["jactionlint"] = Builtins.jactionlint
-  ["zizmor"] = Builtins.zizmor
-  ["pinact"] = (Builtins.pinact) {
-    env { ["PINACT_WRAPPER"] = pinactScript }
-    check = new Config.CommandSpec {
-      command = new Config.Command {
-        argv = pinactCmd + List("--check", "{{files}}")
-      }
-      effect = "read"
-    }
-    check_diff = new Config.CommandSpec {
-      command = new Config.Command {
-        argv =
-          List("hk", "util", "sarif-diff", "--") + pinactCmd + List(
-            "--check",
-            "--format",
-            "sarif",
-            "{{files}}",
-          )
-      }
-      effect = "read"
-    }
-    fix = new Config.CommandSpec {
-      command = new Config.Command { argv = pinactCmd + List("{{files}}") }
-      effect = "write"
-    }
-    tests = new Mapping<String, Config.StepTest> {
-      ["uses GITHUB_TOKEN without asking gh"] {
-        run = "check"
-        write {
-          ["{{tmp}}/bin/gh"] = "#!/bin/sh\nexit 9\n"
-          ["{{tmp}}/bin/pinact"] = "#!/bin/sh\n[ \"${GITHUB_TOKEN:-}\" = token-from-env ]\n"
-          ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
+  ["tests"] = new Group {
+    steps {
+      ["gate-groups"] = new Step {
+        check = new Command {
+          argv = List("sh", "-c", gateGroups, "gate-groups")
         }
-        files = List("{{tmp}}/.github/workflows/test.yml")
-        before = "chmod +x bin/gh bin/pinact"
-        env {
-          ["PATH"] = "bin:/usr/bin:/bin"
-          ["GITHUB_TOKEN"] = "token-from-env"
-        }
-        expect { code = 0 }
-      }
-      ["reads the token from gh when GITHUB_TOKEN is empty"] {
-        run = "check"
-        write {
-          ["{{tmp}}/bin/gh"] = "#!/bin/sh\necho token-from-gh\n"
-          ["{{tmp}}/bin/pinact"] = "#!/bin/sh\n[ \"${GITHUB_TOKEN:-}\" = token-from-gh ]\n"
-          ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
-        }
-        files = List("{{tmp}}/.github/workflows/test.yml")
-        before = "chmod +x bin/gh bin/pinact"
-        env {
-          ["PATH"] = "bin:/usr/bin:/bin"
-          ["GITHUB_TOKEN"] = ""
-        }
-        expect { code = 0 }
-      }
-      ["asks for gh auth login when gh is not signed in"] {
-        run = "check"
-        write {
-          ["{{tmp}}/bin/gh"] = "#!/bin/sh\nexit 1\n"
-          ["{{tmp}}/bin/pinact"] = "#!/bin/sh\nexit 0\n"
-          ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
-        }
-        files = List("{{tmp}}/.github/workflows/test.yml")
-        before = "chmod +x bin/gh bin/pinact"
-        env {
-          ["PATH"] = "bin:/usr/bin:/bin"
-          ["GITHUB_TOKEN"] = ""
-        }
-        expect {
-          code = 1
-          stderr = "gh auth login"
-        }
-      }
-      ["passes gh's own error through"] {
-        run = "check"
-        write {
-          ["{{tmp}}/bin/gh"] = "#!/bin/sh\necho 'gh: authentication required' >&2\nexit 1\n"
-          ["{{tmp}}/bin/pinact"] = "#!/bin/sh\nexit 0\n"
-          ["{{tmp}}/.github/workflows/test.yml"] = "name: test\n"
-        }
-        files = List("{{tmp}}/.github/workflows/test.yml")
-        before = "chmod +x bin/gh bin/pinact"
-        env {
-          ["PATH"] = "bin:/usr/bin:/bin"
-          ["GITHUB_TOKEN"] = ""
-        }
-        expect {
-          code = 1
-          stderr = "gh: authentication required"
+        tests {
+          ["accepts every step in exactly one group"] {
+            run = "check"
+            tmpdir = true
+            before = "unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; git init -q"
+            write {
+              ["hk.pkl"] = """
+                amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+                steps = new Mapping<String, Step | Group> {
+                  ["lint"] = new Group { steps { ["lint-one"] = new Step { check = "true" } } }
+                  ["security"] = new Group { steps { ["security-one"] = new Step { check = "true" } } }
+                  ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
+                }
+                hooks {
+                  ["lint"] { steps = (outer.steps["lint"] as Group).steps }
+                  ["security"] { steps = (outer.steps["security"] as Group).steps }
+                  ["tests"] { steps = (outer.steps["tests"] as Group).steps }
+                }
+                """
+            }
+            expect {
+              code = 0
+              stdout = "every step is in exactly one of: lint security tests"
+            }
+          }
+          ["rejects a step in no group"] {
+            run = "check"
+            tmpdir = true
+            before = "unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; git init -q"
+            write {
+              ["hk.pkl"] = """
+                amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+                steps = new Mapping<String, Step | Group> {
+                  ["lint"] = new Group { steps { ["lint-one"] = new Step { check = "true" } } }
+                  ["security"] = new Group { steps { ["security-one"] = new Step { check = "true" } } }
+                  ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
+                  ["stray"] = new Step { check = "true" }
+                }
+                hooks {
+                  ["lint"] { steps = (outer.steps["lint"] as Group).steps }
+                  ["security"] { steps = (outer.steps["security"] as Group).steps }
+                  ["tests"] { steps = (outer.steps["tests"] as Group).steps }
+                }
+                """
+            }
+            expect {
+              code = 1
+              stderr = "a step is in no group: stray"
+            }
+          }
+          ["rejects a step in two groups"] {
+            run = "check"
+            tmpdir = true
+            before = "unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; git init -q"
+            write {
+              ["hk.pkl"] = """
+                amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+                steps = new Mapping<String, Step | Group> {
+                  ["lint"] = new Group { steps { ["shared"] = new Step { check = "true" } } }
+                  ["security"] = new Group { steps { ["shared"] = new Step { check = "true" } } }
+                  ["tests"] = new Group { steps { ["tests-one"] = new Step { check = "true" } } }
+                }
+                hooks {
+                  ["lint"] { steps = (outer.steps["lint"] as Group).steps }
+                  ["security"] { steps = (outer.steps["security"] as Group).steps }
+                  ["tests"] { steps = (outer.steps["tests"] as Group).steps }
+                }
+                """
+            }
+            expect {
+              code = 1
+              stderr = "a step is in more than one group: shared"
+            }
+          }
         }
       }
     }
   }
-  ["tombi"] = Builtins.tombi
-  ["yamlfmt"] = Builtins.yamlfmt
+}
+
+hooks {
+  ["lint"] { steps = (outer.steps["lint"] as Group).steps }
+  ["security"] { steps = (outer.steps["security"] as Group).steps }
+  ["tests"] { steps = (outer.steps["tests"] as Group).steps }
 }

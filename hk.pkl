@@ -14,1648 +14,1637 @@ local const universalHk = """
   """
 
 steps {
-  ["codacy-gate-test"] = new Step {
-    check = "python3 {{root}}/scripts/codacy-gate-test.py"
-    tests {
-      ["runs private analysis and rejects zero tools"] {
-        run = "check"
-        expect { code = 0 }
+  ["lint"] {
+    steps {
+      ["workflow-invariant"] = new Step {
+        check = "python3 {{root}}/scripts/workflow-invariant.py {{root}}/.github/workflows"
       }
-    }
-  }
-  ["repo-settings-test"] = new Step {
-    check = "python3 {{root}}/scripts/repo-settings-test.py"
-    tests {
-      ["reconciles repository settings idempotently"] {
-        run = "check"
-        expect { code = 0 }
+      ["renovate-config"] = new Step {
+        check = "sh {{root}}/scripts/renovate-config-check.sh"
       }
-    }
-  }
-  ["sync-upstream-test"] = new Step {
-    check = "python3 {{root}}/skills/sync-upstream/scripts/sync-upstream-test.py && python3 {{root}}/skills/sync-upstream/scripts/sync-upstream-files-test.py"
-    tests {
-      ["fork sync fixtures pass"] {
-        run = "check"
-        expect { code = 0 }
+      ["typos"] {
+        exclude = vendored
       }
-    }
-  }
-  ["workflow-invariant"] = new Step {
-    check = "python3 {{root}}/scripts/workflow-invariant.py {{root}}/.github/workflows"
-  }
-  ["renovate-config"] = new Step {
-    check = "sh {{root}}/scripts/renovate-config-check.sh"
-  }
-  ["renovate-managers-test"] = new Step {
-    check = "python3 {{root}}/scripts/renovate-managers-test.py"
-    tests {
-      ["extracts every Factory tag pin once"] {
-        run = "check"
-        expect { code = 0 }
+      ["comment-ban"] {
+        // The pinned Profile (v0.2.0) predates the PEP 723 exemption in
+        // https://github.com/ranokay/factory/blob/main/profiles/universal/scripts/comment-ban.sh
+        // Drop this override when the include/amends pin moves past that release.
+        env {
+          ["COMMENT_BAN"] =
+            "{% raw %}" + read("profiles/universal/scripts/comment-ban.sh").text + "{% endraw %}"
+        }
+        exclude = List("profiles/universal/tests/fixtures/**")
       }
-    }
-  }
-  ["renovate-re2-test"] = new Step {
-    check = "sh {{root}}/scripts/renovate-re2-test.sh"
-    tests {
-      ["both Renovate steps reject the RE2 fallback"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-  ["workflow-invariant-test"] = new Step {
-    check = "python3 {{root}}/scripts/workflow-invariant-test.py"
-    tests {
-      ["rejects an unsafe fork workflow"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-  ["advisory-review-requests"] = new Step {
-    check = "python3 {{root}}/skills/babysit-pr/scripts/request-advisory-reviews-test.py"
-    tests {
-      ["requests once and requires outside contributor approval"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-  ["advisory-review-status"] = new Step {
-    check = "python3 {{root}}/skills/babysit-pr/scripts/advisory-review-status-test.py"
-    tests {
-      ["reports every reviewer and bounds the wait"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-  ["typos"] {
-    exclude = vendored
-  }
-  ["comment-ban"] {
-    // The pinned Profile (v0.2.0) predates the PEP 723 exemption in
-    // https://github.com/ranokay/factory/blob/main/profiles/universal/scripts/comment-ban.sh
-    // Drop this override when the include/amends pin moves past that release.
-    env {
-      ["COMMENT_BAN"] =
-        "{% raw %}" + read("profiles/universal/scripts/comment-ban.sh").text + "{% endraw %}"
-    }
-    exclude = List("profiles/universal/tests/fixtures/**")
-  }
-  ["gitleaks"] = (Builtins.gitleaks) {
-    check = "sh {{root}}/scripts/gitleaks-check.sh"
-    tests = new Mapping<String, Config.StepTest> {
-      ["the Factory scans clean"] {
-        run = "check"
-        env { ["GITLEAKS_CHECK_CASE"] = "repo" }
-        expect { code = 0 }
-      }
-      ["the Context7 rule fires on a fabricated key"] {
-        run = "check"
-        env { ["GITLEAKS_CHECK_CASE"] = "fabricated" }
-        expect { code = 0 }
-      }
-      ["an env reference is not a secret"] {
-        run = "check"
-        env { ["GITLEAKS_CHECK_CASE"] = "env-reference" }
-        expect { code = 0 }
-      }
-      ["a bare Context7 key is detected"] {
-        run = "check"
-        env { ["GITLEAKS_CHECK_CASE"] = "bare-key" }
-        expect { code = 0 }
-      }
-      ["a ctx7 URL host is not a key"] {
-        run = "check"
-        env { ["GITLEAKS_CHECK_CASE"] = "url-host" }
-        expect { code = 0 }
-      }
-      ["a key under the CONTEXT7_API_KEY name is detected"] {
-        run = "check"
-        env { ["GITLEAKS_CHECK_CASE"] = "named-value" }
-        expect { code = 0 }
-      }
-      ["the default rules still fire"] {
-        run = "check"
-        env { ["GITLEAKS_CHECK_CASE"] = "default-rules" }
-        expect { code = 0 }
-      }
-    }
-  }
-  ["profiles"] = new Step {
-    check = "sh {{root}}/scripts/profiles-check.sh"
-    tests {
-      ["a matching fixture passes"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
+      ["profiles"] = new Step {
+        check = "sh {{root}}/scripts/profiles-check.sh"
+        tests {
+          ["a matching fixture passes"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = """
+                include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
+                [task_config]
+                includes = ["git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"]
+                """
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+                import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtins.pkl"
+                """
+            }
+            expect { code = 0 }
+          }
+          ["a mixed-case Factory URL matches"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = """
+                include = ["git::https://github.com/Ranokay/Factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
 
-            [task_config]
-            includes = ["git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
-
-            import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtins.pkl"
-            """
-        }
-        expect { code = 0 }
-      }
-      ["a mixed-case Factory URL matches"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/Ranokay/Factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
-
-            [task_config]
-            includes = ["git::https://github.com/Ranokay/Factory.git//profiles/universal/tasks.toml?ref=v0.2.0"]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/Ranokay/Factory/v0.2.0/profiles/universal/hk.pkl"
-            """
-        }
-        expect { code = 0 }
-      }
-      ["a task include provides a Profile"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal, python\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
-
-            [task_config]
-            includes = ["git::https://github.com/ranokay/factory.git//profiles/python/tasks.toml?ref=v0.2.0"]
-            """
-          ["hk.pkl"] = universalHk
-        }
-        expect { code = 0 }
-      }
-      ["a typescript fixture matches its includes"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal, typescript\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
-            ]
-
-            [task_config]
-            includes = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/typescript/tasks.toml?ref=v0.2.0",
-            ]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/typescript/hk.pkl"
-            """
-        }
-        expect { code = 0 }
-      }
-      ["a web fixture matches its includes"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal, typescript, web\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=v0.2.0",
-            ]
-
-            [task_config]
-            includes = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/typescript/tasks.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/web/tasks.toml?ref=v0.2.0",
-            ]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/web/hk.pkl"
-            """
-        }
-        expect { code = 0 }
-      }
-      ["a swift fixture matches its includes"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal, swift\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/swift/mise.toml?ref=v0.2.0",
-            ]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/swift/hk.pkl"
-            """
-        }
-        expect { code = 0 }
-      }
-      ["a apple fixture matches its includes"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal, swift, apple\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/swift/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/apple/mise.toml?ref=v0.2.0",
-            ]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/apple/hk.pkl"
-            """
-        }
-        expect { code = 0 }
-      }
-      ["a go fixture matches its includes"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal, go\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/go/mise.toml?ref=v0.2.0",
-            ]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/go/hk.pkl"
-            """
-        }
-        expect { code = 0 }
-      }
-      ["a web include the line does not declare fails"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal, typescript\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=v0.2.0",
-            ]
-            """
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/typescript/hk.pkl"
-            """
-        }
-        expect {
-          code = 1
-          stderr = "does not declare web"
-        }
-      }
-      ["a non-Factory include is ignored"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/other/shared.git//profiles/typescript/mise.toml?ref=main",
-            ]
-            """
-          ["hk.pkl"] = universalHk
-        }
-        expect { code = 0 }
-      }
-      ["an include the line does not declare fails"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
-            ]
-            """
-          ["hk.pkl"] = universalHk
-        }
-        expect {
-          code = 1
-          stderr = "does not declare typescript"
-        }
-      }
-      ["a declared Profile with no include fails"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal, typescript\n"
-          ["mise.toml"] = universalMise
-          ["hk.pkl"] = universalHk
-        }
-        expect {
-          code = 1
-          stderr = "declares typescript"
-        }
-      }
-      ["a branch ref fails"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=main"]
-            """
-          ["hk.pkl"] = universalHk
-        }
-        expect {
-          code = 1
-          stderr = "pin a Factory tag"
-        }
-      }
-      ["an unpinned mise include fails"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml"]
-            """
-          ["hk.pkl"] = universalHk
-        }
-        expect {
-          code = 1
-          stderr = "has no ref"
-        }
-      }
-      ["an hk branch fails"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = universalMise
-          ["hk.pkl"] = """
-            amends "https://raw.githubusercontent.com/ranokay/factory/main/profiles/universal/hk.pkl"
-            """
-        }
-        expect {
-          code = 1
-          stderr = "pin a Factory tag"
-        }
-      }
-      ["a branch in another Factory URL shape fails"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = universalMise
-          ["hk.pkl"] = """
-            amends "https://github.com/ranokay/factory/blob/main/profiles/universal/hk.pkl"
-            """
-        }
-        expect {
-          code = 1
-          stderr = "pin a Factory tag"
-        }
-      }
-      ["a Factory include outside profiles is still pinned"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//skills/evidence?ref=main",
-            ]
-            """
-          ["hk.pkl"] = universalHk
-        }
-        expect {
-          code = 1
-          stderr = "pin a Factory tag"
-        }
-      }
-      ["a monorepo checks each package against its own line"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = universalMise
-          ["packages/api/AGENTS.md"] = "Profiles: universal, python\n"
-          ["packages/api/mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/python/mise.toml?ref=v0.2.0",
-            ]
-            """
-        }
-        expect { code = 0 }
-      }
-      ["a monorepo mismatch names the package"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = universalMise
-          ["packages/api/AGENTS.md"] = "Profiles: universal\n"
-          ["packages/api/mise.toml"] = """
-            include = [
-              "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
-              "git::https://github.com/ranokay/factory.git//profiles/python/mise.toml?ref=v0.2.0",
-            ]
-            """
-        }
-        expect {
-          code = 1
-          stderr = "packages/api/AGENTS.md does not declare python"
-        }
-      }
-      ["an AGENTS.md-only package is checked"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "Profiles: universal\n"
-          ["mise.toml"] = universalMise
-          ["packages/api/AGENTS.md"] = "Profiles: python\n"
-        }
-        expect {
-          code = 1
-          stderr = "packages/api/AGENTS.md declares python"
-        }
-      }
-      ["a fenced example is not a declaration"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = """
-            # repo
-
-            ```md
-            Profiles: typescript
-            ```
-
-            Profiles: universal
-            """
-          ["mise.toml"] = universalMise
-          ["hk.pkl"] = universalHk
-        }
-        expect { code = 0 }
-      }
-      ["a package without a Profiles line fails"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["AGENTS.md"] = "# repo\n"
-          ["mise.toml"] = universalMise
-          ["hk.pkl"] = universalHk
-        }
-        expect {
-          code = 1
-          stderr = "has no Profiles line"
-        }
-      }
-      ["the Factory declares what it includes"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-  ["editorconfig-checker"] {
-    exclude = vendored
-  }
-  ["shellcheck"] {
-    exclude = List("skills/wizard/template.sh")
-  }
-  ["shfmt"] {
-    exclude = List(
-      "skills/wizard/template.sh",
-      "skills/diagnosing-bugs/scripts/hitl-loop.template.sh",
-      "skills/statechart/scripts/statechart",
-    )
-  }
-  ["skills-sync"] = new Step {
-    check = "uv run {{root}}/scripts/skills-sync.py --check --root ."
-    fix = "uv run {{root}}/scripts/skills-sync.py --root ."
-    tests {
-      local const fixture = "uv run {{root}}/scripts/skills-sync-fixture.py"
-      ["check accepts a clean fixture"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) clean"
-        expect { code = 0 }
-      }
-      ["the mise task runs the check"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) clean && mise --cd {{root}} run skills:sync --check --root {{tmp}} > task.log"
-        after = "grep -q 'check passed for 3 vendored skills' task.log"
-        expect { code = 0 }
-      }
-      ["check rejects a hand-edited file"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) edit"
-        expect {
-          code = 1
-          stderr = "skills/alpha/SKILL.md"
-        }
-      }
-      ["check rejects an added file"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) add"
-        expect {
-          code = 1
-          stderr = "skills/alpha/extra.md"
-        }
-      }
-      ["check rejects a deleted file"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) delete"
-        expect {
-          code = 1
-          stderr = "skills/alpha/reference.md"
-        }
-      }
-      ["sync re-applies a patch"] {
-        run = "fix"
-        tmpdir = true
-        before = "\(fixture) patch"
-        expect {
-          code = 0
-          files {
-            ["skills/alpha/SKILL.md"] = "patched alpha\n"
+                [task_config]
+                includes = ["git::https://github.com/Ranokay/Factory.git//profiles/universal/tasks.toml?ref=v0.2.0"]
+                """
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/Ranokay/Factory/v0.2.0/profiles/universal/hk.pkl"
+                """
+            }
+            expect { code = 0 }
+          }
+          ["a task include provides a Profile"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, python\n"
+              ["mise.toml"] = """
+                include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
+                [task_config]
+                includes = ["git::https://github.com/ranokay/factory.git//profiles/python/tasks.toml?ref=v0.2.0"]
+                """
+              ["hk.pkl"] = universalHk
+            }
+            expect { code = 0 }
+          }
+          ["a typescript fixture matches its includes"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, typescript\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
+                ]
+                [task_config]
+                includes = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/typescript/tasks.toml?ref=v0.2.0",
+                ]
+                """
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/typescript/hk.pkl"
+                """
+            }
+            expect { code = 0 }
+          }
+          ["a web fixture matches its includes"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, typescript, web\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=v0.2.0",
+                ]
+                [task_config]
+                includes = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/typescript/tasks.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/web/tasks.toml?ref=v0.2.0",
+                ]
+                """
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/web/hk.pkl"
+                """
+            }
+            expect { code = 0 }
+          }
+          ["a swift fixture matches its includes"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, swift\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/swift/mise.toml?ref=v0.2.0",
+                ]
+                """
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/swift/hk.pkl"
+                """
+            }
+            expect { code = 0 }
+          }
+          ["a apple fixture matches its includes"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, swift, apple\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/swift/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/apple/mise.toml?ref=v0.2.0",
+                ]
+                """
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/apple/hk.pkl"
+                """
+            }
+            expect { code = 0 }
+          }
+          ["a go fixture matches its includes"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, go\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/go/mise.toml?ref=v0.2.0",
+                ]
+                """
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/go/hk.pkl"
+                """
+            }
+            expect { code = 0 }
+          }
+          ["a web include the line does not declare fails"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, typescript\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/web/mise.toml?ref=v0.2.0",
+                ]
+                """
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/typescript/hk.pkl"
+                """
+            }
+            expect {
+              code = 1
+              stderr = "does not declare web"
+            }
+          }
+          ["a non-Factory include is ignored"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/other/shared.git//profiles/typescript/mise.toml?ref=main",
+                ]
+                """
+              ["hk.pkl"] = universalHk
+            }
+            expect { code = 0 }
+          }
+          ["an include the line does not declare fails"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/typescript/mise.toml?ref=v0.2.0",
+                ]
+                """
+              ["hk.pkl"] = universalHk
+            }
+            expect {
+              code = 1
+              stderr = "does not declare typescript"
+            }
+          }
+          ["a declared Profile with no include fails"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, typescript\n"
+              ["mise.toml"] = universalMise
+              ["hk.pkl"] = universalHk
+            }
+            expect {
+              code = 1
+              stderr = "declares typescript"
+            }
+          }
+          ["a branch ref fails"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = """
+                include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=main"]
+                """
+              ["hk.pkl"] = universalHk
+            }
+            expect {
+              code = 1
+              stderr = "pin a Factory tag"
+            }
+          }
+          ["an unpinned mise include fails"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = """
+                include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml"]
+                """
+              ["hk.pkl"] = universalHk
+            }
+            expect {
+              code = 1
+              stderr = "has no ref"
+            }
+          }
+          ["an hk branch fails"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = universalMise
+              ["hk.pkl"] = """
+                amends "https://raw.githubusercontent.com/ranokay/factory/main/profiles/universal/hk.pkl"
+                """
+            }
+            expect {
+              code = 1
+              stderr = "pin a Factory tag"
+            }
+          }
+          ["a branch in another Factory URL shape fails"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = universalMise
+              ["hk.pkl"] = """
+                amends "https://github.com/ranokay/factory/blob/main/profiles/universal/hk.pkl"
+                """
+            }
+            expect {
+              code = 1
+              stderr = "pin a Factory tag"
+            }
+          }
+          ["a Factory include outside profiles is still pinned"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//skills/evidence?ref=main",
+                ]
+                """
+              ["hk.pkl"] = universalHk
+            }
+            expect {
+              code = 1
+              stderr = "pin a Factory tag"
+            }
+          }
+          ["a monorepo checks each package against its own line"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = universalMise
+              ["packages/api/AGENTS.md"] = "Profiles: universal, python\n"
+              ["packages/api/mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/python/mise.toml?ref=v0.2.0",
+                ]
+                """
+            }
+            expect { code = 0 }
+          }
+          ["a monorepo mismatch names the package"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = universalMise
+              ["packages/api/AGENTS.md"] = "Profiles: universal\n"
+              ["packages/api/mise.toml"] = """
+                include = [
+                  "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0",
+                  "git::https://github.com/ranokay/factory.git//profiles/python/mise.toml?ref=v0.2.0",
+                ]
+                """
+            }
+            expect {
+              code = 1
+              stderr = "packages/api/AGENTS.md does not declare python"
+            }
+          }
+          ["an AGENTS.md-only package is checked"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal\n"
+              ["mise.toml"] = universalMise
+              ["packages/api/AGENTS.md"] = "Profiles: python\n"
+            }
+            expect {
+              code = 1
+              stderr = "packages/api/AGENTS.md declares python"
+            }
+          }
+          ["a fenced example is not a declaration"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = """
+                # repo
+                ```md
+                Profiles: typescript
+                ```
+                Profiles: universal
+                """
+              ["mise.toml"] = universalMise
+              ["hk.pkl"] = universalHk
+            }
+            expect { code = 0 }
+          }
+          ["a package without a Profiles line fails"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "# repo\n"
+              ["mise.toml"] = universalMise
+              ["hk.pkl"] = universalHk
+            }
+            expect {
+              code = 1
+              stderr = "has no Profiles line"
+            }
+          }
+          ["the Factory declares what it includes"] {
+            run = "check"
+            expect { code = 0 }
           }
         }
       }
-      ["sync names a conflicting patch"] {
-        run = "fix"
-        tmpdir = true
-        before = "\(fixture) patch-conflict"
-        expect {
-          code = 1
-          stderr = "patches/alpha/0001-alpha.patch"
-        }
+      ["editorconfig-checker"] {
+        exclude = vendored
       }
-      ["update prints the upstream diff"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) update && uv run {{root}}/scripts/skills-sync.py --update --root . > update.log"
-        after = "grep -q '^-alpha$' update.log && grep -q '^+alpha v2$' update.log"
-        expect {
-          code = 0
-          files {
-            ["skills/alpha/SKILL.md"] = "alpha v2\n"
+      ["shellcheck"] {
+        exclude = List("skills/wizard/template.sh")
+      }
+      ["shfmt"] {
+        exclude = List(
+          "skills/wizard/template.sh",
+          "skills/diagnosing-bugs/scripts/hitl-loop.template.sh",
+          "skills/statechart/scripts/statechart",
+        )
+      }
+      ["skills-sync"] = new Step {
+        check = "uv run {{root}}/scripts/skills-sync.py --check --root ."
+        fix = "uv run {{root}}/scripts/skills-sync.py --root ."
+        tests {
+          local const fixture = "uv run {{root}}/scripts/skills-sync-fixture.py"
+          ["check accepts a clean fixture"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) clean"
+            expect { code = 0 }
           }
-        }
-      }
-      ["fetch check rejects a tampered file and lock"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) tamper"
-        after = "if uv run {{root}}/scripts/skills-sync.py --check --fetch --root . > fetch.log 2>&1; then cat fetch.log; exit 1; fi; grep -q 'differs from upstream' fetch.log"
-        expect { code = 0 }
-      }
-      ["check rejects a dangling skill reference"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) dangling-reference"
-        expect {
-          code = 1
-          stderr = "references ../missing/SKILL.md but skills/missing does not exist"
-        }
-      }
-      ["check rejects a dropped model-invocation flag"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) human-only"
-        expect {
-          code = 1
-          stderr = "must keep disable-model-invocation: true"
-        }
-      }
-      ["check rejects a patch directory with no lock entry"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) orphan-patch"
-        expect {
-          code = 1
-          stderr = "patches/orphan: no lock entry"
-        }
-      }
-      ["check rejects a tampered patch file"] {
-        run = "check"
-        tmpdir = true
-        before = "\(fixture) patch-tamper"
-        expect {
-          code = 1
-          stderr = "patches/alpha/0001-alpha.patch"
-        }
-      }
-      ["sync leaves a directory with no lock entry alone"] {
-        run = "fix"
-        tmpdir = true
-        before = "\(fixture) own-skill"
-        expect {
-          code = 0
-          files {
-            ["skills/own-skill/SKILL.md"] = "own\n"
+          ["the mise task runs the check"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) clean && mise --cd {{root}} run skills:sync --check --root {{tmp}} > task.log"
+            after = "grep -q 'check passed for 3 vendored skills' task.log"
+            expect { code = 0 }
           }
-        }
-      }
-      ["sync leaves a tool-owned directory alone"] {
-        run = "fix"
-        tmpdir = true
-        before = "\(fixture) tool-skill"
-        expect {
-          code = 0
-          files {
-            ["skills/ardia/SKILL.md"] = "tool\n"
+          ["check rejects a hand-edited file"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) edit"
+            expect {
+              code = 1
+              stderr = "skills/alpha/SKILL.md"
+            }
+          }
+          ["check rejects an added file"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) add"
+            expect {
+              code = 1
+              stderr = "skills/alpha/extra.md"
+            }
+          }
+          ["check rejects a deleted file"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) delete"
+            expect {
+              code = 1
+              stderr = "skills/alpha/reference.md"
+            }
+          }
+          ["sync re-applies a patch"] {
+            run = "fix"
+            tmpdir = true
+            before = "\(fixture) patch"
+            expect {
+              code = 0
+              files {
+                ["skills/alpha/SKILL.md"] = "patched alpha\n"
+              }
+            }
+          }
+          ["sync names a conflicting patch"] {
+            run = "fix"
+            tmpdir = true
+            before = "\(fixture) patch-conflict"
+            expect {
+              code = 1
+              stderr = "patches/alpha/0001-alpha.patch"
+            }
+          }
+          ["update prints the upstream diff"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) update && uv run {{root}}/scripts/skills-sync.py --update --root . > update.log"
+            after = "grep -q '^-alpha$' update.log && grep -q '^+alpha v2$' update.log"
+            expect {
+              code = 0
+              files {
+                ["skills/alpha/SKILL.md"] = "alpha v2\n"
+              }
+            }
+          }
+          ["fetch check rejects a tampered file and lock"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) tamper"
+            after = "if uv run {{root}}/scripts/skills-sync.py --check --fetch --root . > fetch.log 2>&1; then cat fetch.log; exit 1; fi; grep -q 'differs from upstream' fetch.log"
+            expect { code = 0 }
+          }
+          ["check rejects a dangling skill reference"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) dangling-reference"
+            expect {
+              code = 1
+              stderr = "references ../missing/SKILL.md but skills/missing does not exist"
+            }
+          }
+          ["check rejects a dropped model-invocation flag"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) human-only"
+            expect {
+              code = 1
+              stderr = "must keep disable-model-invocation: true"
+            }
+          }
+          ["check rejects a patch directory with no lock entry"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) orphan-patch"
+            expect {
+              code = 1
+              stderr = "patches/orphan: no lock entry"
+            }
+          }
+          ["check rejects a tampered patch file"] {
+            run = "check"
+            tmpdir = true
+            before = "\(fixture) patch-tamper"
+            expect {
+              code = 1
+              stderr = "patches/alpha/0001-alpha.patch"
+            }
+          }
+          ["sync leaves a directory with no lock entry alone"] {
+            run = "fix"
+            tmpdir = true
+            before = "\(fixture) own-skill"
+            expect {
+              code = 0
+              files {
+                ["skills/own-skill/SKILL.md"] = "own\n"
+              }
+            }
+          }
+          ["sync leaves a tool-owned directory alone"] {
+            run = "fix"
+            tmpdir = true
+            before = "\(fixture) tool-skill"
+            expect {
+              code = 0
+              files {
+                ["skills/ardia/SKILL.md"] = "tool\n"
+              }
+            }
           }
         }
       }
     }
   }
-
-  ["run-slot"] = new Step {
-    check = "sh {{root}}/skills/full-send/scripts/run-slot-test.sh"
-    tests {
-      ["two slots succeed"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "two" }
-        expect { code = 0 }
-      }
-      ["a third repo is refused"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "third" }
-        expect { code = 0 }
-      }
-      ["a second slot for the same repo is refused"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "same" }
-        expect { code = 0 }
-      }
-      ["release frees a slot"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "release" }
-        expect { code = 0 }
-      }
-      ["a traversal is refused"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "traversal" }
-        expect { code = 0 }
-      }
-      ["a permission failure is not a duplicate"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "permission" }
-        expect { code = 0 }
-      }
-      ["concurrent acquires admit exactly two"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "concurrent" }
-        expect { code = 0 }
-      }
-      ["glob characters in the slot root are literal"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "glob_root" }
-        expect { code = 0 }
-      }
-      ["newlines preserve live slots"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "newline_root" }
-        expect { code = 0 }
-      }
-      ["trailing slashes preserve slot names"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "trailing_root" }
-        expect { code = 0 }
-      }
-      ["a leading dash in the slot root is literal"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "dash_root" }
-        expect { code = 0 }
-      }
-      ["relative slot roots ignore CDPATH"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "cdpath" }
-        expect { code = 0 }
-      }
-      ["a crashed machine slot is pruned"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "orphan" }
-        expect { code = 0 }
-      }
-      ["an owner directory failure names the path"] {
-        run = "check"
-        env { ["RUN_SLOT_CASE"] = "owner_permission" }
-        expect { code = 0 }
+  ["security"] {
+    steps {
+      ["gitleaks"] = (Builtins.gitleaks) {
+        check = "sh {{root}}/scripts/gitleaks-check.sh"
+        tests = new Mapping<String, Config.StepTest> {
+          ["the Factory scans clean"] {
+            run = "check"
+            env { ["GITLEAKS_CHECK_CASE"] = "repo" }
+            expect { code = 0 }
+          }
+          ["the Context7 rule fires on a fabricated key"] {
+            run = "check"
+            env { ["GITLEAKS_CHECK_CASE"] = "fabricated" }
+            expect { code = 0 }
+          }
+          ["an env reference is not a secret"] {
+            run = "check"
+            env { ["GITLEAKS_CHECK_CASE"] = "env-reference" }
+            expect { code = 0 }
+          }
+          ["a bare Context7 key is detected"] {
+            run = "check"
+            env { ["GITLEAKS_CHECK_CASE"] = "bare-key" }
+            expect { code = 0 }
+          }
+          ["a ctx7 URL host is not a key"] {
+            run = "check"
+            env { ["GITLEAKS_CHECK_CASE"] = "url-host" }
+            expect { code = 0 }
+          }
+          ["a key under the CONTEXT7_API_KEY name is detected"] {
+            run = "check"
+            env { ["GITLEAKS_CHECK_CASE"] = "named-value" }
+            expect { code = 0 }
+          }
+          ["the default rules still fire"] {
+            run = "check"
+            env { ["GITLEAKS_CHECK_CASE"] = "default-rules" }
+            expect { code = 0 }
+          }
+        }
       }
     }
   }
-
-  ["canonical-clones"] = new Step {
-    check = "sh {{root}}/scripts/canonical-clones-test.sh"
-    tests {
-      ["inventory and migration fixtures pass"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["gc"] = new Step {
-    check = "sh {{root}}/scripts/gc-test.sh"
-    tests {
-      ["prunes stale data and keeps unsafe candidates"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["verify-skill"] = new Step {
-    check = "sh {{root}}/scripts/verify-skill-test.sh"
-    tests {
-      ["the passing fixture, lifecycle cleanup and every failing rule pass"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["verify-skill-maintenance"] = new Step {
-    check = "sh {{root}}/scripts/verify-skill-maintenance-test.sh"
-    tests {
-      ["a changed app files one issue and unchanged or open ones file none"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["bootstrap"] = new Step {
-    check = "sh {{root}}/scripts/bootstrap-test.sh"
-    tests {
-      ["a fresh temp HOME gets the Factory links"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "fresh" }
-        expect { code = 0 }
-      }
-      ["the second run changes nothing and says so"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "second" }
-        expect { code = 0 }
-      }
-      ["a broken link names the harness and the path"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "broken" }
-        expect { code = 0 }
-      }
-      ["real directories are refused, then backed up with approval"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "refuse" }
-        expect { code = 0 }
-      }
-      ["external symlinks need approval and are backed up"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "external" }
-        expect { code = 0 }
-      }
-      ["linked worktrees are refused for the real home"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "worktree" }
-        expect { code = 0 }
-      }
-      ["skills:sync --check ignores tool-owned skill directories"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "sync" }
-        expect { code = 0 }
-      }
-      ["Codex extras are named and managed entries are ignored"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "codex" }
-        expect { code = 0 }
-      }
-      ["XDG_CONFIG_HOME and CODEX_HOME are honoured"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "env" }
-        expect { code = 0 }
-      }
-      ["the hook helpers still resolve and run"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "hooks" }
-        expect { code = 0 }
-      }
-      ["bootstrap refuses a drifted vendored skill"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "repair" }
-        expect { code = 0 }
-      }
-      ["a tracked tool-owned skill fails the check"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "tracked" }
-        expect { code = 0 }
-      }
-      ["a tracked synced skill fails the check and names the path"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "synced-tracked" }
-        expect { code = 0 }
-      }
-      ["an ignored synced cache keeps git status clean and passes the check"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "synced-ignored" }
-        expect { code = 0 }
-      }
-      ["discovery counts are unchanged with the synced cache present"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "synced-discovery" }
-        expect { code = 0 }
-      }
-      ["bootstrap renders, checks, backs up and repairs the MCP configs"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "mcp" }
-        expect { code = 0 }
-      }
-      ["the gc agent is installed and drift is detected"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "gc-agent" }
-        expect { code = 0 }
-      }
-      ["the weekly verify maintenance agent is installed and drift is detected"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "verify-agent" }
-        expect { code = 0 }
-      }
-      ["the narrow verify-agent install writes only the plist"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "verify-agent-narrow" }
-        expect { code = 0 }
-      }
-      ["the secrets agent uses an absolute interpreter and retries loudly"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "secrets-agent" }
-        expect { code = 0 }
-      }
-      ["the check names a missing, stale or absent secrets agent"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "plist-drift" }
-        expect { code = 0 }
-      }
-      ["an unresolvable interpreter names the plist"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "plist-interpreter" }
-        expect { code = 0 }
-      }
-      ["the ssh config routes GitHub through 1Password and the origin moves to SSH"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "ssh-agent" }
-        expect { code = 0 }
-      }
-      ["a missing 1Password agent fails loudly and leaves origin alone"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "ssh-no-agent" }
-        expect { code = 0 }
-      }
-      ["an existing github.com block is left alone and warned about"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "ssh-existing" }
-        expect { code = 0 }
-      }
-      ["a CRLF ssh config keeps its line endings"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "ssh-crlf" }
-        expect { code = 0 }
-      }
-      ["bootstrap loads the agent and the check catches an unset launchd secret"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "launchd" }
-        expect { code = 0 }
-      }
-      ["no op:// reference puts a colon in its item segment"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "reference-syntax" }
-        expect { code = 0 }
-      }
-      ["the token lookup names zero, duplicate and malformed matches"] {
-        run = "check"
-        env { ["BOOTSTRAP_CASE"] = "token-lookup" }
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["mcp-sync"] = new Step {
-    check = "sh {{root}}/scripts/mcp-sync-test.sh"
-    tests {
-      ["a fresh render uses each harness env syntax and stays in sync"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "fresh" }
-        expect { code = 0 }
-      }
-      ["the check names drift and the render repairs it"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "drift" }
-        expect { code = 0 }
-      }
-      ["a retired server is removed and an unmanaged one survives"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "retired" }
-        expect { code = 0 }
-      }
-      ["an absent harness config is left absent"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "absent" }
-        expect { code = 0 }
-      }
-      ["keys and servers outside the registry survive"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "preserve" }
-        expect { code = 0 }
-      }
-      ["a rewritten config is backed up and keeps its mode"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "backup" }
-        expect { code = 0 }
-      }
-      ["the env mode reads the reference and sets only the name in output"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "env" }
-        expect { code = 0 }
-      }
-      ["an unreadable reference fails loudly and sets nothing"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "env-fail" }
-        expect { code = 0 }
-      }
-      ["the env check reports a missing launchd variable"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "env-check" }
-        expect { code = 0 }
-      }
-      ["a literal registry header is refused"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "literal-header" }
-        expect { code = 0 }
-      }
-      ["a registry without secret references is a no-op"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "no-references" }
-        expect { code = 0 }
-      }
-      ["a malformed config is a named error"] {
-        run = "check"
-        env { ["MCP_SYNC_CASE"] = "malformed" }
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["triage"] = new Step {
-    check = "python3 {{root}}/scripts/triage-test.py"
-    tests {
-      ["derives both outcomes and labels after the comment"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["adopt"] = new Step {
-    check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/adopt-test.py"
-    tests {
-      ["files one issue per category, then only new findings"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["ocr-restyle"] = new Step {
-    check = "uv run --script {{root}}/scripts/ocr-restyle-test.py"
-    tests {
-      ["restyles, preserves markers and rolls back a failed rewrite"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["merge"] = new Step {
-    check = "python3 {{root}}/skills/merge-pr/scripts/merge-test.py"
-    tests {
-      ["refuses an Outside Contributor and merges a factory PR"] {
-        run = "check"
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["block-issue"] = new Step {
-    check = "sh {{root}}/skills/supervise/scripts/block-issue-test.sh"
-    tests {
-      ["posts one comment then the label"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "post" }
-        expect { code = 0 }
-      }
-      ["puts the unblock step first"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "order" }
-        expect { code = 0 }
-      }
-      ["refuses a multi-line unblock step"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "unblock_multiline" }
-        expect { code = 0 }
-      }
-      ["refuses a multi-line reason"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "reason_multiline" }
-        expect { code = 0 }
-      }
-      ["accepts a trailing newline on a one-line value"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "trailing_newline" }
-        expect { code = 0 }
-      }
-      ["refuses multi-line evidence"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "evidence_multiline" }
-        expect { code = 0 }
-      }
-      ["accepts a digit-leading evidence value"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "digit_value" }
-        expect { code = 0 }
-      }
-      ["refuses a summary tag in details"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "summary_tag" }
-        expect { code = 0 }
-      }
-      ["escapes a mention in the reason"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "reason_mention" }
-        expect { code = 0 }
-      }
-      ["strips a trailing newline from the reason"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "reason_newline" }
-        expect { code = 0 }
-      }
-      ["refuses an evidence list marker"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "leading_marker" }
-        expect { code = 0 }
-      }
-      ["refuses a details breakout"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "detail_breakout" }
-        expect { code = 0 }
-      }
-      ["escapes mentions inside details"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "detail_mention" }
-        expect { code = 0 }
-      }
-      ["omits details without a detail value"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "no_detail" }
-        expect { code = 0 }
-      }
-      ["refuses empty evidence"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "empty_evidence" }
-        expect { code = 0 }
-      }
-      ["refuses a finding list marker"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "finding_marker" }
-        expect { code = 0 }
-      }
-      ["refuses the Blocker marker in details"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "blocker_marker" }
-        expect { code = 0 }
-      }
-      ["refuses a details tag variant"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "detail_attributes" }
-        expect { code = 0 }
-      }
-      ["keeps one comment on an already blocked issue"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "idempotent" }
-        expect { code = 0 }
-      }
-      ["refuses a Blocker without an unblock step"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "missing" }
-        expect { code = 0 }
-      }
-      ["refuses a repository traversal"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "invalid_repo" }
-        expect { code = 0 }
-      }
-      ["stops before the label when the comment fails"] {
-        run = "check"
-        env { ["BLOCK_ISSUE_CASE"] = "failure" }
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["file-promotion"] = new Step {
-    check = "sh {{root}}/skills/supervise/scripts/file-promotion-test.sh"
-    tests {
-      ["names a Gate check"] {
-        run = "check"
-        env { ["FILE_PROMOTION_CASE"] = "gate_check" }
-        expect { code = 0 }
-      }
-      ["states why no check is possible"] {
-        run = "check"
-        env { ["FILE_PROMOTION_CASE"] = "no_check" }
-        expect { code = 0 }
-      }
-      ["refuses no check and no reason"] {
-        run = "check"
-        env { ["FILE_PROMOTION_CASE"] = "neither" }
-        expect { code = 0 }
-      }
-      ["refuses both at once"] {
-        run = "check"
-        env { ["FILE_PROMOTION_CASE"] = "both" }
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["process-receipt"] = new Step {
-    check = "sh {{root}}/skills/supervise/scripts/process-receipt-test.sh"
-    tests {
-      ["a clean worktree prints none"] {
-        run = "check"
-        env { ["PROCESS_RECEIPT_CASE"] = "clean" }
-        expect { code = 0 }
-      }
-      ["reports a process whose cwd is in the worktree"] {
-        run = "check"
-        env { ["PROCESS_RECEIPT_CASE"] = "cwd" }
-        expect { code = 0 }
-      }
-      ["reports a process whose command line names the worktree"] {
-        run = "check"
-        env { ["PROCESS_RECEIPT_CASE"] = "argv" }
-        expect { code = 0 }
-      }
-      ["refuses without a baseline"] {
-        run = "check"
-        env { ["PROCESS_RECEIPT_CASE"] = "no_baseline" }
-        expect { code = 0 }
-      }
-      ["reports a simulator booted after the baseline"] {
-        run = "check"
-        env { ["PROCESS_RECEIPT_CASE"] = "simulator" }
-        expect { code = 0 }
-      }
-      ["reports a failed xcrun instead of none"] {
-        run = "check"
-        env { ["PROCESS_RECEIPT_CASE"] = "simulator_unknown" }
-        expect { code = 0 }
-      }
-      ["keeps the baseline in the git directory"] {
-        run = "check"
-        env { ["PROCESS_RECEIPT_CASE"] = "git_state" }
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["evidence"] = new Step {
-    check = "python3 {{root}}/skills/evidence/scripts/evidence-test"
-    tests {
-      ["evidence stays out of the repository"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_outside" }
-        expect { code = 0 }
-      }
-      ["the repository and branch default to gh and the current branch"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "defaults" }
-        expect { code = 0 }
-      }
-      ["add refuses a source inside the repository"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_source_inside" }
-        expect { code = 0 }
-      }
-      ["add refuses a cache inside the repository"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_dest_inside" }
-        expect { code = 0 }
-      }
-      ["a failed add keeps stored attachments and its captions"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_video_rollback" }
-        expect { code = 0 }
-      }
-      ["a failed multi-file add restores what it replaced"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_multi_rollback" }
-        expect { code = 0 }
-      }
-      ["add compresses a video passed as the stored file"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_in_place_video" }
-        expect { code = 0 }
-      }
-      ["a failed in-place video add restores the original"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_in_place_rollback" }
-        expect { code = 0 }
-      }
-      ["an oversize in-place image is refused and kept"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_in_place_image_limit" }
-        expect { code = 0 }
-      }
-      ["staged evidence moves to the PR directory before the comment"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "stage_attach" }
-        expect { code = 0 }
-      }
-      ["attach prints the comment URL and a dry run prints none"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attach_url" }
-        expect { code = 0 }
-      }
-      ["attach without a PR resolves it and posts from the PR directory"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attach_resolves_pr" }
-        expect { code = 0 }
-      }
-      ["a video over the limit is compressed and the comment is replaced"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "video" }
-        expect { code = 0 }
-      }
-      ["a video over the limit is compressed at attach and keeps its caption"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attach_video_compress" }
-        expect { code = 0 }
-      }
-      ["a compressed video takes a unique name when its target exists"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attach_video_collision" }
-        expect { code = 0 }
-      }
-      ["a rekeyed caption survives a later failure"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attach_rekey_survives_failure" }
-        expect { code = 0 }
-      }
-      ["compression keeps the five-attachment cap"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "cap_after_compression" }
-        expect { code = 0 }
-      }
-      ["a file over the limit fails before upload"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "oversize" }
-        expect { code = 0 }
-      }
-      ["the receipt requires every field and one cost exception"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "receipt_rules" }
-        expect { code = 0 }
-      }
-      ["a receipt that is not a JSON object is refused"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "receipt_shape" }
-        expect { code = 0 }
-      }
-      ["add requires a one-line caption for every file"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "add_caption" }
-        expect { code = 0 }
-      }
-      ["attach refuses stored evidence without a caption"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attach_caption_required" }
-        expect { code = 0 }
-      }
-      ["attach refuses a media name that breaks the comment"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "bad_attachment_name" }
-        expect { code = 0 }
-      }
-      ["captions escape Markdown and HTML"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "caption_escape" }
-        expect { code = 0 }
-      }
-      ["a summary over ten lines is refused"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "summary_limit" }
-        expect { code = 0 }
-      }
-      ["a sixth attachment is refused"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attachment_limit" }
-        expect { code = 0 }
-      }
-      ["a non-visual change posts no attachments"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "no_attachments" }
-        expect { code = 0 }
-      }
-      ["a receipt written before the summary cap still attaches"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "legacy_receipt_over_ten_lines" }
-        expect { code = 0 }
-      }
-      ["staged captions merge with attachments already in the PR directory"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "caption_merge" }
-        expect { code = 0 }
-      }
-      ["a gh failure names its cause"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attach_gh_failure" }
-        expect { code = 0 }
-      }
-      ["a failed replacement keeps one evidence comment"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "attach_rollback" }
-        expect { code = 0 }
-      }
-      ["a staged directory left behind is reported"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "stage_leftover" }
-        expect { code = 0 }
-      }
-      ["a cache permission failure is reported"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "cleanup_prune" }
-        expect { code = 0 }
-      }
-      ["cleanup removes the worktree, branches and evidence"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "cleanup" }
-        expect { code = 0 }
-      }
-      ["cleanup tolerates an already-deleted remote branch and a rerun"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "cleanup_idempotent" }
-        expect { code = 0 }
-      }
-      ["cleanup refuses unmerged heads and dirty worktrees"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "cleanup_refusals" }
-        expect { code = 0 }
-      }
-      ["the mise task runs the command"] {
-        run = "check"
-        env { ["EVIDENCE_CASE"] = "mise_task" }
-        expect { code = 0 }
-      }
-    }
-  }
-
-  ["pr-text"] = new Step {
-    check = "python3 {{root}}/skills/pr/scripts/pr-text-test"
-    tests {
-      ["accepts a good PR body"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "good_body" }
-        expect { code = 0 }
-      }
-      ["accepts a long details block"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "long_details" }
-        expect { code = 0 }
-      }
-      ["rejects a four-line summary"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "summary_four_lines" }
-        expect { code = 0 }
-      }
-      ["rejects an empty summary"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "empty_summary" }
-        expect { code = 0 }
-      }
-      ["rejects an empty Why"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "empty_why" }
-        expect { code = 0 }
-      }
-      ["rejects a summary line over 160 characters"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "summary_long_line" }
-        expect { code = 0 }
-      }
-      ["rejects a Why over 400 characters"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "why_too_long" }
-        expect { code = 0 }
-      }
-      ["rejects a missing Why"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "missing_why" }
-        expect { code = 0 }
-      }
-      ["rejects an indented section heading"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "indented_heading" }
-        expect { code = 0 }
-      }
-      ["rejects evidence without the comment link"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "evidence_unlinked" }
-        expect { code = 0 }
-      }
-      ["rejects a second evidence line"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "evidence_repeated" }
-        expect { code = 0 }
-      }
-      ["rejects a bare evidence link"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "evidence_link_only" }
-        expect { code = 0 }
-      }
-      ["rejects an autolinked evidence URL"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "evidence_autolink" }
-        expect { code = 0 }
-      }
-      ["rejects a titled evidence link without a statement"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "evidence_titled_link" }
-        expect { code = 0 }
-      }
-      ["rejects a six-line fence outside details"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "long_fence" }
-        expect { code = 0 }
-      }
-      ["accepts a fence at the content limit"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "fence_at_limit" }
-        expect { code = 0 }
-      }
-      ["accepts a fence that looks like structure"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "fenced_structure" }
-        expect { code = 0 }
-      }
-      ["accepts an Enterprise evidence link"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "evidence_enterprise" }
-        expect { code = 0 }
-      }
-      ["rejects a second bare evidence URL"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "evidence_second_url" }
-        expect { code = 0 }
-      }
-      ["rejects text after details"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "text_after_details" }
-        expect { code = 0 }
-      }
-      ["rejects a second details block"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "second_details" }
-        expect { code = 0 }
-      }
-      ["rejects an unclosed details block"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "unclosed_details" }
-        expect { code = 0 }
-      }
-      ["rejects an inline details block"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "inline_details" }
-        expect { code = 0 }
-      }
-      ["rejects a nested details block"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "nested_details" }
-        expect { code = 0 }
-      }
-      ["accepts a Why at the character limit"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "why_at_limit" }
-        expect { code = 0 }
-      }
-      ["rejects a multi-line Why over the limit"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "why_multiline_over" }
-        expect { code = 0 }
-      }
-      ["rejects a Merge Danger over the limit"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "danger_over" }
-        expect { code = 0 }
-      }
-      ["accepts 39 rendered lines"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "39_lines" }
-        expect { code = 0 }
-      }
-      ["rejects 40 rendered lines"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "40_lines" }
-        expect { code = 0 }
-      }
-      ["accepts a body from a file"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "body_file" }
-        expect { code = 0 }
-      }
-      ["rejects a missing body file"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "body_missing" }
-        expect { code = 0 }
-      }
-      ["accepts a short fixed reply"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_fixed" }
-        expect { code = 0 }
-      }
-      ["accepts a full fixed reply"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_fixed_full_sha" }
-        expect { code = 0 }
-      }
-      ["accepts a not-a-bug reply"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_not_a_bug" }
-        expect { code = 0 }
-      }
-      ["accepts a deferred reply"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_deferred" }
-        expect { code = 0 }
-      }
-      ["rejects a multi-line reply"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_multiline" }
-        expect { code = 0 }
-      }
-      ["rejects a free-form reply"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_freestyle" }
-        expect { code = 0 }
-      }
-      ["rejects a fixed reply without a sha"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_fixed_without_sha" }
-        expect { code = 0 }
-      }
-      ["rejects a reply over 200 characters"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_too_long" }
-        expect { code = 0 }
-      }
-      ["accepts a reply from stdin"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_stdin" }
-        expect { code = 0 }
-      }
-      ["accepts a CRLF reply"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_crlf" }
-        expect { code = 0 }
-      }
-      ["accepts a trailing blank line after a reply"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_trailing_blank" }
-        expect { code = 0 }
-      }
-      ["accepts a reply with a leading blank line"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_leading_blank" }
-        expect { code = 0 }
-      }
-      ["rejects an empty reply from stdin"] {
-        run = "check"
-        env { ["PR_TEXT_CASE"] = "reply_empty_stdin" }
-        expect { code = 0 }
+  ["tests"] {
+    steps {
+      ["codacy-gate-test"] = new Step {
+        check = "python3 {{root}}/scripts/codacy-gate-test.py"
+        tests {
+          ["runs private analysis and rejects zero tools"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["repo-settings-test"] = new Step {
+        check = "python3 {{root}}/scripts/repo-settings-test.py"
+        tests {
+          ["reconciles repository settings idempotently"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["sync-upstream-test"] = new Step {
+        check = "python3 {{root}}/skills/sync-upstream/scripts/sync-upstream-test.py && python3 {{root}}/skills/sync-upstream/scripts/sync-upstream-files-test.py"
+        tests {
+          ["fork sync fixtures pass"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["renovate-managers-test"] = new Step {
+        check = "python3 {{root}}/scripts/renovate-managers-test.py"
+        tests {
+          ["extracts every Factory tag pin once"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["renovate-re2-test"] = new Step {
+        check = "sh {{root}}/scripts/renovate-re2-test.sh"
+        tests {
+          ["both Renovate steps reject the RE2 fallback"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["workflow-invariant-test"] = new Step {
+        check = "python3 {{root}}/scripts/workflow-invariant-test.py"
+        tests {
+          ["rejects an unsafe fork workflow"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["advisory-review-requests"] = new Step {
+        check = "python3 {{root}}/skills/babysit-pr/scripts/request-advisory-reviews-test.py"
+        tests {
+          ["requests once and requires outside contributor approval"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["advisory-review-status"] = new Step {
+        check = "python3 {{root}}/skills/babysit-pr/scripts/advisory-review-status-test.py"
+        tests {
+          ["reports every reviewer and bounds the wait"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["run-slot"] = new Step {
+        check = "sh {{root}}/skills/full-send/scripts/run-slot-test.sh"
+        tests {
+          ["two slots succeed"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "two" }
+            expect { code = 0 }
+          }
+          ["a third repo is refused"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "third" }
+            expect { code = 0 }
+          }
+          ["a second slot for the same repo is refused"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "same" }
+            expect { code = 0 }
+          }
+          ["release frees a slot"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "release" }
+            expect { code = 0 }
+          }
+          ["a traversal is refused"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "traversal" }
+            expect { code = 0 }
+          }
+          ["a permission failure is not a duplicate"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "permission" }
+            expect { code = 0 }
+          }
+          ["concurrent acquires admit exactly two"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "concurrent" }
+            expect { code = 0 }
+          }
+          ["glob characters in the slot root are literal"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "glob_root" }
+            expect { code = 0 }
+          }
+          ["newlines preserve live slots"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "newline_root" }
+            expect { code = 0 }
+          }
+          ["trailing slashes preserve slot names"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "trailing_root" }
+            expect { code = 0 }
+          }
+          ["a leading dash in the slot root is literal"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "dash_root" }
+            expect { code = 0 }
+          }
+          ["relative slot roots ignore CDPATH"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "cdpath" }
+            expect { code = 0 }
+          }
+          ["a crashed machine slot is pruned"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "orphan" }
+            expect { code = 0 }
+          }
+          ["an owner directory failure names the path"] {
+            run = "check"
+            env { ["RUN_SLOT_CASE"] = "owner_permission" }
+            expect { code = 0 }
+          }
+        }
+      }
+      ["canonical-clones"] = new Step {
+        check = "sh {{root}}/scripts/canonical-clones-test.sh"
+        tests {
+          ["inventory and migration fixtures pass"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["gc"] = new Step {
+        check = "sh {{root}}/scripts/gc-test.sh"
+        tests {
+          ["prunes stale data and keeps unsafe candidates"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["verify-skill"] = new Step {
+        check = "sh {{root}}/scripts/verify-skill-test.sh"
+        tests {
+          ["the passing fixture, lifecycle cleanup and every failing rule pass"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["verify-skill-maintenance"] = new Step {
+        check = "sh {{root}}/scripts/verify-skill-maintenance-test.sh"
+        tests {
+          ["a changed app files one issue and unchanged or open ones file none"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["bootstrap"] = new Step {
+        check = "sh {{root}}/scripts/bootstrap-test.sh"
+        tests {
+          ["a fresh temp HOME gets the Factory links"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "fresh" }
+            expect { code = 0 }
+          }
+          ["the second run changes nothing and says so"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "second" }
+            expect { code = 0 }
+          }
+          ["a broken link names the harness and the path"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "broken" }
+            expect { code = 0 }
+          }
+          ["real directories are refused, then backed up with approval"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "refuse" }
+            expect { code = 0 }
+          }
+          ["external symlinks need approval and are backed up"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "external" }
+            expect { code = 0 }
+          }
+          ["linked worktrees are refused for the real home"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "worktree" }
+            expect { code = 0 }
+          }
+          ["skills:sync --check ignores tool-owned skill directories"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "sync" }
+            expect { code = 0 }
+          }
+          ["Codex extras are named and managed entries are ignored"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "codex" }
+            expect { code = 0 }
+          }
+          ["XDG_CONFIG_HOME and CODEX_HOME are honoured"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "env" }
+            expect { code = 0 }
+          }
+          ["the hook helpers still resolve and run"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "hooks" }
+            expect { code = 0 }
+          }
+          ["bootstrap refuses a drifted vendored skill"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "repair" }
+            expect { code = 0 }
+          }
+          ["a tracked tool-owned skill fails the check"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "tracked" }
+            expect { code = 0 }
+          }
+          ["a tracked synced skill fails the check and names the path"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "synced-tracked" }
+            expect { code = 0 }
+          }
+          ["an ignored synced cache keeps git status clean and passes the check"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "synced-ignored" }
+            expect { code = 0 }
+          }
+          ["discovery counts are unchanged with the synced cache present"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "synced-discovery" }
+            expect { code = 0 }
+          }
+          ["bootstrap renders, checks, backs up and repairs the MCP configs"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "mcp" }
+            expect { code = 0 }
+          }
+          ["the gc agent is installed and drift is detected"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "gc-agent" }
+            expect { code = 0 }
+          }
+          ["the weekly verify maintenance agent is installed and drift is detected"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "verify-agent" }
+            expect { code = 0 }
+          }
+          ["the narrow verify-agent install writes only the plist"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "verify-agent-narrow" }
+            expect { code = 0 }
+          }
+          ["the secrets agent uses an absolute interpreter and retries loudly"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secrets-agent" }
+            expect { code = 0 }
+          }
+          ["the check names a missing, stale or absent secrets agent"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "plist-drift" }
+            expect { code = 0 }
+          }
+          ["an unresolvable interpreter names the plist"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "plist-interpreter" }
+            expect { code = 0 }
+          }
+          ["the ssh config routes GitHub through 1Password and the origin moves to SSH"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "ssh-agent" }
+            expect { code = 0 }
+          }
+          ["a missing 1Password agent fails loudly and leaves origin alone"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "ssh-no-agent" }
+            expect { code = 0 }
+          }
+          ["an existing github.com block is left alone and warned about"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "ssh-existing" }
+            expect { code = 0 }
+          }
+          ["a CRLF ssh config keeps its line endings"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "ssh-crlf" }
+            expect { code = 0 }
+          }
+          ["bootstrap loads the agent and the check catches an unset launchd secret"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "launchd" }
+            expect { code = 0 }
+          }
+          ["no op:// reference puts a colon in its item segment"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "reference-syntax" }
+            expect { code = 0 }
+          }
+          ["the token lookup names zero, duplicate and malformed matches"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "token-lookup" }
+            expect { code = 0 }
+          }
+        }
+      }
+      ["mcp-sync"] = new Step {
+        check = "sh {{root}}/scripts/mcp-sync-test.sh"
+        tests {
+          ["a fresh render uses each harness env syntax and stays in sync"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "fresh" }
+            expect { code = 0 }
+          }
+          ["the check names drift and the render repairs it"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "drift" }
+            expect { code = 0 }
+          }
+          ["a retired server is removed and an unmanaged one survives"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "retired" }
+            expect { code = 0 }
+          }
+          ["an absent harness config is left absent"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "absent" }
+            expect { code = 0 }
+          }
+          ["keys and servers outside the registry survive"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "preserve" }
+            expect { code = 0 }
+          }
+          ["a rewritten config is backed up and keeps its mode"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "backup" }
+            expect { code = 0 }
+          }
+          ["the env mode reads the reference and sets only the name in output"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "env" }
+            expect { code = 0 }
+          }
+          ["an unreadable reference fails loudly and sets nothing"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "env-fail" }
+            expect { code = 0 }
+          }
+          ["the env check reports a missing launchd variable"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "env-check" }
+            expect { code = 0 }
+          }
+          ["a literal registry header is refused"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "literal-header" }
+            expect { code = 0 }
+          }
+          ["a registry without secret references is a no-op"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "no-references" }
+            expect { code = 0 }
+          }
+          ["a malformed config is a named error"] {
+            run = "check"
+            env { ["MCP_SYNC_CASE"] = "malformed" }
+            expect { code = 0 }
+          }
+        }
+      }
+      ["triage"] = new Step {
+        check = "python3 {{root}}/scripts/triage-test.py"
+        tests {
+          ["derives both outcomes and labels after the comment"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["adopt"] = new Step {
+        check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/adopt-test.py"
+        tests {
+          ["files one issue per category, then only new findings"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["ocr-restyle"] = new Step {
+        check = "uv run --script {{root}}/scripts/ocr-restyle-test.py"
+        tests {
+          ["restyles, preserves markers and rolls back a failed rewrite"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["merge"] = new Step {
+        check = "python3 {{root}}/skills/merge-pr/scripts/merge-test.py"
+        tests {
+          ["refuses an Outside Contributor and merges a factory PR"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["block-issue"] = new Step {
+        check = "sh {{root}}/skills/supervise/scripts/block-issue-test.sh"
+        tests {
+          ["posts one comment then the label"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "post" }
+            expect { code = 0 }
+          }
+          ["puts the unblock step first"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "order" }
+            expect { code = 0 }
+          }
+          ["refuses a multi-line unblock step"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "unblock_multiline" }
+            expect { code = 0 }
+          }
+          ["refuses a multi-line reason"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "reason_multiline" }
+            expect { code = 0 }
+          }
+          ["accepts a trailing newline on a one-line value"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "trailing_newline" }
+            expect { code = 0 }
+          }
+          ["refuses multi-line evidence"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "evidence_multiline" }
+            expect { code = 0 }
+          }
+          ["accepts a digit-leading evidence value"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "digit_value" }
+            expect { code = 0 }
+          }
+          ["refuses a summary tag in details"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "summary_tag" }
+            expect { code = 0 }
+          }
+          ["escapes a mention in the reason"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "reason_mention" }
+            expect { code = 0 }
+          }
+          ["strips a trailing newline from the reason"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "reason_newline" }
+            expect { code = 0 }
+          }
+          ["refuses an evidence list marker"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "leading_marker" }
+            expect { code = 0 }
+          }
+          ["refuses a details breakout"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "detail_breakout" }
+            expect { code = 0 }
+          }
+          ["escapes mentions inside details"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "detail_mention" }
+            expect { code = 0 }
+          }
+          ["omits details without a detail value"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "no_detail" }
+            expect { code = 0 }
+          }
+          ["refuses empty evidence"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "empty_evidence" }
+            expect { code = 0 }
+          }
+          ["refuses a finding list marker"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "finding_marker" }
+            expect { code = 0 }
+          }
+          ["refuses the Blocker marker in details"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "blocker_marker" }
+            expect { code = 0 }
+          }
+          ["refuses a details tag variant"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "detail_attributes" }
+            expect { code = 0 }
+          }
+          ["keeps one comment on an already blocked issue"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "idempotent" }
+            expect { code = 0 }
+          }
+          ["refuses a Blocker without an unblock step"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "missing" }
+            expect { code = 0 }
+          }
+          ["refuses a repository traversal"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "invalid_repo" }
+            expect { code = 0 }
+          }
+          ["stops before the label when the comment fails"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "failure" }
+            expect { code = 0 }
+          }
+        }
+      }
+      ["file-promotion"] = new Step {
+        check = "sh {{root}}/skills/supervise/scripts/file-promotion-test.sh"
+        tests {
+          ["names a Gate check"] {
+            run = "check"
+            env { ["FILE_PROMOTION_CASE"] = "gate_check" }
+            expect { code = 0 }
+          }
+          ["states why no check is possible"] {
+            run = "check"
+            env { ["FILE_PROMOTION_CASE"] = "no_check" }
+            expect { code = 0 }
+          }
+          ["refuses no check and no reason"] {
+            run = "check"
+            env { ["FILE_PROMOTION_CASE"] = "neither" }
+            expect { code = 0 }
+          }
+          ["refuses both at once"] {
+            run = "check"
+            env { ["FILE_PROMOTION_CASE"] = "both" }
+            expect { code = 0 }
+          }
+        }
+      }
+      ["process-receipt"] = new Step {
+        check = "sh {{root}}/skills/supervise/scripts/process-receipt-test.sh"
+        tests {
+          ["a clean worktree prints none"] {
+            run = "check"
+            env { ["PROCESS_RECEIPT_CASE"] = "clean" }
+            expect { code = 0 }
+          }
+          ["reports a process whose cwd is in the worktree"] {
+            run = "check"
+            env { ["PROCESS_RECEIPT_CASE"] = "cwd" }
+            expect { code = 0 }
+          }
+          ["reports a process whose command line names the worktree"] {
+            run = "check"
+            env { ["PROCESS_RECEIPT_CASE"] = "argv" }
+            expect { code = 0 }
+          }
+          ["refuses without a baseline"] {
+            run = "check"
+            env { ["PROCESS_RECEIPT_CASE"] = "no_baseline" }
+            expect { code = 0 }
+          }
+          ["reports a simulator booted after the baseline"] {
+            run = "check"
+            env { ["PROCESS_RECEIPT_CASE"] = "simulator" }
+            expect { code = 0 }
+          }
+          ["reports a failed xcrun instead of none"] {
+            run = "check"
+            env { ["PROCESS_RECEIPT_CASE"] = "simulator_unknown" }
+            expect { code = 0 }
+          }
+          ["keeps the baseline in the git directory"] {
+            run = "check"
+            env { ["PROCESS_RECEIPT_CASE"] = "git_state" }
+            expect { code = 0 }
+          }
+        }
+      }
+      ["evidence"] = new Step {
+        check = "python3 {{root}}/skills/evidence/scripts/evidence-test"
+        tests {
+          ["evidence stays out of the repository"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_outside" }
+            expect { code = 0 }
+          }
+          ["the repository and branch default to gh and the current branch"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "defaults" }
+            expect { code = 0 }
+          }
+          ["add refuses a source inside the repository"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_source_inside" }
+            expect { code = 0 }
+          }
+          ["add refuses a cache inside the repository"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_dest_inside" }
+            expect { code = 0 }
+          }
+          ["a failed add keeps stored attachments and its captions"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_video_rollback" }
+            expect { code = 0 }
+          }
+          ["a failed multi-file add restores what it replaced"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_multi_rollback" }
+            expect { code = 0 }
+          }
+          ["add compresses a video passed as the stored file"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_in_place_video" }
+            expect { code = 0 }
+          }
+          ["a failed in-place video add restores the original"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_in_place_rollback" }
+            expect { code = 0 }
+          }
+          ["an oversize in-place image is refused and kept"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_in_place_image_limit" }
+            expect { code = 0 }
+          }
+          ["staged evidence moves to the PR directory before the comment"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "stage_attach" }
+            expect { code = 0 }
+          }
+          ["attach prints the comment URL and a dry run prints none"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attach_url" }
+            expect { code = 0 }
+          }
+          ["attach without a PR resolves it and posts from the PR directory"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attach_resolves_pr" }
+            expect { code = 0 }
+          }
+          ["a video over the limit is compressed and the comment is replaced"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "video" }
+            expect { code = 0 }
+          }
+          ["a video over the limit is compressed at attach and keeps its caption"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attach_video_compress" }
+            expect { code = 0 }
+          }
+          ["a compressed video takes a unique name when its target exists"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attach_video_collision" }
+            expect { code = 0 }
+          }
+          ["a rekeyed caption survives a later failure"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attach_rekey_survives_failure" }
+            expect { code = 0 }
+          }
+          ["compression keeps the five-attachment cap"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "cap_after_compression" }
+            expect { code = 0 }
+          }
+          ["a file over the limit fails before upload"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "oversize" }
+            expect { code = 0 }
+          }
+          ["the receipt requires every field and one cost exception"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "receipt_rules" }
+            expect { code = 0 }
+          }
+          ["a receipt that is not a JSON object is refused"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "receipt_shape" }
+            expect { code = 0 }
+          }
+          ["add requires a one-line caption for every file"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "add_caption" }
+            expect { code = 0 }
+          }
+          ["attach refuses stored evidence without a caption"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attach_caption_required" }
+            expect { code = 0 }
+          }
+          ["attach refuses a media name that breaks the comment"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "bad_attachment_name" }
+            expect { code = 0 }
+          }
+          ["captions escape Markdown and HTML"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "caption_escape" }
+            expect { code = 0 }
+          }
+          ["a summary over ten lines is refused"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "summary_limit" }
+            expect { code = 0 }
+          }
+          ["a sixth attachment is refused"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attachment_limit" }
+            expect { code = 0 }
+          }
+          ["a non-visual change posts no attachments"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "no_attachments" }
+            expect { code = 0 }
+          }
+          ["a receipt written before the summary cap still attaches"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "legacy_receipt_over_ten_lines" }
+            expect { code = 0 }
+          }
+          ["staged captions merge with attachments already in the PR directory"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "caption_merge" }
+            expect { code = 0 }
+          }
+          ["a gh failure names its cause"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attach_gh_failure" }
+            expect { code = 0 }
+          }
+          ["a failed replacement keeps one evidence comment"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "attach_rollback" }
+            expect { code = 0 }
+          }
+          ["a staged directory left behind is reported"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "stage_leftover" }
+            expect { code = 0 }
+          }
+          ["a cache permission failure is reported"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "cleanup_prune" }
+            expect { code = 0 }
+          }
+          ["cleanup removes the worktree, branches and evidence"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "cleanup" }
+            expect { code = 0 }
+          }
+          ["cleanup tolerates an already-deleted remote branch and a rerun"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "cleanup_idempotent" }
+            expect { code = 0 }
+          }
+          ["cleanup refuses unmerged heads and dirty worktrees"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "cleanup_refusals" }
+            expect { code = 0 }
+          }
+          ["the mise task runs the command"] {
+            run = "check"
+            env { ["EVIDENCE_CASE"] = "mise_task" }
+            expect { code = 0 }
+          }
+        }
+      }
+      ["pr-text"] = new Step {
+        check = "python3 {{root}}/skills/pr/scripts/pr-text-test"
+        tests {
+          ["accepts a good PR body"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "good_body" }
+            expect { code = 0 }
+          }
+          ["accepts a long details block"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "long_details" }
+            expect { code = 0 }
+          }
+          ["rejects a four-line summary"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "summary_four_lines" }
+            expect { code = 0 }
+          }
+          ["rejects an empty summary"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "empty_summary" }
+            expect { code = 0 }
+          }
+          ["rejects an empty Why"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "empty_why" }
+            expect { code = 0 }
+          }
+          ["rejects a summary line over 160 characters"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "summary_long_line" }
+            expect { code = 0 }
+          }
+          ["rejects a Why over 400 characters"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "why_too_long" }
+            expect { code = 0 }
+          }
+          ["rejects a missing Why"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "missing_why" }
+            expect { code = 0 }
+          }
+          ["rejects an indented section heading"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "indented_heading" }
+            expect { code = 0 }
+          }
+          ["rejects evidence without the comment link"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "evidence_unlinked" }
+            expect { code = 0 }
+          }
+          ["rejects a second evidence line"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "evidence_repeated" }
+            expect { code = 0 }
+          }
+          ["rejects a bare evidence link"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "evidence_link_only" }
+            expect { code = 0 }
+          }
+          ["rejects an autolinked evidence URL"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "evidence_autolink" }
+            expect { code = 0 }
+          }
+          ["rejects a titled evidence link without a statement"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "evidence_titled_link" }
+            expect { code = 0 }
+          }
+          ["rejects a six-line fence outside details"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "long_fence" }
+            expect { code = 0 }
+          }
+          ["accepts a fence at the content limit"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "fence_at_limit" }
+            expect { code = 0 }
+          }
+          ["accepts a fence that looks like structure"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "fenced_structure" }
+            expect { code = 0 }
+          }
+          ["accepts an Enterprise evidence link"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "evidence_enterprise" }
+            expect { code = 0 }
+          }
+          ["rejects a second bare evidence URL"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "evidence_second_url" }
+            expect { code = 0 }
+          }
+          ["rejects text after details"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "text_after_details" }
+            expect { code = 0 }
+          }
+          ["rejects a second details block"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "second_details" }
+            expect { code = 0 }
+          }
+          ["rejects an unclosed details block"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "unclosed_details" }
+            expect { code = 0 }
+          }
+          ["rejects an inline details block"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "inline_details" }
+            expect { code = 0 }
+          }
+          ["rejects a nested details block"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "nested_details" }
+            expect { code = 0 }
+          }
+          ["accepts a Why at the character limit"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "why_at_limit" }
+            expect { code = 0 }
+          }
+          ["rejects a multi-line Why over the limit"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "why_multiline_over" }
+            expect { code = 0 }
+          }
+          ["rejects a Merge Danger over the limit"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "danger_over" }
+            expect { code = 0 }
+          }
+          ["accepts 39 rendered lines"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "39_lines" }
+            expect { code = 0 }
+          }
+          ["rejects 40 rendered lines"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "40_lines" }
+            expect { code = 0 }
+          }
+          ["accepts a body from a file"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "body_file" }
+            expect { code = 0 }
+          }
+          ["rejects a missing body file"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "body_missing" }
+            expect { code = 0 }
+          }
+          ["accepts a short fixed reply"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_fixed" }
+            expect { code = 0 }
+          }
+          ["accepts a full fixed reply"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_fixed_full_sha" }
+            expect { code = 0 }
+          }
+          ["accepts a not-a-bug reply"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_not_a_bug" }
+            expect { code = 0 }
+          }
+          ["accepts a deferred reply"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_deferred" }
+            expect { code = 0 }
+          }
+          ["rejects a multi-line reply"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_multiline" }
+            expect { code = 0 }
+          }
+          ["rejects a free-form reply"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_freestyle" }
+            expect { code = 0 }
+          }
+          ["rejects a fixed reply without a sha"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_fixed_without_sha" }
+            expect { code = 0 }
+          }
+          ["rejects a reply over 200 characters"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_too_long" }
+            expect { code = 0 }
+          }
+          ["accepts a reply from stdin"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_stdin" }
+            expect { code = 0 }
+          }
+          ["accepts a CRLF reply"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_crlf" }
+            expect { code = 0 }
+          }
+          ["accepts a trailing blank line after a reply"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_trailing_blank" }
+            expect { code = 0 }
+          }
+          ["accepts a reply with a leading blank line"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_leading_blank" }
+            expect { code = 0 }
+          }
+          ["rejects an empty reply from stdin"] {
+            run = "check"
+            env { ["PR_TEXT_CASE"] = "reply_empty_stdin" }
+            expect { code = 0 }
+          }
+        }
       }
     }
   }

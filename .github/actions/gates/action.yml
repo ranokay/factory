@@ -1,13 +1,27 @@
 name: Gates
-description: Run the calling repository's Gates with mise.
+description: Run one group of the calling repository's Gates with mise.
+inputs:
+  group:
+    description: 'The Gates group to run: lint, security or test.'
+    required: true
 runs:
   using: composite
   steps:
     - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
       with:
         version: 2026.11.10
+        cache: true
     - name: Run Gates
       shell: bash
-      run: mise run check
       env:
+        GROUP: ${{ inputs.group }}
         GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        case "$GROUP" in
+          lint|security|test) ;;
+          *)
+            echo "::error::unknown Gates group: $GROUP"
+            exit 1
+            ;;
+        esac
+        mise run "check:$GROUP"
