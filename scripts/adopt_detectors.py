@@ -212,9 +212,18 @@ def dead_code_findings(project, tracked, _repo):
 def agents_profiles_findings(text):
     raw = profiles_entries(text)
     entries = [entry.strip() for entry in raw]
-    if not any(entries):
+    if not raw:
         return [
             finding("agents", "AGENTS.md", "profiles", "AGENTS.md has no Profiles: line.")
+        ]
+    if not any(entries):
+        return [
+            finding(
+                "agents",
+                "AGENTS.md",
+                "profiles-empty",
+                "AGENTS.md has an empty Profiles: line.",
+            )
         ]
     if len(raw) > 1:
         return [
@@ -414,10 +423,9 @@ def brand_findings(project, tracked, _repo):
     names = [
         path
         for path in masters
-        if "wordmark" in PurePosixPath(path).stem.lower()
-        or (
-            "logo" in PurePosixPath(path).stem.lower()
-            and "icon" not in PurePosixPath(path).stem.lower()
+        if "icon" not in PurePosixPath(path).stem.lower()
+        and any(
+            role in PurePosixPath(path).stem.lower() for role in ("logo", "wordmark")
         )
     ]
     if icons and names:
