@@ -8,11 +8,10 @@ import sys
 import tomllib
 from pathlib import Path
 
-from profiles_reader import TAG, factory_ref, profiles_entries
+from profiles_reader import PROFILE_PATH, TAG, factory_ref, profiles_entries
 
 PRUNE = {'.git', 'node_modules', '.venv', 'venv', 'skills', 'patches'}
 PROFILE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
-PROFILE_PATH = re.compile(r'(?:^|/)profiles/([a-z0-9][a-z0-9-]*)/(?:mise\.toml|tasks\.toml|hk\.pkl)$')
 GIT_INCLUDE = re.compile(r'^git::(?P<repo>.+)//(?P<path>[^?]+)(?:\?ref=(?P<ref>[^&]+))?$')
 FACTORY_REFERENCE = re.compile(r'(?:^|/)ranokay/factory(?:\.git)?(?:/|$)')
 FACTORY_REPO = re.compile(

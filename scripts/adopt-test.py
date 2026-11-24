@@ -212,6 +212,17 @@ class Adopt(unittest.TestCase):
         )
         self.commit("add tooling")
 
+    def use_factory_state(self, repo="ranokay/factory"):
+        self.reset_state()
+        state = self.state()
+        state["name"] = repo
+        state["repo"]["name"] = repo.split("/")[1]
+        state["repo"]["full_name"] = repo
+        self.write_state(state)
+        origin = self.git("remote", "set-url", "origin", f"https://github.com/{repo}.git")
+        self.assertEqual(origin.returncode, 0, origin.stderr)
+        self.reset_log()
+
     def write_repo(self):
         self.project.mkdir()
         for path, content in FILES.items():
@@ -573,18 +584,8 @@ class Adopt(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         tooling = self.issue_for(self.issues(), "tooling")
         self.assertEqual(len(self.markers(tooling)), 2)
-        self.reset_state()
-        state = self.state()
-        state["name"] = "ranokay/factory"
-        state["repo"]["name"] = "factory"
-        state["repo"]["full_name"] = "ranokay/factory"
-        self.write_state(state)
-        origin = self.git(
-            "remote", "set-url", "origin", "https://github.com/ranokay/factory.git"
-        )
-        self.assertEqual(origin.returncode, 0, origin.stderr)
-        self.reset_log()
-        result = self.run_adopt(repo="ranokay/factory")
+        self.use_factory_state("Ranokay/Factory")
+        result = self.run_adopt(repo="Ranokay/Factory")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
         self.assertEqual(len(issues), 7)
@@ -592,6 +593,31 @@ class Adopt(unittest.TestCase):
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
         )
+
+    def test_local_include_must_name_a_profile_file(self):
+        for include in (
+            "./profiles/universal/README.md",
+            "./profiles/nope/mise.toml",
+            "./profiles/universal/tasks.toml",
+        ):
+            with self.subTest(include=include):
+                (self.project / "mise.toml").write_text(
+                    f'include = ["{include}"]\n\n'
+                    '[task_config]\nincludes = ["./profiles/universal/tasks.toml"]\n'
+                )
+                (self.project / "hk.pkl").write_text(
+                    'amends "profiles/universal/hk.pkl"\n'
+                )
+                (self.project / "renovate.json").write_text(
+                    '{"extends": ["github>ranokay/factory"]}\n'
+                )
+                self.commit(f"add local include {include}")
+                self.use_factory_state()
+                result = self.run_adopt(repo="ranokay/factory")
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                tooling = self.issue_for(self.issues(), "tooling")
+                self.assertEqual(len(self.markers(tooling)), 1)
+                self.assertIn("mise.toml", tooling["body"])
 
     def test_unrelated_svg_does_not_suppress_the_brand_issue(self):
         master = self.project / "assets/brand/export.svg"
@@ -640,9 +666,9 @@ class Adopt(unittest.TestCase):
         )
 
     def test_git_and_refs_includes_are_accepted(self):
-        include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
-        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
-        hk = "https://raw.githubusercontent.com/ranokay/factory/refs/tags/v0.2.0/profiles/universal/hk.pkl"
+        include = "git::https://github.com/Ranokay/Factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "git::https://github.com/Ranokay/Factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/Ranokay/Factory/refs/tags/v0.2.0/profiles/universal/hk.pkl"
         self.write_tooling([include], [tasks], hk)
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -664,9 +690,34 @@ class Adopt(unittest.TestCase):
         self.assertEqual(len(self.markers(tooling)), 1)
         self.assertIn("mise.toml", tooling["body"])
 
+    def test_blob_and_tree_includes_are_findings(self):
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        mise = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        for includes, task_values in (
+            (
+                ["https://github.com/ranokay/factory/blob/v0.2.0/profiles/universal/mise.toml"],
+                [tasks],
+            ),
+            (
+                [mise],
+                ["https://github.com/ranokay/factory/tree/v0.2.0/profiles/universal/tasks.toml"],
+            ),
+        ):
+            with self.subTest(includes=includes, tasks=task_values):
+                self.write_tooling(includes, task_values, hk)
+                result = self.run_adopt()
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                tooling = self.issue_for(self.issues(), "tooling")
+                self.assertIn("mise.toml", tooling["body"])
+                self.reset_state()
+                self.reset_log()
+
     def test_binary_reference_is_skipped_without_withholding_dead_code(self):
         (self.project / "assets").mkdir()
-        (self.project / "assets/logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00binary")
+        (self.project / "assets/logo.png").write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00" + b"x" * 2_000_000
+        )
         self.commit("add a binary")
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
