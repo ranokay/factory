@@ -167,6 +167,23 @@ steps {
         }
         expect { code = 0 }
       }
+      ["a mixed-case Factory URL matches"] {
+        run = "check"
+        tmpdir = true
+        write {
+          ["AGENTS.md"] = "Profiles: universal\n"
+          ["mise.toml"] = """
+            include = ["git::https://github.com/Ranokay/Factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
+
+            [task_config]
+            includes = ["git::https://github.com/Ranokay/Factory.git//profiles/universal/tasks.toml?ref=v0.2.0"]
+            """
+          ["hk.pkl"] = """
+            amends "https://raw.githubusercontent.com/Ranokay/Factory/v0.2.0/profiles/universal/hk.pkl"
+            """
+        }
+        expect { code = 0 }
+      }
       ["a task include provides a Profile"] {
         run = "check"
         tmpdir = true

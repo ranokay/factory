@@ -13,9 +13,10 @@ from profiles_reader import PROFILE_PATH, TAG, factory_ref, profiles_entries
 PRUNE = {'.git', 'node_modules', '.venv', 'venv', 'skills', 'patches'}
 PROFILE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
 GIT_INCLUDE = re.compile(r'^git::(?P<repo>.+)//(?P<path>[^?]+)(?:\?ref=(?P<ref>[^&]+))?$')
-FACTORY_REFERENCE = re.compile(r'(?:^|/)ranokay/factory(?:\.git)?(?:/|$)')
+FACTORY_REFERENCE = re.compile(r'(?:^|/)ranokay/factory(?:\.git)?(?:/|$)', re.IGNORECASE)
 FACTORY_REPO = re.compile(
-    r'^(?:https?://github\.com/ranokay/factory(?:\.git)?|ssh://git@github\.com/ranokay/factory(?:\.git)?)/?$'
+    r'^(?:https?://github\.com/ranokay/factory(?:\.git)?|ssh://git@github\.com/ranokay/factory(?:\.git)?)/?$',
+    re.IGNORECASE,
 )
 AMENDS = re.compile(r'^\s*amends\s+"([^"]+)"', re.MULTILINE)
 
