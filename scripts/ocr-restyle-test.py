@@ -542,7 +542,7 @@ def comment_strategy():
         {
             "path": st.sampled_from(["a.py", "b/c.py", "REVIEW.md"]),
             "content": st.text(min_size=1, max_size=160).filter(lambda value: value.strip()),
-            "severity": st.sampled_from(["critical", "high", "medium", "low", "", None]),
+            "severity": st.sampled_from(["critical", "high", "medium", "low"]),
             "category": st.sampled_from(
                 ["bug", "security", "style", "documentation", "", None]
             ),

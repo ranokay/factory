@@ -36,7 +36,7 @@ CATEGORIES = frozenset(
     )
 )
 SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
-PRIORITY = {4: "🔴 P0", 3: "🟠 P1", 2: "🟡 P2", 1: "⚪ P3", 0: "⚪ P3"}
+PRIORITY = {4: "🔴 P0", 3: "🟠 P1", 2: "🟡 P2", 1: "⚪ P3"}
 
 
 class RewriteError(Exception):
@@ -126,7 +126,7 @@ def explanation_of(comment: dict[str, Any], title: str) -> str:
 
 
 def badge_of(comment: dict[str, Any]) -> str:
-    return PRIORITY[SEVERITY_RANK.get(normalize(comment.get("severity")), 0)]
+    return PRIORITY[SEVERITY_RANK[normalize(comment.get("severity"))]]
 
 
 def is_diagram_carrier(comment: dict[str, Any]) -> bool:
@@ -291,9 +291,8 @@ def summary_reason(body: str, comment: dict[str, Any]) -> str:
 
 
 def ordering(comment: dict[str, Any]) -> tuple[int, str, int, int]:
-    rank = SEVERITY_RANK.get(normalize(comment.get("severity")), 0)
     return (
-        -rank,
+        -SEVERITY_RANK[normalize(comment.get("severity"))],
         str(comment.get("path") or ""),
         integer(comment.get("start_line")),
         integer(comment.get("end_line")),

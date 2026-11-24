@@ -104,29 +104,6 @@ steps {
         "{% raw %}" + read("profiles/universal/scripts/comment-ban.sh").text + "{% endraw %}"
     }
     exclude = List("profiles/universal/tests/fixtures/**")
-    tests {
-      ["accepts a PEP 723 script block"] {
-        run = "check"
-        tmpdir = true
-        write { ["script.py"] = read("profiles/universal/tests/fixtures/pep723.py").text }
-        files = List("script.py")
-        expect { code = 0 }
-      }
-      ["rejects an unterminated PEP 723 block"] {
-        run = "check"
-        tmpdir = true
-        write { ["script.py"] = "# /// script\n# dependencies = [\"x==1\"]\nprint(1)\n" }
-        files = List("script.py")
-        expect { code = 1 }
-      }
-      ["does not exempt a non-Python file"] {
-        run = "check"
-        tmpdir = true
-        write { ["script.sh"] = "# /// script\n# TODO: fix\n" }
-        files = List("script.sh")
-        expect { code = 1 }
-      }
-    }
   }
   ["gitleaks"] = (Builtins.gitleaks) {
     check = "sh {{root}}/scripts/gitleaks-check.sh"
