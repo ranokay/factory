@@ -21,6 +21,8 @@ HEAD_MARKER = re.compile(r"<!--\s*factory:verify-maintenance\s+head=([0-9a-f]{40
 SKILL_ROOT = ".agents/skills"
 CLAUDE_ROOT = ".claude/skills"
 EXCLUDES = [f":(exclude){SKILL_ROOT}", f":(exclude){CLAUDE_ROOT}"]
+SEARCH_PAGE_SIZE = 100
+SEARCH_MAX_PAGES = 10
 
 
 def load_canonical_clones():
@@ -116,27 +118,44 @@ def last_skill_commit(repo, branch, skills):
 
 
 def issues(repo_slug, state):
-    result = gh(
-        "issue",
-        "list",
-        "--repo",
-        repo_slug,
-        "--state",
-        state,
-        "--limit",
-        "200",
-        "--json",
-        "number,title,body,closedAt",
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"gh issue list --state {state} failed: {result.stderr.strip() or result.stdout.strip()}")
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"gh issue list --state {state} returned invalid JSON: {error}") from None
-    if not isinstance(data, list):
-        raise RuntimeError(f"gh issue list --state {state} did not return a list")
-    return [issue for issue in data if isinstance(issue, dict) and MARKER in str(issue.get("body") or "")]
+    query = f'repo:{repo_slug} is:issue state:{state} "{MARKER}" in:body'
+    label = f"gh api search/issues for {state} issues"
+    found = []
+    for page in range(1, SEARCH_MAX_PAGES + 1):
+        result = gh(
+            "api",
+            "-X",
+            "GET",
+            "search/issues",
+            "-f",
+            f"q={query}",
+            "-f",
+            f"per_page={SEARCH_PAGE_SIZE}",
+            "-f",
+            f"page={page}",
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"{label} failed: {result.stderr.strip() or result.stdout.strip()}")
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(f"{label} returned invalid JSON: {error}") from None
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise RuntimeError(f"{label} did not return items")
+        found.extend(
+            {
+                "number": item.get("number"),
+                "title": item.get("title"),
+                "body": item.get("body"),
+                "closedAt": item.get("closed_at"),
+            }
+            for item in items
+            if isinstance(item, dict) and MARKER in str(item.get("body") or "")
+        )
+        if len(items) < SEARCH_PAGE_SIZE:
+            break
+    return found
 
 
 def closed_head(repo, repo_slug, branch):

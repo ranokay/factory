@@ -13,9 +13,11 @@ fail() {
 }
 
 export GH_LOG="$tmp/gh.log"
+export GH_QUERY_LOG="$tmp/gh-queries.log"
 export GH_STATE="$tmp/gh-state"
 mkdir -p "$tmp/remotes" "$tmp/repos" "$tmp/closed-root" "$GH_STATE" "$tmp/bin"
 : >"$GH_LOG"
+: >"$GH_QUERY_LOG"
 
 cat >"$tmp/bin/gh" <<'STUB'
 #!/bin/sh
@@ -34,6 +36,24 @@ case "$1 $2" in
 	done
 	file="$GH_STATE/$(printf '%s' "$repo" | tr '/' '_')-$state.json"
 	[ -f "$file" ] && cat "$file" || printf '[]\n'
+	;;
+"api -X")
+	page=1
+	query=
+	while [ "$#" -gt 0 ]; do
+		case $1 in
+		q=*) query=${1#q=} ;;
+		page=*) page=${1#page=} ;;
+		esac
+		shift
+	done
+	printf 'search %s page %s\n' "$query" "$page" >>"$GH_QUERY_LOG"
+	repo=${query#repo:}
+	repo=${repo%% *}
+	state=open
+	case $query in *"state:closed"*) state=closed ;; esac
+	file="$GH_STATE/$(printf '%s' "$repo" | tr '/' '_')-$state-page$page.json"
+	[ -f "$file" ] && cat "$file" || printf '{"items":[],"total_count":0}\n'
 	;;
 "issue create")
 	while [ "$#" -gt 0 ]; do
@@ -90,6 +110,20 @@ set_origin_head() {
 	git -C "$1" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$2"
 }
 
+write_issue_page() {
+	python3 - "$GH_STATE" "$1" "$2" "$3" "$4" "$5" <<'PAGE'
+import json
+import sys
+from pathlib import Path
+
+root, repo, state, number, title, body = sys.argv[1:7]
+closed = None if state == "open" else "2026-11-20T00:00:00Z"
+item = {"number": int(number), "title": title, "body": body, "closed_at": closed}
+path = Path(root) / f"{repo.replace('/', '_')}-{state}-page1.json"
+path.write_text(json.dumps({"total_count": 1, "items": [item]}))
+PAGE
+}
+
 new_remote changed trunk
 clone_repo changed "$tmp/repos"
 printf 'one\n' >"$tmp/repos/changed/app.txt"
@@ -121,6 +155,7 @@ set_github_origin "$tmp/repos/open" open
 set_origin_head "$tmp/repos/open" main
 open_head=$(git -C "$tmp/repos/open" rev-parse HEAD)
 printf '[{"number":7,"title":"Maintain verify-open skill","body":"Keep this open.\\n\\n<!-- factory:verify-maintenance head=%s -->\\n","closedAt":null}]\n' "$open_head" >"$GH_STATE/ranokay_open-open.json"
+write_issue_page "ranokay/open" open 7 "Maintain verify-open skill" "Keep this open. <!-- factory:verify-maintenance head=$open_head -->"
 
 new_remote other main
 clone_repo other "$tmp/repos"
@@ -142,6 +177,7 @@ set_github_origin "$tmp/closed-root/closed" closed
 set_origin_head "$tmp/closed-root/closed" trunk
 closed_head=$(git -C "$tmp/closed-root/closed" rev-parse HEAD)
 printf '[{"number":9,"title":"Maintain verify-closed skill","body":"Clean pass.\\n\\n<!-- factory:verify-maintenance head=%s -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' "$closed_head" >"$GH_STATE/ranokay_closed-closed.json"
+write_issue_page "ranokay/closed" closed 9 "Maintain verify-closed skill" "Clean pass. <!-- factory:verify-maintenance head=$closed_head -->"
 
 new_remote no-head main
 clone_repo no-head "$tmp/no-head-root"
@@ -153,6 +189,7 @@ commit_all "$tmp/no-head-root/no-head" "change the app"
 set_github_origin "$tmp/no-head-root/no-head" no-head
 set_origin_head "$tmp/no-head-root/no-head" main
 printf '[{"number":11,"title":"Maintain verify-no-head skill","body":"No head recorded.\\n\\n<!-- factory:verify-maintenance -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' >"$GH_STATE/ranokay_no-head-closed.json"
+write_issue_page "ranokay/no-head" closed 11 "Maintain verify-no-head skill" "No head recorded. <!-- factory:verify-maintenance -->"
 
 new_remote no-default main
 clone_repo no-default "$tmp/no-default-root"
@@ -198,6 +235,38 @@ git -C "$tmp/stale-root/stale" update-ref -d refs/remotes/origin/trunk
 git -C "$tmp/stale-root/stale" remote set-url origin "git@github.com:ranokay/stale.git"
 printf '#!/bin/sh\nexec git-upload-pack "%s"\n' "$tmp/remotes/stale.git" >"$tmp/bin/stale-ssh"
 chmod +x "$tmp/bin/stale-ssh"
+
+new_remote paged main
+clone_repo paged "$tmp/paged-root"
+printf 'one\n' >"$tmp/paged-root/paged/app.txt"
+write_skill "$tmp/paged-root/paged" paged
+commit_all "$tmp/paged-root/paged" "add verify skill"
+printf 'two\n' >>"$tmp/paged-root/paged/app.txt"
+commit_all "$tmp/paged-root/paged" "change the app"
+paged_head=$(git -C "$tmp/paged-root/paged" rev-parse HEAD)
+set_github_origin "$tmp/paged-root/paged" paged
+set_origin_head "$tmp/paged-root/paged" main
+python3 - "$GH_STATE" "$paged_head" <<'PAGED'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+head = sys.argv[2]
+def item(number, body):
+	return {"number": number, "title": f"Maintain verification skills ({number})", "body": body, "closed_at": None}
+
+
+unrelated = [{"number": number, "title": f"Issue {number}", "body": "unrelated", "closedAt": None} for number in range(1, 201)]
+(root / "ranokay_paged-open.json").write_text(json.dumps(unrelated))
+for index, numbers in enumerate([range(1, 101), range(101, 201), range(201, 251)], start=1):
+	items = [item(number, "unrelated maintenance text") for number in numbers]
+	if index == 3:
+		marker = f"Run `/maintain-verification-skill`.\n\n<!-- factory:verify-maintenance head={head} -->\n"
+		items.insert(0, item(999, marker))
+	path = root / f"ranokay_paged-open-page{index}.json"
+	path.write_text(json.dumps({"total_count": 251, "items": items}))
+PAGED
 
 run_maintenance() {
 	uv run --offline --no-project --no-config --python "$python" python "$root/scripts/verify-skill-maintenance.py" "$@"
@@ -256,6 +325,22 @@ grep -q 'git remote set-head origin --auto' "$tmp/no-default-err" || fail "a mis
 [ ! -s "$GH_LOG" ] || fail "a missing origin/HEAD called the GitHub create boundary"
 
 : >"$GH_LOG"
+: >"$GH_QUERY_LOG"
+run_maintenance --root "$tmp/paged-root" --no-fetch --dry-run >"$tmp/paged-dry"
+grep -q 'open ranokay/paged' "$tmp/paged-dry" || fail "a marker issue past the first page was not found"
+if grep -q 'would file ranokay/paged' "$tmp/paged-dry"; then
+	fail "a marker issue past the first page did not block a duplicate"
+fi
+grep -q '"factory:verify-maintenance"' "$GH_QUERY_LOG" || fail "the marker was not sent as a quoted search phrase"
+grep -q 'repo:ranokay/paged' "$GH_QUERY_LOG" || fail "the search did not scope to the repository"
+grep -q 'is:issue' "$GH_QUERY_LOG" || fail "the search did not ask for issues"
+grep -q 'state:open' "$GH_QUERY_LOG" || fail "the search did not ask for the open state"
+grep -q 'page 3' "$GH_QUERY_LOG" || fail "the search stopped before the last page"
+: >"$GH_LOG"
+run_maintenance --root "$tmp/paged-root" --no-fetch >"$tmp/paged-run"
+[ ! -s "$GH_LOG" ] || fail "a marker issue past the first page allowed a duplicate filing"
+
+: >"$GH_LOG"
 if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false run_maintenance --root "$tmp/fetch-root" --dry-run >"$tmp/fetch-out" 2>"$tmp/fetch-err"; then
 	cat "$tmp/fetch-out" "$tmp/fetch-err" >&2
 	fail "a failed fetch returned success"
@@ -263,4 +348,4 @@ fi
 grep -q 'git fetch failed' "$tmp/fetch-err" || fail "a failed fetch did not name the error"
 [ ! -s "$GH_LOG" ] || fail "a failed fetch filed an issue"
 
-echo "verify-skill-maintenance-test: changed files one issue, unchanged, third-party and clean-close file none, open issue blocks a duplicate"
+echo "verify-skill-maintenance-test: changed files one issue, unchanged, third-party and clean-close file none, open issue blocks a duplicate including past the first page"
