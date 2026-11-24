@@ -54,8 +54,7 @@ class CommandLineTests(unittest.TestCase):
         }
         env.update(environment or {})
         # Run the local script with argv and no shell.
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-        return subprocess.run(  # nosec B603 -- local script, argv, no shell
+        return subprocess.run(  # nosemgrep  # nosec B603 -- local script, argv, no shell
             [sys.executable, str(SCRIPT)],
             env=env,
             capture_output=True,
