@@ -83,7 +83,7 @@ def differing(before, after):
     return sorted(changed)
 
 
-def run_task(root, task, *args, environment=None):
+def run_task(root, task, *args, environment=None, cleanup_group=False):
     mise = shutil.which("mise")
     if mise is None:
         problem("mise is not on PATH; install it before running the shape check")
@@ -109,9 +109,8 @@ def run_task(root, task, *args, environment=None):
         problem(f"`mise run {task} -- {' '.join(args)}` did not finish within {TIMEOUT}s")
     except OSError as error:
         problem(f"cannot invoke `mise run {task}`: {error}")
-    leaked = group_alive(process.pid)
-    terminate_group(process.pid)
-    if leaked:
+    if cleanup_group and group_alive(process.pid):
+        terminate_group(process.pid)
         problem(f"`mise run {task} -- {' '.join(args)}` left a process running")
     return SimpleNamespace(args=process.args, returncode=process.returncode, stdout=stdout, stderr=stderr)
 
@@ -286,7 +285,7 @@ def check_dry_runs(root, task, destructive, sandbox, environment):
     before = snapshot(root)
     before_sandbox = snapshot(sandbox)
     for name in destructive:
-        result = run_task(root, task, name, "--dry-run", environment=environment)
+        result = run_task(root, task, name, "--dry-run", environment=environment, cleanup_group=True)
         label = f"{name} --dry-run"
         dry = parse_json(result, label)
         sandbox_changes = differing(before_sandbox, snapshot(sandbox))
