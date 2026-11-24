@@ -74,9 +74,9 @@ class Merge(unittest.TestCase):
         self.log.write_text("")
         self.marker.unlink(missing_ok=True)
 
-    def merge(self, *arguments):
+    def merge(self, *arguments, head=SHA):
         return subprocess.run(  # nosec B603 -- this checkout's merge script  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's merge script
-            [sys.executable, str(MERGE), "o/r", "7", "--head", SHA, *arguments],
+            [sys.executable, str(MERGE), "o/r", "7", "--head", head, *arguments],
             env=self.env,
             capture_output=True,
             text=True,
@@ -160,12 +160,7 @@ class Merge(unittest.TestCase):
                 self.assertEqual(self.calls(), [])
 
     def test_short_head_is_refused(self):
-        result = subprocess.run(  # nosec B603 -- this checkout's merge script  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's merge script
-            [sys.executable, str(MERGE), "o/r", "7", "--head", "abc", "--squash"],
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
+        result = self.merge("--squash", head="abc")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("40-character", result.stderr)
         self.assertEqual(self.calls(), [])
