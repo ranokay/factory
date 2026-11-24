@@ -212,6 +212,32 @@ class AiReviewWorkflowTests(unittest.TestCase):
             "${{ secrets.OPENCODE_ZEN_API_KEY }}",
         )
 
+    def test_restyle_step_follows_review_and_uses_the_action_directory(self):
+        source = action("ocr-review")
+        steps = action_steps(source)
+        names = [item.get("name") for item in steps]
+        self.assertLess(names.index("Review"), names.index("Restyle review comments"))
+        restyle = named_step(steps, "Restyle review comments")
+        self.assertEqual(restyle["env"]["OCR_SCRIPT"], "${{ github.action_path }}/restyle.py")
+        self.assertNotIn("github.workspace", restyle["env"]["OCR_SCRIPT"])
+        self.assertIn("exit 0", restyle["run"])
+        self.assertIn("::warning::", restyle["run"])
+        self.assertTrue((ROOT / ".github/actions/ocr-review/restyle.py").is_file())
+
+    def test_restyle_inputs_mirror_the_review_literals(self):
+        source = action("ocr-review")
+        inputs = yaml.safe_load(source)["inputs"]
+        with_ = review_step(source)["with"]
+        restyle = named_step(action_steps(source), "Restyle review comments")
+        for name, variable in (
+            ("route_severity_below", "OCR_ROUTE_SEVERITY_BELOW"),
+            ("route_categories", "OCR_ROUTE_CATEGORIES"),
+            ("effort", "OCR_EFFORT"),
+        ):
+            with self.subTest(input=name):
+                self.assertEqual(inputs[name]["default"], with_[name])
+                self.assertEqual(restyle["env"][variable], "${{ inputs." + name + " }}")
+
     def test_missing_key_fails_before_review(self):
         source = action("ocr-review")
         check = named_step(action_steps(source), "Require Console key")

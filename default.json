@@ -6,6 +6,9 @@
   "platformAutomerge": true,
   "automergeType": "pr",
   "automergeStrategy": "squash",
+  "pep723": {
+    "managerFilePatterns": ["/(^|/).+\\.py$/"]
+  },
   "packageRules": [
     {
       "matchUpdateTypes": ["minor", "patch"],

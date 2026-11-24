@@ -96,7 +96,13 @@ steps {
     exclude = vendored
   }
   ["comment-ban"] {
-    exclude = List("profiles/universal/tests/fixtures/**")
+    // PEP 723 metadata is executable script configuration, not commented-out
+    // code; the two tests carry their Hypothesis dependency inline.
+    exclude = List(
+      "profiles/universal/tests/fixtures/**",
+      "scripts/ocr-restyle-test.py",
+      "scripts/renovate-managers-test.py",
+    )
   }
   ["gitleaks"] = (Builtins.gitleaks) {
     check = "sh {{root}}/scripts/gitleaks-check.sh"
@@ -1000,6 +1006,16 @@ steps {
     check = "python3 {{root}}/scripts/triage-test.py"
     tests {
       ["derives both outcomes and labels after the comment"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["ocr-restyle"] = new Step {
+    check = "uv run --script {{root}}/scripts/ocr-restyle-test.py"
+    tests {
+      ["restyles, preserves markers and rolls back a failed rewrite"] {
         run = "check"
         expect { code = 0 }
       }

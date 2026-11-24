@@ -38,6 +38,13 @@ local const fixture = \"\"\"
   \"\"\"
 """
 
+PEP723 = """\
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["hypothesis==6.170.17"]
+# ///
+"""
+
 WORKFLOW = f"""\
 name: Check
 on: pull_request
@@ -183,6 +190,7 @@ class FactoryPins(unittest.TestCase):
         workflows = self.fixture / ".github" / "workflows"
         workflows.mkdir(parents=True)
         (workflows / "check.yml").write_text(WORKFLOW)
+        (self.fixture / "script.py").write_text(PEP723)
         self.deps = extract(self.fixture)
 
     def test_each_pin_line_yields_one_tag_pin(self):
@@ -204,6 +212,12 @@ class FactoryPins(unittest.TestCase):
         replacements = " ".join(dep.get("replaceString", "") for dep in pins)
         self.assertIn("profiles/universal/mise.toml?ref=", replacements)
         self.assertIn("profiles/universal/tasks.toml?ref=", replacements)
+
+    def test_pep723_script_dependency_is_tracked(self):
+        deps = self.deps.get("script.py", [])
+        found = [dep for dep in deps if dep.get("depName") == "hypothesis"]
+        self.assertTrue(found, deps)
+        self.assertEqual(found[0].get("currentValue"), "==6.170.17")
 
     def test_workflow_tag_pin_uses_the_builtin_manager(self):
         pins = tag_pins(self.deps.get(".github/workflows/check.yml", []))

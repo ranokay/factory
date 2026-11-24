@@ -8,6 +8,23 @@ inputs:
     description: Path to the OCR rules JSON; falls back to <workspace>/ai-review-rule.json.
     required: false
     default: ''
+  # These mirror the Review step's literals. They exist so the restyle step
+  # classifies findings with the same routing policy the Review step used and
+  # labels the footer with the same effort. Keeping the literals in the Review
+  # step leaves its checkpoint fingerprint byte-identical; the action tests
+  # pin each default to its literal.
+  route_severity_below:
+    description: Severity threshold the Review step routes to the summary.
+    required: false
+    default: medium
+  route_categories:
+    description: Categories the Review step routes to the summary.
+    required: false
+    default: style,documentation
+  effort:
+    description: Review effort recorded in the restyled footer.
+    required: false
+    default: high
 runs:
   using: composite
   steps:
@@ -121,3 +138,31 @@ runs:
           exit 1
         fi
         python3 -c 'import json, os, sys; result = json.load(open(os.environ["RESULT_PATH"])); sys.exit(result.get("status") not in ("complete", "skipped"))'
+    - name: Restyle review comments
+      # OCR has no template hook, so rewrite its sticky summary and this run's
+      # inline comments after it posts. Every hidden marker is preserved, which
+      # keeps checkpoint_range, incremental and resolve_outdated working. A
+      # failure restores whatever was already written and only warns: never
+      # fail the job and never lose a finding. The step lives beside this
+      # action so a caller that uses the action remotely still has it, and
+      # github.action_path resolves it without this repository's workspace.
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        OCR_RESULT: /tmp/ocr-result.json
+        OCR_RANGE_REASON: ${{ steps.review.outputs.range_reason }}
+        OCR_RANGE_FROM: ${{ steps.review.outputs.range_from }}
+        OCR_RANGE_TO: ${{ steps.review.outputs.range_to }}
+        OCR_ROUTE_SEVERITY_BELOW: ${{ inputs.route_severity_below }}
+        OCR_ROUTE_CATEGORIES: ${{ inputs.route_categories }}
+        OCR_EFFORT: ${{ inputs.effort }}
+        OCR_SCRIPT: ${{ github.action_path }}/restyle.py
+      run: |
+        set +e
+        python3 "$OCR_SCRIPT"
+        status=$?
+        if [ "$status" -ne 0 ]; then
+          echo "::warning::OCR restyle exited $status; OCR's original comments were left in place"
+        fi
+        exit 0
