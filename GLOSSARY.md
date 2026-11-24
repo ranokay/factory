@@ -123,7 +123,11 @@ A pull-request check that must pass to merge; always deterministic or backed by 
 _Avoid_: blocking review, mandatory bot
 
 **Advisory Reviewer**:
-A quota-limited review bot whose comments are read when they arrive and never waited for.
+A quota-limited review bot — Copilot, CodeRabbit or Greptile — that
+`request-advisory-reviews` asks to review a PR once; a fix push does not
+re-request it. A requested reviewer is waited for with a bounded timeout before
+the done wake and the merge; one that misses the timeout is named in the Run
+receipt and the merged notice, and its later findings become an issue.
 _Avoid_: optional check, nice-to-have bot
 
 **Merge Guard**:

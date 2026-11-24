@@ -78,14 +78,21 @@ Readiness requires all of:
   green. A success badge without evidence of a completed review is also
   incomplete. A completed review explicitly reporting no findings is valid
   coverage;
+- every requested Advisory Reviewer is terminal for its request. Run
+  `~/Developer/factory/skills/babysit-pr/scripts/advisory-review-status
+  <owner>/<repo> <pr>`; exit 1 means a reviewer is still pending, so this skill
+  does not merge and the PR needs `babysit-pr`'s bounded wait. A reviewer that
+  timed out is recorded there, not inferred here. Exit 2 is an operational
+  error: report it and stop;
 - no unresolved thread contains an actionable finding that the current head has
   not addressed. A thread whose finding is already fixed but still open does not
   block unless repository rules require resolution;
 - the PR is mergeable on that exact head.
 
-Hosted AI reviews are optional under the shared workflow unless explicitly
-requested for this run. Report incomplete bot coverage without waiting for it;
-inspect available findings and respect actual forge-enforced protections.
+Hosted AI reviews are optional until `request-advisory-reviews` requests them.
+This skill never performs the bounded wait; a requested reviewer still pending
+for its request means the PR returns to `babysit-pr`. Inspect available findings
+and respect actual forge-enforced protections.
 
 Inside a Factory Run, the Verification Evidence is the single `evidence`
 comment on the PR. Its Run receipt takes the Worker model and variant from the
@@ -109,9 +116,9 @@ transitions below, which are part of completing an authorized merge.
 
 ## Merge
 
-Refresh the live head, base, checks, and review state immediately before merging.
-Use the repository's merge method; use squash when none is specified, and a merge
-commit for a Sync PR.
+Refresh the live head, base, checks, review state and advisory status
+immediately before merging. Use the repository's merge method; use squash when
+none is specified, and a merge commit for a Sync PR.
 
 For an ordinary PR, merge only through
 `~/Developer/factory/skills/merge-pr/scripts/merge <owner>/<repo> <pr> --head <sha> --squash`

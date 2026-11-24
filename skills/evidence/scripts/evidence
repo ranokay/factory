@@ -471,6 +471,24 @@ def cmd_receipt(args):
     print(f"receipt: {path}")
 
 
+def cmd_advisory(args):
+    if args.pr is None:
+        fail("--pr is required")
+    _, target = evidence_target(args)
+    path = target / "receipt.json"
+    if not path.is_file():
+        fail("no Run receipt; run `evidence receipt` first")
+    data = load_receipt(path)
+    text = args.text.strip()
+    if not text:
+        fail("--text is required")
+    if "\n" in text or "\r" in text:
+        fail("--text must be one line")
+    data["advisory"] = text
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    print(f"advisory: {text}")
+
+
 def load_receipt(path):
     try:
         data = json.loads(path.read_text())
@@ -593,8 +611,10 @@ def render(data, entries):
         f"- Fallback used: {data['fallback']}",
         f"- Attempts: {data['attempts']}",
         f"- Token cost: {html.escape(data['cost'], quote=False)}",
-        "- Gates run:",
     ]
+    if data.get("advisory"):
+        lines.append(f"- Advisory reviews: {html.escape(data['advisory'], quote=False)}")
+    lines.append("- Gates run:")
     for gate in data["gates"]:
         lines.append(f"  - {html.escape(gate, quote=False)}")
     lines.append("</details>")
@@ -888,6 +908,10 @@ def build_parser():
         help=f"what the evidence shows; at most {MAX_SUMMARY_LINES} lines, one per command with its exit code and the CI run link",
     )
     receipt.set_defaults(func=cmd_receipt)
+
+    advisory = subparsers.add_parser("advisory", parents=[common], help="record Advisory Reviewer coverage in the Run receipt")
+    advisory.add_argument("--text", required=True, help="one line, such as 'greptile timed out after 20m'")
+    advisory.set_defaults(func=cmd_advisory)
 
     attach = subparsers.add_parser("attach", parents=[common], help="post or replace the single evidence comment")
     attach.add_argument("--dry-run", action="store_true", help="print the body and gh command without posting")

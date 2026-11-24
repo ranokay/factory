@@ -44,6 +44,8 @@ The script requests each Advisory Reviewer once and requires ranokay's approval
 for an Outside Contributor PR. It identifies the run by its
 `AI Review PR <number>` run name, which `ai-review.yml` sets from the event's
 pull request number; an unidentifiable run does not permit requests.
+`advisory-review-status` beside it reports the same three reviewers and
+performs the bounded wait that readiness requires.
 
 ## Inspect and act on the current state
 
@@ -169,9 +171,10 @@ and a body that starts with `Reply to thread <this thread's ID>.`:
 - **Protected Surface approval.** Send `supervise · wake · protected <PR URL>` with
   the protected paths. Do not merge. Wait for `supervise · merge`, which follows
   ranokay's approval.
-- **Final Definition of Done.** When the Gates are green, the Verification Evidence
-  is attached, every thread is resolved and the PR is mergeable on the candidate
-  head, send `supervise · wake · done <PR URL> · <head SHA>`. Merge only after
+- **Final Definition of Done.** When the Gates are green, the bounded advisory
+  wait has reported every reviewer terminal or named the timed-out ones, the
+  Verification Evidence is attached, every thread is resolved and the PR is
+  mergeable on the candidate head, send `supervise · wake · done <PR URL> · <head SHA>`. Merge only after
   `supervise · merge`. A `supervise · block` means post the Blocker shape, send the
   stopped notice, and stop without merging.
 
@@ -188,15 +191,32 @@ acceptable live checks and review decisions, no unresolved actionable findings,
 and mergeability on the candidate head. Check the PR is open and not draft.
 Unknown mergeability or pending required work is still pending.
 
-Treat hosted AI reviewers as optional under the shared workflow, unless the user
-explicitly requests one for this run. Do not wait for them. Inspect and
-disposition findings already available; maintain required local review and
-respect actual forge-enforced checks and approvals. Skipped, pending,
-quota-limited, or unavailable bot reviews are incomplete coverage, even when a
-badge is green. A success badge without evidence of a completed review is also
-incomplete; a completed review explicitly reporting no findings is valid coverage.
-Report incomplete optional coverage without blocking. If the forge enforces a
-bot check, report the external blocker instead of bypassing protection.
+Treat hosted AI reviewers as optional until `request-advisory-reviews` requests
+them, but wait for the ones it requested. After the request, in this same turn
+and before the done wake or any merge, run
+`python3 ~/.agents/skills/babysit-pr/scripts/advisory-review-status OWNER/REPO PR --wait`.
+It reports Copilot, CodeRabbit and Greptile as terminal — a review or summary
+posted after the request, a review on the head, an explicit skip or quota
+message after the request, or a reviewer with no request and no activity — and
+polls until every requested reviewer is terminal, bounded to 20 minutes by
+default. Exit 0 means
+all terminal, exit 1 means a reviewer is still pending (the one-shot report),
+exit 3 means the wait timed out and prints `timed out after 20m: <names>`, and
+exit 2 is an operational error and a Blocker. Proceed on 0 or 3. A fix push
+does not restart a requested reviewer; an activity-only auto-reviewer is
+anchored to the new head, so rerun the wait after a push.
+
+On timeout, proceed after the Supervisor's confirmation and name the timed-out
+reviewers in the Run receipt with `evidence advisory --text 'timed out: <names>'`
+followed by `evidence attach`, and in the merged notice's `advisory:` line. A
+skipped or quota-limited reviewer is terminal and recorded, not a blocker; a
+pending requested reviewer is never merged past. Inspect and disposition
+findings already available, and keep required local review and the
+forge-enforced checks. A success badge without evidence of a completed review is
+incomplete; a completed review explicitly reporting no findings is valid
+coverage. If the forge enforces a bot check, report the external blocker instead
+of bypassing protection. A review that lands after the merge is a new issue
+filed from the merged notice, and its findings follow Definition of Done 3.
 
 Inside a Run, readiness includes the Supervisor's `supervise · merge` for this
 head, which follows the final Definition of Done check. Without it, the PR is not
@@ -208,7 +228,10 @@ target, whether the fallback ran from the executed model against the requested
 one, the Run's Worker attempt count, the harness usage for token cost
 (`unavailable (<reason>)` only when it reports none), and the gate commands that
 actually ran. Every field is required. A non-visual change carries no
-attachments; the comment is still the evidence.
+attachments; the comment is still the evidence. After the bounded wait, record
+its result with `~/Developer/factory/skills/evidence/scripts/evidence advisory
+--pr <n> --text 'all terminal'` or `--text 'timed out: <names>'`, then rerun
+`attach --pr <n>` so the posted receipt names any timeout before the done wake.
 
 Once readiness is verified, merge as part of the default babysitting request,
 subject to the merge policy above. Use the repository's merge method, or squash
@@ -243,7 +266,12 @@ Before the merged or stopped notice, stop every process this thread started (a
 dev server, a watcher, a simulator) and run the `scripts/process-receipt` the
 handoff names with `check <worktree>`. The notice carries a `processes:`
 line with its output; a receipt that lists a live process or a newly booted
-simulator blocks the hand-off until it is stopped.
+simulator blocks the hand-off until it is stopped. The merged notice also
+carries `advisory: none` when every requested reviewer finished, or
+`advisory: pending <names>` for reviewers that timed out; the Dispatcher or a
+scheduled check files their late findings as a `needs-triage` issue. When no
+notice thread or Dispatcher owns that step, file or reuse the issue in this
+thread before cleanup.
 
 After verifying the merge:
 
@@ -288,6 +316,7 @@ smallest external action or user decision needed to resume. Required reviews tha
 are still running remain pending, not unavailable.
 
 Give a concise final receipt with the PR link, verified head, checks and review
-coverage, merge result, cleanup performed or skipped, and remaining blockers.
+coverage including any timed-out Advisory Reviewer, merge result, cleanup
+performed or skipped, and remaining blockers.
 Distinguish a suspended active watch from terminal completion, and release
 monitoring according to the current harness's lifecycle rules.
