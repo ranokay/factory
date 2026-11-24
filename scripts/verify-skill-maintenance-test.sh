@@ -278,6 +278,27 @@ for page in range(1, 11):
 	(root / f"ranokay_flooded-closed-page{page}.json").write_text(json.dumps({"total_count": 1000, "items": items}))
 FLOODED
 
+new_remote partial main
+clone_repo partial "$tmp/partial-root"
+printf 'one\n' >"$tmp/partial-root/partial/app.txt"
+write_skill "$tmp/partial-root/partial" partial
+commit_all "$tmp/partial-root/partial" "add verify skill"
+printf 'two\n' >>"$tmp/partial-root/partial/app.txt"
+commit_all "$tmp/partial-root/partial" "change the app"
+set_github_origin "$tmp/partial-root/partial" partial
+set_origin_head "$tmp/partial-root/partial" main
+python3 - "$GH_STATE" <<'PARTIAL'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+item = {"number": 1, "title": "Unrelated", "body": "unrelated", "closed_at": None}
+(root / "ranokay_partial-open-page1.json").write_text(
+	json.dumps({"total_count": 1, "incomplete_results": True, "items": [item]})
+)
+PARTIAL
+
 run_maintenance() {
 	uv run --offline --no-project --no-config --python "$python" python "$root/scripts/verify-skill-maintenance.py" "$@"
 }
@@ -360,6 +381,14 @@ grep -q 'filled all 10 pages' "$tmp/flooded-err" || fail "a search that filled e
 grep -q 'per_page 100' "$GH_QUERY_LOG" || fail "the search did not ask for 100 results per page"
 grep -q 'page 10' "$GH_QUERY_LOG" || fail "the search did not page through every result"
 [ ! -s "$GH_LOG" ] || fail "a search that filled every page filed an issue"
+
+: >"$GH_LOG"
+if run_maintenance --root "$tmp/partial-root" --no-fetch >"$tmp/partial-out" 2>"$tmp/partial-err"; then
+	cat "$tmp/partial-out" "$tmp/partial-err" >&2
+	fail "an incomplete search returned success"
+fi
+grep -q 'returned incomplete results' "$tmp/partial-err" || fail "an incomplete search did not fail loudly"
+[ ! -s "$GH_LOG" ] || fail "an incomplete search filed an issue"
 
 : >"$GH_LOG"
 if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false run_maintenance --root "$tmp/fetch-root" --dry-run >"$tmp/fetch-out" 2>"$tmp/fetch-err"; then

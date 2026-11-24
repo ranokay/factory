@@ -141,6 +141,8 @@ def issues(repo_slug, state):
         items = data.get("items") if isinstance(data, dict) else None
         if not isinstance(items, list):
             raise RuntimeError(f"{label} did not return items")
+        if data.get("incomplete_results") is True:
+            raise RuntimeError(f"{label} returned incomplete results")
         found.extend(
             {
                 "number": item.get("number"),
