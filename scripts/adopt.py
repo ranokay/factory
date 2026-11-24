@@ -18,7 +18,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
-from profiles_reader import TAG, factory_ref
+from profiles_reader import PROFILE_INCLUDE, TAG, factory_ref
 
 ROOT = Path(__file__).resolve().parent
 CONFIG = json.loads((ROOT.parent / "repo-settings.json").read_text())
@@ -117,9 +117,10 @@ TEST_PRUNING_INSTRUCTION = (
     "behaviour, keep the behaviour tests, and run `mise run check`."
 )
 BRAND_INSTRUCTION = (
-    "Run `/brand-assets` when it lands in the interactive session. Choose one "
-    "concept; the masters land in `assets/brand/` and the `assets` task generates "
-    "every export. `adopt` files this once."
+    "Run `brand-assets` when it lands "
+    "(https://github.com/ranokay/factory/issues/24) in the interactive session. "
+    "Choose one concept; the masters land in `assets/brand/` and the `assets` "
+    "task generates every export. `adopt` files this once."
 )
 
 
@@ -242,9 +243,10 @@ def comment_rule(message):
 def valid_factory_include(value, allow_local=False):
     if not isinstance(value, str) or "profiles/" not in value:
         return False
+    shape = bool(PROFILE_INCLUDE.search(value))
     if value.startswith(("./profiles/", "profiles/")):
-        return allow_local
-    if "ranokay/factory" not in value:
+        return allow_local and shape
+    if "ranokay/factory" not in value or not shape:
         return False
     ref = factory_ref(value)
     return bool(ref and TAG.match(ref))
@@ -272,7 +274,7 @@ def includes_are_factory(values, allow_local=False):
 
 def tooling_findings(project, tracked, repo):
     present = set(tracked)
-    allow_local = repo == "ranokay/factory"
+    allow_local = repo.lower() == "ranokay/factory"
     found = []
     if "mise.toml" not in present:
         found.append(

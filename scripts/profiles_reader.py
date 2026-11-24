@@ -11,6 +11,9 @@ GITHUB_TREE = re.compile(r'^https?://github\.com/ranokay/factory/tree/(?P<ref>[^
 REF_PATH = re.compile(
     r'^https?://(?:raw\.githubusercontent\.com|github\.com)/ranokay/factory/refs/(?:heads|tags)/(?P<ref>[^/]+)/'
 )
+PROFILE_INCLUDE = re.compile(
+    r'(?:^|/)profiles/[a-z0-9][a-z0-9-]*/(?:mise\.toml|tasks\.toml|hk\.pkl)(?:\?|$)'
+)
 
 
 def profiles_entries(text):

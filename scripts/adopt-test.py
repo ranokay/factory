@@ -639,9 +639,9 @@ class Adopt(unittest.TestCase):
             {category for issue in issues for category in self.categories(issue)},
         )
 
-    def test_blob_tree_and_refs_includes_are_accepted(self):
-        include = "https://github.com/ranokay/factory/blob/v0.2.0/profiles/universal/mise.toml"
-        tasks = "https://github.com/ranokay/factory/tree/v0.2.0/profiles/universal/tasks.toml"
+    def test_git_and_refs_includes_are_accepted(self):
+        include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
         hk = "https://raw.githubusercontent.com/ranokay/factory/refs/tags/v0.2.0/profiles/universal/hk.pkl"
         self.write_tooling([include], [tasks], hk)
         result = self.run_adopt()
@@ -652,6 +652,32 @@ class Adopt(unittest.TestCase):
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
         )
+
+    def test_factory_include_must_name_a_profile_file(self):
+        include = "git::https://github.com/ranokay/factory.git//profiles/universal/README.md?ref=v0.2.0"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 1)
+        self.assertIn("mise.toml", tooling["body"])
+
+    def test_binary_reference_is_skipped_without_withholding_dead_code(self):
+        (self.project / "assets").mkdir()
+        (self.project / "assets/logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00binary")
+        self.commit("add a binary")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("dead-code detection skipped", result.stderr)
+        issues = self.issues()
+        self.assertEqual(len(issues), 8)
+        self.assertIn(
+            "dead-code",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+        self.assertIn("src/unused.ts", self.issue_for(issues, "dead-code")["body"])
 
     def test_verification_skill_without_mise_does_not_abort(self):
         skill = self.project / ".agents/skills/verify-counter"
