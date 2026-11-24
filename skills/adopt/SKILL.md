@@ -50,7 +50,7 @@ output and rerun; the marker search prevents duplicates.
 | stale files | Tracked OS/editor/backup artifacts (`*.orig`, `*.bak`, `*~`, `.DS_Store`, ...), logs, and tracked cache/build directories. | Remove them, ignore generated ones. |
 | verification skill | No `.agents/skills/verify-<app>/SKILL.md`, or a skill missing its `.claude/skills` symlink, `references/features/` map, or `verify:<app>` mise task. | Use `create-verification-skill`. |
 | test pruning | Any tracked test file (`*.test.*`, `*.spec.*`, `test_*`, `tests/`, ...). | Work it with `prune-tests`. |
-| brand | No SVG master under `assets/brand/`. This issue is `ready-for-human`. | Run `brand-assets`; the choice of masters stays with ranokay. |
+| brand | No `icon`, `logo`, `wordmark` or `menu-bar` SVG master under `assets/brand/`. This issue is `ready-for-human`. | Run `brand-assets`; the choice of masters stays with ranokay. |
 
 ## Gardening and markers
 

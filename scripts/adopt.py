@@ -14,6 +14,7 @@ import os
 import re
 import subprocess  # nosec B404 -- git, gh, sh and repo-settings run with argument lists
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
@@ -78,6 +79,7 @@ STALE_SUFFIXES = (
     ".pyc",
     ".tsbuildinfo",
 )
+BRAND_ROLES = ("icon", "logo", "wordmark", "menu-bar", "menubar")
 
 TOOLING_INSTRUCTION = (
     "Add the Factory baseline in a PR: `mise.toml` including the Factory Profile "
@@ -150,10 +152,10 @@ def run(arguments, cwd=None):
             text=True,
             timeout=TIMEOUT,
         )
-    except FileNotFoundError as error:
-        problem(f"cannot run {arguments[0]}: {error}")
     except subprocess.TimeoutExpired:
         problem(f"{arguments[0]} timed out after {TIMEOUT}s")
+    except OSError as error:
+        problem(f"cannot run {arguments[0]}: {error}")
 
 
 def gh(*arguments):
@@ -192,13 +194,15 @@ def valid_repo(value):
 def read_file(project, path):
     target = project / path
     try:
-        data = target.read_bytes()
+        with target.open("rb") as handle:
+            head = handle.read(1024)
+            if b"\0" in head:
+                return ""
+            data = head + handle.read(MAX_TEXT + 1 - len(head))
     except OSError as error:
         problem(f"cannot read {path}: {error}")
     if len(data) > MAX_TEXT:
         problem(f"{path} is larger than {MAX_TEXT} bytes; adopt cannot inventory it")
-    if b"\0" in data[:1024]:
-        return ""
     return data.decode("utf-8", "ignore")
 
 
@@ -212,47 +216,116 @@ def is_test_path(path):
 
 
 def comment_rule(message):
-    match = re.match(r"banned comment marker: (\w+)", message)
-    if match:
-        return match.group(1)
     if message.startswith("commented-out code"):
         return "commented-out-code"
+    match = re.search(r"\b(TODO|FIXME|HACK|XXX)\b", message)
+    if match:
+        return match.group(1)
     return "comment"
+
+
+def valid_factory_include(value):
+    if not isinstance(value, str) or "profiles/" not in value:
+        return False
+    return (
+        "ranokay/factory" in value
+        or value.startswith("./profiles/")
+        or value.startswith("profiles/")
+    )
 
 
 def tooling_findings(project, tracked):
     present = set(tracked)
     found = []
-    mise = read_file(project, "mise.toml") if "mise.toml" in present else ""
-    if "ranokay/factory" not in mise or "profiles/" not in mise:
+    if "mise.toml" not in present:
         found.append(
             finding(
                 "tooling",
                 "mise.toml",
-                "factory-include",
+                "missing",
                 "mise.toml is missing the Factory Profile include.",
             )
         )
-    hk = read_file(project, "hk.pkl") if "hk.pkl" in present else ""
-    if "ranokay/factory" not in hk or "profiles/" not in hk:
+    else:
+        try:
+            mise = tomllib.loads(read_file(project, "mise.toml"))
+        except tomllib.TOMLDecodeError as error:
+            found.append(
+                finding(
+                    "tooling",
+                    "mise.toml",
+                    "invalid-toml",
+                    f"mise.toml is not valid TOML: {error}",
+                )
+            )
+        else:
+            includes = mise.get("include") or []
+            tasks = (mise.get("task_config") or {}).get("includes") or []
+            if not (
+                any(valid_factory_include(value) for value in includes)
+                and any(valid_factory_include(value) for value in tasks)
+            ):
+                found.append(
+                    finding(
+                        "tooling",
+                        "mise.toml",
+                        "factory-include",
+                        "mise.toml is missing the Factory Profile include.",
+                    )
+                )
+    if "hk.pkl" not in present:
         found.append(
             finding(
                 "tooling",
                 "hk.pkl",
-                "factory-amend",
+                "missing",
                 "hk.pkl is not amending a Factory Profile.",
             )
         )
-    renovate = read_file(project, "renovate.json") if "renovate.json" in present else ""
-    if "github>ranokay/factory" not in renovate:
+    else:
+        amended = re.search(r'(?m)^\s*amends\s+"([^"]+)"', read_file(project, "hk.pkl"))
+        if not amended or not valid_factory_include(amended.group(1)):
+            found.append(
+                finding(
+                    "tooling",
+                    "hk.pkl",
+                    "factory-amend",
+                    "hk.pkl is not amending a Factory Profile.",
+                )
+            )
+    if "renovate.json" not in present:
         found.append(
             finding(
                 "tooling",
                 "renovate.json",
-                "factory-preset",
+                "missing",
                 "renovate.json is not extending github>ranokay/factory.",
             )
         )
+    else:
+        try:
+            renovate = json.loads(read_file(project, "renovate.json"))
+        except json.JSONDecodeError as error:
+            found.append(
+                finding(
+                    "tooling",
+                    "renovate.json",
+                    "invalid-json",
+                    f"renovate.json is not valid JSON: {error}",
+                )
+            )
+        else:
+            extends = renovate.get("extends") or []
+            values = [extends] if isinstance(extends, str) else extends
+            if "github>ranokay/factory" not in values:
+                found.append(
+                    finding(
+                        "tooling",
+                        "renovate.json",
+                        "factory-preset",
+                        "renovate.json is not extending github>ranokay/factory.",
+                    )
+                )
     for path in (".coderabbit.yaml", ".greptile/config.json"):
         if path not in present:
             found.append(
@@ -482,7 +555,11 @@ def brand_findings(project, tracked):
     masters = [
         path
         for path in tracked
-        if path.startswith("assets/brand/") and path.endswith(".svg")
+        if path.startswith("assets/brand/")
+        and path.endswith(".svg")
+        and any(
+            role in PurePosixPath(path).stem.lower() for role in BRAND_ROLES
+        )
     ]
     if masters:
         return []
@@ -491,7 +568,7 @@ def brand_findings(project, tracked):
             "brand",
             "assets/brand",
             "no-master",
-            "No SVG master is committed under assets/brand/.",
+            "No icon, logo, wordmark or menu-bar SVG master is committed under assets/brand/.",
         )
     ]
 

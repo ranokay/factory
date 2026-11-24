@@ -515,6 +515,59 @@ class Adopt(unittest.TestCase):
         self.assertIn("no new findings", second.stdout)
         self.no_creates()
 
+    def test_comment_key_uses_the_banned_marker_not_the_prose(self):
+        note = self.project / "src/note.ts"
+        note.write_text("// NOTE: TODO later\n")
+        self.commit("add note")
+        first = self.run_adopt()
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        comments = [
+            issue for issue in self.issues() if "comments" in self.categories(issue)
+        ]
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(len(self.markers(comments[0])), 2)
+        self.assertIn("src/note.ts", comments[0]["body"])
+        note.write_text("// REMARK: TODO later\n")
+        self.commit("reword note")
+        self.reset_log()
+        second = self.run_adopt()
+        self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
+        self.assertIn("no new findings", second.stdout)
+        self.no_creates()
+
+    def test_local_factory_includes_pass_the_tooling_detector(self):
+        (self.project / "mise.toml").write_text(
+            'include = ["./profiles/universal/mise.toml"]\n\n'
+            '[task_config]\nincludes = ["profiles/universal/tasks.toml"]\n'
+        )
+        (self.project / "hk.pkl").write_text('amends "profiles/universal/hk.pkl"\n')
+        (self.project / "renovate.json").write_text(
+            '{"extends": ["github>ranokay/factory"]}\n'
+        )
+        self.commit("add local Factory includes")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "tooling",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
+    def test_unrelated_svg_does_not_suppress_the_brand_issue(self):
+        master = self.project / "assets/brand/export.svg"
+        master.parent.mkdir(parents=True)
+        master.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"></svg>\n')
+        self.commit("add an export")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 8)
+        self.assertIn(
+            "brand",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
     def test_environment_shadows_gh_and_op(self):
         for name in ("gh", "op"):
             resolved = shutil.which(name, path=self.env["PATH"])
