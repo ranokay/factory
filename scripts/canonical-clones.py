@@ -92,6 +92,24 @@ def move_blocker(path, worktrees):
     return None
 
 
+def github_repos(root):
+    """Return (identity, path) for each main clone under root with a GitHub origin."""
+    repositories = []
+    for path in sorted(root.iterdir()):
+        if not path.is_dir() or path.is_symlink() or not (path / '.git').exists():
+            continue
+        try:
+            if not is_main_clone(path):
+                continue
+            key = identity(git(path, 'remote', 'get-url', 'origin'))
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        if not key or not key.startswith('github.com/'):
+            continue
+        repositories.append((key, path))
+    return repositories
+
+
 def relocate(old, new, trees):
     mapped = [str(new / Path(w).relative_to(old)) if Path(w).is_relative_to(old) else w for w in trees]
     old.rename(new)

@@ -88,6 +88,18 @@ _Avoid_: hook, validation
 Artifacts proving a change works as intended at runtime, such as screenshots, videos, traces or statecharts, inspected by the Orchestrator and attached to the pull request only when the change has a visual surface.
 _Avoid_: proof files, test output, scratch
 
+**Verification Skill**:
+The committed `verify-<app>` skill that launches, doctors, drives and cleans up a project's app, with its feature map at `references/features/` and its CLI exposed as the project's `verify:<app>` mise task.
+_Avoid_: control skill, run skill, `.cursor` skill
+
+**Verification Driver**:
+The tool a Platform Profile names for a surface: Ardia CLI or Playwright for web, cua-driver for macOS, T3 device tools for iOS, tmux for a CLI or TUI, and HTTP for a server or API.
+_Avoid_: test harness, automation framework
+
+**Maintenance Issue**:
+The weekly `ready-for-agent` issue that runs `/maintain-verification-skill` in a repository whose app changed since the verification skill's last maintenance, with the filed head recorded in its body.
+_Avoid_: upkeep ticket, weekly chore
+
 **GC**:
 The `mise run gc` task that prunes stale worktrees, old Verification Evidence, package caches and unused mise tool versions; it never deletes work that is not on a remote.
 _Avoid_: cleanup, janitor
