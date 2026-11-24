@@ -27,6 +27,9 @@ mkdir -p "$MISE_CONFIG_DIR" "$MISE_DATA_DIR" "$MISE_STATE_DIR" "$MISE_CACHE_DIR"
 : >"$MISE_GLOBAL_CONFIG_FILE"
 
 cleanup() {
+	if [ -n "${stubborn:-}" ]; then
+		pkill -f "$stubborn/stubborn.py" >/dev/null 2>&1 || true
+	fi
 	if [ -d "$tmp/lifecycle-state" ]; then
 		(cd "$tmp/lifecycle" && mise run verify:counter -- stop >/dev/null 2>&1) || true
 	fi
