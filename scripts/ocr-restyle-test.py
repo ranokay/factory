@@ -344,7 +344,7 @@ class RestyleTests(unittest.TestCase):
         self.assertNotIn("A finding title", body)
         self.assertNotIn("⚠️ Not posted inline", body)
         self.assertIn(
-            "1 finding(s) were already covered by existing review threads.", body
+            "1 finding(s) were already covered by another review thread.", body
         )
 
     def test_no_line_finding_keeps_its_reason(self):

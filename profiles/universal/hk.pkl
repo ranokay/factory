@@ -67,7 +67,7 @@ steps {
       ["does not exempt a non-Python file"] {
         run = "check"
         tmpdir = true
-        write { ["script.sh"] = "# /// script\n# TODO: fix\n" }
+        write { ["script.sh"] = "# /// script\n# TODO: fix\n# ///\n" }
         files = List("script.sh")
         expect { code = 1 }
       }

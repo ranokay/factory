@@ -437,7 +437,7 @@ def rewrite_summary(
 
     if skipped:
         blocks.append(
-            f"> {len(skipped)} finding(s) were already covered by existing review threads."
+            f"> {len(skipped)} finding(s) were already covered by another review thread."
         )
 
     if routed:
