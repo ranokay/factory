@@ -111,7 +111,7 @@ class AdvisoryReviewStatus(unittest.TestCase):
             (root / "gh").chmod(0o755)
             (root / "state").write_text(json.dumps(value))
             env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", FAKE_STATE=str(root / "state"))
-            return subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list
+            return subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the test runs this checkout's script
                 ["python3", str(SCRIPT), "o/r", "1", *arguments],
                 env=env,
                 capture_output=True,
@@ -251,11 +251,11 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertEqual(sleeps, [12, 12, 6])
 
     def test_usage_error_is_exit_2(self):
-        result = subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list
+        result = subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the test runs this checkout's script
             ["python3", str(SCRIPT), "o/r"], capture_output=True, text=True
         )
         self.assertEqual(result.returncode, 2, result.stderr)
-        result = subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list
+        result = subprocess.run(  # nosec B603 B607 -- fixed script path and an argument list  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the test runs this checkout's script
             ["python3", str(SCRIPT), "o", "1"], capture_output=True, text=True
         )
         self.assertEqual(result.returncode, 2, result.stderr)
