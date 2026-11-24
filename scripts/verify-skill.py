@@ -5,7 +5,7 @@ The checker starts nothing. It reads the skill and feature map, then invokes the
 mise task for `commands`, `doctor`, every destructive command with `--dry-run`,
 and an unknown command. Doctor may fail when the app is stopped; that failure must
 carry an actionable alternative. Doctor and every dry run must leave the tree and
-the temp directory unchanged and start no process.
+the temp directory unchanged and leave no process running.
 """
 
 import argparse
@@ -268,17 +268,17 @@ def check_inventory(root, task, text, environment):
     return names, sorted(name for name, is_destructive in names.items() if is_destructive)
 
 
-def check_unchanged(label, root, sandbox, before, before_sandbox):
+def check_unchanged(label, root, sandbox, before_root, before_sandbox):
     sandbox_changes = differing(before_sandbox, snapshot(sandbox))
     if sandbox_changes:
         problem(f"{label} changed its temp state: {', '.join(sandbox_changes[:5])}")
-    changed = differing(before, snapshot(root))
+    changed = differing(before_root, snapshot(root))
     if changed:
         problem(f"{label} changed the tree: {', '.join(changed[:5])}")
 
 
 def check_doctor(root, task, sandbox, environment):
-    before = snapshot(root)
+    before_root = snapshot(root)
     before_sandbox = snapshot(sandbox)
     doctor = run_task(root, task, "doctor", environment=environment, cleanup_group=True)
     payload = parse_json(doctor, "doctor")
@@ -291,17 +291,17 @@ def check_doctor(root, task, sandbox, environment):
             problem("a failing doctor must report an alternative command")
     elif payload.get("ok") is not True:
         problem("doctor must report ok: true when it exits zero")
-    check_unchanged("doctor", root, sandbox, before, before_sandbox)
+    check_unchanged("doctor", root, sandbox, before_root, before_sandbox)
 
 
 def check_dry_runs(root, task, destructive, sandbox, environment):
-    before = snapshot(root)
+    before_root = snapshot(root)
     before_sandbox = snapshot(sandbox)
     for name in destructive:
         result = run_task(root, task, name, "--dry-run", environment=environment, cleanup_group=True)
         label = f"{name} --dry-run"
         dry = parse_json(result, label)
-        check_unchanged(label, root, sandbox, before, before_sandbox)
+        check_unchanged(label, root, sandbox, before_root, before_sandbox)
         if result.returncode != 0:
             problem(f"{label} exited {result.returncode}; a dry-run must succeed")
         if dry.get("dry_run") is not True:
