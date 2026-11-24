@@ -4,8 +4,6 @@ import re
 from typing import Any, Iterable, NamedTuple
 
 SUMMARY_MARKER = "<!-- ocr-summary -->"
-CHECKPOINT = re.compile(r"<!--\s*ocr-checkpoint:v1\s+([A-Za-z0-9+/=_-]+)\s*-->")
-MAX_BODY = 65000
 TITLE_LIMIT = 110
 
 # OCR's marker formats must survive verbatim; see buildRunTags and

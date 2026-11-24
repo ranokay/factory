@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Iterable, NamedTuple
 
-from restyle_render import (
+from restyle_summary import (
     CATEGORIES,
     SEVERITY_RANK,
     SUMMARY_MARKER,

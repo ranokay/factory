@@ -14,7 +14,20 @@ from pathlib import Path
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from ocr_restyle_test_support import FakeGitHub, carrier, finding, ocr_result
+from ocr_restyle_test_support import (
+    CHECKPOINT,
+    CLEAN_CHECKPOINT,
+    FINGERPRINT,
+    INLINE_BODY,
+    RUN_MARKER,
+    STALE_CHECKPOINT,
+    SUMMARY_BODY,
+    SUMMARY_MARKER,
+    FakeGitHub,
+    carrier,
+    finding,
+    ocr_result,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / ".github/actions/ocr-review/restyle.py"
@@ -24,52 +37,6 @@ if SPEC is None or SPEC.loader is None:
     raise RuntimeError("cannot load the restyler")
 restyle = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(restyle)
-
-SUMMARY_MARKER = "<!-- ocr-summary -->"
-RUN_MARKER = "<!-- ocr-summary-run:1-1 -->"
-CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxfQ== -->"
-CLEAN_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIxIn0= -->"
-STALE_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiI5OSJ9 -->"
-FINGERPRINT = "<!-- ocr-1-1-abcdef0123456789 -->"
-
-SUMMARY_BODY = f"""\
-{SUMMARY_MARKER}
-{RUN_MARKER}
-🔍 **OpenCodeReview** found **4** issue(s) in this PR.
-
----
-
-### 📄 `scripts/verify-skill-maintenance.py` (L118-L118)
-
-⚠️ GitHub could not post this as an inline comment: Routed to summary (severity medium · category bug)
-
-**Older issues allow duplicate filings**
-
-The marker search stops at the first page.
-
----
-
-### 📄 `scripts/verify-skill.py` (L86-L86)
-
-⚠️ GitHub could not post this as an inline comment: Routed to summary (severity medium · category style)
-
-**Cleanup is opt-in for probe calls**
-
-The probe leaves its temporary directory behind.
-
-{CHECKPOINT}"""
-
-INLINE_BODY = f"""\
-{FINGERPRINT}
-**A finding title**
-
-The explanation names the failure and the line.
-
-**Suggestion:**
-```suggestion
-subprocess.run(["git", "fetch"], check=True)
-```"""
-
 
 def summary_for(result, links=None, policy=None, body=SUMMARY_BODY):
     return restyle.rewrite_summary(
@@ -159,6 +126,34 @@ class RestyleTests(unittest.TestCase):
         links, pairs = restyle.match_inline(ocr_result([first, second]), posted)
         self.assertEqual(links, {0: "u1", 1: "u2"})
         self.assertEqual(len(pairs), 2)
+
+    def test_inline_matching_does_not_link_on_a_title_alone(self):
+        comment = finding(content="**Same title**\n\nUnique explanation.")
+        posted = [{"body": "**🟠 P1 · Same title**", "html_url": "u1"}]
+        links, pairs = restyle.match_inline(ocr_result([comment]), posted)
+        self.assertEqual(links, {})
+        self.assertEqual(pairs, [])
+
+    def test_empty_content_links_only_an_unambiguous_title(self):
+        comment = {**finding(), "content": ""}
+        body = "**🟠 P1 · Finding**"
+        links, _ = restyle.match_inline(
+            ocr_result([comment]), [{"body": body, "html_url": "u1"}]
+        )
+        self.assertEqual(links, {0: "u1"})
+        links, _ = restyle.match_inline(
+            ocr_result([comment]),
+            [{"body": body, "html_url": "u1"}, {"body": body, "html_url": "u2"}],
+        )
+        self.assertEqual(links, {})
+
+    def test_checkpoint_run_rejects_duplicate_markers(self):
+        with self.assertRaises(restyle.RewriteError):
+            restyle.checkpoint_run(f"{CLEAN_CHECKPOINT}\n{CLEAN_CHECKPOINT}")
+
+    def test_checkpoint_run_rejects_a_malformed_payload(self):
+        with self.assertRaises(restyle.RewriteError):
+            restyle.checkpoint_run("<!-- ocr-checkpoint:v1 not-base64! -->")
 
     def test_missing_message_adds_no_sentence(self):
         result = ocr_result([finding()])
@@ -291,7 +286,7 @@ class CommandLineTests(unittest.TestCase):
             "GITHUB_RUN_ID": "1",
             "GITHUB_RUN_ATTEMPT": "1",
             "PR_NUMBER": "7",
-            "GITHUB_TOKEN": "unused",  # nosec B105
+            "GITHUB_TOKEN": "unused",  # nosec B105 -- dummy credential for the local fake server
             "OCR_RESULT": str(self.result_path),
             "OCR_ROUTE_SEVERITY_BELOW": "medium",
             "OCR_ROUTE_CATEGORIES": "style,documentation",
@@ -300,8 +295,8 @@ class CommandLineTests(unittest.TestCase):
             "OCR_VERSION": "1.14.0",
         }
         env.update(environment or {})
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-        return subprocess.run(  # nosec B603
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- local script, argv, no shell
+        return subprocess.run(  # nosec B603 -- local script, argv, no shell
             [sys.executable, str(SCRIPT)],
             env=env,
             capture_output=True,
@@ -459,6 +454,14 @@ class CommandLineTests(unittest.TestCase):
         result = self.run_cli()
         self.assertEqual(result.returncode, 0)
         self.assertIn("no sticky summary comment for this run", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_inline_comment_without_an_id_is_a_warning_noop(self):
+        self.github.review_comments[0]["id"] = None
+        self.write(ocr_result([finding()], message="Review complete: 1 finding(s)."))
+        result = self.run_cli(environment={"OCR_INLINE": "1", "OCR_SKIPPED": "0"})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("review comment has no id", result.stdout)
         self.assertEqual(self.github.patches, [])
 
 

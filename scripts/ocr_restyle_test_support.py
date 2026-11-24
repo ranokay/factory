@@ -132,3 +132,49 @@ def ocr_result(comments, message=None, warnings=None):
             "execution": {"ocr_version": "v1.14.0", "model": "deepseek-v4.1-flash"},
         },
     }
+
+
+SUMMARY_MARKER = "<!-- ocr-summary -->"
+RUN_MARKER = "<!-- ocr-summary-run:1-1 -->"
+CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxfQ== -->"
+CLEAN_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIxIn0= -->"
+STALE_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiI5OSJ9 -->"
+FINGERPRINT = "<!-- ocr-1-1-abcdef0123456789 -->"
+
+SUMMARY_BODY = f"""\
+{SUMMARY_MARKER}
+{RUN_MARKER}
+🔍 **OpenCodeReview** found **4** issue(s) in this PR.
+
+---
+
+### 📄 `scripts/verify-skill-maintenance.py` (L118-L118)
+
+⚠️ GitHub could not post this as an inline comment: Routed to summary (severity medium · category bug)
+
+**Older issues allow duplicate filings**
+
+The marker search stops at the first page.
+
+---
+
+### 📄 `scripts/verify-skill.py` (L86-L86)
+
+⚠️ GitHub could not post this as an inline comment: Routed to summary (severity medium · category style)
+
+**Cleanup is opt-in for probe calls**
+
+The probe leaves its temporary directory behind.
+
+{CHECKPOINT}"""
+
+INLINE_BODY = f"""\
+{FINGERPRINT}
+**A finding title**
+
+The explanation names the failure and the line.
+
+**Suggestion:**
+```suggestion
+subprocess.run(["git", "fetch"], check=True)
+```"""
