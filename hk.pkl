@@ -96,8 +96,9 @@ steps {
     exclude = vendored
   }
   ["comment-ban"] {
-    // Use this repository's copy so the PEP 723 exemption is live here before
-    // the Profile is released.
+    // The pinned Profile (v0.2.0) predates the PEP 723 exemption in
+    // https://github.com/ranokay/factory/blob/main/profiles/universal/scripts/comment-ban.sh
+    // Drop this override when the include/amends pin moves past that release.
     env {
       ["COMMENT_BAN"] =
         "{% raw %}" + read("profiles/universal/scripts/comment-ban.sh").text + "{% endraw %}"
@@ -110,6 +111,20 @@ steps {
         write { ["script.py"] = read("profiles/universal/tests/fixtures/pep723.py").text }
         files = List("script.py")
         expect { code = 0 }
+      }
+      ["rejects an unterminated PEP 723 block"] {
+        run = "check"
+        tmpdir = true
+        write { ["script.py"] = "# /// script\n# dependencies = [\"x==1\"]\nprint(1)\n" }
+        files = List("script.py")
+        expect { code = 1 }
+      }
+      ["does not exempt a non-Python file"] {
+        run = "check"
+        tmpdir = true
+        write { ["script.sh"] = "# /// script\n# TODO: fix\n" }
+        files = List("script.sh")
+        expect { code = 1 }
       }
     }
   }

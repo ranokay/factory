@@ -154,6 +154,8 @@ runs:
         OCR_RANGE_REASON: ${{ steps.review.outputs.range_reason }}
         OCR_RANGE_FROM: ${{ steps.review.outputs.range_from }}
         OCR_RANGE_TO: ${{ steps.review.outputs.range_to }}
+        OCR_INLINE: ${{ steps.review.outputs.comments_inline }}
+        OCR_SKIPPED: ${{ steps.review.outputs.comments_skipped }}
         OCR_ROUTE_SEVERITY_BELOW: ${{ inputs.route_severity_below }}
         OCR_ROUTE_CATEGORIES: ${{ inputs.route_categories }}
         OCR_EFFORT: ${{ inputs.effort }}

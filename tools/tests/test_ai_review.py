@@ -219,6 +219,12 @@ class AiReviewWorkflowTests(unittest.TestCase):
         self.assertLess(names.index("Review"), names.index("Restyle review comments"))
         restyle = named_step(steps, "Restyle review comments")
         self.assertEqual(restyle["env"]["OCR_SCRIPT"], "${{ github.action_path }}/restyle.py")
+        self.assertEqual(
+            restyle["env"]["OCR_INLINE"], "${{ steps.review.outputs.comments_inline }}"
+        )
+        self.assertEqual(
+            restyle["env"]["OCR_SKIPPED"], "${{ steps.review.outputs.comments_skipped }}"
+        )
         self.assertNotIn("github.workspace", restyle["env"]["OCR_SCRIPT"])
         self.assertTrue((ROOT / ".github/actions/ocr-review/restyle.py").is_file())
 

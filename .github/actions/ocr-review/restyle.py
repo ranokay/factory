@@ -36,13 +36,7 @@ CATEGORIES = frozenset(
     )
 )
 SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
-SEVERITY_BADGE = {
-    "critical": "🔴 P0",
-    "high": "🟠 P1",
-    "medium": "🟡 P2",
-    "low": "⚪ P3",
-}
-UNKNOWN_BADGE = "⚪ P3"
+PRIORITY = {4: "🔴 P0", 3: "🟠 P1", 2: "🟡 P2", 1: "⚪ P3", 0: "⚪ P3"}
 
 
 class RewriteError(Exception):
@@ -132,7 +126,7 @@ def explanation_of(comment: dict[str, Any], title: str) -> str:
 
 
 def badge_of(comment: dict[str, Any]) -> str:
-    return SEVERITY_BADGE.get(normalize(comment.get("severity")), UNKNOWN_BADGE)
+    return PRIORITY[SEVERITY_RANK.get(normalize(comment.get("severity")), 0)]
 
 
 def is_diagram_carrier(comment: dict[str, Any]) -> bool:
@@ -197,11 +191,8 @@ def decrement_finding_count(text: str, amount: int) -> str:
 
 def status_line(result: dict[str, Any], excluded: int) -> str:
     raw = result.get("message")
-    text = raw.strip() if isinstance(raw, str) else ""
-    if not text:
-        text = "Review complete."
-    text = clean_sentence(text)
-    return decrement_finding_count(text, excluded) if excluded else text
+    text = clean_sentence(raw.strip()) if isinstance(raw, str) else ""
+    return decrement_finding_count(text, excluded) if text and excluded else text
 
 
 def build_policy(severity_below: str, categories: str) -> Policy:
@@ -300,9 +291,9 @@ def summary_reason(body: str, comment: dict[str, Any]) -> str:
 
 
 def ordering(comment: dict[str, Any]) -> tuple[int, str, int, int]:
-    rank = SEVERITY_RANK.get(normalize(comment.get("severity")))
+    rank = SEVERITY_RANK.get(normalize(comment.get("severity")), 0)
     return (
-        4 - rank if rank else 4,
+        -rank,
         str(comment.get("path") or ""),
         integer(comment.get("start_line")),
         integer(comment.get("end_line")),
@@ -392,6 +383,7 @@ def rewrite_summary(
     links: dict[int, str],
     meta: dict[str, str],
     policy: Policy,
+    expected: dict[str, int | None] | None = None,
 ) -> str:
     marks = markers(body)
     raw_comments = list(result.get("comments") or [])
@@ -402,6 +394,7 @@ def rewrite_summary(
     inline: list[tuple[dict[str, Any], str]] = []
     routed: list[dict[str, Any]] = []
     failed: list[tuple[dict[str, Any], str]] = []
+    skipped: list[dict[str, Any]] = []
     for index, comment in enumerate(raw_comments):
         if is_diagram_carrier(comment):
             continue
@@ -409,15 +402,22 @@ def rewrite_summary(
             inline.append((comment, links[index]))
         elif has_line(comment) and is_routed(comment, policy):
             routed.append(comment)
+        elif reason := summary_reason(body, comment):
+            failed.append((comment, reason))
+        elif not has_line(comment):
+            failed.append((comment, "No line information provided"))
         else:
-            reason = summary_reason(body, comment)
-            if reason:
-                failed.append((comment, reason))
-            elif not has_line(comment):
-                failed.append((comment, "No line information provided"))
+            skipped.append(comment)
     inline.sort(key=lambda item: ordering(item[0]))
     routed.sort(key=ordering)
     failed.sort(key=lambda item: ordering(item[0]))
+    if expected:
+        for name, actual in (("inline", len(inline)), ("skipped", len(skipped))):
+            wanted = expected.get(name)
+            if wanted is not None and wanted != actual:
+                raise RewriteError(
+                    f"OCR reported {wanted} {name} comment(s) but the result has {actual}"
+                )
 
     blocks = [f"## AI Review · {rating}/5 · {verdict(rating)}", text]
 
@@ -436,6 +436,11 @@ def rewrite_summary(
     if inline or failed:
         blocks.append("\n".join(rows))
 
+    if skipped:
+        blocks.append(
+            f"> {len(skipped)} finding(s) were already covered by existing review threads."
+        )
+
     if routed:
         details = "\n\n".join(finding_block(comment) for comment in routed)
         blocks.append(
@@ -449,7 +454,7 @@ def rewrite_summary(
             for comment, reason in failed
         )
         blocks.append(
-            f"<details><summary>{len(failed)} findings not posted inline</summary>"
+            f"<details><summary>{len(failed)} finding(s) not posted inline</summary>"
             f"\n\n{details}\n\n</details>"
         )
 
@@ -497,15 +502,14 @@ def validate(result: Any) -> None:
                 raise RewriteError(f"OCR result comment {index} is not an object")
             severity = comment.get("severity")
             category = comment.get("category")
-            if severity is not None and not isinstance(severity, str):
-                raise RewriteError(f"OCR result comment {index} severity is not a string")
+            if not isinstance(severity, str) or not normalize(severity):
+                raise RewriteError(f"OCR result comment {index} has no severity")
+            if normalize(severity) not in SEVERITY_RANK:
+                raise RewriteError(
+                    f"OCR result comment {index} has unknown severity {severity!r}"
+                )
             if category is not None and not isinstance(category, str):
                 raise RewriteError(f"OCR result comment {index} category is not a string")
-            if named := normalize(severity):
-                if named not in SEVERITY_RANK:
-                    raise RewriteError(
-                        f"OCR result comment {index} has unknown severity {severity!r}"
-                    )
             if named := normalize(category):
                 if named not in CATEGORIES:
                     raise RewriteError(
@@ -755,8 +759,15 @@ def main(argv: list[str] | None = None) -> int:
         summary = find_summary(github, repo, pr, str(run_id), str(attempt))
         posted = find_inline(github, repo, pr, str(run_id), str(attempt))
         links, pairs = match_inline(result, posted)
+        expected: dict[str, int | None] = {}
+        for name in ("OCR_INLINE", "OCR_SKIPPED"):
+            value = os.environ.get(name, "")
+            if value:
+                if not value.isdigit():
+                    raise RewriteError(f"{name} is not numeric: {value!r}")
+                expected[name.removeprefix("OCR_").lower()] = int(value)
         summary_body = rewrite_summary(
-            str(summary.get("body") or ""), result, links, meta, policy
+            str(summary.get("body") or ""), result, links, meta, policy, expected
         )
         inline_bodies = [
             (item, rewrite_inline(str(item.get("body") or ""), comment))

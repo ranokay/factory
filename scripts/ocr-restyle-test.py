@@ -236,14 +236,6 @@ class RestyleTests(unittest.TestCase):
         self.assertIn("## AI Review · 4/5 · Merge after fixes", body)
         self.assertNotIn("REVIEW.md", body)
 
-    def test_empty_severity_is_p3_and_safe(self):
-        body = summary_for(
-            ocr_result([finding(severity="", category="")]),
-            {0: "https://example.test/comment"},
-        )
-        self.assertIn("## AI Review · 5/5 · Safe to merge", body)
-        self.assertIn("| ⚪ P3 |", body)
-
     def test_summary_layout_links_inline_and_collapses_routed(self):
         comments = [
             finding(),
@@ -274,11 +266,12 @@ class RestyleTests(unittest.TestCase):
         for marker in restyle.markers(SUMMARY_BODY):
             self.assertIn(marker, body)
 
-    def test_missing_message_uses_the_status_only(self):
+    def test_missing_message_adds_no_sentence(self):
         result = ocr_result([finding()])
         del result["message"]
         body = summary_for(result, {0: "https://example.test/comment"})
-        self.assertIn("Review complete.", body)
+        self.assertIn("## AI Review · 2/5 · Blocking issues", body)
+        self.assertNotIn("Review complete.", body)
 
     def test_clean_run_gets_a_score_and_no_table(self):
         result = ocr_result([], message="No comments generated. Looks good to me.")
@@ -331,7 +324,7 @@ class RestyleTests(unittest.TestCase):
             ("high", "style", True),
             ("high", "bug", False),
             ("critical", "security", False),
-            ("", "", False),
+            ("high", "", False),
         )
         for severity, category, routed in cases:
             with self.subTest(severity=severity, category=category):
@@ -350,6 +343,9 @@ class RestyleTests(unittest.TestCase):
         body = summary_for(ocr_result([finding()]))
         self.assertNotIn("A finding title", body)
         self.assertNotIn("⚠️ Not posted inline", body)
+        self.assertIn(
+            "1 finding(s) were already covered by existing review threads.", body
+        )
 
     def test_no_line_finding_keeps_its_reason(self):
         original = (
@@ -361,7 +357,7 @@ class RestyleTests(unittest.TestCase):
         )
         body = summary_for(ocr_result([finding(start=0, end=0)]), body=original)
         self.assertIn("⚠️ Not posted inline: No line information provided", body)
-        self.assertIn("1 findings not posted inline", body)
+        self.assertIn("1 finding(s) not posted inline", body)
         self.assertIn("The explanation names the failure and the line.", body)
 
     def test_warnings_keep_their_content(self):
@@ -428,7 +424,7 @@ class CommandLineTests(unittest.TestCase):
             carrier(),
         ]
         self.write(ocr_result(comments))
-        result = self.run_cli()
+        result = self.run_cli(environment={"OCR_INLINE": "1", "OCR_SKIPPED": "0"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.github.patches), 2, self.github.patches)
         summary = self.github.issue_comments[0]["body"]
@@ -474,6 +470,29 @@ class CommandLineTests(unittest.TestCase):
     def test_unknown_severity_is_a_warning_noop(self):
         self.write(ocr_result([finding(severity="urgent")]))
         result = self.run_cli()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("::warning::", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_empty_severity_is_a_warning_noop(self):
+        self.write(ocr_result([finding(severity="")]))
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("::warning::", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_inline_count_mismatch_is_a_warning_noop(self):
+        self.write(ocr_result([finding()]))
+        result = self.run_cli(environment={"OCR_INLINE": "2"})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("::warning::", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_skipped_count_mismatch_is_a_warning_noop(self):
+        self.write(
+            ocr_result([finding(content="**Another finding**\n\nA different failure.")])
+        )
+        result = self.run_cli(environment={"OCR_SKIPPED": "5"})
         self.assertEqual(result.returncode, 0)
         self.assertIn("::warning::", result.stdout)
         self.assertEqual(self.github.patches, [])

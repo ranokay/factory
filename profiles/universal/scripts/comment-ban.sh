@@ -25,8 +25,9 @@ starts code, starts with a shell, build or language keyword (if, echo,
 git, mise, const, import, return, SELECT and the like), starts with a
 ./path or flag (./build.sh, --release), is [table], or ends in ;, { or }.
 
-A PEP 723 script block (a comment line /// script through the next ///)
-is executable script metadata, not commented-out code, and is skipped.
+A PEP 723 script block in a .py file (a comment line /// script through the
+next ///) is executable script metadata, not commented-out code, and is
+skipped; an unterminated block fails.
 
 Exempt tool directives: shellcheck, zizmor:, typos:, yamllint, pinact,
 oxlint-, biome-, eslint-, prettier-ignore, shfmt, tombi, editorconfig.
@@ -124,7 +125,7 @@ for file in "$@"; do
 			sub(/^\*+[ \t]*/, "", s)
 			sub(/[ \t]*\*+\/[ \t]*$/, "", s)
 			if (s == "") return
-			if (s == "/// script") {
+			if (FILENAME ~ /\.py$/ && s == "/// script") {
 				inpep = 1
 				return
 			}
@@ -210,6 +211,10 @@ for file in "$@"; do
 		}
 
 		END {
+			if (inpep) {
+				printf "%s: unterminated PEP 723 script block\n", FILENAME
+				failed = 1
+			}
 			exit failed ? 1 : 0
 		}
 	' "$file"; then
