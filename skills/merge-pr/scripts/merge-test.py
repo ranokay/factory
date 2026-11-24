@@ -1,6 +1,6 @@
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- the tests run the merge script with a fake gh
 import sys
 import tempfile
 import unittest
@@ -65,7 +65,8 @@ class Merge(unittest.TestCase):
         self.log.write_text("")
 
     def merge(self, *arguments):
-        return subprocess.run(
+        # nosemgrep
+        return subprocess.run(  # nosec B603 -- this checkout's merge script
             [sys.executable, str(MERGE), "o/r", "7", "--head", SHA, *arguments],
             env=self.env,
             capture_output=True,
@@ -127,7 +128,8 @@ class Merge(unittest.TestCase):
                 self.assertEqual(self.calls(), [])
 
     def test_short_head_is_refused(self):
-        result = subprocess.run(
+        # nosemgrep
+        result = subprocess.run(  # nosec B603 -- this checkout's merge script
             [sys.executable, str(MERGE), "o/r", "7", "--head", "abc", "--squash"],
             env=self.env,
             capture_output=True,
