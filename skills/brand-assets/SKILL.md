@@ -66,7 +66,11 @@ the pre-pick state there:
 
 ```sh
 git rev-parse HEAD > "$cache/baseline-head"
-git status --porcelain=v1 > "$cache/baseline-status"
+git status --porcelain=v1 -uall > "$cache/baseline-status"
+{
+  git diff HEAD | shasum -a 256
+  git ls-files --others --exclude-standard -z | xargs -0 shasum -a 256
+} > "$cache/baseline-content"
 ```
 
 Write every concept, note and preview to `$cache` until the pick. Never write to
@@ -78,7 +82,8 @@ Write `concept-1-<slug>-icon.svg`, `concept-2-<slug>-icon.svg` and
 `concept-3-<slug>-icon.svg` into `$cache`, and a matching
 `concept-N-<slug>-lockup.svg` for each. Each icon is a square 1024 `viewBox`
 with a transparent background and no app tile. Each lockup pairs that mark with
-the wordmark as outlined paths, at a wide `viewBox`.
+the wordmark as outlined paths, at a wide `viewBox`. When the brief asks for an
+icon-only mark, the lockup is a wide mark-only variant instead.
 
 - Build every shape from primitives and Bezier curves: `path`, `circle`,
   `rect`, `line`, `polygon`. Never embed a raster, never trace a pixel image.
@@ -143,8 +148,13 @@ Before asking for a pick, prove the working tree did not move:
 
 ```sh
 test "$(git rev-parse HEAD)" = "$(cat "$cache/baseline-head")"
-git status --porcelain=v1 > "$cache/pre-pick-status"
+git status --porcelain=v1 -uall > "$cache/pre-pick-status"
 diff -u "$cache/baseline-status" "$cache/pre-pick-status"
+{
+  git diff HEAD | shasum -a 256
+  git ls-files --others --exclude-standard -z | xargs -0 shasum -a 256
+} > "$cache/pre-pick-content"
+diff -u "$cache/baseline-content" "$cache/pre-pick-content"
 ```
 
 If either check differs, stop and show the difference. Do not ask for a pick on
