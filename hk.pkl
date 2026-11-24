@@ -96,13 +96,22 @@ steps {
     exclude = vendored
   }
   ["comment-ban"] {
-    // PEP 723 metadata is executable script configuration, not commented-out
-    // code; the two tests carry their Hypothesis dependency inline.
-    exclude = List(
-      "profiles/universal/tests/fixtures/**",
-      "scripts/ocr-restyle-test.py",
-      "scripts/renovate-managers-test.py",
-    )
+    // Use this repository's copy so the PEP 723 exemption is live here before
+    // the Profile is released.
+    env {
+      ["COMMENT_BAN"] =
+        "{% raw %}" + read("profiles/universal/scripts/comment-ban.sh").text + "{% endraw %}"
+    }
+    exclude = List("profiles/universal/tests/fixtures/**")
+    tests {
+      ["accepts a PEP 723 script block"] {
+        run = "check"
+        tmpdir = true
+        write { ["script.py"] = read("profiles/universal/tests/fixtures/pep723.py").text }
+        files = List("script.py")
+        expect { code = 0 }
+      }
+    }
   }
   ["gitleaks"] = (Builtins.gitleaks) {
     check = "sh {{root}}/scripts/gitleaks-check.sh"

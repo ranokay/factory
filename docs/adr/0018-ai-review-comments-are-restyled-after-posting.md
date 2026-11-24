@@ -10,6 +10,8 @@ Findings the publication policy routes to the summary (medium and below, plus st
 
 A Mermaid diagram is carried by one finding titled `**Diagram**` with category `documentation` and severity `low`, which the routing policy keeps in the summary. REVIEW.md asks for it only when the PR adds a module, workflow or command, or changes a call path across three or more files. The restyler lifts the block into the collapsed Diagram section and excludes the carrier from the score, the findings table, the lower-priority list and every count. A Mermaid block inside a normal finding stays in that finding.
 
+Hypothesis is test-only, pinned in the test script's PEP 723 metadata and tracked by Renovate's `pep723` manager. It is not a runtime dependency of the action.
+
 OCR review mode has no project summary and no PR-description prose: `project_summary` is empty on the review path. The one sentence under the heading is therefore OCR's own status line, such as "Review complete: 2 finding(s) across 5 selected item(s)", with the carrier subtracted and only an emoji or bold prefix removed. The restyler never invents prose about what the PR does.
 
 Any bad JSON, unexpected shape or API failure is a warning, not a failed job. The step builds every body first, then writes; if a write fails it restores the bodies already written and leaves OCR's original comment in place. A `same_head_noop` or `skipped` run is a clean no-op. The restyler lives beside the action and is invoked through `github.action_path`, so a repository that calls this composite action remotely still has it.

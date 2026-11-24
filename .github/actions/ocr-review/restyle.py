@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-"""Restyle OpenCodeReview's PR comments into the Factory's review layout.
-
-OCR posts a sticky summary and inline review comments, and its action has no
-template hook, so this script rewrites both after OCR finishes:
-
-- the summary becomes a priority-sorted table with a computed score, a
-  collapsed "in summary only" block for policy-routed findings, an optional
-  Diagram, and a footer;
-- each inline comment becomes a bold badge and title, an explanation, and a
-  collapsed suggested change.
-
-Every hidden OCR marker is copied verbatim, so checkpointing, incremental
-dedupe and outdated-thread resolution keep working. A failure at any point
-restores every body already written and leaves OCR's original comments in
-place; the caller turns a non-zero exit into a job warning.
-
-The result schema and comment shapes come from OCR at
-d29ca2044a42ea297a7fa93692d0f5ac8f38d84e:
-scripts/github-actions/post-review-comments.js and
-cmd/opencodereview/output.go.
-"""
 
 from __future__ import annotations
 
@@ -35,8 +14,9 @@ SUMMARY_MARKER = "<!-- ocr-summary -->"
 MAX_BODY = 65000
 TITLE_LIMIT = 110
 
-# Hidden markers OCR writes: the summary marker, the per-run summary tag, the
-# checkpoint payload, the per-run review tag and the inline comment id.
+# OCR's marker formats must survive verbatim; see buildRunTags and
+# buildCheckpointMarker in
+# https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/scripts/github-actions/post-review-comments.js
 MARKER = re.compile(r"<!--\s*ocr-[^<>]*?-->")
 MERMAID = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL)
 LONG_REASON = re.compile(r"⚠️ GitHub could not post this as an inline comment: ([^\n]+)")
@@ -56,7 +36,6 @@ CATEGORIES = frozenset(
     )
 )
 SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
-SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 SEVERITY_BADGE = {
     "critical": "🔴 P0",
     "high": "🟠 P1",
@@ -67,12 +46,19 @@ UNKNOWN_BADGE = "⚪ P3"
 
 
 class RewriteError(Exception):
-    """A condition that must leave OCR's comments untouched."""
+    pass
 
 
 class Policy(NamedTuple):
     severity_rank: int
     categories: frozenset[str]
+
+
+class Write(NamedTuple):
+    kind: str
+    identifier: Any
+    original: str
+    body: str
 
 
 def warn(message: str) -> None:
@@ -101,7 +87,6 @@ def strip_markers(body: str) -> str:
 
 
 def safe_text(text: str) -> str:
-    """Keep a finding from closing the details/summary containers we render."""
     return HTML_CONTAINER.sub(
         lambda match: match.group(0).replace("<", "&lt;").replace(">", "&gt;"), text
     )
@@ -151,12 +136,6 @@ def badge_of(comment: dict[str, Any]) -> str:
 
 
 def is_diagram_carrier(comment: dict[str, Any]) -> bool:
-    """A documentation/low finding titled Diagram carries the flow diagram.
-
-    OCR's routing policy moves it to the summary, so it is never posted inline.
-    The carrier is not a finding: it is excluded from the score, the table, the
-    lower-priority list and every count.
-    """
     if normalize(comment.get("category")) != "documentation":
         return False
     if normalize(comment.get("severity")) != "low":
@@ -174,12 +153,8 @@ def split_mermaid(text: str) -> tuple[str, list[str]]:
     return MERMAID.sub(take, text or "").strip(), blocks
 
 
-def diagram_blocks(result: dict[str, Any], carriers: Iterable[dict[str, Any]]) -> list[str]:
+def diagram_blocks(carriers: Iterable[dict[str, Any]]) -> list[str]:
     blocks: list[str] = []
-    for key in ("project_summary", "analysis"):
-        value = result.get(key)
-        if isinstance(value, str):
-            blocks.extend(split_mermaid(value)[1])
     for comment in carriers:
         blocks.extend(split_mermaid(strip_markers(str(comment.get("content") or "")))[1])
     return blocks
@@ -220,29 +195,31 @@ def decrement_finding_count(text: str, amount: int) -> str:
     return re.sub(r"\b(\d+)(\s+finding(?:\(s\)|s)?)", replace, text, count=1)
 
 
-def sentence(result: dict[str, Any], excluded: int) -> str:
+def status_line(result: dict[str, Any], excluded: int) -> str:
     raw = result.get("message")
     text = raw.strip() if isinstance(raw, str) else ""
     if not text:
-        findings = max(0, len(result.get("comments") or []) - excluded)
-        files = 0
-        summary = result.get("summary")
-        if isinstance(summary, dict):
-            files = integer(summary.get("files_reviewed"))
-        if files:
-            text = f"Review complete: {findings} finding(s) across {files} file(s)."
-        else:
-            text = f"Review complete: {findings} finding(s)."
+        text = "Review complete."
     text = clean_sentence(text)
     return decrement_finding_count(text, excluded) if excluded else text
 
 
 def build_policy(severity_below: str, categories: str) -> Policy:
-    threshold = SEVERITY_RANK.get(normalize(severity_below), 0)
-    tokens = frozenset(
-        token for token in (categories or "").split(",") if normalize(token) in CATEGORIES
-    )
-    return Policy(threshold, tokens)
+    threshold = 0
+    named = normalize(severity_below)
+    if named:
+        if named not in SEVERITY_RANK:
+            raise RewriteError(f"unknown route severity: {severity_below}")
+        threshold = SEVERITY_RANK[named]
+    tokens: set[str] = set()
+    for token in (categories or "").split(","):
+        value = normalize(token)
+        if not value:
+            continue
+        if value not in CATEGORIES:
+            raise RewriteError(f"unknown route category: {token}")
+        tokens.add(value)
+    return Policy(threshold, frozenset(tokens))
 
 
 def has_line(comment: dict[str, Any]) -> bool:
@@ -284,7 +261,10 @@ def code_span(value: str) -> str:
 
 def suggestion_block(comment: dict[str, Any]) -> str:
     code = comment.get("suggestion_code")
+    existing = comment.get("existing_code")
     if not isinstance(code, str) or not code.strip():
+        return ""
+    if not isinstance(existing, str) or not existing.strip():
         return ""
     return (
         "\n\n<details><summary>Suggested change</summary>\n\n"
@@ -295,7 +275,7 @@ def suggestion_block(comment: dict[str, Any]) -> str:
     )
 
 
-def reason_for(body: str, comment: dict[str, Any]) -> str:
+def summary_reason(body: str, comment: dict[str, Any]) -> str:
     content = strip_markers(str(comment.get("content") or "")).strip()
     index = body.find(content[:120]) if content else -1
     if index >= 0:
@@ -316,27 +296,60 @@ def reason_for(body: str, comment: dict[str, Any]) -> str:
         match = LONG_REASON.search(line)
         if match and not match.group(1).lower().startswith("routed to summary"):
             return match.group(1).strip()
-    if not has_line(comment):
-        return "No line information provided"
-    return "Not posted"
+    return ""
 
 
 def ordering(comment: dict[str, Any]) -> tuple[int, str, int, int]:
+    rank = SEVERITY_RANK.get(normalize(comment.get("severity")))
     return (
-        SEVERITY_ORDER.get(normalize(comment.get("severity")), 9),
+        4 - rank if rank else 4,
         str(comment.get("path") or ""),
         integer(comment.get("start_line")),
         integer(comment.get("end_line")),
     )
 
 
-def finding_block(comment: dict[str, Any]) -> str:
+def finding_parts(comment: dict[str, Any]) -> tuple[str, str, str]:
     title = title_of(comment)
-    explanation = explanation_of(comment, title)
+    return title, explanation_of(comment, title), suggestion_block(comment)
+
+
+def finding_block(comment: dict[str, Any], note: str = "") -> str:
+    title, explanation, suggestion = finding_parts(comment)
     block = f"**{badge_of(comment)} · {title}** · `{code_span(where_of(comment))}`"
+    if note:
+        block += f"\n{note}"
     if explanation:
         block += f"\n\n{explanation}"
-    return block + suggestion_block(comment)
+    return block + suggestion
+
+
+def warning_entry(warning: Any) -> str:
+    if isinstance(warning, str):
+        return safe_text(warning)
+    if isinstance(warning, dict):
+        parts: list[str] = []
+        if warning.get("file"):
+            parts.append(f"`{code_span(str(warning['file']))}`")
+        if warning.get("type"):
+            parts.append(f"(`{code_span(str(warning['type']))}`)")
+        message = safe_text(str(warning.get("message") or ""))
+        if message:
+            parts.append(message)
+        return " ".join(parts)
+    return safe_text(str(warning))
+
+
+def warning_block(warnings: Iterable[Any]) -> str:
+    items = [warning_entry(warning) for warning in warnings]
+    items = [item for item in items if item]
+    if not items:
+        return ""
+    bullets = "\n".join(f"- {item}" for item in items)
+    return (
+        f"<details><summary>{len(items)} warnings</summary>\n\n"
+        f"{bullets}\n\n</details>"
+    )
 
 
 def footer(meta: dict[str, str]) -> str:
@@ -361,15 +374,13 @@ def footer(meta: dict[str, str]) -> str:
 
 def rewrite_inline(body: str, comment: dict[str, Any]) -> str:
     marks = markers(body)
-    title = title_of(comment)
-    explanation = explanation_of(comment, title)
+    title, explanation, suggestion = finding_parts(comment)
     parts: list[str] = []
     if marks:
         parts.append("\n".join(marks))
     parts.append(f"**{badge_of(comment)} · {title}**")
     if explanation:
         parts.append(explanation)
-    suggestion = suggestion_block(comment)
     if suggestion:
         parts.append(suggestion.strip())
     return "\n\n".join(parts).strip() + "\n"
@@ -385,12 +396,12 @@ def rewrite_summary(
     marks = markers(body)
     raw_comments = list(result.get("comments") or [])
     carriers = [comment for comment in raw_comments if is_diagram_carrier(comment)]
-    value = score(raw_comments)
-    text = sentence(result, len(carriers))
+    rating = score(raw_comments)
+    text = status_line(result, len(carriers))
 
     inline: list[tuple[dict[str, Any], str]] = []
     routed: list[dict[str, Any]] = []
-    failed: list[dict[str, Any]] = []
+    failed: list[tuple[dict[str, Any], str]] = []
     for index, comment in enumerate(raw_comments):
         if is_diagram_carrier(comment):
             continue
@@ -399,12 +410,16 @@ def rewrite_summary(
         elif has_line(comment) and is_routed(comment, policy):
             routed.append(comment)
         else:
-            failed.append(comment)
+            reason = summary_reason(body, comment)
+            if reason:
+                failed.append((comment, reason))
+            elif not has_line(comment):
+                failed.append((comment, "No line information provided"))
     inline.sort(key=lambda item: ordering(item[0]))
     routed.sort(key=ordering)
-    failed.sort(key=ordering)
+    failed.sort(key=lambda item: ordering(item[0]))
 
-    blocks = [f"## AI Review · {value}/5 · {verdict(value)}", text]
+    blocks = [f"## AI Review · {rating}/5 · {verdict(rating)}", text]
 
     rows = ["| | Finding | Where |", "|---|---|---|"]
     for comment, url in inline:
@@ -412,11 +427,11 @@ def rewrite_summary(
         rows.append(
             f"| {badge_of(comment)} | [{title}]({url}) | `{code_span(where_of(comment))}` |"
         )
-    for comment in failed:
-        reason = cell(reason_for(body, comment))
+    for comment, reason in failed:
         rows.append(
             f"| {badge_of(comment)} | {cell(title_of(comment))} | "
-            f"`{code_span(where_of(comment))}`<br>⚠️ Not posted inline: {reason} |"
+            f"`{code_span(where_of(comment))}`"
+            f"<br>⚠️ Not posted inline: {cell(reason)} |"
         )
     if inline or failed:
         blocks.append("\n".join(rows))
@@ -428,16 +443,26 @@ def rewrite_summary(
             f"(in summary only)</summary>\n\n{details}\n\n</details>"
         )
 
-    diagrams = diagram_blocks(result, carriers)
+    if failed:
+        details = "\n\n".join(
+            finding_block(comment, f"⚠️ Not posted inline: {cell(reason)}")
+            for comment, reason in failed
+        )
+        blocks.append(
+            f"<details><summary>{len(failed)} findings not posted inline</summary>"
+            f"\n\n{details}\n\n</details>"
+        )
+
+    diagrams = diagram_blocks(carriers)
     if diagrams:
         inner = "\n\n".join(f"```mermaid\n{block}\n```" for block in diagrams)
         blocks.append(f"<details><summary>Diagram</summary>\n\n{inner}\n\n</details>")
 
     warnings = result.get("warnings")
-    if isinstance(warnings, list) and warnings:
-        blocks.append(
-            f"> ⚠️ {len(warnings)} warning(s) during review; some changes may be unreviewed."
-        )
+    if isinstance(warnings, list):
+        block = warning_block(warnings)
+        if block:
+            blocks.append(block)
 
     end = footer(meta)
     if end:
@@ -470,6 +495,22 @@ def validate(result: Any) -> None:
         for index, comment in enumerate(comments):
             if not isinstance(comment, dict):
                 raise RewriteError(f"OCR result comment {index} is not an object")
+            severity = comment.get("severity")
+            category = comment.get("category")
+            if severity is not None and not isinstance(severity, str):
+                raise RewriteError(f"OCR result comment {index} severity is not a string")
+            if category is not None and not isinstance(category, str):
+                raise RewriteError(f"OCR result comment {index} category is not a string")
+            if named := normalize(severity):
+                if named not in SEVERITY_RANK:
+                    raise RewriteError(
+                        f"OCR result comment {index} has unknown severity {severity!r}"
+                    )
+            if named := normalize(category):
+                if named not in CATEGORIES:
+                    raise RewriteError(
+                        f"OCR result comment {index} has unknown category {category!r}"
+                    )
     for key in ("summary", "manifest"):
         value = result.get(key)
         if value is not None and not isinstance(value, dict):
@@ -575,11 +616,9 @@ class GitHub:
                 return
             page += 1
 
-    def update_issue_comment(self, repo: str, identifier: Any, body: str) -> None:
-        self.request("PATCH", f"/repos/{repo}/issues/comments/{identifier}", {"body": body})
-
-    def update_review_comment(self, repo: str, identifier: Any, body: str) -> None:
-        self.request("PATCH", f"/repos/{repo}/pulls/comments/{identifier}", {"body": body})
+    def write(self, kind: str, repo: str, identifier: Any, body: str) -> None:
+        path = "issues" if kind == "issue" else "pulls"
+        self.request("PATCH", f"/repos/{repo}/{path}/comments/{identifier}", {"body": body})
 
 
 def find_summary(
@@ -615,37 +654,35 @@ def apply(
     summary: dict[str, Any],
     summary_body: str,
     inline_bodies: list[tuple[dict[str, Any], str]],
-    dry_run: bool,
-) -> list[tuple[str, Any, str, str]]:
-    writes: list[tuple[str, Any, str, str]] = [
-        ("issue", summary.get("id"), str(summary.get("body") or ""), summary_body)
+) -> list[Write]:
+    writes = [
+        Write("issue", summary.get("id"), str(summary.get("body") or ""), summary_body)
     ]
     for posted, body in inline_bodies:
-        writes.append(("review", posted.get("id"), str(posted.get("body") or ""), body))
-    for kind, identifier, _, body in writes:
-        if len(body) > MAX_BODY:
-            raise RewriteError(f"{kind} comment {identifier} would exceed GitHub's size limit")
-        if identifier is None:
-            raise RewriteError(f"{kind} comment has no id")
-    if dry_run:
-        return writes
-    applied: list[tuple[str, Any, str]] = []
+        writes.append(
+            Write("review", posted.get("id"), str(posted.get("body") or ""), body)
+        )
+    for write in writes:
+        if len(write.body) > MAX_BODY:
+            raise RewriteError(
+                f"{write.kind} comment {write.identifier} would exceed GitHub's size limit"
+            )
+        if write.identifier is None:
+            raise RewriteError(f"{write.kind} comment has no id")
+    applied: list[Write] = []
     try:
-        for kind, identifier, original, body in writes:
-            if kind == "issue":
-                github.update_issue_comment(repo, identifier, body)
-            else:
-                github.update_review_comment(repo, identifier, body)
-            applied.append((kind, identifier, original))
+        for write in writes:
+            github.write(write.kind, repo, write.identifier, write.body)
+            applied.append(write)
     except Exception:
-        for kind, identifier, original in reversed(applied):
+        for write in reversed(applied):
             try:
-                if kind == "issue":
-                    github.update_issue_comment(repo, identifier, original)
-                else:
-                    github.update_review_comment(repo, identifier, original)
+                github.write(write.kind, repo, write.identifier, write.original)
             except Exception as error:
-                warn(f"OCR restyle rollback failed for {kind} {identifier}: {error}")
+                warn(
+                    f"OCR restyle rollback failed for {write.kind} "
+                    f"{write.identifier}: {error}"
+                )
         raise
     return writes
 
@@ -667,7 +704,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--effort")
     parser.add_argument("--model")
     parser.add_argument("--version")
-    parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -726,17 +762,10 @@ def main(argv: list[str] | None = None) -> int:
             (item, rewrite_inline(str(item.get("body") or ""), comment))
             for item, comment in pairs
         ]
-        writes = apply(
-            github, repo, summary, summary_body, inline_bodies, args.dry_run
+        apply(github, repo, summary, summary_body, inline_bodies)
+        print(
+            f"OCR restyle: updated the summary and {len(inline_bodies)} inline comment(s)"
         )
-        if args.dry_run:
-            for kind, identifier, _, body in writes:
-                print(f"--- {kind} {identifier} ---")
-                print(body)
-        else:
-            print(
-                f"OCR restyle: updated the summary and {len(inline_bodies)} inline comment(s)"
-            )
     except Exception as error:
         warn(f"OCR restyle skipped: {error}")
     return 0

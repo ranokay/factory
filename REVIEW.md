@@ -31,4 +31,4 @@ The one-line verdict follows the score: 5 is "Safe to merge", 3–4 is "Merge af
 
 Emit a Mermaid diagram only when the PR adds or changes a flow between components: a new module, workflow or command, or a changed call path across 3 or more files. When it applies, add exactly one finding whose content is `**Diagram**` followed by a blank line and one ` ```mermaid ` block, with category `documentation` and severity `low`. OCR's routing keeps that finding in the summary, and the comment restyler lifts the block into the collapsed Diagram section.
 
-Omit the Diagram finding when no such flow changed, and never put a Mermaid block anywhere else. A Mermaid block inside a normal finding stays in that finding.
+Omit the Diagram finding when no such flow changed, and never put a Mermaid block anywhere else.

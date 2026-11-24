@@ -220,9 +220,16 @@ class AiReviewWorkflowTests(unittest.TestCase):
         restyle = named_step(steps, "Restyle review comments")
         self.assertEqual(restyle["env"]["OCR_SCRIPT"], "${{ github.action_path }}/restyle.py")
         self.assertNotIn("github.workspace", restyle["env"]["OCR_SCRIPT"])
-        self.assertIn("exit 0", restyle["run"])
-        self.assertIn("::warning::", restyle["run"])
         self.assertTrue((ROOT / ".github/actions/ocr-review/restyle.py").is_file())
+
+    def test_restyle_step_never_fails_the_job(self):
+        restyle = named_step(action_steps(action("ocr-review")), "Restyle review comments")
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "fail.py"
+            script.write_text("raise SystemExit(1)\n")
+            result = run_step(restyle, {"OCR_SCRIPT": str(script)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning::", result.stdout)
 
     def test_restyle_inputs_mirror_the_review_literals(self):
         source = action("ocr-review")

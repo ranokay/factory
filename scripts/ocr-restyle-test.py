@@ -2,14 +2,6 @@
 # requires-python = ">=3.12"
 # dependencies = ["hypothesis==6.170.17"]
 # ///
-"""Tests for the OCR comment restyler.
-
-The property tests generate OCR-shaped summaries and inline bodies: every
-hidden OCR marker in the input must survive the rewrite, and a second rewrite
-must change nothing. The fixture tests cover each score tier, the layout, the
-routing rules and the failure path, including a forced API failure that must
-restore every body already written.
-"""
 
 import importlib.util
 import json
@@ -212,50 +204,45 @@ class FakeGitHub:
 
 
 class RestyleTests(unittest.TestCase):
-    def test_score_tiers(self):
-        def severities(*values):
-            return [
-                {
-                    "path": f"f{index}.py",
-                    "content": "**Title**\n\nExplanation.",
-                    "start_line": 1,
-                    "end_line": 1,
-                    "category": "bug",
-                    "severity": value,
-                }
-                for index, value in enumerate(values)
-            ]
-
+    def test_each_score_tier_appears_in_the_header(self):
         cases = (
-            ((), 5),
-            (("low",), 5),
-            (("low", "low"), 5),
-            (("medium",), 4),
-            (("medium", "medium"), 3),
-            (("medium", "medium", "medium"), 3),
-            (("high",), 2),
-            (("high", "medium", "medium"), 2),
-            (("critical",), 1),
-            (("critical", "high", "medium"), 1),
+            ((), 5, "Safe to merge"),
+            (("low",), 5, "Safe to merge"),
+            (("low", "low"), 5, "Safe to merge"),
+            (("medium",), 4, "Merge after fixes"),
+            (("medium", "medium"), 3, "Merge after fixes"),
+            (("medium", "medium", "medium"), 3, "Merge after fixes"),
+            (("high",), 2, "Blocking issues"),
+            (("high", "medium", "medium"), 2, "Blocking issues"),
+            (("critical",), 1, "Blocking issues"),
+            (("critical", "high", "medium"), 1, "Blocking issues"),
         )
-        for values, expected in cases:
+        for values, expected, verdict in cases:
             with self.subTest(severities=values):
-                self.assertEqual(restyle.score(severities(*values)), expected)
+                comments = [
+                    finding(
+                        path=f"f{index}.py",
+                        severity=value,
+                        start=index + 1,
+                        end=index + 1,
+                    )
+                    for index, value in enumerate(values)
+                ]
+                body = summary_for(ocr_result(comments))
+                self.assertIn(f"## AI Review · {expected}/5 · {verdict}", body)
 
     def test_carrier_is_excluded_from_the_score(self):
-        self.assertEqual(restyle.score([carrier(), finding(severity="medium")]), 4)
+        body = summary_for(ocr_result([carrier(), finding(severity="medium")]))
+        self.assertIn("## AI Review · 4/5 · Merge after fixes", body)
+        self.assertNotIn("REVIEW.md", body)
 
-    def test_verdicts(self):
-        self.assertEqual(restyle.verdict(5), "Safe to merge")
-        self.assertEqual(restyle.verdict(4), "Merge after fixes")
-        self.assertEqual(restyle.verdict(3), "Merge after fixes")
-        self.assertEqual(restyle.verdict(2), "Blocking issues")
-        self.assertEqual(restyle.verdict(1), "Blocking issues")
-
-    def test_unknown_severity_is_p3_and_does_not_lower_the_score(self):
-        comment = finding(severity="", category="")
-        self.assertEqual(restyle.badge_of(comment), "⚪ P3")
-        self.assertEqual(restyle.score([comment]), 5)
+    def test_empty_severity_is_p3_and_safe(self):
+        body = summary_for(
+            ocr_result([finding(severity="", category="")]),
+            {0: "https://example.test/comment"},
+        )
+        self.assertIn("## AI Review · 5/5 · Safe to merge", body)
+        self.assertIn("| ⚪ P3 |", body)
 
     def test_summary_layout_links_inline_and_collapses_routed(self):
         comments = [
@@ -286,6 +273,12 @@ class RestyleTests(unittest.TestCase):
         )
         for marker in restyle.markers(SUMMARY_BODY):
             self.assertIn(marker, body)
+
+    def test_missing_message_uses_the_status_only(self):
+        result = ocr_result([finding()])
+        del result["message"]
+        body = summary_for(result, {0: "https://example.test/comment"})
+        self.assertIn("Review complete.", body)
 
     def test_clean_run_gets_a_score_and_no_table(self):
         result = ocr_result([], message="No comments generated. Looks good to me.")
@@ -330,27 +323,65 @@ class RestyleTests(unittest.TestCase):
         self.assertNotIn("<details><summary>Diagram</summary>", body)
         self.assertNotIn("REVIEW.md", body)
 
-    def test_inline_layout(self):
-        comment = finding()
-        body = restyle.rewrite_inline(INLINE_BODY, comment)
-        self.assertTrue(body.startswith(FINGERPRINT))
-        self.assertIn("**🟠 P1 · A finding title**", body)
-        self.assertIn("The explanation names the failure and the line.", body)
-        self.assertIn("<details><summary>Suggested change</summary>", body)
-        self.assertIn("```suggestion", body)
-        self.assertNotIn("### 📄", body)
-        self.assertNotIn("**Suggestion:**", body)
-        self.assertNotIn("Fix with agent prompt", body)
+    def test_routing_sends_policy_findings_to_the_details(self):
+        cases = (
+            ("medium", "bug", True),
+            ("low", "bug", True),
+            ("high", "documentation", True),
+            ("high", "style", True),
+            ("high", "bug", False),
+            ("critical", "security", False),
+            ("", "", False),
+        )
+        for severity, category, routed in cases:
+            with self.subTest(severity=severity, category=category):
+                links = {} if routed else {0: "https://example.test/comment"}
+                body = summary_for(
+                    ocr_result([finding(severity=severity, category=category)]), links
+                )
+                if routed:
+                    self.assertIn("<details><summary>1 lower-priority findings", body)
+                else:
+                    self.assertIn("https://example.test/comment", body)
+                    self.assertNotIn("lower-priority findings", body)
+                self.assertNotIn("⚠️ Not posted inline", body)
 
-    def test_routing_matches_ocr(self):
-        policy = restyle.build_policy("medium", "style,documentation")
-        self.assertTrue(restyle.is_routed(finding(severity="medium", category="bug"), policy))
-        self.assertTrue(restyle.is_routed(finding(severity="low", category="bug"), policy))
-        self.assertTrue(restyle.is_routed(finding(severity="high", category="documentation"), policy))
-        self.assertTrue(restyle.is_routed(finding(severity="high", category="style"), policy))
-        self.assertFalse(restyle.is_routed(finding(severity="high", category="bug"), policy))
-        self.assertFalse(restyle.is_routed(finding(severity="critical", category="security"), policy))
-        self.assertFalse(restyle.is_routed(finding(severity="", category=""), policy))
+    def test_incremental_skip_is_not_a_posting_failure(self):
+        body = summary_for(ocr_result([finding()]))
+        self.assertNotIn("A finding title", body)
+        self.assertNotIn("⚠️ Not posted inline", body)
+
+    def test_no_line_finding_keeps_its_reason(self):
+        original = (
+            f"{SUMMARY_MARKER}\n{RUN_MARKER}\n"
+            "### 📄 `scripts/a.py`\n\n"
+            "⚠️ GitHub could not post this as an inline comment: "
+            "No line information provided\n\n"
+            "**A finding title**\n\nThe explanation names the failure and the line."
+        )
+        body = summary_for(ocr_result([finding(start=0, end=0)]), body=original)
+        self.assertIn("⚠️ Not posted inline: No line information provided", body)
+        self.assertIn("1 findings not posted inline", body)
+        self.assertIn("The explanation names the failure and the line.", body)
+
+    def test_warnings_keep_their_content(self):
+        body = summary_for(
+            ocr_result(
+                [finding()],
+                warnings=[
+                    {"file": "a.py", "type": "timeout", "message": "the model timed out"}
+                ],
+            ),
+            {0: "https://example.test/comment"},
+        )
+        self.assertIn("<details><summary>1 warnings</summary>", body)
+        self.assertIn("`a.py` (`timeout`) the model timed out", body)
+
+    def test_suggestion_requires_existing_code(self):
+        comment = finding()
+        comment["existing_code"] = ""
+        body = restyle.rewrite_inline(INLINE_BODY, comment)
+        self.assertNotIn("<details><summary>Suggested change</summary>", body)
 
 
 class CommandLineTests(unittest.TestCase):
@@ -362,7 +393,7 @@ class CommandLineTests(unittest.TestCase):
         self.result_path = Path(directory.name) / "result.json"
         self.github.seed()
 
-    def run_cli(self, *arguments, environment=None):
+    def run_cli(self, environment=None):
         env = {
             **os.environ,
             "GITHUB_API_URL": self.github.url,
@@ -380,7 +411,7 @@ class CommandLineTests(unittest.TestCase):
         }
         env.update(environment or {})
         return subprocess.run(  # nosec B603 -- local script, argv, no shell
-            [sys.executable, str(SCRIPT), *arguments],
+            [sys.executable, str(SCRIPT)],
             env=env,
             capture_output=True,
             text=True,
@@ -409,7 +440,12 @@ class CommandLineTests(unittest.TestCase):
         inline = self.github.review_comments[0]["body"]
         self.assertTrue(inline.startswith(FINGERPRINT))
         self.assertIn("**🟠 P1 · A finding title**", inline)
+        self.assertIn("The explanation names the failure and the line.", inline)
+        self.assertIn("<details><summary>Suggested change</summary>", inline)
+        self.assertIn("```suggestion", inline)
         self.assertNotIn("### 📄", inline)
+        self.assertNotIn("**Suggestion:**", inline)
+        self.assertNotIn("Fix with agent prompt", inline)
 
     def test_forced_api_failure_restores_every_original(self):
         self.write(ocr_result([finding()]))
@@ -431,6 +467,29 @@ class CommandLineTests(unittest.TestCase):
     def test_unexpected_shape_is_a_noop(self):
         self.write({"comments": [1], "status": "complete"})
         result = self.run_cli()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("::warning::", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_unknown_severity_is_a_warning_noop(self):
+        self.write(ocr_result([finding(severity="urgent")]))
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("::warning::", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_unknown_route_severity_is_a_warning_noop(self):
+        self.write(ocr_result([finding()]))
+        result = self.run_cli(
+            environment={"OCR_ROUTE_SEVERITY_BELOW": "critical-ish"}
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("::warning::", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_unknown_route_category_is_a_warning_noop(self):
+        self.write(ocr_result([finding()]))
+        result = self.run_cli(environment={"OCR_ROUTE_CATEGORIES": "style,typo"})
         self.assertEqual(result.returncode, 0)
         self.assertIn("::warning::", result.stdout)
         self.assertEqual(self.github.patches, [])
@@ -458,33 +517,19 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("::warning::", result.stdout)
         self.assertEqual(self.github.patches, [])
 
-    def test_dry_run_prints_without_writing(self):
-        self.write(ocr_result([finding()]))
-        result = self.run_cli("--dry-run")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--- issue 1 ---", result.stdout)
-        self.assertIn("## AI Review · 2/5 · Blocking issues", result.stdout)
-        self.assertEqual(self.github.patches, [])
 
-
-@st.composite
-def ocr_comments(draw):
-    return draw(
-        st.lists(
-            st.fixed_dictionaries(
-                {
-                    "path": st.sampled_from(["a.py", "b/c.py", "REVIEW.md"]),
-                    "content": st.text(min_size=1, max_size=160).filter(lambda value: value.strip()),
-                    "severity": st.sampled_from(["critical", "high", "medium", "low", "", None]),
-                    "category": st.sampled_from(
-                        ["bug", "security", "style", "documentation", "", None]
-                    ),
-                    "start_line": st.integers(min_value=0, max_value=200),
-                    "end_line": st.integers(min_value=0, max_value=200),
-                }
+def comment_strategy():
+    return st.fixed_dictionaries(
+        {
+            "path": st.sampled_from(["a.py", "b/c.py", "REVIEW.md"]),
+            "content": st.text(min_size=1, max_size=160).filter(lambda value: value.strip()),
+            "severity": st.sampled_from(["critical", "high", "medium", "low", "", None]),
+            "category": st.sampled_from(
+                ["bug", "security", "style", "documentation", "", None]
             ),
-            max_size=6,
-        )
+            "start_line": st.integers(min_value=0, max_value=200),
+            "end_line": st.integers(min_value=0, max_value=200),
+        }
     )
 
 
@@ -499,56 +544,66 @@ MARKERS = st.sampled_from(
 )
 
 
-@settings(max_examples=80, deadline=None, suppress_health_check=[HealthCheck.too_slow])
-@given(
-    original=st.lists(st.one_of(st.text(max_size=40), MARKERS), max_size=8).map("\n".join),
-    comments=ocr_comments(),
-    severity_below=st.sampled_from(["", "medium", "low"]),
-    categories=st.sampled_from(["", "style,documentation", "bug"]),
-)
-def test_summary_preserves_markers_and_is_idempotent(
-    original, comments, severity_below, categories
-):
-    body = "<!-- ocr-summary -->\n" + original
-    result = {
-        "status": "complete",
-        "message": "Review complete: 2 finding(s) across 3 selected item(s).",
-        "comments": comments,
-        "warnings": [],
-        "manifest": {"input": {}, "execution": {}},
-    }
-    policy = restyle.build_policy(severity_below, categories)
-    links = {
-        index: f"https://example.test/#discussion_r{index}"
-        for index in range(len(comments))
-    }
-    meta = {"head": "a" * 40, "from": "b" * 40, "to": "a" * 40, "version": "v1.0.0", "model": "m", "effort": "high"}
-    first = restyle.rewrite_summary(body, result, links, meta, policy)
-    for marker in restyle.markers(body):
-        assert marker in first
-    assert restyle.rewrite_summary(first, result, links, meta, policy) == first
-
-
-@settings(max_examples=80, deadline=None, suppress_health_check=[HealthCheck.too_slow])
-@given(
-    original=st.lists(st.one_of(st.text(max_size=40), MARKERS), max_size=8).map("\n".join),
-    comment=st.fixed_dictionaries(
-        {
-            "path": st.sampled_from(["a.py", "b/c.py"]),
-            "content": st.text(min_size=1, max_size=160).filter(lambda value: value.strip()),
-            "severity": st.sampled_from(["critical", "high", "medium", "low", "", None]),
-            "category": st.sampled_from(["bug", "style", "documentation", "", None]),
-            "start_line": st.integers(min_value=0, max_value=200),
-            "end_line": st.integers(min_value=0, max_value=200),
+class PropertyTests(unittest.TestCase):
+    @settings(
+        max_examples=80,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
+    @given(
+        original=st.lists(st.one_of(st.text(max_size=40), MARKERS), max_size=8).map(
+            "\n".join
+        ),
+        comments=st.lists(comment_strategy(), max_size=6),
+        severity_below=st.sampled_from(["", "medium", "low"]),
+        categories=st.sampled_from(["", "style,documentation", "bug"]),
+    )
+    def test_summary_preserves_markers_and_is_idempotent(
+        self, original, comments, severity_below, categories
+    ):
+        body = "<!-- ocr-summary -->\n" + original
+        result = {
+            "status": "complete",
+            "message": "Review complete: 2 finding(s) across 3 selected item(s).",
+            "comments": comments,
+            "warnings": [],
+            "manifest": {"input": {}, "execution": {}},
         }
-    ),
-)
-def test_inline_preserves_markers_and_is_idempotent(original, comment):
-    body = "<!-- ocr-1-1-abcdef0123456789 -->\n" + original
-    first = restyle.rewrite_inline(body, comment)
-    for marker in restyle.markers(body):
-        assert marker in first
-    assert restyle.rewrite_inline(first, comment) == first
+        policy = restyle.build_policy(severity_below, categories)
+        links = {
+            index: f"https://example.test/#discussion_r{index}"
+            for index in range(len(comments))
+        }
+        meta = {
+            "head": "a" * 40,
+            "from": "b" * 40,
+            "to": "a" * 40,
+            "version": "v1.0.0",
+            "model": "m",
+            "effort": "high",
+        }
+        first = restyle.rewrite_summary(body, result, links, meta, policy)
+        for marker in restyle.markers(body):
+            self.assertIn(marker, first)
+        self.assertEqual(restyle.rewrite_summary(first, result, links, meta, policy), first)
+
+    @settings(
+        max_examples=80,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
+    @given(
+        original=st.lists(st.one_of(st.text(max_size=40), MARKERS), max_size=8).map(
+            "\n".join
+        ),
+        comment=comment_strategy(),
+    )
+    def test_inline_preserves_markers_and_is_idempotent(self, original, comment):
+        body = "<!-- ocr-1-1-abcdef0123456789 -->\n" + original
+        first = restyle.rewrite_inline(body, comment)
+        for marker in restyle.markers(body):
+            self.assertIn(marker, first)
+        self.assertEqual(restyle.rewrite_inline(first, comment), first)
 
 
 if __name__ == "__main__":
