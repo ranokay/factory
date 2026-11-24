@@ -76,6 +76,12 @@ class Merge(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines() if line.strip()]
 
+    def test_guard_copy_matches_the_babysit_pr_skill(self):
+        self.assertEqual(
+            (ROOT / "skills/babysit-pr/scripts/merge_guard.py").read_text(),
+            (ROOT / "skills/merge-pr/scripts/merge_guard.py").read_text(),
+        )
+
     def test_factory_squash_pins_the_head(self):
         result = self.merge("--squash")
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -4,8 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "merge-pr" / "scripts"))
-from merge_guard import is_outside  # noqa: E402 -- the Merge Guard lives with the merge command
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from merge_guard import is_outside  # noqa: E402 -- the Merge Guard ships beside this script
 
 
 def gh(*args):
