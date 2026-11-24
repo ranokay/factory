@@ -88,6 +88,7 @@ depends = [
   "run-slot:test",
   "block-issue:test",
   "triage:test",
+  "adopt:test",
   "ocr-restyle:test",
   "merge:test",
   "file-promotion:test",
@@ -152,6 +153,10 @@ run = "hk test --step run-slot"
 [tasks."triage:test"]
 description = "Run the triage CLI tests"
 run = "hk test --step triage"
+
+[tasks."adopt:test"]
+description = "Run the adopt CLI fixture tests"
+run = "hk test --step adopt"
 
 [tasks."ocr-restyle:test"]
 description = "Run the OCR comment restyle tests"

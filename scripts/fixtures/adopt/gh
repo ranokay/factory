@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+import base64
+import json
+import os
+import sys
+import urllib.parse
+from pathlib import Path
+
+args = sys.argv[1:]
+with Path(os.environ["FAKE_GH_LOG"]).open("a") as handle:
+    handle.write(json.dumps(args) + "\n")
+state_path = Path(os.environ["FAKE_GH_STATE"])
+state = json.loads(state_path.read_text())
+
+
+def save():
+    state_path.write_text(json.dumps(state))
+
+
+def fail(message, code=1):
+    print(message, file=sys.stderr)
+    sys.exit(code)
+
+
+def value(flag, default=None):
+    return args[args.index(flag) + 1] if flag in args else default
+
+
+def respond(payload):
+    print(json.dumps(payload))
+    sys.exit(0)
+
+
+def normalize_ruleset(ruleset):
+    ruleset["source"] = state["name"]
+    ruleset["source_type"] = "Repository"
+    for rule in ruleset.get("rules", []):
+        if rule.get("type") == "required_status_checks":
+            parameters = rule.setdefault("parameters", {})
+            parameters["do_not_enforce_on_create"] = False
+            for check in parameters.get("required_status_checks", []):
+                check.setdefault("integration_id", None)
+
+
+if args[:2] == ["issue", "create"]:
+    labels = []
+    index = 2
+    while index < len(args):
+        if args[index] == "--label":
+            labels.append(args[index + 1])
+            index += 2
+        elif args[index] in ("--repo", "--title", "--body"):
+            index += 2
+        else:
+            index += 1
+    known = {label["name"] for label in state["labels"]}
+    missing = [label for label in labels if label not in known]
+    if missing:
+        fail(f"unknown labels: {missing}")
+    number = max((issue["number"] for issue in state["issues"]), default=0) + 1
+    state["issues"].append(
+        {
+            "number": number,
+            "title": value("--title"),
+            "body": value("--body"),
+            "labels": labels,
+            "state": "open",
+        }
+    )
+    save()
+    respond(f"https://github.com/{state['name']}/issues/{number}")
+
+if args[:2] == ["secret", "set"]:
+    state["secrets"].append({"name": args[2]})
+    save()
+    respond({})
+
+if not args or args[0] != "api":
+    fail(f"gh stub: unexpected call: {args}", 2)
+
+method = "GET"
+body = None
+paginate = False
+slurp = False
+parameters = []
+index = 1
+while index < len(args):
+    argument = args[index]
+    if argument in ("--method", "-X"):
+        method = args[index + 1]
+        index += 2
+    elif argument == "--input":
+        body = json.load(sys.stdin)
+        index += 2
+    elif argument == "-f":
+        parameters.append(args[index + 1])
+        index += 2
+    elif argument == "--paginate":
+        paginate = True
+        index += 1
+    elif argument == "--slurp":
+        slurp = True
+        index += 1
+    elif argument.startswith("-"):
+        index += 1
+    else:
+        parameters.append(argument)
+        index += 1
+
+endpoint = next(
+    (
+        item
+        for item in parameters
+        if item.startswith("repos/") or item == "search/issues"
+    ),
+    None,
+)
+if endpoint is None:
+    fail(f"gh stub: no endpoint in {args}", 2)
+
+if endpoint == "search/issues":
+    query = next((item[2:] for item in parameters if item.startswith("q=")), "")
+    page = int(next((item[5:] for item in parameters if item.startswith("page=")), "1"))
+    per_page = int(
+        next((item[9:] for item in parameters if item.startswith("per_page=")), "100")
+    )
+    wanted = "closed" if "state:closed" in query else "open"
+    items = [
+        {
+            "number": issue["number"],
+            "title": issue["title"],
+            "body": issue["body"],
+            "state": issue["state"],
+        }
+        for issue in state["issues"]
+        if issue["state"] == wanted and "factory:adopt" in issue["body"]
+    ]
+    start = (page - 1) * per_page
+    respond(
+        {
+            "total_count": len(items),
+            "incomplete_results": False,
+            "items": items[start : start + per_page],
+        }
+    )
+
+path = endpoint.split("?", 1)[0]
+prefix = "repos/" + state["name"]
+if not path.startswith(prefix):
+    fail(f"gh stub: repository {path} is not {state['name']}", 2)
+key = path[len(prefix) :]
+
+if method == "GET":
+    if key == "":
+        payload = dict(state["repo"], full_name=state["name"])
+    elif key == "/topics":
+        payload = state["topics"]
+    elif key == "/labels":
+        payload = state["labels"]
+    elif key == "/rulesets":
+        payload = state["rulesets"]
+    elif key.startswith("/rulesets/"):
+        identifier = int(key.rsplit("/", 1)[1])
+        payload = next(
+            (item for item in state["rulesets"] if item["id"] == identifier), None
+        )
+        if payload is None:
+            fail("HTTP 404")
+    elif key.startswith("/rules/branches/"):
+        payload = []
+    elif key.endswith("/protection"):
+        fail("HTTP 404")
+    elif key.startswith("/contents/"):
+        file_path = urllib.parse.unquote(key.removeprefix("/contents/"))
+        content = state["files"].get(file_path)
+        if content is None:
+            fail("HTTP 404")
+        payload = {"content": base64.b64encode(content.encode()).decode()}
+    elif key == "/actions/permissions/fork-pr-contributor-approval":
+        payload = state["approval"]
+    elif key == "/actions/permissions/fork-pr-workflows-private-repos":
+        payload = state["private_settings"]
+    elif key == "/actions/secrets":
+        payload = {"secrets": state["secrets"]}
+    else:
+        fail(f"gh stub: unexpected GET {key}", 2)
+    respond([payload] if paginate and slurp else payload)
+
+if key == "" and method == "PATCH":
+    state["repo"].update(body)
+elif key == "/topics" and method == "PUT":
+    state["topics"] = body
+elif key == "/labels" and method == "POST":
+    body["default"] = False
+    state["labels"].append(body)
+elif key.startswith("/labels/"):
+    name = urllib.parse.unquote(key.removeprefix("/labels/"))
+    if method == "DELETE":
+        state["labels"] = [item for item in state["labels"] if item["name"] != name]
+    else:
+        label = next((item for item in state["labels"] if item["name"] == name), None)
+        if label is None:
+            fail(f"unknown label: {name}")
+        label["color"] = body["color"]
+        label["description"] = body["description"]
+elif key == "/rulesets" and method == "POST":
+    body["id"] = max((item["id"] for item in state["rulesets"]), default=0) + 1
+    normalize_ruleset(body)
+    state["rulesets"].append(body)
+elif key.startswith("/rulesets/"):
+    identifier = int(key.rsplit("/", 1)[1])
+    if method == "DELETE":
+        state["rulesets"] = [
+            item for item in state["rulesets"] if item["id"] != identifier
+        ]
+    elif method == "PUT":
+        body["id"] = identifier
+        normalize_ruleset(body)
+        state["rulesets"] = [
+            item for item in state["rulesets"] if item["id"] != identifier
+        ] + [body]
+    else:
+        fail(f"gh stub: unexpected {method} {key}", 2)
+elif key == "/actions/permissions/fork-pr-contributor-approval" and method == "PUT":
+    state["approval"] = body
+elif key == "/actions/permissions/fork-pr-workflows-private-repos" and method == "PUT":
+    state["private_settings"] = body
+else:
+    fail(f"gh stub: unexpected {method} {key}", 2)
+
+save()
+respond({})
