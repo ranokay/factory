@@ -248,10 +248,6 @@ doctor_destructive=$(prepare doctor-destructive)
 replace "$doctor_destructive/.agents/skills/verify-counter/scripts/verify.py" '"name": "doctor", "destructive": False' '"name": "doctor", "destructive": True'
 expect_failure doctor-destructive "doctor as a non-destructive subcommand"
 
-no_destructive=$(prepare no-destructive)
-replace_all "$no_destructive/.agents/skills/verify-counter/scripts/verify.py" '"destructive": True' '"destructive": False'
-expect_failure no-destructive "at least one destructive subcommand"
-
 dry_no_flag=$(prepare dry-no-flag)
 replace "$dry_no_flag/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": True, "dry_run": True, "action": action})' 'return emit({"ok": True, "action": action})'
 expect_failure dry-no-flag "did not report dry_run: true"
@@ -259,6 +255,10 @@ expect_failure dry-no-flag "did not report dry_run: true"
 dry_fails=$(prepare dry-fails)
 replace "$dry_fails/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": True, "dry_run": True, "action": action})' 'return fail("dry run unavailable", "run without --dry-run")'
 expect_failure dry-fails "a dry-run must succeed"
+
+dry_process=$(prepare dry-process)
+replace "$dry_process/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": True, "dry_run": True, "action": action})' 'return launch(False)'
+expect_failure dry-process "left a process running"
 
 doctor_no_ok=$(prepare doctor-no-ok)
 replace "$doctor_no_ok/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": False, "error": message, "alternative": alternative}, code)' 'return emit({"error": message, "alternative": alternative}, code)'

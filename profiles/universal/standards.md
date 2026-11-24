@@ -42,6 +42,13 @@ Verify assertions in permitted comments and update or remove them when behaviour
 
 - A project commits its `verify-<app>` skill at `.agents/skills/verify-<app>/` with a relative `.claude/skills/verify-<app>` symlink, a `references/features/` map, and a `verify:<app>` mise CLI.
 
+## Dependencies
+
+- Prefer the standard library, the platform, and dependencies already in the repo.
+- A new dependency needs a one-line reason in the PR body. Check its maintenance and known vulnerabilities before selecting it.
+- Update dependencies for a concrete need, review release notes, avoid unrelated churn and verify affected behaviour.
+- Tools come from `mise.toml`. JavaScript uses bun; Python uses uv.
+
 ## Repo contents
 
 - Use the terms in the repo's `GLOSSARY.md` in code, issues and PRs.

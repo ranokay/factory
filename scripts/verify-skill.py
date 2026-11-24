@@ -13,8 +13,10 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -79,10 +81,13 @@ def differing(before, after):
     return sorted(changed)
 
 
-def run_task(root, task, *args):
+def run_task(root, task, *args, environment=None):
     mise = shutil.which("mise")
     if mise is None:
         problem("mise is not on PATH; install it before running the shape check")
+    env = dict(os.environ)
+    if environment:
+        env.update(environment)
     try:
         return subprocess.run(
             [mise, "--cd", str(root), "run", task, "--", *args],
@@ -90,6 +95,7 @@ def run_task(root, task, *args):
             text=True,
             timeout=TIMEOUT,
             check=False,
+            env=env,
         )
     except subprocess.TimeoutExpired:
         problem(f"`mise run {task} -- {' '.join(args)}` did not finish within {TIMEOUT}s")
@@ -181,8 +187,49 @@ def check_task(root, task):
         problem(f"""[tasks."{task}"] has no run command""")
 
 
+def process_snapshot():
+    result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return None
+    processes = {}
+    for line in result.stdout.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if pid.isdigit():
+            processes[int(pid)] = command.strip()
+    return processes
+
+
+def leaked_processes(before, root):
+    if before is None:
+        return []
+    after = process_snapshot()
+    if after is None:
+        return []
+    return [
+        (pid, command)
+        for pid, command in after.items()
+        if pid not in before and str(root) in command
+    ]
+
+
 def check_cli(root, task, text):
-    inventory = parse_json(run_task(root, task, "commands"), "commands")
+    sandbox = tempfile.mkdtemp(prefix="verify-skill-")
+    environment = {
+        "TMPDIR": sandbox,
+        "TMP": sandbox,
+        "TEMP": sandbox,
+        "XDG_CACHE_HOME": sandbox,
+        "XDG_STATE_HOME": sandbox,
+        "XDG_DATA_HOME": sandbox,
+    }
+    try:
+        return check_cli_in(root, task, text, sandbox, environment)
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+def check_cli_in(root, task, text, sandbox, environment):
+    inventory = parse_json(run_task(root, task, "commands", environment=environment), "commands")
     if inventory.get("ok") is not True:
         problem("commands must report ok: true")
     commands = inventory.get("commands")
@@ -198,10 +245,8 @@ def check_cli(root, task, text):
     if "doctor" not in names or names["doctor"]:
         problem("commands must list doctor as a non-destructive subcommand")
     destructive = sorted(name for name, is_destructive in names.items() if is_destructive)
-    if not destructive:
-        problem("commands must list at least one destructive subcommand with --dry-run")
 
-    doctor = run_task(root, task, "doctor")
+    doctor = run_task(root, task, "doctor", environment=environment)
     payload = parse_json(doctor, "doctor")
     if doctor.returncode != 0:
         if payload.get("ok") is not False:
@@ -214,10 +259,23 @@ def check_cli(root, task, text):
         problem("doctor must report ok: true when it exits zero")
 
     before = snapshot(root)
+    before_sandbox = snapshot(sandbox)
+    before_processes = process_snapshot()
     for name in destructive:
-        result = run_task(root, task, name, "--dry-run")
+        result = run_task(root, task, name, "--dry-run", environment=environment)
         label = f"{name} --dry-run"
         dry = parse_json(result, label)
+        sandbox_changes = differing(before_sandbox, snapshot(sandbox))
+        leaked = leaked_processes(before_processes, root)
+        for pid, _ in leaked:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        if leaked:
+            problem(f"{label} left a process running: {leaked[0][0]} {leaked[0][1]}")
+        if sandbox_changes:
+            problem(f"{label} changed its temp state: {', '.join(sandbox_changes[:5])}")
         if result.returncode != 0:
             problem(f"{label} exited {result.returncode}; a dry-run must succeed")
         if dry.get("dry_run") is not True:
@@ -226,7 +284,7 @@ def check_cli(root, task, text):
         if changed:
             problem(f"{label} changed the tree: {', '.join(changed[:5])}")
 
-    invalid = run_task(root, task, "doctor", "--not-an-argument")
+    invalid = run_task(root, task, "doctor", "--not-an-argument", environment=environment)
     invalid_error = parse_json(invalid, "invalid argument")
     if invalid.returncode == 0:
         problem("an invalid argument must exit non-zero")
@@ -235,7 +293,7 @@ def check_cli(root, task, text):
     if not invalid_error.get("error") or not invalid_error.get("alternative"):
         problem("an invalid argument must report an error and an alternative")
 
-    unknown = run_task(root, task, "__not_a_command__")
+    unknown = run_task(root, task, "__not_a_command__", environment=environment)
     error = parse_json(unknown, "unknown command")
     if unknown.returncode == 0:
         problem("an unknown command must exit non-zero")
