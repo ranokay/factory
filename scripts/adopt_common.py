@@ -44,7 +44,7 @@ def digest(key):
 
 def run(arguments, cwd=None):
     try:
-        return subprocess.run(  # nosec B603 B607  # noqa: S603 S607  # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- argument lists, never a shell
+        return subprocess.run(  # nosec B603 B607  # noqa: S603 S607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit, python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- argument lists, never a shell
             arguments,
             cwd=str(cwd) if cwd else None,
             capture_output=True,

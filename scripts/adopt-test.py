@@ -266,7 +266,7 @@ class Adopt(AdoptCase):
         self.assertEqual(self.op_log.read_text(), "")
 
     def test_network_guard_is_active(self):
-        result = subprocess.run(  # nosec B603  # noqa: S603 S607  # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- the blocked-network probe
+        result = subprocess.run(  # nosec B603  # noqa: S603 S607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit, python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- the blocked-network probe
             [
                 sys.executable,
                 "-c",

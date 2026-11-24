@@ -126,7 +126,7 @@ class AdoptCase(unittest.TestCase):
         mise = shutil.which("mise")
         if not mise:
             self.skipTest("mise is required for the adopt fixture test")
-        result = subprocess.run(  # nosec B603 B607  # noqa: S603 S607  # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- mise from PATH
+        result = subprocess.run(  # nosec B603 B607  # noqa: S603 S607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit, python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- mise from PATH
             [mise, "which", "yq"], capture_output=True, text=True  # noqa: S607
         )
         yq = result.stdout.strip()
@@ -189,7 +189,7 @@ class AdoptCase(unittest.TestCase):
         self.state_path.write_text(json.dumps(state))
 
     def git(self, *arguments):
-        return subprocess.run(  # nosec B603 B607  # noqa: S603 S607  # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- git from the controlled PATH
+        return subprocess.run(  # nosec B603 B607  # noqa: S603 S607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit, python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- git from the controlled PATH
             ["git", *arguments],  # noqa: S607
             cwd=str(self.project),
             env=self.env,
@@ -244,7 +244,7 @@ class AdoptCase(unittest.TestCase):
         self.assertEqual(remote.returncode, 0, remote.stderr)
 
     def run_adopt(self, *arguments, repo="o/one"):
-        return subprocess.run(  # nosec B603  # noqa: S603 S607  # nosemgrep: python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- this checkout's adopt CLI
+        return subprocess.run(  # nosec B603  # noqa: S603 S607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit, python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- this checkout's adopt CLI
             [sys.executable, str(ADOPT), repo, "--project", str(self.project), *arguments],  # noqa: S607
             env=self.env,
             capture_output=True,
