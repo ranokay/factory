@@ -6,7 +6,7 @@ import os
 import shutil
 import signal
 import socket
-import subprocess
+import subprocess  # nosec B404 -- the CLI starts the app it launched
 import sys
 import tempfile
 import time
@@ -63,7 +63,9 @@ def request(method, path, timeout=5):
         raise ConnectionError("no port recorded")
     data = b"{}" if method == "POST" else None
     url = f"http://127.0.0.1:{current}{path}"
-    with urllib.request.urlopen(urllib.request.Request(url, data=data, method=method), timeout=timeout) as response:
+    with urllib.request.urlopen(  # nosec B310 -- loopback URL recorded by this run
+        urllib.request.Request(url, data=data, method=method), timeout=timeout
+    ) as response:
         return json.loads(response.read())
 
 
@@ -95,8 +97,8 @@ def launch(dry):
         probe.bind(("127.0.0.1", 0))
         chosen = probe.getsockname()[1]
     log = LOG_FILE.open("ab")
-    process = subprocess.Popen(
-        [sys.executable, str(ROOT / "app.py"), "--port", str(chosen)],
+    process = subprocess.Popen(  # nosec B603 -- this checkout's app.py and interpreter
+        [sys.executable, str(ROOT / "app.py"), "--port", str(chosen)],  # nosec B603
         stdout=log,
         stderr=log,
         start_new_session=True,

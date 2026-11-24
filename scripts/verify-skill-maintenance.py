@@ -11,7 +11,7 @@ import argparse
 import importlib.util
 import json
 import re
-import subprocess
+import subprocess  # nosec B404 -- the maintenance tool runs local git and gh
 import sys
 from pathlib import Path
 
@@ -31,7 +31,7 @@ def load_canonical_clones():
 
 
 def git(repo, *args, timeout=60):
-    return subprocess.run(
+    return subprocess.run(  # nosec B603 B607 -- local git with an argument list
         ["git", "-C", str(repo), *args],
         capture_output=True,
         text=True,
@@ -46,7 +46,7 @@ def git_out(repo, *args, timeout=60):
 
 
 def gh(*args, timeout=60):
-    return subprocess.run(
+    return subprocess.run(  # nosec B603 B607 -- local gh with an argument list
         ["gh", *args],
         capture_output=True,
         text=True,

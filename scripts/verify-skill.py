@@ -14,7 +14,7 @@ import os
 import re
 import shutil
 import signal
-import subprocess
+import subprocess  # nosec B404 -- the checker runs mise and ps
 import sys
 import tempfile
 import time
@@ -90,7 +90,7 @@ def run_task(root, task, *args, environment=None):
     if environment:
         env.update(environment)
     try:
-        return subprocess.run(
+        return subprocess.run(  # nosec B603 B607 -- mise from PATH with an argument list
             [mise, "--cd", str(root), "run", task, "--", *args],
             capture_output=True,
             text=True,
@@ -189,7 +189,9 @@ def check_task(root, task):
 
 
 def process_snapshot():
-    result = subprocess.run(["ps", "-axo", "pid=,uid=,command="], capture_output=True, text=True, check=False)
+    result = subprocess.run(  # nosec B603 B607 -- local ps with an argument list
+        ["ps", "-axo", "pid=,uid=,command="], capture_output=True, text=True, check=False
+    )
     if result.returncode != 0:
         problem("cannot inspect processes with ps")
     processes = {}
@@ -254,7 +256,7 @@ def check_cli(root, task, text):
         shutil.rmtree(sandbox, ignore_errors=True)
 
 
-def check_cli_in(root, task, text, sandbox, environment):
+def check_inventory(root, task, text, environment):
     inventory = parse_json(run_task(root, task, "commands", environment=environment), "commands")
     if inventory.get("ok") is not True:
         problem("commands must report ok: true")
@@ -270,8 +272,10 @@ def check_cli_in(root, task, text, sandbox, environment):
             problem(f"SKILL.md does not document the `{item['name']}` subcommand")
     if "doctor" not in names or names["doctor"]:
         problem("commands must list doctor as a non-destructive subcommand")
-    destructive = sorted(name for name, is_destructive in names.items() if is_destructive)
+    return names, sorted(name for name, is_destructive in names.items() if is_destructive)
 
+
+def check_doctor(root, task, environment):
     doctor = run_task(root, task, "doctor", environment=environment)
     payload = parse_json(doctor, "doctor")
     if doctor.returncode != 0:
@@ -284,6 +288,8 @@ def check_cli_in(root, task, text, sandbox, environment):
     elif payload.get("ok") is not True:
         problem("doctor must report ok: true when it exits zero")
 
+
+def check_dry_runs(root, task, destructive, sandbox, environment):
     before = snapshot(root)
     before_sandbox = snapshot(sandbox)
     before_processes = process_snapshot()
@@ -307,6 +313,8 @@ def check_cli_in(root, task, text, sandbox, environment):
         if changed:
             problem(f"{label} changed the tree: {', '.join(changed[:5])}")
 
+
+def check_command_errors(root, task, names, environment):
     invalid = run_task(root, task, "doctor", "--not-an-argument", environment=environment)
     invalid_error = parse_json(invalid, "invalid argument")
     if invalid.returncode == 0:
@@ -327,6 +335,13 @@ def check_cli_in(root, task, text, sandbox, environment):
     alternative = str(error["alternative"])
     if "mise run" not in alternative and not any(name in alternative for name in names):
         problem("an unknown command's alternative must name a command to run instead")
+
+
+def check_cli_in(root, task, text, sandbox, environment):
+    names, destructive = check_inventory(root, task, text, environment)
+    check_doctor(root, task, environment)
+    check_dry_runs(root, task, destructive, sandbox, environment)
+    check_command_errors(root, task, names, environment)
     return len(names)
 
 

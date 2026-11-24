@@ -37,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_json(404, {"error": "not found"})
 
-    def log_message(self, format, *args):
+    def log_message(self, fmt, *args):
         pass
 
 
