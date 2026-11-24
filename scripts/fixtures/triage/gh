@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+with Path(os.environ["FAKE_GH_LOG"]).open("a") as handle:
+    handle.write(json.dumps(args) + "\n")
+state_path = Path(os.environ["FAKE_GH_STATE"])
+state = json.loads(state_path.read_text())
+
+
+def value(flag):
+    return args[args.index(flag) + 1] if flag in args else None
+
+
+if args[:2] == ["issue", "view"]:
+    if value("--json") == "labels":
+        print(json.dumps({"labels": [{"name": name} for name in state["labels"]]}))
+    else:
+        print(json.dumps({
+            "number": state["number"],
+            "title": state["title"],
+            "body": state["body"],
+            "updatedAt": state["updatedAt"],
+            "labels": [{"name": name} for name in state["labels"]],
+        }))
+elif args[:2] == ["issue", "comment"]:
+    body = Path(value("--body-file")).read_text()
+    Path(os.environ["FAKE_GH_COMMENT"]).write_text(body)
+    print("https://example.test/issue/%s#issuecomment-1" % state["number"])
+elif args[:2] == ["issue", "edit"]:
+    if os.environ.get("FAKE_GH_FAIL_EDIT"):
+        sys.exit(1)
+    index = 0
+    while index < len(args):
+        if args[index] == "--add-label":
+            if args[index + 1] not in state["labels"]:
+                state["labels"].append(args[index + 1])
+            index += 2
+        elif args[index] == "--remove-label":
+            if args[index + 1] in state["labels"]:
+                state["labels"].remove(args[index + 1])
+            index += 2
+        else:
+            index += 1
+    state_path.write_text(json.dumps(state))
+else:
+    sys.exit(1)

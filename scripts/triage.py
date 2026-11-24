@@ -262,7 +262,7 @@ def comment_body(issue, rows, executions, cleanup):
         )
     lines.append("")
     if cleanup is not None:
-        lines.append(f"Cleanup `{cleanup['name']}` exited {cleanup['exit']}.")
+        lines.append(f"Cleanup {code_span(cleanup['name'])} exited {cleanup['exit']}.")
         lines.append("")
     return "\n".join(lines)
 

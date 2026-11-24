@@ -17,12 +17,17 @@ import sys
 from pathlib import Path
 
 args = sys.argv[1:]
-with Path(os.environ["FAKE_LOG"]).open("a") as handle:
+log_path = Path(os.environ["FAKE_LOG"])
+prior = len(log_path.read_text().splitlines()) if log_path.exists() else 0
+with log_path.open("a") as handle:
     handle.write(json.dumps(args) + "\\n")
 state = json.loads(Path(os.environ["FAKE_STATE"]).read_text())
 if args[:1] == ["api"]:
-    if state.get("api_fail"):
+    if state.get("api_fail") or (prior >= 2 and state.get("state_fail")):
         sys.exit(1)
+    if prior >= 2 and state.get("state_json_fail"):
+        print("not json")
+        sys.exit(0)
     print(json.dumps({
         "user": {"login": state.get("author", "ranokay")},
         "head": {
@@ -135,6 +140,15 @@ class Merge(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("merging o/r#7 failed", result.stderr)
         self.assertNotIn("merged o/r#7", result.stdout)
+
+    def test_unknown_state_after_merge_is_not_reported_as_merged(self):
+        for state in ({"state_fail": True}, {"state_json_fail": True}):
+            with self.subTest(state=state):
+                self.reset(**state)
+                result = self.merge("--squash")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("state unknown", result.stdout)
+                self.assertNotIn("merged o/r#7", result.stdout)
 
     def test_usage_errors_refuse_without_calling_gh(self):
         for arguments in (("--squash", "--merge-commit"), ()):
