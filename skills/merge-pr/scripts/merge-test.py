@@ -17,15 +17,16 @@ import sys
 from pathlib import Path
 
 args = sys.argv[1:]
-log_path = Path(os.environ["FAKE_LOG"])
-prior = len(log_path.read_text().splitlines()) if log_path.exists() else 0
-with log_path.open("a") as handle:
+marker = Path(os.environ["FAKE_LOG"]).with_name("merged")
+with Path(os.environ["FAKE_LOG"]).open("a") as handle:
     handle.write(json.dumps(args) + "\\n")
+if args[:2] == ["pr", "merge"]:
+    marker.write_text("1")
 state = json.loads(Path(os.environ["FAKE_STATE"]).read_text())
 if args[:1] == ["api"]:
-    if state.get("api_fail") or (prior >= 2 and state.get("state_fail")):
+    if state.get("api_fail") or (marker.exists() and state.get("state_fail")):
         sys.exit(1)
-    if prior >= 2 and state.get("state_json_fail"):
+    if marker.exists() and state.get("state_json_fail"):
         print("not json")
         sys.exit(0)
     print(json.dumps({
@@ -55,6 +56,7 @@ class Merge(unittest.TestCase):
         (binary / "gh").write_text(GH)
         (binary / "gh").chmod(0o755)
         self.log = self.root / "log"
+        self.marker = self.root / "merged"
         self.state = self.root / "state.json"
         self.env = dict(
             os.environ,
@@ -70,6 +72,7 @@ class Merge(unittest.TestCase):
     def reset(self, **state):
         self.state.write_text(json.dumps(state))
         self.log.write_text("")
+        self.marker.unlink(missing_ok=True)
 
     def merge(self, *arguments):
         # nosemgrep
