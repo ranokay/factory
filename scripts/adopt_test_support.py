@@ -125,13 +125,13 @@ class AdoptCase(unittest.TestCase):
     def tool_paths(self):
         mise = shutil.which("mise")
         if not mise:
-            self.skipTest("mise is required for the adopt fixture test")
+            raise RuntimeError("mise is required for the adopt fixture test")
         result = subprocess.run(  # nosec B603 B607  # noqa: S603 S607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit, python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- mise from PATH
             [mise, "which", "yq"], capture_output=True, text=True  # noqa: S607
         )
         yq = result.stdout.strip()
         if result.returncode != 0 or not yq:
-            self.skipTest(f"yq is required for the adopt fixture test: {result.stderr.strip()}")
+            raise RuntimeError(f"yq is required for the adopt fixture test: {result.stderr.strip()}")
         return os.pathsep.join(
             [
                 str(self.fakebin),

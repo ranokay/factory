@@ -5,7 +5,11 @@ PROFILES_LINE = re.compile(r'^[ \t]*Profiles:[ \t]*(.*)$')
 TAG = re.compile(r'^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$')
 GIT_REF = re.compile(r'[?&]ref=([^&]+)')
 FACTORY_INCLUDE = re.compile(
-    r'^(?:git::)?https?://(?:github\.com|raw\.githubusercontent\.com)/ranokay/factory',
+    r'^(?:git::)?(?:'
+    r'https?://(?:github\.com|raw\.githubusercontent\.com)/ranokay/factory(?:\.git)?'
+    r'|ssh://git@github\.com/ranokay/factory(?:\.git)?'
+    r'|git@github\.com:ranokay/factory(?:\.git)?'
+    r')',
     re.IGNORECASE,
 )
 RAW_FACTORY = re.compile(

@@ -144,6 +144,20 @@ class AdoptDetectorTests(AdoptCase):
             {category for issue in issues for category in self.categories(issue)},
         )
 
+    def test_ssh_factory_includes_are_accepted(self):
+        include = "git::ssh://git@github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "git::ssh://git@github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "tooling",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
     def test_factory_include_must_name_a_profile_file(self):
         include = "git::https://github.com/ranokay/factory.git//profiles/universal/README.md?ref=v0.2.0"
         tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
