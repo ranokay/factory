@@ -232,9 +232,10 @@ class SyncUpstream(SyncFixture):
         state["head"] = head
         state["base"] = "main"
         state["body"] = body if body is not None else f"## Verdicts\n\n- `{upstream_tip[:8]}` adopt — upstream change\n"
-        state["check_runs"] = {head: check_runs if check_runs is not None else [{"name": "Tests", "status": "completed", "conclusion": "success"}]}
+        required = ("Lint", "Security", "Tests", "OCR")
+        state["check_runs"] = {head: check_runs if check_runs is not None else [{"name": name, "status": "completed", "conclusion": "success"} for name in required]}
         state["statuses"] = statuses if statuses is not None else []
-        state["applied_rules"] = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Tests"}]}}]
+        state["applied_rules"] = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": name} for name in required]}}]
         self.repo_file.write_text(json.dumps(state))
         return repo, head
 
@@ -277,7 +278,7 @@ class SyncUpstream(SyncFixture):
                 self.assertNotIn("gh pr merge", result.stdout)
 
     def test_merge_command_prints_only_when_green(self):
-        repo, head = self.command_fixture(check_runs=[{"name": "Tests", "status": "completed", "conclusion": "success"}, {"name": "CodeRabbit", "status": "completed", "conclusion": "skipped"}], statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}])
+        repo, head = self.command_fixture(check_runs=[{"name": name, "status": "completed", "conclusion": "success"} for name in ("Lint", "Security", "Tests", "OCR")] + [{"name": "CodeRabbit", "status": "completed", "conclusion": "skipped"}], statuses=[{"context": "Codacy Static Code Analysis", "state": "success"}])
         result = self.merge_command(repo)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, f"gh pr merge 7 -R o/r --merge --match-head-commit {head} --admin\n")
@@ -341,6 +342,12 @@ class SyncUpstream(SyncFixture):
         result = self.merge_command(repo)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("required check Tests has no result", result.stderr)
+
+    def test_merge_command_blocks_a_missing_required_context(self):
+        repo, _ = self.command_fixture(check_runs=[{"name": name, "status": "completed", "conclusion": "success"} for name in ("Security", "Tests", "OCR")])
+        result = self.merge_command(repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("required check Lint has no result", result.stderr)
 
     def test_merge_command_blocks_a_pending_status(self):
         repo, _ = self.command_fixture(statuses=[{"context": "Codacy Static Code Analysis", "state": "pending"}])

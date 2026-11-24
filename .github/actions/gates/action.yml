@@ -11,17 +11,9 @@ runs:
       with:
         version: 2026.11.10
         cache: true
-    - name: Run Gates
+    - name: Run ${{ inputs.group }} Gates
       shell: bash
       env:
         GROUP: ${{ inputs.group }}
-        GITHUB_TOKEN: ${{ github.token }}
-      run: |
-        case "$GROUP" in
-          lint|security|test) ;;
-          *)
-            echo "::error::unknown Gates group: $GROUP"
-            exit 1
-            ;;
-        esac
-        mise run "check:$GROUP"
+        GITHUB_TOKEN: ${{ inputs.group == 'security' && github.token || '' }}
+      run: mise run "check:$GROUP"
