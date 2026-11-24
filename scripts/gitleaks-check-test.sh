@@ -122,7 +122,7 @@ case_default_rules() {
 }
 
 case_repo() {
-	run_command sh "$root/scripts/gitleaks-check.sh"
+	run_command env -u GITLEAKS_CHECK_CASE sh "$root/scripts/gitleaks-check.sh"
 	[ "$code" -eq 0 ] || fail "the Factory is not clean: $output"
 	printf 'ok: the Factory scans clean\n'
 }
