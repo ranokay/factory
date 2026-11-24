@@ -96,6 +96,10 @@ _Avoid_: control skill, run skill, `.cursor` skill
 The tool the universal Verification table names for a surface: Ardia CLI or Playwright for web, cua-driver for macOS, T3 device tools for iOS, tmux for a CLI or TUI, and HTTP for a server or API. A Platform Profile adds the details for the platforms it covers.
 _Avoid_: test harness, automation framework
 
+**Triage**:
+Moving an issue to exactly one category label and one state label, where a bug is reproduced through the Verification Skill and its observed checks before it becomes `ready-for-agent`.
+_Avoid_: label pass, sorting
+
 **Maintenance Issue**:
 The weekly `ready-for-agent` issue that runs `/maintain-verification-skill` in a repository whose app changed since the verification skill's last maintenance, with the filed head recorded in its body.
 _Avoid_: upkeep ticket, weekly chore
@@ -121,6 +125,10 @@ _Avoid_: blocking review, mandatory bot
 **Advisory Reviewer**:
 A quota-limited review bot whose comments are read when they arrive and never waited for.
 _Avoid_: optional check, nice-to-have bot
+
+**Merge Guard**:
+The Outside Contributor check inside `skills/merge-pr/scripts/merge`: it refuses a merge whose author is outside `factory_authors` or whose head is another repository.
+_Avoid_: merge check, approval gate
 
 ### Profiles
 

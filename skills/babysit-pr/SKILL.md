@@ -212,13 +212,20 @@ attachments; the comment is still the evidence.
 
 Once readiness is verified, merge as part of the default babysitting request,
 subject to the merge policy above. Use the repository's merge method, or squash
-when none is specified, and a merge commit for a Sync PR. For a Sync PR, in the
-PR's checkout run
+when none is specified, and a merge commit for a Sync PR. Refresh the live head,
+base, checks, and review state immediately before merging.
+
+For an ordinary PR, merge only through
+`~/Developer/factory/skills/merge-pr/scripts/merge <owner>/<repo> <pr> --head <sha> --squash`
+(or `--merge-commit` when the repository's method calls for one). It refuses an
+Outside Contributor author or a cross-repository head before it runs anything,
+and it pins the head itself; apply any repository merge preflight first. Do not
+call `gh pr merge` directly for an ordinary PR.
+
+For a Sync PR, in the PR's checkout run
 `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n> --repo <owner>/<repo>`
 and execute only the command it prints; do not construct `--admin` yourself.
-Refresh the live head, base, checks, and review state immediately before merging.
-Bind the merge to the verified head, using `--match-head-commit` with `gh pr merge`
-or an equivalent supported guard. Apply any repository merge preflight. Changed state returns to
+Changed state returns to
 inspection and validation. Respect branch protections, approval requirements,
 and merge queues. Never bypass them, force a merge, or weaken a check to finish the
 task, except the bypassable review rules (signature, authorship and review-thread

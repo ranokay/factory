@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Merge an ordinary pull request after the Outside Contributor guard.
+
+An Outside Contributor author, or a head from another repository, is refused so
+only ranokay merges that PR. Anything else is merged head-pinned in one command.
+"""
+
+import argparse
+import json
+import re
+import subprocess  # nosec B404 -- gh runs with an argument list, never a shell
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from author_guard import is_outside  # noqa: E402 -- the guard lives beside this script
+
+REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+class Problem(Exception):
+    pass
+
+
+def problem(message):
+    raise Problem(message)
+
+
+def gh(*arguments):
+    return subprocess.run(  # nosec B603 B607 -- gh from PATH with an argument list
+        ["gh", *arguments], capture_output=True, text=True
+    )
+
+
+def merge(args):
+    if not REPO.match(args.repo):
+        problem(f"repository must be <owner>/<repo>, not {args.repo!r}")
+    if args.pr < 1:
+        problem("pull request must be a positive number")
+    if not SHA.match(args.head):
+        problem("--head must be the full 40-character commit SHA")
+    fetched = gh("api", f"repos/{args.repo}/pulls/{args.pr}")
+    if fetched.returncode != 0:
+        detail = (fetched.stderr or fetched.stdout).strip()
+        problem(f"reading {args.repo}#{args.pr} failed: {detail}")
+    try:
+        pr = json.loads(fetched.stdout)
+        outside = is_outside(pr, args.repo)
+    except (json.JSONDecodeError, OSError, KeyError) as error:
+        problem(f"cannot read the pull request or the Factory author list: {error}")
+    if outside:
+        author = (pr.get("user") or {}).get("login", "unknown")
+        head = ((pr.get("head") or {}).get("repo") or {}).get("full_name", "a deleted fork")
+        problem(
+            f"Outside Contributor PR: {author} from {head}; "
+            "a Factory agent never merges it, so ranokay must merge it by hand"
+        )
+    method = "--squash" if args.squash else "--merge"
+    merged = gh(
+        "pr", "merge", str(args.pr), "-R", args.repo, "--match-head-commit", args.head, method
+    )
+    if merged.returncode != 0:
+        detail = (merged.stderr or merged.stdout).strip()
+        problem(f"merging {args.repo}#{args.pr} failed: {detail}")
+    print(f"merged {args.repo}#{args.pr} at {args.head}")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("repo")
+    parser.add_argument("pr", type=int)
+    parser.add_argument("--head", required=True, help="the verified head SHA to pin the merge to")
+    method = parser.add_mutually_exclusive_group(required=True)
+    method.add_argument("--squash", action="store_true")
+    method.add_argument("--merge-commit", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        merge(args)
+        return 0
+    except Problem as error:
+        print(f"merge: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

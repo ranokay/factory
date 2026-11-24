@@ -111,7 +111,16 @@ transitions below, which are part of completing an authorized merge.
 
 Refresh the live head, base, checks, and review state immediately before merging.
 Use the repository's merge method; use squash when none is specified, and a merge
-commit for a Sync PR. For a Sync PR, in the PR's checkout run
+commit for a Sync PR.
+
+For an ordinary PR, merge only through
+`~/Developer/factory/skills/merge-pr/scripts/merge <owner>/<repo> <pr> --head <sha> --squash`
+(or `--merge-commit` when the repository's method calls for one). The script
+refuses an Outside Contributor author or a cross-repository head before it runs
+anything, and it pins the head itself. Apply the repository merge preflight
+first when there is one. Do not call `gh pr merge` directly for an ordinary PR.
+
+For a Sync PR, in the PR's checkout run
 `~/Developer/factory/skills/sync-upstream/scripts/sync-upstream merge-command --pr <n> --repo <owner>/<repo>`
 and execute only the command it prints. The command exits nonzero if any verdict is
 missing or any check run or commit status on the head is not successful; `skipped`
@@ -119,12 +128,9 @@ and `neutral` pass only for a check the ruleset does not require. Its `--admin` 
 stands in only for the Personal Fork's `review_ruleset_name` in `repo-settings.json`;
 the configured `ruleset_name` holds required checks without a bypass. The command
 also refuses unless the head commit's signature is verified and every review thread
-is resolved. Bind every merge to the verified head
-with `--match-head-commit <sha>` or
-the forge's equivalent guard. For an ordinary PR, apply the repository merge
-preflight and execute only its printed, head-pinned command; a Sync PR executes
-only the command from `merge-command`. Do not pass a branch-deletion option to the
-merge command; all deletions happen in Clean up after their guards. If a repository's printed command includes one, omit it or
+is resolved. A Sync PR executes only the command from `merge-command`. Do not pass
+a branch-deletion option to either merge command; all deletions happen in Clean up
+after their guards. If a repository's printed command includes one, omit it or
 report it. Changed state returns to verification once; a head that keeps moving
 means another session is active, so report instead of racing it.
 
