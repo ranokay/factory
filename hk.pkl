@@ -83,6 +83,15 @@ steps {
       }
     }
   }
+  ["advisory-review-status"] = new Step {
+    check = "python3 {{root}}/skills/babysit-pr/scripts/advisory-review-status-test.py"
+    tests {
+      ["reports every reviewer and bounds the wait"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
   ["typos"] {
     exclude = vendored
   }

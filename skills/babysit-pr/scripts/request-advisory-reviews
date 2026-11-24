@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from advisory_reviewers import REVIEWERS, is_reviewer  # noqa: E402 -- the shared table ships beside this script
 from merge_guard import is_outside  # noqa: E402 -- the Merge Guard ships beside this script
 
 
@@ -42,16 +43,20 @@ def main():
     comments = [item for page in pages(f"{prefix}/issues/{number}/comments?per_page=100") for item in page]
     comments += [item for page in pages(f"{prefix}/pulls/{number}/comments?per_page=100") for item in page]
     timeline = [item for page in pages(f"{prefix}/issues/{number}/timeline?per_page=100") for item in page]
-    requested = any(e.get("event") == "review_requested" and "copilot" in (e.get("requested_reviewer") or {}).get("login", "").lower() for e in timeline)
-    reviewed = any("copilot" in r["user"]["login"].lower() for r in reviews)
+    requested = any(
+        e.get("event") == "review_requested" and is_reviewer((e.get("requested_reviewer") or {}).get("login"), "copilot")
+        for e in timeline
+    )
+    reviewed = any(is_reviewer(r["user"]["login"], "copilot") for r in reviews)
     if not requested and not reviewed:
         subprocess.run(["gh", "pr", "edit", number, "--repo", repo, "--add-reviewer", "@copilot"], check=True)
-    for bot, command, reviewers in (("coderabbit", "@coderabbitai review", {"coderabbitai[bot]"}), ("greptile", "@greptileai", {"greptile-apps[bot]", "greptile[bot]"})):
-        marker = f"<!-- factory:advisory-review:{bot} -->"
-        marked = any(marker in (comment.get("body") or "") for comment in comments)
-        has_activity = any((item.get("user") or {}).get("login", "").lower() in reviewers for item in [*reviews, *comments])
+    for bot, spec in REVIEWERS.items():
+        if bot == "copilot":
+            continue
+        marked = any(spec["marker"] in (comment.get("body") or "") for comment in comments)
+        has_activity = any(is_reviewer((item.get("user") or {}).get("login"), bot) for item in [*reviews, *comments])
         if not marked and not has_activity:
-            subprocess.run(["gh", "pr", "comment", number, "--repo", repo, "--body", f"{command}\n\n{marker}"], check=True)
+            subprocess.run(["gh", "pr", "comment", number, "--repo", repo, "--body", f"{spec['command']}\n\n{spec['marker']}"], check=True)
 
 
 if __name__ == "__main__":

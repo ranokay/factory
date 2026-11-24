@@ -103,6 +103,7 @@ depends = [
   "tools:test",
   "workflow-invariant:test",
   "advisory-review-requests:test",
+  "advisory-review-status:test",
   "repo-settings:test",
   "codacy-gate:test",
   "sync-upstream:test",
@@ -117,6 +118,9 @@ run = "hk test --step workflow-invariant-test"
 
 [tasks."advisory-review-requests:test"]
 run = "hk test --step advisory-review-requests"
+
+[tasks."advisory-review-status:test"]
+run = "hk test --step advisory-review-status"
 
 [tasks."repo-settings:test"]
 run = "hk test --step repo-settings-test"

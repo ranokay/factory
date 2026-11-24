@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Report whether each requested Advisory Reviewer has finished on the PR head."""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from advisory_reviewers import PLACEHOLDERS, REVIEWERS, is_reviewer  # noqa: E402 -- the shared table sits beside this script
+
+REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+class Problem(Exception):
+    pass
+
+
+def gh(*args):
+    result = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
+    return json.loads(result.stdout) if result.stdout.strip() else None
+
+
+def pages(endpoint):
+    return gh("api", "--paginate", "--slurp", endpoint)
+
+
+def stamp(item):
+    return item.get("updated_at") or item.get("created_at") or item.get("submitted_at") or ""
+
+
+def covers(item, head, head_date):
+    return item.get("commit_id") == head or stamp(item) > head_date
+
+
+def placeholder(item):
+    body = (item.get("body") or "").lower()
+    return any(marker in body for marker in PLACEHOLDERS)
+
+
+def skip_reason(name, item):
+    body = (item.get("body") or "").lower()
+    for phrase in REVIEWERS[name]["skip_phrases"]:
+        if phrase in body:
+            if "quota" in phrase:
+                return "quota"
+            if "rate" in phrase:
+                return "rate limit"
+            return "review skipped"
+    return None
+
+
+def reviewer_state(name, head, head_date, reviews, comments, timeline):
+    spec = REVIEWERS[name]
+    bot_reviews = [item for item in reviews if is_reviewer((item.get("user") or {}).get("login"), name)]
+    bot_comments = [item for item in comments if is_reviewer((item.get("user") or {}).get("login"), name)]
+    marker = spec["marker"]
+    requested = bool(bot_reviews or bot_comments) or (
+        marker is not None and any(marker in (item.get("body") or "") for item in comments)
+    )
+    if name == "copilot":
+        requested = requested or any(
+            item.get("event") == "review_requested"
+            and is_reviewer((item.get("requested_reviewer") or {}).get("login"), name)
+            for item in timeline
+        )
+    if not requested:
+        return {"name": name, "terminal": True, "reason": "not requested"}
+    for item in [*bot_comments, *bot_reviews]:
+        if covers(item, head, head_date) and not placeholder(item):
+            reason = skip_reason(name, item)
+            if reason:
+                return {"name": name, "terminal": True, "reason": reason}
+    for item in bot_reviews:
+        if covers(item, head, head_date) and not placeholder(item):
+            return {"name": name, "terminal": True, "reason": "review posted"}
+    for item in bot_comments:
+        if not covers(item, head, head_date) or placeholder(item):
+            continue
+        if spec["summary_marker"] and spec["summary_marker"] not in (item.get("body") or ""):
+            continue
+        return {"name": name, "terminal": True, "reason": "summary posted"}
+    return {"name": name, "terminal": False, "reason": ""}
+
+
+def report(repo, number):
+    pr = gh("api", f"repos/{repo}/pulls/{number}")
+    head = (pr.get("head") or {}).get("sha")
+    if not head:
+        raise Problem("the pull request has no head SHA")
+    commit = gh("api", f"repos/{repo}/commits/{head}")
+    head_date = ((commit.get("commit") or {}).get("committer") or {}).get("date")
+    if not head_date:
+        raise Problem(f"commit {head} has no committer date")
+    reviews = [item for page in pages(f"repos/{repo}/pulls/{number}/reviews?per_page=100") for item in page]
+    comments = [item for page in pages(f"repos/{repo}/issues/{number}/comments?per_page=100") for item in page]
+    timeline = [item for page in pages(f"repos/{repo}/issues/{number}/timeline?per_page=100") for item in page]
+    return [reviewer_state(name, head, head_date, reviews, comments, timeline) for name in REVIEWERS]
+
+
+def wait_for_terminal(check, timeout_seconds, interval_seconds, clock=time.monotonic, sleep=time.sleep):
+    started = clock()
+    while True:
+        states = check()
+        if all(state["terminal"] for state in states):
+            return states, False
+        remaining = timeout_seconds - (clock() - started)
+        if remaining <= 0:
+            return states, True
+        sleep(min(interval_seconds, remaining))
+
+
+def minutes(seconds):
+    return f"{seconds / 60:g}m"
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("repo")
+    parser.add_argument("pr", type=int)
+    parser.add_argument("--wait", action="store_true", help="poll until every reviewer is terminal or the timeout expires")
+    parser.add_argument("--timeout-minutes", type=float, default=20.0, help="the bounded wait, 20 minutes by default")
+    parser.add_argument("--interval-seconds", type=float, default=30.0, help="seconds between status reads")
+    args = parser.parse_args(argv)
+    try:
+        if not REPO.match(args.repo) or args.pr < 1:
+            raise Problem("usage: advisory-review-status OWNER/REPO PR")
+        if args.timeout_minutes < 0:
+            raise Problem("--timeout-minutes cannot be negative")
+        if args.interval_seconds <= 0:
+            raise Problem("--interval-seconds must be positive")
+        timeout_seconds = args.timeout_minutes * 60
+        if args.wait:
+            states, timed_out = wait_for_terminal(
+                lambda: report(args.repo, args.pr), timeout_seconds, args.interval_seconds
+            )
+        else:
+            states = report(args.repo, args.pr)
+            timed_out = False
+        for state in states:
+            label = "terminal" if state["terminal"] else "pending"
+            reason = f" ({state['reason']})" if state["reason"] else ""
+            print(f"{state['name']}: {label}{reason}")
+        pending = [state["name"] for state in states if not state["terminal"]]
+        if timed_out:
+            print(f"timed out after {minutes(timeout_seconds)}: {', '.join(pending)}")
+            return 3
+        if pending:
+            print(f"pending: {', '.join(pending)}")
+            return 1
+        print("all advisory reviewers terminal")
+        return 0
+    except (Problem, ValueError, KeyError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        print(f"advisory-review-status: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

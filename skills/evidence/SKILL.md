@@ -33,6 +33,7 @@ The command is `scripts/evidence` beside this file; from any other repository it
 | `add <file>... --caption <text>... [--pr N]` | Copies images and videos into the evidence directory. One `--caption` per file, in order, says what visible behaviour it proves and renders under it. Refuses other file types: put text in `--summary`. At most 5 attachments per PR, counting files already stored: a sixth is refused and must be dropped or merged. A video over 10 MB is compressed with ffmpeg to fit before it is stored or attached. |
 | `path`, `list` | Print the evidence directory, or every file with its byte size. |
 | `receipt ...` | Writes `receipt.json`: the comment summary and the Run receipt. Every field is required. The summary is at most 10 lines: one per command with its exit code and a link to the CI run that holds the full log. A longer summary is refused. |
+| `advisory --text <line>` | Adds or replaces the `Advisory reviews` row in an existing `receipt.json`, for the bounded wait's result (`all terminal` or `timed out: <names>`). The text is one line. `attach` renders the row in the receipt. |
 | `attach [--pr N] [--dry-run]` | Moves staged evidence into the PR directory, renders `body.md`, and posts or replaces the single evidence comment with `gh pr comment --attach`. It prints the posted comment URL as its last line. With attachments it uploads them and renders each caption under it; with none it posts just the summary and the receipt, without any `--attach` flags. `--dry-run` copies staged files into the PR directory, writes `body.md` and prints the exact command, but posts nothing, prints no URL and leaves the staging directory. It still compresses an over-limit video and updates its caption, so the printed command matches the real attach. |
 | `cleanup --worktree <path> --pr N` | After a merge: deletes the remote and local branch, the worktree with its build outputs, and both evidence directories. Run it from the main checkout. |
 
@@ -52,6 +53,7 @@ The receipt is the last block of the comment, inside a collapsed `<details>` blo
 | Fallback used | the executed model compared with the requested one |
 | Attempts | the Run's Worker attempt count |
 | Token cost | the harness's reported usage; `unavailable (<reason>)` only when it reports none |
+| Advisory reviews | the bounded wait's result when `advisory` ran: `all terminal` or `timed out: <names>` |
 | Gates run | the gate commands that actually ran, with their results |
 
 ## One comment per PR
