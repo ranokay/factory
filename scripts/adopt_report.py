@@ -57,7 +57,7 @@ def markers_in_body(body):
     lines = [line.strip() for line in str(body).splitlines()]
     while lines and not lines[0]:
         lines.pop(0)
-    if lines and lines[0] == DISCLAIMER:
+    if lines and lines[0].startswith(DISCLAIMER):
         lines.pop(0)
     while lines and not lines[0]:
         lines.pop(0)
