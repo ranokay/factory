@@ -85,6 +85,7 @@ COPILOT_QUOTA = {
 COPILOT_REQUEST = {
     "event": "review_requested",
     "requested_reviewer": {"login": "Copilot"},
+    "created_at": "2026-11-24T03:27:52Z",
 }
 
 
@@ -117,7 +118,7 @@ class AdvisoryReviewStatus(unittest.TestCase):
                 text=True,
             )
 
-    def test_greptile_pending_blocks(self):
+    def test_greptile_request_without_a_summary_is_pending(self):
         result = self.invoke(state(comments=[GREPTILE_REQUEST]))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("greptile: pending", result.stdout)
@@ -129,7 +130,7 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertIn("greptile: terminal (summary posted)", result.stdout)
         self.assertIn("all advisory reviewers terminal", result.stdout)
 
-    def test_greptile_review_on_an_older_head_stays_pending(self):
+    def test_a_review_after_the_request_survives_a_later_push(self):
         review = {
             "user": {"login": "greptile-apps[bot]"},
             "commit_id": "b" * 40,
@@ -137,31 +138,36 @@ class AdvisoryReviewStatus(unittest.TestCase):
             "body": "",
         }
         result = self.invoke(state(head_date="2026-11-24T04:00:00Z", comments=[GREPTILE_REQUEST], reviews=[review]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("greptile: terminal (review posted)", result.stdout)
+
+    def test_the_latest_request_is_the_anchor(self):
+        later = dict(GREPTILE_REQUEST, created_at="2026-11-24T03:40:00Z")
+        result = self.invoke(state(comments=[GREPTILE_REQUEST, later, GREPTILE_SUMMARY]))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("greptile: pending", result.stdout)
 
-    def test_coderabbit_skip_is_terminal_even_when_created_earlier(self):
-        result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_SKIP]))
+    def test_an_auto_reviewer_is_anchored_to_the_head(self):
+        result = self.invoke(state(comments=[CODERABBIT_SKIP]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (review skipped)", result.stdout)
 
     def test_coderabbit_rate_limit_is_terminal(self):
-        result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_RATE_LIMIT]))
+        result = self.invoke(state(comments=[CODERABBIT_RATE_LIMIT]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (rate limit)", result.stdout)
 
-    def test_stale_rate_limit_does_not_make_the_current_head_terminal(self):
-        result = self.invoke(
-            state(head_date="2026-11-24T04:00:00Z", comments=[CODERABBIT_REQUEST, CODERABBIT_RATE_LIMIT])
-        )
+    def test_rate_limit_before_the_request_stays_pending(self):
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_RATE_LIMIT]))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
 
     def test_in_progress_placeholder_stays_pending_then_passes(self):
-        result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_PLACEHOLDER]))
+        placeholder = dict(CODERABBIT_PLACEHOLDER, updated_at="2026-11-24T03:28:00Z")
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, placeholder]))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
-        completed = dict(CODERABBIT_PLACEHOLDER, body="## Summary by CodeRabbit\n\nNo issues found.")
+        completed = dict(placeholder, updated_at="2026-11-24T03:31:00Z", body="## Summary by CodeRabbit\n\nNo issues found.")
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, completed]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (summary posted)", result.stdout)
@@ -169,7 +175,9 @@ class AdvisoryReviewStatus(unittest.TestCase):
     def test_a_walkthrough_quoting_a_placeholder_is_terminal(self):
         body = "## Summary by CodeRabbit\n\n" + ("walkthrough line\n" * 100)
         body += "> Currently processing new changes in this PR."
-        result = self.invoke(state(comments=[CODERABBIT_REQUEST, dict(CODERABBIT_PLACEHOLDER, body=body)]))
+        result = self.invoke(
+            state(comments=[CODERABBIT_REQUEST, dict(CODERABBIT_PLACEHOLDER, updated_at="2026-11-24T03:31:00Z", body=body)])
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (summary posted)", result.stdout)
 

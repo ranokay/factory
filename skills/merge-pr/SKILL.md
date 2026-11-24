@@ -78,7 +78,7 @@ Readiness requires all of:
   green. A success badge without evidence of a completed review is also
   incomplete. A completed review explicitly reporting no findings is valid
   coverage;
-- every requested Advisory Reviewer is terminal on that head. Run
+- every requested Advisory Reviewer is terminal for its request. Run
   `~/Developer/factory/skills/babysit-pr/scripts/advisory-review-status
   <owner>/<repo> <pr>`; exit 1 means a reviewer is still pending, so this skill
   does not merge and the PR needs `babysit-pr`'s bounded wait. A reviewer that

@@ -44,8 +44,8 @@ The script requests each Advisory Reviewer once and requires ranokay's approval
 for an Outside Contributor PR. It identifies the run by its
 `AI Review PR <number>` run name, which `ai-review.yml` sets from the event's
 pull request number; an unidentifiable run does not permit requests.
-`advisory-review-status` beside it reports the same three reviewers for the
-current head and performs the bounded wait that readiness requires.
+`advisory-review-status` beside it reports the same three reviewers and
+performs the bounded wait that readiness requires.
 
 ## Inspect and act on the current state
 
@@ -196,12 +196,13 @@ them, but wait for the ones it requested. After the request, in this same turn
 and before the done wake or any merge, run
 `python3 ~/.agents/skills/babysit-pr/scripts/advisory-review-status OWNER/REPO PR --wait`.
 It reports Copilot, CodeRabbit and Greptile as terminal — a review or summary
-posted for the head, an explicit skip or quota message, or never requested — and
-polls until every requested reviewer is terminal, bounded to 20 minutes by
-default. Exit 0 means all terminal, exit 1 means a reviewer is still pending
-(the one-shot report), exit 3 means the wait timed out and prints
-`timed out after 20m: <names>`, and exit 2 is an operational error and a Blocker.
-Proceed on 0 or 3, and rerun the wait whenever the head changes.
+posted after the request, or a review whose head matches — and polls until every
+requested reviewer is terminal, bounded to 20 minutes by default. Exit 0 means
+all terminal, exit 1 means a reviewer is still pending (the one-shot report),
+exit 3 means the wait timed out and prints `timed out after 20m: <names>`, and
+exit 2 is an operational error and a Blocker. Proceed on 0 or 3. The wait is
+anchored to the request, so a fix push does not restart it; rerun it after a
+push so an auto-reviewer's response on the new head counts.
 
 On timeout, proceed after the Supervisor's confirmation and name the timed-out
 reviewers in the Run receipt with `evidence advisory --text 'timed out: <names>'`
