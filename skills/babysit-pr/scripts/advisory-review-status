@@ -19,7 +19,8 @@ from advisory_reviewers import (  # noqa: E402 -- the shared table ships beside 
 )
 
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-READ_ERRORS = (
+PLACEHOLDER_PREFIX = 600
+ERRORS = (
     ValueError,
     KeyError,
     TypeError,
@@ -43,7 +44,7 @@ def covers(item, head, head_date):
 
 
 def placeholder(item):
-    body = (item.get("body") or "").lower()[:600]
+    body = (item.get("body") or "").lower()[:PLACEHOLDER_PREFIX]
     return any(marker in body for marker in PLACEHOLDERS)
 
 
@@ -105,24 +106,12 @@ def report(repo, number):
 
 def wait_for_terminal(check, timeout_seconds, interval_seconds, clock=time.monotonic, sleep=time.sleep):
     started = clock()
-    failures = 0
-    last_error = None
     while True:
-        states = None
-        try:
-            states = check()
-            failures = 0
-        except READ_ERRORS as error:
-            last_error = error
-            failures += 1
-            if failures >= 3:
-                raise
-        if states is not None and all(state["terminal"] for state in states):
+        states = check()
+        if all(state["terminal"] for state in states):
             return states, False
         remaining = timeout_seconds - (clock() - started)
         if remaining <= 0:
-            if states is None:
-                raise last_error
             return states, True
         sleep(min(interval_seconds, remaining))
 
@@ -167,7 +156,7 @@ def main(argv=None):
             return 1
         print("all advisory reviewers terminal")
         return 0
-    except READ_ERRORS + (Problem,) as error:
+    except ERRORS + (Problem,) as error:
         print(f"advisory-review-status: {error}", file=sys.stderr)
         return 2
 

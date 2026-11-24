@@ -4,12 +4,18 @@ Logins, marker comments and message text were read from ranokay/factory: the
 REST reviews on #133, #145 and #150 show copilot-pull-request-reviewer[bot] and
 greptile-apps[bot], issue comments show coderabbitai[bot], and the
 review_requested timeline entries name the Copilot reviewer as `Copilot`
-(https://github.com/ranokay/factory/pull/133, /pull/145, /pull/150).
-CodeRabbit's "Review skipped" comment and Copilot's "insufficient remaining
-quota" review are from #133. Greptile's summary marker and CodeRabbit's
-generated-comment marker are from #133 and #150. CodeRabbit's "Review rate
-limited" wording is from its status-check documentation; ranokay/factory has no
-rate-limit comment.
+(https://github.com/ranokay/factory/pull/133,
+https://github.com/ranokay/factory/pull/145,
+https://github.com/ranokay/factory/pull/150). CodeRabbit's "Review skipped"
+comment and Copilot's "insufficient remaining quota" review are from #133.
+Greptile's summary marker and CodeRabbit's generated-comment marker are from
+#133 and #150. CodeRabbit's "Review rate limited" wording is from its
+status-check documentation; ranokay/factory has no rate-limit comment.
+
+Status text sits at the top of a reviewer comment, while its later walkthrough
+can quote a placeholder string from the diff; the placeholder match therefore
+stops at PLACEHOLDER_PREFIX, the status area seen at
+https://github.com/Jgocunha/dynamic-neural-field-composer/pull/80.
 """
 
 import json
@@ -19,6 +25,7 @@ REVIEWERS = {
     "copilot": {
         "logins": ("copilot-pull-request-reviewer[bot]", "copilot"),
         "timeline": True,
+        "add_reviewer": "@copilot",
         "command": None,
         "marker": None,
         "summary_marker": None,
@@ -27,6 +34,7 @@ REVIEWERS = {
     "coderabbit": {
         "logins": ("coderabbitai[bot]",),
         "timeline": False,
+        "add_reviewer": None,
         "command": "@coderabbitai review",
         "marker": "<!-- factory:advisory-review:coderabbit -->",
         "summary_marker": None,
@@ -35,11 +43,13 @@ REVIEWERS = {
             "skip review by coderabbit.ai": "review skipped",
             "review rate limited": "rate limit",
             "rate limit exceeded": "rate limit",
+            "rate limit": "rate limit",
         },
     },
     "greptile": {
         "logins": ("greptile-apps[bot]", "greptile[bot]"),
         "timeline": False,
+        "add_reviewer": None,
         "command": "@greptileai",
         "marker": "<!-- factory:advisory-review:greptile -->",
         "summary_marker": "<!-- greptile_summary -->",

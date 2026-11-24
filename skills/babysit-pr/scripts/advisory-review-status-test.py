@@ -149,6 +149,10 @@ class AdvisoryReviewStatus(unittest.TestCase):
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_RATE_LIMIT]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (rate limit)", result.stdout)
+        reached = dict(CODERABBIT_RATE_LIMIT, body="## Rate limit reached\nPlease wait.")
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, reached]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("coderabbit: terminal (rate limit)", result.stdout)
 
     def test_stale_rate_limit_does_not_make_the_current_head_terminal(self):
         result = self.invoke(
@@ -163,6 +167,13 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertIn("coderabbit: pending", result.stdout)
         completed = dict(CODERABBIT_PLACEHOLDER, body="## Summary by CodeRabbit\n\nNo issues found.")
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, completed]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("coderabbit: terminal (summary posted)", result.stdout)
+
+    def test_a_walkthrough_quoting_a_placeholder_is_terminal(self):
+        body = "## Summary by CodeRabbit\n\n" + ("walkthrough line\n" * 100)
+        body += "> Currently processing new changes in this PR."
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, dict(CODERABBIT_PLACEHOLDER, body=body)]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (summary posted)", result.stdout)
 
@@ -219,29 +230,12 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertTrue(timed_out)
         self.assertEqual(sleeps, [12, 12, 6])
 
-
-    def test_wait_retries_a_transient_read_error(self):
-        module = load_module()
-        now = [0.0]
-        sleeps = []
-        calls = [0]
-
-        def check():
-            calls[0] += 1
-            if calls[0] == 1:
-                raise ValueError("temporary gh failure")
-            return [{"name": "greptile", "terminal": True, "reason": "summary posted"}]
-
-        states, timed_out = module.wait_for_terminal(
-            check, 60, 30, lambda: now[0], lambda seconds: (sleeps.append(seconds), now.__setitem__(0, now[0] + seconds))
-        )
-        self.assertFalse(timed_out)
-        self.assertTrue(states[0]["terminal"])
-        self.assertEqual(sleeps, [30])
-
     def test_usage_error_is_exit_2(self):
         result = subprocess.run(["python3", str(SCRIPT), "o/r"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2, result.stderr)
+        result = subprocess.run(["python3", str(SCRIPT), "o", "1"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("usage", result.stderr)
 
 
 if __name__ == "__main__":

@@ -33,13 +33,18 @@ def main():
     comments = [item for page in pages(f"{prefix}/issues/{number}/comments?per_page=100") for item in page]
     comments += [item for page in pages(f"{prefix}/pulls/{number}/comments?per_page=100") for item in page]
     timeline = [item for page in pages(f"{prefix}/issues/{number}/timeline?per_page=100") for item in page]
-    requested = any(
-        e.get("event") == "review_requested" and is_reviewer((e.get("requested_reviewer") or {}).get("login"), "copilot")
-        for e in timeline
-    )
-    reviewed = any(is_reviewer(r["user"]["login"], "copilot") for r in reviews)
-    if not requested and not reviewed:
-        subprocess.run(["gh", "pr", "edit", number, "--repo", repo, "--add-reviewer", "@copilot"], check=True)
+    for name, spec in REVIEWERS.items():
+        if not spec["add_reviewer"]:
+            continue
+        requested = any(
+            e.get("event") == "review_requested" and is_reviewer((e.get("requested_reviewer") or {}).get("login"), name)
+            for e in timeline
+        )
+        reviewed = any(is_reviewer((review.get("user") or {}).get("login"), name) for review in reviews)
+        if not requested and not reviewed:
+            subprocess.run(
+                ["gh", "pr", "edit", number, "--repo", repo, "--add-reviewer", spec["add_reviewer"]], check=True
+            )
     for bot, spec in REVIEWERS.items():
         if not spec["command"]:
             continue
