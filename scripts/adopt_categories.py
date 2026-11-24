@@ -47,10 +47,8 @@ TEST_PRUNING_INSTRUCTION = (
     "behaviour, keep the behaviour tests, and run `mise run check`."
 )
 BRAND_INSTRUCTION = (
-    "Run `brand-assets` when it lands "
-    "(https://github.com/ranokay/factory/issues/24) in the interactive session. "
-    "Choose one concept; the masters land in `assets/brand/` and the `assets` "
-    "task generates every export. `adopt` files this once."
+    "Run `brand-assets` in the interactive session. Choose one concept; the "
+    "masters land in `assets/brand/`. `adopt` files this once."
 )
 
 CATEGORIES = (

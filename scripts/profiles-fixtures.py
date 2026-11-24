@@ -35,6 +35,7 @@ PROFILE_TOOLS = {
     'go': {'go', 'aqua:golangci/golangci-lint', 'aqua:mvdan/gofumpt', 'go:golang.org/x/vuln/cmd/govulncheck'},
 }
 COMMON_STEPS = {
+    'assets',
     'comment-ban',
     'editorconfig-checker',
     'gate-groups',

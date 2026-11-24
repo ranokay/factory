@@ -88,6 +88,8 @@ depends = [
   "skills:test",
   "profiles:test",
   "profiles:fixtures",
+  "assets:test",
+  "brand-assets:test",
   "run-slot:test",
   "block-issue:test",
   "triage:test",
@@ -148,6 +150,14 @@ run = "hk test --step profiles"
 [tasks."profiles:fixtures"]
 description = "Run each Profile fixture in an isolated repository"
 run = "sh scripts/profiles-fixtures.sh"
+
+[tasks."assets:test"]
+description = "Run the brand master checker fixture tests"
+run = "hk test --step assets"
+
+[tasks."brand-assets:test"]
+description = "Run the brand preview generator tests"
+run = "hk test --step brand-assets"
 
 [tasks."run-slot:test"]
 description = "Run the full-send run-slot tests"

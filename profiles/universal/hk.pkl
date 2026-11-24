@@ -4,6 +4,7 @@ import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.
 
 // comment-ban's help contains ${#array[@]}, which Tera reads as a comment tag; see https://keats.github.io/tera/docs/#raw-blocks.
 local const commentBan = "{% raw %}" + read("scripts/comment-ban.sh").text + "{% endraw %}"
+local const assetMasters = "{% raw %}" + read("scripts/asset-masters.js").text + "{% endraw %}"
 local const pinactScript = read("scripts/pinact.sh").text
 local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")
 
@@ -169,6 +170,86 @@ steps = new Mapping<String, Step | Group> {
       }
       ["shellcheck"] = Builtins.shellcheck
       ["shfmt"] = Builtins.shfmt
+      ["assets"] = new Step {
+        glob = List("assets/brand/**/*.svg")
+        env { ["ASSET_MASTERS"] = assetMasters }
+        check = new Command {
+          argv = List("sh", "-c", "node -e \"$ASSET_MASTERS\" asset-masters {{files}}")
+        }
+        tests {
+          ["accepts primitives and Bezier curves"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/pass-icon.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect { code = 0 }
+          }
+          ["accepts a hand-built wordmark under the path budget"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/logo.svg"] = read("tests/fixtures/brand/pass-wordmark.svg").text }
+            files = List("assets/brand/logo.svg")
+            expect { code = 0 }
+          }
+          ["accepts local fragment references"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/pass-fragments.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect { code = 0 }
+          }
+          ["rejects an image element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-image.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <image>"
+            }
+          }
+          ["rejects a data image"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-data-image.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains a data URI"
+            }
+          }
+          ["rejects a foreignObject"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-foreign-object.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <foreignObject>"
+            }
+          }
+          ["rejects a staircase"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-staircase.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has a staircase"
+            }
+          }
+          ["rejects a path over the node budget"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-node-budget.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "the budget is 400"
+            }
+          }
+        }
+      }
       ["jactionlint"] = Builtins.jactionlint
       ["tombi"] = Builtins.tombi
       ["yamlfmt"] = Builtins.yamlfmt

@@ -1,0 +1,240 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+
+const SIZES = [16, 32, 64, 128, 256, 512, 1024];
+const MAX_CONCEPTS = 6;
+
+const USAGE = `Usage: brand-preview.js --output <file> --title <title> --concept <name>=<svg> [--concept ...] [--note <name>=<text>] [--subtitle <text>] [--site <host>]
+
+Render brand concepts as one self-contained HTML page.
+Pass one --concept per direction; the skill passes three.
+Each SVG must have a viewBox and no script, foreignObject, data URI or external reference.`;
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function splitPair(value, flag) {
+  const index = value.indexOf("=");
+  if (index <= 0) {
+    throw new Error(`${flag} needs <name>=<value>, got ${value}`);
+  }
+  return [value.slice(0, index).trim(), value.slice(index + 1).trim()];
+}
+
+function parseArgs(argv) {
+  const options = { output: null, title: null, subtitle: null, site: "example.app", concepts: [], notes: new Map() };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--help" || argument === "-h") {
+      options.help = true;
+      continue;
+    }
+    if (!argument.startsWith("--")) {
+      throw new Error(`unexpected argument ${argument}`);
+    }
+    const flag = argument.slice(2);
+    const next = argv[index + 1];
+    if (next === undefined) {
+      throw new Error(`${argument} needs a value`);
+    }
+    index += 1;
+    if (flag === "output") {
+      options.output = next;
+    } else if (flag === "title") {
+      options.title = next;
+    } else if (flag === "subtitle") {
+      options.subtitle = next;
+    } else if (flag === "site") {
+      options.site = next.trim();
+    } else if (flag === "concept") {
+      const [name, file] = splitPair(next, "--concept");
+      if (name === "" || file === "") {
+        throw new Error("--concept needs a non-empty name and path");
+      }
+      options.concepts.push({ name, file });
+    } else if (flag === "note") {
+      const [name, text] = splitPair(next, "--note");
+      options.notes.set(name, text);
+    } else {
+      throw new Error(`unknown option --${flag}`);
+    }
+  }
+  return options;
+}
+
+function loadSvg(file) {
+  let source;
+  try {
+    source = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    throw new Error(`${file}: cannot read: ${error.message}`);
+  }
+  source = source.replace(/^<\?xml[^>]*\?>\s*/i, "").replace(/^<!DOCTYPE[^>]*>\s*/i, "").trim();
+  if (!/<svg[\s>]/i.test(source)) {
+    throw new Error(`${file}: not an SVG document`);
+  }
+  if (!/<svg\b[^>]*\bviewBox\s*=\s*["'][^"']+["']/i.test(source)) {
+    throw new Error(`${file}: the root <svg> needs a viewBox`);
+  }
+  if (/<script[\s>]/i.test(source)) {
+    throw new Error(`${file}: contains <script>`);
+  }
+  if (/<foreignObject[\s>]/i.test(source)) {
+    throw new Error(`${file}: contains <foreignObject>`);
+  }
+  if (/data:[a-z0-9.+-]+\//i.test(source) || /;base64,/i.test(source)) {
+    throw new Error(`${file}: contains a data URI`);
+  }
+  if (/\b(?:href|src)\s*=\s*["'](?!\s*#)/i.test(source)) {
+    throw new Error(`${file}: references an external asset`);
+  }
+  if (/url\(\s*['"]?(?:https?:|file:)/i.test(source) || /@import\b/i.test(source)) {
+    throw new Error(`${file}: references an external stylesheet or URL`);
+  }
+  return source;
+}
+
+function mark(svg, size, extra = "") {
+  const classes = extra === "" ? "mark" : `mark ${extra}`;
+  return `<span class="${classes}" style="width:${size}px;height:${size}px" aria-hidden="true">${svg}</span>`;
+}
+
+function hostFor(title) {
+  const host = title.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return host === "" ? "brand" : host;
+}
+
+function board(concept, theme, site, boardId) {
+  const name = escapeHtml(concept.name);
+  const note = theme === "light" ? "Light" : "Dark";
+  const sizes = SIZES.map(
+    (size) => `<figure class="size">${mark(concept.svg, size)}<figcaption>${size} px</figcaption></figure>`,
+  ).join("");
+  return `<div class="board board-${theme}">
+        <div class="board-label">${note}</div>
+        <input class="sizes-toggle" id="sizes-${boardId}" type="checkbox">
+        <div class="rail-head">
+          <span>Actual size</span>
+          <label class="toggle" for="sizes-${boardId}"><span class="when-off">Show all sizes</span><span class="when-on">Collapse</span></label>
+        </div>
+        <div class="rail" role="group" aria-label="${note} size ladder">${sizes}</div>
+        <p class="rail-hint">Scroll the ladder for 512 and 1024.</p>
+        <div class="menu">
+          <div class="menu-left">${mark(concept.svg, 18, "template")}<b>${name}</b><span>File</span><span>Edit</span><span>View</span></div>
+          <div class="menu-right"><span>Mon 9:41</span></div>
+        </div>
+        <div class="browser">
+          <div class="tabs">
+            <span class="tab active">${mark(concept.svg, 16)}<span>${name}</span></span>
+            <span class="tab"><span>Overview</span></span>
+            <span class="tab"><span>Settings</span></span>
+          </div>
+          <div class="address"><span>https://${escapeHtml(site)}</span></div>
+        </div>
+        <div class="dock" aria-label="Mock Dock">
+          <span class="app app-a">A</span>
+          <span class="app app-b">B</span>
+          <span class="app app-c">C</span>
+          <span class="app app-d">D</span>
+          <span class="app brand-app">${mark(concept.svg, 64)}</span>
+        </div>
+        <p class="board-note">Menu bar 18 px template · tab favicon 16 px · Dock 64 px</p>
+      </div>`;
+}
+
+function section(concept, index, site) {
+  const number = String(index + 1).padStart(2, "0");
+  const name = escapeHtml(concept.name);
+  const note = escapeHtml(concept.note);
+  return `<section class="concept" id="concept-${index + 1}">
+      <header class="concept-head">
+        <span class="number">${number}</span>
+        <div>
+          <h2>${name}</h2>
+          <p class="metaphor">${note}</p>
+        </div>
+        <span class="head-mark">${mark(concept.svg, 56)}</span>
+      </header>
+      <div class="boards">
+        ${board(concept, "light", site, `${index + 1}-light`)}
+        ${board(concept, "dark", site, `${index + 1}-dark`)}
+      </div>
+    </section>`;
+}
+
+function indexCard(concept, index) {
+  return `<a class="index-card" href="#concept-${index + 1}">${mark(concept.svg, 32)}<span class="index-copy"><strong>${escapeHtml(concept.name)}</strong><span>${escapeHtml(concept.note)}</span></span></a>`;
+}
+
+function render(concepts, options) {
+  const template = fs.readFileSync(path.join(__dirname, "preview-template.html"), "utf8");
+  const slots = {
+    TITLE: escapeHtml(options.title),
+    SUBTITLE: escapeHtml(options.subtitle),
+    INDEX: concepts.map(indexCard).join(""),
+    CONCEPTS: concepts.map((concept, index) => section(concept, index, options.site)).join(""),
+  };
+  return template.replace(/%%(TITLE|SUBTITLE|INDEX|CONCEPTS)%%/g, (match, key) => slots[key]);
+}
+
+function main(argv) {
+  let options;
+  try {
+    options = parseArgs(argv);
+  } catch (error) {
+    process.stderr.write(`brand-preview: ${error.message}\n`);
+    return 1;
+  }
+  if (options.help) {
+    console.log(USAGE);
+    return 0;
+  }
+  if (options.output === null || options.title === null) {
+    process.stderr.write("brand-preview: --output and --title are required\n");
+    return 1;
+  }
+  if (options.concepts.length === 0 || options.concepts.length > MAX_CONCEPTS) {
+    process.stderr.write(`brand-preview: pass between 1 and ${MAX_CONCEPTS} --concept values\n`);
+    return 1;
+  }
+  const names = new Set();
+  try {
+    for (const concept of options.concepts) {
+      if (names.has(concept.name)) {
+        throw new Error(`duplicate concept name ${concept.name}`);
+      }
+      names.add(concept.name);
+      concept.svg = loadSvg(concept.file);
+      concept.note = options.notes.has(concept.name) ? options.notes.get(concept.name) : "One direction";
+    }
+    for (const name of options.notes.keys()) {
+      if (!names.has(name)) {
+        throw new Error(`--note names no concept: ${name}`);
+      }
+    }
+    const subtitle =
+      options.subtitle ?? `${options.concepts.length} directions for the mark, shown at real sizes and where the icon will live.`;
+    if (options.site === "") {
+      throw new Error("--site needs a host name");
+    }
+    const html = render(options.concepts, { title: options.title, subtitle, site: options.site });
+    fs.mkdirSync(path.dirname(path.resolve(options.output)), { recursive: true });
+    fs.writeFileSync(options.output, html);
+  } catch (error) {
+    process.stderr.write(`brand-preview: ${error.message}\n`);
+    return 1;
+  }
+  console.log(`brand-preview: wrote ${options.output} with ${options.concepts.length} concepts`);
+  return 0;
+}
+
+process.exitCode = main(process.argv.slice(2));
