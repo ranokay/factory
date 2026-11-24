@@ -18,6 +18,8 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
+from profiles_reader import TAG, factory_ref
+
 ROOT = Path(__file__).resolve().parent
 CONFIG = json.loads((ROOT.parent / "repo-settings.json").read_text())
 COMMENT_BAN = ROOT.parent / "profiles/universal/scripts/comment-ban.sh"
@@ -33,7 +35,6 @@ TEST_NAME_RE = re.compile(
     r"(?:\.(?:test|spec)\.[^./]+|_test\.[^./]+|Tests?\.swift|\.bats)$"
 )
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
-TAG = re.compile(r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$")
 SEARCH_PAGE_SIZE = 100
 SEARCH_MAX_PAGES = 10
 BATCH_SIZE = 100
@@ -116,9 +117,9 @@ TEST_PRUNING_INSTRUCTION = (
     "behaviour, keep the behaviour tests, and run `mise run check`."
 )
 BRAND_INSTRUCTION = (
-    "Run `/brand-assets` in the interactive session. Choose one concept; the "
-    "masters land in `assets/brand/` and the `assets` task generates every export. "
-    "`adopt` files this once."
+    "Run `/brand-assets` when it lands in the interactive session. Choose one "
+    "concept; the masters land in `assets/brand/` and the `assets` task generates "
+    "every export. `adopt` files this once."
 )
 
 
@@ -208,7 +209,7 @@ def read_file(project, path):
 
 def read_reference(project, path):
     target = project / path
-    if target.is_dir() or (target.is_symlink() and not target.exists()):
+    if target.is_dir():
         return ""
     try:
         return read_file(project, path)
@@ -238,27 +239,11 @@ def comment_rule(message):
     return "comment"
 
 
-def factory_ref(value):
-    match = re.search(r"[?&]ref=([^&]+)", value)
-    if match and "ranokay/factory" in value:
-        return match.group(1)
-    match = re.search(r"raw\.githubusercontent\.com/ranokay/factory/([^/]+)/", value)
-    if match:
-        return match.group(1)
-    match = re.search(r"github\.com/ranokay/factory/(?:raw|blob|tree)/([^/]+)/", value)
-    if match:
-        return match.group(1)
-    match = re.search(r"github\.com/ranokay/factory/refs/(?:heads|tags)/([^/]+)/", value)
-    if match:
-        return match.group(1)
-    return None
-
-
-def valid_factory_include(value):
+def valid_factory_include(value, allow_local=False):
     if not isinstance(value, str) or "profiles/" not in value:
         return False
     if value.startswith(("./profiles/", "profiles/")):
-        return True
+        return allow_local
     if "ranokay/factory" not in value:
         return False
     ref = factory_ref(value)
@@ -278,15 +263,16 @@ def factory_references(values):
     ]
 
 
-def includes_are_factory(values):
+def includes_are_factory(values, allow_local=False):
     references = factory_references(values)
     return bool(references) and all(
-        valid_factory_include(value) for value in references
+        valid_factory_include(value, allow_local) for value in references
     )
 
 
-def tooling_findings(project, tracked):
+def tooling_findings(project, tracked, repo):
     present = set(tracked)
+    allow_local = repo == "ranokay/factory"
     found = []
     if "mise.toml" not in present:
         found.append(
@@ -322,7 +308,8 @@ def tooling_findings(project, tracked):
             elif not isinstance(tasks, list):
                 tasks = []
             if not (
-                includes_are_factory(includes) and includes_are_factory(tasks)
+                includes_are_factory(includes, allow_local)
+                and includes_are_factory(tasks, allow_local)
             ):
                 found.append(
                     finding(
@@ -343,7 +330,7 @@ def tooling_findings(project, tracked):
         )
     else:
         amended = re.search(r'(?m)^\s*amends\s+"([^"]+)"', read_file(project, "hk.pkl"))
-        if not amended or not valid_factory_include(amended.group(1)):
+        if not amended or not valid_factory_include(amended.group(1), allow_local):
             found.append(
                 finding(
                     "tooling",
@@ -413,7 +400,7 @@ def tooling_findings(project, tracked):
     return found
 
 
-def comment_findings(project, tracked):
+def comment_findings(project, tracked, _repo):
     files = [path for path in tracked if not path.lower().endswith((".md", ".markdown"))]
     occurrences = {}
     for start in range(0, len(files), BATCH_SIZE):
@@ -446,7 +433,7 @@ def comment_findings(project, tracked):
     return found
 
 
-def dead_code_findings(project, tracked):
+def dead_code_findings(project, tracked, _repo):
     tokens = {}
     counts = {}
     incomplete = False
@@ -492,7 +479,7 @@ def dead_code_findings(project, tracked):
     return found
 
 
-def agents_findings(project, tracked):
+def agents_findings(project, tracked, _repo):
     found = []
     if "AGENTS.md" not in tracked:
         found.append(
@@ -546,7 +533,7 @@ def agents_findings(project, tracked):
     return found
 
 
-def stale_findings(project, tracked):
+def stale_findings(project, tracked, _repo):
     found = []
     for path in tracked:
         item = PurePosixPath(path)
@@ -567,7 +554,7 @@ def stale_findings(project, tracked):
     return found
 
 
-def verification_findings(project, tracked):
+def verification_findings(project, tracked, _repo):
     skills = set()
     for path in tracked:
         item = PurePosixPath(path)
@@ -624,7 +611,7 @@ def verification_findings(project, tracked):
     return found
 
 
-def test_pruning_findings(project, tracked):
+def test_pruning_findings(project, tracked, _repo):
     return [
         finding(
             "test-pruning",
@@ -637,7 +624,7 @@ def test_pruning_findings(project, tracked):
     ]
 
 
-def brand_findings(project, tracked):
+def brand_findings(project, tracked, _repo):
     icons = [
         path
         for path in tracked
@@ -891,7 +878,7 @@ def adopt(args):
     head = git_out(project, "rev-parse", "--short", "HEAD").strip()
     filed = 0
     for category in CATEGORIES:
-        findings = category["findings"](project, tracked)
+        findings = category["findings"](project, tracked, repo)
         unseen = [
             item
             for item in findings

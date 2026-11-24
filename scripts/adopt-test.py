@@ -230,9 +230,9 @@ class Adopt(unittest.TestCase):
         remote = self.git("remote", "add", "origin", "https://github.com/o/one.git")
         self.assertEqual(remote.returncode, 0, remote.stderr)
 
-    def run_adopt(self, *arguments):
+    def run_adopt(self, *arguments, repo="o/one"):
         return subprocess.run(  # nosec B603 -- this checkout's adopt CLI
-            [sys.executable, str(ADOPT), "o/one", "--project", str(self.project), *arguments],
+            [sys.executable, str(ADOPT), repo, "--project", str(self.project), *arguments],
             env=self.env,
             capture_output=True,
             text=True,
@@ -559,7 +559,7 @@ class Adopt(unittest.TestCase):
         self.assertIn("no new findings", second.stdout)
         self.no_creates()
 
-    def test_local_factory_includes_pass_the_tooling_detector(self):
+    def test_local_includes_only_pass_for_the_factory_repo(self):
         (self.project / "mise.toml").write_text(
             'include = ["./profiles/universal/mise.toml"]\n\n'
             '[task_config]\nincludes = ["profiles/universal/tasks.toml"]\n'
@@ -570,6 +570,21 @@ class Adopt(unittest.TestCase):
         )
         self.commit("add local Factory includes")
         result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 2)
+        self.reset_state()
+        state = self.state()
+        state["name"] = "ranokay/factory"
+        state["repo"]["name"] = "factory"
+        state["repo"]["full_name"] = "ranokay/factory"
+        self.write_state(state)
+        origin = self.git(
+            "remote", "set-url", "origin", "https://github.com/ranokay/factory.git"
+        )
+        self.assertEqual(origin.returncode, 0, origin.stderr)
+        self.reset_log()
+        result = self.run_adopt(repo="ranokay/factory")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
         self.assertEqual(len(issues), 7)
@@ -605,14 +620,30 @@ class Adopt(unittest.TestCase):
 
     def test_string_includes_are_accepted(self):
         (self.project / "mise.toml").write_text(
-            'include = "./profiles/universal/mise.toml"\n\n'
-            '[task_config]\nincludes = "profiles/universal/tasks.toml"\n'
+            'include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"\n\n'
+            '[task_config]\nincludes = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"\n'
         )
-        (self.project / "hk.pkl").write_text('amends "profiles/universal/hk.pkl"\n')
+        (self.project / "hk.pkl").write_text(
+            'amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"\n'
+        )
         (self.project / "renovate.json").write_text(
             '{"extends": ["github>ranokay/factory"]}\n'
         )
         self.commit("add string includes")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "tooling",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
+    def test_blob_tree_and_refs_includes_are_accepted(self):
+        include = "https://github.com/ranokay/factory/blob/v0.2.0/profiles/universal/mise.toml"
+        tasks = "https://github.com/ranokay/factory/tree/v0.2.0/profiles/universal/tasks.toml"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/refs/tags/v0.2.0/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
@@ -724,6 +755,20 @@ class Adopt(unittest.TestCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("skipping it as a reference source", result.stderr)
+        self.assertIn("dead-code detection skipped", result.stderr)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "dead-code",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
+    def test_broken_reference_symlink_withholds_dead_code(self):
+        os.symlink("missing.txt", self.project / "broken.txt")
+        self.commit("add a broken symlink")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("cannot read broken.txt", result.stderr)
         self.assertIn("dead-code detection skipped", result.stderr)
         issues = self.issues()
         self.assertEqual(len(issues), 7)
