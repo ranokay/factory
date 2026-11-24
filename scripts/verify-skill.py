@@ -89,20 +89,29 @@ def run_task(root, task, *args, environment=None):
     env = dict(os.environ)
     if environment:
         env.update(environment)
+    command = [mise, "--cd", str(root), "run", task, "--", *args]
     try:
         # nosemgrep
-        return subprocess.run(  # nosec B603 B607 -- mise from PATH with an argument list
-            [mise, "--cd", str(root), "run", task, "--", *args],  # nosemgrep
-            capture_output=True,
+        process = subprocess.Popen(  # nosec B603 B607 -- mise from PATH with an argument list
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=TIMEOUT,
-            check=False,
+            start_new_session=True,
             env=env,
         )
+        stdout, stderr = process.communicate(timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
+        terminate_group(process.pid)
+        process.kill()
         problem(f"`mise run {task} -- {' '.join(args)}` did not finish within {TIMEOUT}s")
     except OSError as error:
         problem(f"cannot invoke `mise run {task}`: {error}")
+    leaked = group_alive(process.pid)
+    terminate_group(process.pid)
+    if leaked:
+        problem(f"`mise run {task} -- {' '.join(args)}` left a process running")
+    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
 
 
 def parse_json(result, label):
@@ -189,59 +198,40 @@ def check_task(root, task):
         problem(f"""[tasks."{task}"] has no run command""")
 
 
-def process_snapshot():
-    result = subprocess.run(  # nosec B603 B607 -- local ps with an argument list
-        ["ps", "-axo", "pid=,uid=,command="], capture_output=True, text=True, check=False
-    )
-    if result.returncode != 0:
-        problem("cannot inspect processes with ps")
-    processes = {}
-    for line in result.stdout.splitlines():
-        pid, _, rest = line.strip().partition(" ")
-        uid, _, command = rest.strip().partition(" ")
-        if pid.isdigit() and uid.isdigit():
-            processes[int(pid)] = (int(uid), command.strip())
-    return processes
-
-
-def terminate_process(pid):
+def group_alive(pgid):
     try:
-        os.kill(pid, signal.SIGTERM)
+        os.killpg(pgid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def terminate_group(pgid):
+    try:
+        os.killpg(pgid, signal.SIGTERM)
     except ProcessLookupError:
         return
     except OSError as error:
-        problem(f"cannot stop leaked process {pid}: {error}")
+        problem(f"cannot stop the dry-run process group {pgid}: {error}")
     for _ in range(20):
         try:
-            os.kill(pid, 0)
+            os.killpg(pgid, 0)
         except OSError:
             return
         time.sleep(0.1)
     try:
-        os.kill(pid, signal.SIGKILL)
+        os.killpg(pgid, signal.SIGKILL)
     except ProcessLookupError:
         return
     except OSError as error:
-        problem(f"cannot stop leaked process {pid}: {error}")
+        problem(f"cannot stop the dry-run process group {pgid}: {error}")
     for _ in range(20):
         try:
-            os.kill(pid, 0)
+            os.killpg(pgid, 0)
         except OSError:
             return
         time.sleep(0.1)
-    problem(f"leaked process {pid} survived SIGKILL")
-
-
-def leaked_processes(before, root):
-    after = process_snapshot()
-    marker = str(root) + os.sep
-    return [
-        (pid, command)
-        for pid, (uid, command) in after.items()
-        if pid not in before
-        and uid == os.getuid()
-        and (str(root) in command and (marker in command or command.endswith(str(root))))
-    ]
+    problem(f"dry-run process group {pgid} survived SIGKILL")
 
 
 def check_cli(root, task, text):
@@ -293,17 +283,11 @@ def check_doctor(root, task, environment):
 def check_dry_runs(root, task, destructive, sandbox, environment):
     before = snapshot(root)
     before_sandbox = snapshot(sandbox)
-    before_processes = process_snapshot()
     for name in destructive:
         result = run_task(root, task, name, "--dry-run", environment=environment)
         label = f"{name} --dry-run"
         dry = parse_json(result, label)
         sandbox_changes = differing(before_sandbox, snapshot(sandbox))
-        leaked = leaked_processes(before_processes, root)
-        for pid, _ in leaked:
-            terminate_process(pid)
-        if leaked:
-            problem(f"{label} left a process running: {leaked[0][0]} {leaked[0][1]}")
         if sandbox_changes:
             problem(f"{label} changed its temp state: {', '.join(sandbox_changes[:5])}")
         if result.returncode != 0:

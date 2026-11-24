@@ -200,7 +200,7 @@ def body_for(repo, skills, branch, head, last, paths):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.home() / "Developer", help="directory of canonical clones")
-    parser.add_argument("--dry-run", action="store_true", help="report what would be filed without filing")
+    parser.add_argument("--dry-run", action="store_true", help="report what would be filed after the same fetch, without filing")
     parser.add_argument("--no-fetch", action="store_true", help="skip git fetch")
     args = parser.parse_args(argv)
     root = args.root.expanduser().resolve()
@@ -217,7 +217,7 @@ def main(argv=None):
         if not skills:
             continue
         try:
-            if not args.no_fetch and not args.dry_run:
+            if not args.no_fetch:
                 fetch(repo)
             branch = default_branch(repo)
             if not branch:

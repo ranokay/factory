@@ -196,7 +196,7 @@ grep -q 'has no head marker' "$tmp/no-head-err" || fail "a closed marker issue w
 [ "$(grep -c '^create ranokay/no-head$' "$GH_LOG" || true)" -eq 1 ] || fail "a closed marker without a head did not fall back to the skill commit"
 
 : >"$GH_LOG"
-if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false run_maintenance --root "$tmp/fetch-root" >"$tmp/fetch-out" 2>"$tmp/fetch-err"; then
+if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false run_maintenance --root "$tmp/fetch-root" --dry-run >"$tmp/fetch-out" 2>"$tmp/fetch-err"; then
 	cat "$tmp/fetch-out" "$tmp/fetch-err" >&2
 	fail "a failed fetch returned success"
 fi

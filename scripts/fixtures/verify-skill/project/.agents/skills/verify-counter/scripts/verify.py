@@ -102,7 +102,6 @@ def launch(dry):
         [sys.executable, str(ROOT / "app.py"), "--port", str(chosen)],  # nosec B603; nosemgrep
         stdout=log,
         stderr=log,
-        start_new_session=True,
     )
     log.close()
     PORT_FILE.write_text(str(chosen))
@@ -122,7 +121,7 @@ def stop(dry):
     if current is None:
         return emit({"ok": True, "stopped": False})
     try:
-        os.killpg(current, signal.SIGTERM)
+        os.kill(current, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
         pass
     for _ in range(30):
