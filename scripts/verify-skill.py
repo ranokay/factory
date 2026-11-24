@@ -90,11 +90,12 @@ def run_task(root, task, *args, environment=None):
     env = dict(os.environ)
     if environment:
         env.update(environment)
-    command = [mise, "--cd", str(root), "run", task, "--", *args]
+    command = ["mise", "run", task, "--", *args]
     try:
         # nosemgrep
         process = subprocess.Popen(  # nosec B603 B607 -- mise from PATH with an argument list; nosemgrep
             command,
+            cwd=str(root),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
