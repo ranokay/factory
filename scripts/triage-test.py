@@ -177,6 +177,16 @@ class Triage(unittest.TestCase):
         skill = (ROOT / "skills/triage/SKILL.md").read_text()
         self.assertNotIn("setup-matt-pocock-skills", skill)
         self.assertIn("There is no separate label mapping to load", skill)
+        for label in (
+            "bug",
+            "enhancement",
+            "needs-triage",
+            "needs-info",
+            "ready-for-agent",
+            "ready-for-human",
+            "wontfix",
+        ):
+            self.assertIn(f"`{label}`", skill)
         self.assertIn("triage.py reproduce", skill)
 
     def test_labels_apply_exactly_one_category_and_state(self):
@@ -418,13 +428,15 @@ class Triage(unittest.TestCase):
         self.assertIn("`increment` — exit 0", self.comment.read_text())
         self.assertNotEqual(self.doctor().returncode, 0)
 
-    def test_non_default_cleanup_runs(self):
+    def test_non_default_cleanup_runs_and_is_named(self):
         script = self.project / ".agents/skills/verify-counter/scripts/verify.py"
         text = script.read_text()
-        text = text.replace(
-            '{"name": "stop", "destructive": True', '{"name": "teardown", "destructive": True'
-        )
-        text = text.replace('"stop": lambda: stop(dry),', '"teardown": lambda: stop(dry),')
+        for old, new in (
+            ('{"name": "stop", "destructive": True', '{"name": "teardown", "destructive": True'),
+            ('"stop": lambda: stop(dry),', '"teardown": lambda: stop(dry),'),
+        ):
+            self.assertIn(old, text)
+            text = text.replace(old, new)
         script.write_text(text)
         result = self.triage(
             "reproduce",

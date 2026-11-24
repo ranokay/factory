@@ -361,13 +361,13 @@ def reproduce(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-    labels = commands.add_parser("labels", help="apply exactly one category and one state label")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    labels = subcommands.add_parser("labels", help="apply exactly one category and one state label")
     labels.add_argument("repo")
     labels.add_argument("issue", type=int)
     labels.add_argument("--category", required=True, choices=CATEGORIES)
     labels.add_argument("--state", required=True, choices=STATES)
-    reproduction = commands.add_parser("reproduce", help="reproduce a bug through the verify CLI")
+    reproduction = subcommands.add_parser("reproduce", help="reproduce a bug through the verify CLI")
     reproduction.add_argument("repo")
     reproduction.add_argument("issue", type=int)
     reproduction.add_argument("--project", default=".", help="project checkout (default: the current directory)")
