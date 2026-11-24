@@ -47,7 +47,7 @@ def apply_settings(repo, apply):
     if result.returncode == 0:
         return False
     detail = (result.stderr or result.stdout).strip()
-    if apply and "unresolved PR or manual drift" in detail:
+    if apply and detail.endswith("repository has unresolved PR or manual drift"):
         return True
     problem(f"repo settings failed: {detail}")
 

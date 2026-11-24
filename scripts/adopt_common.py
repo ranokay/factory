@@ -116,14 +116,14 @@ def inside_checkout(project, path):
 def read_reference(project, path):
     target = project / path
     if target.is_dir():
+        if not inside_checkout(project, path):
+            print(
+                f"adopt: warning: {path} resolves outside the checkout; "
+                "skipping it as a reference source",
+                file=sys.stderr,
+            )
+            return None
         return ""
-    if not inside_checkout(project, path):
-        print(
-            f"adopt: warning: {path} resolves outside the checkout; "
-            "skipping it as a reference source",
-            file=sys.stderr,
-        )
-        return None
     try:
         return read_file(project, path)
     except Problem as error:

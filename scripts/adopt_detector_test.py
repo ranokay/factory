@@ -8,12 +8,27 @@ class AdoptDetectorTests(AdoptCase):
         master = self.project / "assets/brand/icon.svg"
         master.parent.mkdir(parents=True)
         master.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"></svg>\n')
-        self.commit("add brand master")
+        (master.parent / "logo.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 16"></svg>\n'
+        )
+        self.commit("add brand masters")
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
         self.assertEqual(len(issues), 7)
         self.assertNotIn("brand", {category for issue in issues for category in self.categories(issue)})
+
+    def test_icon_only_still_requests_a_logo(self):
+        master = self.project / "assets/brand/icon.svg"
+        master.parent.mkdir(parents=True)
+        master.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"></svg>\n')
+        self.commit("add an icon")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 8)
+        brand = self.issue_for(issues, "brand")
+        self.assertIn("logo", brand["body"])
 
     def test_comment_key_uses_the_banned_marker_not_the_prose(self):
         note = self.project / "src/note.ts"
@@ -210,15 +225,7 @@ class AdoptDetectorTests(AdoptCase):
         self.assertIn("src/unused.ts", self.issue_for(issues, "dead-code")["body"])
 
     def test_verification_skill_without_mise_does_not_abort(self):
-        skill = self.project / ".agents/skills/verify-counter"
-        (skill / "references/features").mkdir(parents=True)
-        (skill / "SKILL.md").write_text(
-            "---\nname: verify-counter\ndescription: fixture\n---\n"
-        )
-        (skill / "references/features/feature.md").write_text("feature\n")
-        link = self.project / ".claude/skills/verify-counter"
-        link.parent.mkdir(parents=True)
-        os.symlink("../../.agents/skills/verify-counter", link)
+        self.add_verification_skill()
         self.commit("add a verification skill")
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -235,6 +242,15 @@ class AdoptDetectorTests(AdoptCase):
                 "brand",
             },
         )
+
+    def test_verification_skill_with_malformed_mise_reports_it(self):
+        self.add_verification_skill()
+        (self.project / "mise.toml").write_text("invalid = [\n")
+        self.commit("add a malformed mise")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        verification = self.issue_for(self.issues(), "verification")
+        self.assertIn("could not be parsed", verification["body"])
 
     def test_unpinned_factory_includes_are_a_finding(self):
         (self.project / "mise.toml").write_text(
@@ -390,4 +406,39 @@ class AdoptDetectorTests(AdoptCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         agents = self.issue_for(self.issues(), "agents")
         self.assertIn("no Profiles", agents["body"])
+
+    def test_empty_profiles_line_is_a_finding(self):
+        (self.project / "AGENTS.md").write_text("# Fixture\n\nProfiles:\n")
+        self.commit("empty Profiles line")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        agents = self.issue_for(self.issues(), "agents")
+        self.assertIn("no Profiles", agents["body"])
+
+    def test_duplicate_profiles_lines_are_a_finding(self):
+        (self.project / "AGENTS.md").write_text(
+            "# Fixture\n\nProfiles: universal\nProfiles: typescript\n"
+        )
+        self.commit("duplicate Profiles lines")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        agents = self.issue_for(self.issues(), "agents")
+        self.assertIn("more than one Profiles", agents["body"])
+
+    def test_outside_directory_symlink_withholds_dead_code(self):
+        outside = self.root / "outside-dir"
+        outside.mkdir()
+        (outside / "x.ts").write_text("export const x = 1;\n")
+        (self.project / "src/outdir").symlink_to(outside, target_is_directory=True)
+        self.commit("add an outside directory symlink")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("resolves outside the checkout", result.stderr)
+        self.assertIn("dead-code detection skipped", result.stderr)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "dead-code",
+            {category for issue in issues for category in self.categories(issue)},
+        )
 

@@ -209,6 +209,24 @@ def dead_code_findings(project, tracked, _repo):
     ]
 
 
+def agents_profiles_findings(text):
+    entries = [entry.strip() for entry in profiles_entries(text) if entry.strip()]
+    if not entries:
+        return [
+            finding("agents", "AGENTS.md", "profiles", "AGENTS.md has no Profiles: line.")
+        ]
+    if len(entries) > 1:
+        return [
+            finding(
+                "agents",
+                "AGENTS.md",
+                "profiles-duplicate",
+                "AGENTS.md has more than one Profiles: line.",
+            )
+        ]
+    return []
+
+
 def agents_file_findings(project, tracked):
     if "AGENTS.md" not in tracked:
         return [
@@ -230,11 +248,7 @@ def agents_file_findings(project, tracked):
                 f"AGENTS.md could not be read: {error}",
             )
         ]
-    found = []
-    if not profiles_entries(text):
-        found.append(
-            finding("agents", "AGENTS.md", "profiles", "AGENTS.md has no Profiles: line.")
-        )
+    found = agents_profiles_findings(text)
     if "mise run check" not in text:
         found.append(
             finding(
@@ -307,13 +321,13 @@ def verification_skill_names(tracked):
 
 def verification_mise_tasks(project, tracked):
     if "mise.toml" not in tracked:
-        return None
+        return None, None
     try:
         data = tomllib.loads(read_file(project, "mise.toml"))
-    except (Problem, tomllib.TOMLDecodeError):
-        return None
+    except (Problem, tomllib.TOMLDecodeError) as error:
+        return None, error
     tasks = data.get("tasks")
-    return tasks if isinstance(tasks, dict) else {}
+    return (tasks if isinstance(tasks, dict) else {}), None
 
 
 def verification_skill_findings(project, tracked, name, tasks):
@@ -363,12 +377,20 @@ def verification_findings(project, tracked, _repo):
                 "No .agents/skills/verify-<app>/SKILL.md is committed.",
             )
         ]
-    tasks = verification_mise_tasks(project, tracked)
-    return [
-        item
-        for name in names
-        for item in verification_skill_findings(project, tracked, name, tasks)
-    ]
+    tasks, error = verification_mise_tasks(project, tracked)
+    found = []
+    if error is not None:
+        found.append(
+            finding(
+                "verification",
+                "mise.toml",
+                "read",
+                f"mise.toml could not be parsed: {error}",
+            )
+        )
+    for name in names:
+        found.extend(verification_skill_findings(project, tracked, name, tasks))
+    return found
 
 
 def test_pruning_findings(project, tracked, _repo):
@@ -380,20 +402,33 @@ def test_pruning_findings(project, tracked, _repo):
 
 
 def brand_findings(project, tracked, _repo):
-    icons = [
+    masters = [
         path
         for path in tracked
-        if path.startswith("assets/brand/")
-        and path.endswith(".svg")
-        and "icon" in PurePosixPath(path).stem.lower()
+        if path.startswith("assets/brand/") and path.endswith(".svg")
     ]
-    if icons:
+    icons = [path for path in masters if "icon" in PurePosixPath(path).stem.lower()]
+    names = [
+        path
+        for path in masters
+        if any(role in PurePosixPath(path).stem.lower() for role in ("logo", "wordmark"))
+    ]
+    if icons and names:
         return []
+    if not icons:
+        return [
+            finding(
+                "brand",
+                "assets/brand",
+                "no-icon-master",
+                "No icon SVG master is committed under assets/brand/.",
+            )
+        ]
     return [
         finding(
             "brand",
             "assets/brand",
-            "no-icon-master",
-            "No icon SVG master is committed under assets/brand/.",
+            "no-name-master",
+            "No logo or wordmark SVG master is committed under assets/brand/.",
         )
     ]

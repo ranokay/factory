@@ -243,6 +243,17 @@ class AdoptCase(unittest.TestCase):
         remote = self.git("remote", "add", "origin", "https://github.com/o/one.git")
         self.assertEqual(remote.returncode, 0, remote.stderr)
 
+    def add_verification_skill(self, name="verify-counter"):
+        skill = self.project / ".agents/skills" / name
+        (skill / "references/features").mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: fixture\n---\n"
+        )
+        (skill / "references/features/feature.md").write_text("feature\n")
+        link = self.project / ".claude/skills" / name
+        link.parent.mkdir(parents=True)
+        os.symlink(f"../../.agents/skills/{name}", link)
+
     def run_adopt(self, *arguments, repo="o/one"):
         return subprocess.run(  # nosec B603  # noqa: S603 S607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit, python.lang.security.dangerous-subprocess-use.dangerous-subprocess-use -- this checkout's adopt CLI
             [sys.executable, str(ADOPT), repo, "--project", str(self.project), *arguments],  # noqa: S607

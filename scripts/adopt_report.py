@@ -59,6 +59,8 @@ def markers_in_body(body):
         match = MARKER_RE.fullmatch(line.strip())
         if match:
             found.append((match.group(1), match.group(2)))
+        elif found:
+            break
     return found
 
 

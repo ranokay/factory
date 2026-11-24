@@ -31,6 +31,11 @@ REF_PATH = re.compile(
 PROFILE_PATH = re.compile(
     r'(?:^|/)profiles/([a-z0-9][a-z0-9-]*)/(?:mise\.toml|tasks\.toml|hk\.pkl)(?:\?|$)'
 )
+FACTORY_REFERENCE = re.compile(r'(?:^|/)ranokay/factory(?:\.git)?(?:/|$)', re.IGNORECASE)
+FACTORY_REPO = re.compile(
+    r'^(?:https?://github\.com/ranokay/factory(?:\.git)?|ssh://git@github\.com/ranokay/factory(?:\.git)?)/?$',
+    re.IGNORECASE,
+)
 
 
 def profiles_entries(text):
