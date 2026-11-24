@@ -23,7 +23,7 @@ REVIEWERS = {
         "add_reviewer": "@copilot",
         "command": None,
         "marker": None,
-        "summary_marker": None,
+        "summary_markers": (),
         "skip_phrases": {"insufficient remaining quota": "quota"},
     },
     "coderabbit": {
@@ -32,7 +32,7 @@ REVIEWERS = {
         "add_reviewer": None,
         "command": "@coderabbitai review",
         "marker": "<!-- factory:advisory-review:coderabbit -->",
-        "summary_marker": None,
+        "summary_markers": ("summarize by coderabbit.ai",),
         "skip_phrases": {
             "review skipped": "review skipped",
             "skip review by coderabbit.ai": "review skipped",
@@ -45,7 +45,7 @@ REVIEWERS = {
         "add_reviewer": None,
         "command": "@greptileai",
         "marker": "<!-- factory:advisory-review:greptile -->",
-        "summary_marker": "<!-- greptile_summary -->",
+        "summary_markers": ("<!-- greptile_summary -->",),
         "skip_phrases": {},
     },
 }

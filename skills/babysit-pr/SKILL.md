@@ -269,7 +269,9 @@ line with its output; a receipt that lists a live process or a newly booted
 simulator blocks the hand-off until it is stopped. The merged notice also
 carries `advisory: none` when every requested reviewer finished, or
 `advisory: pending <names>` for reviewers that timed out; the Dispatcher or a
-scheduled check files their late findings as a `needs-triage` issue.
+scheduled check files their late findings as a `needs-triage` issue. When no
+notice thread or Dispatcher owns that step, file or reuse the issue in this
+thread before cleanup.
 
 After verifying the merge:
 

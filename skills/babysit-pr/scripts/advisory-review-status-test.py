@@ -87,6 +87,10 @@ COPILOT_REQUEST = {
     "requested_reviewer": {"login": "Copilot"},
     "created_at": "2026-11-24T03:27:52Z",
 }
+CODERABBIT_SUMMARY_BODY = (
+    "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n"
+    "## Summary by CodeRabbit\n\nNo issues found."
+)
 
 
 def state(**extra):
@@ -183,13 +187,25 @@ class AdvisoryReviewStatus(unittest.TestCase):
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, placeholder]))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
-        completed = dict(placeholder, updated_at="2026-11-24T03:31:00Z", body="## Summary by CodeRabbit\n\nNo issues found.")
+        completed = dict(placeholder, updated_at="2026-11-24T03:31:00Z", body=CODERABBIT_SUMMARY_BODY)
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, completed]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (summary posted)", result.stdout)
 
+    def test_an_unrelated_code_rabbit_reply_stays_pending(self):
+        reply = dict(CODERABBIT_PLACEHOLDER, updated_at="2026-11-24T03:31:00Z", body="Thanks for the mention.")
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, reply]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("coderabbit: pending", result.stdout)
+
+    def test_a_same_second_reply_is_terminal(self):
+        same_second = dict(CODERABBIT_RATE_LIMIT, updated_at=CODERABBIT_REQUEST["created_at"])
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, same_second]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("coderabbit: terminal (rate limit)", result.stdout)
+
     def test_a_walkthrough_quoting_a_placeholder_is_terminal(self):
-        body = "## Summary by CodeRabbit\n\n" + ("walkthrough line\n" * 100)
+        body = CODERABBIT_SUMMARY_BODY + "\n\n" + ("walkthrough line\n" * 100)
         body += "> Currently processing new changes in this PR."
         result = self.invoke(
             state(comments=[CODERABBIT_REQUEST, dict(CODERABBIT_PLACEHOLDER, updated_at="2026-11-24T03:31:00Z", body=body)])

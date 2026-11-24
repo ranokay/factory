@@ -472,6 +472,8 @@ def cmd_receipt(args):
 
 
 def cmd_advisory(args):
+    if args.pr is None:
+        fail("--pr is required")
     _, target = evidence_target(args)
     path = target / "receipt.json"
     if not path.is_file():

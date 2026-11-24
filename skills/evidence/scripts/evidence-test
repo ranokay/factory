@@ -702,6 +702,7 @@ def case_advisory(work):
     repo, _ = make_repo(work)
     refused(tool(work, repo, ["advisory", "--repo", "a/one", "--pr", "7", "--text", "all terminal"]), "evidence receipt")
     ok(tool(work, repo, receipt_args(pr="7")))
+    refused(tool(work, repo, ["advisory", "--repo", "a/one", "--text", "all terminal"]), "--pr is required")
     refused(tool(work, repo, ["advisory", "--repo", "a/one", "--pr", "7", "--text", "two\nlines"]), "one line")
     ok(tool(work, repo, ["advisory", "--repo", "a/one", "--pr", "7", "--text", "greptile timed out after 20m"]))
     ok(tool(work, repo, ["attach", "--repo", "a/one", "--pr", "7", "--dry-run"]))

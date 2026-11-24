@@ -41,7 +41,7 @@ def item_timestamp(item):
 
 
 def covers(item, head, anchor):
-    return item.get("commit_id") == head or item_timestamp(item) > anchor
+    return item.get("commit_id") == head or item_timestamp(item) >= anchor
 
 
 def placeholder(item):
@@ -97,7 +97,8 @@ def reviewer_state(name, head, head_date, reviews, comments, timeline):
     for item in bot_comments:
         if not covers(item, head, anchor) or placeholder(item):
             continue
-        if REVIEWERS[name]["summary_marker"] and REVIEWERS[name]["summary_marker"] not in (item.get("body") or ""):
+        markers = REVIEWERS[name]["summary_markers"]
+        if markers and not any(marker in (item.get("body") or "") for marker in markers):
             continue
         return {"name": name, "terminal": True, "reason": "summary posted"}
     return {"name": name, "terminal": False, "reason": ""}
