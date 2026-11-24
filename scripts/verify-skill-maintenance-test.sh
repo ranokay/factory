@@ -145,6 +145,17 @@ commit_all "$tmp/no-head-root/no-head" "change the app"
 set_github_origin "$tmp/no-head-root/no-head" no-head
 printf '[{"number":11,"title":"Maintain verify-no-head skill","body":"No head recorded.\\n\\n<!-- factory:verify-maintenance -->\\n","closedAt":"2026-11-20T00:00:00Z"}]\n' >"$GH_STATE/ranokay_no-head-closed.json"
 
+new_remote fetch-fail main
+clone_repo fetch-fail "$tmp/fetch-root"
+printf 'one\n' >"$tmp/fetch-root/fetch-fail/app.txt"
+write_skill "$tmp/fetch-root/fetch-fail" fetch-fail
+commit_all "$tmp/fetch-root/fetch-fail" "add verify skill"
+printf 'two\n' >>"$tmp/fetch-root/fetch-fail/app.txt"
+commit_all "$tmp/fetch-root/fetch-fail" "change the app"
+set_github_origin "$tmp/fetch-root/fetch-fail" fetch-fail
+git -C "$tmp/fetch-root/fetch-fail" config http.proxy http://127.0.0.1:1
+git -C "$tmp/fetch-root/fetch-fail" config https.proxy http://127.0.0.1:1
+
 run_maintenance() {
 	uv run --offline --no-project --no-config --python "$python" python "$root/scripts/verify-skill-maintenance.py" "$@"
 }
@@ -183,5 +194,13 @@ grep -q "<!-- factory:verify-maintenance head=$closed_after -->" "$GH_LOG" || fa
 run_maintenance --root "$tmp/no-head-root" --no-fetch >"$tmp/no-head-run" 2>"$tmp/no-head-err"
 grep -q 'has no head marker' "$tmp/no-head-err" || fail "a closed marker issue without a head did not warn"
 [ "$(grep -c '^create ranokay/no-head$' "$GH_LOG" || true)" -eq 1 ] || fail "a closed marker without a head did not fall back to the skill commit"
+
+: >"$GH_LOG"
+if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false run_maintenance --root "$tmp/fetch-root" >"$tmp/fetch-out" 2>"$tmp/fetch-err"; then
+	cat "$tmp/fetch-out" "$tmp/fetch-err" >&2
+	fail "a failed fetch returned success"
+fi
+grep -q 'git fetch failed' "$tmp/fetch-err" || fail "a failed fetch did not name the error"
+[ ! -s "$GH_LOG" ] || fail "a failed fetch filed an issue"
 
 echo "verify-skill-maintenance-test: changed files one issue, unchanged, third-party and clean-close file none, open issue blocks a duplicate"

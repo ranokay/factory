@@ -69,7 +69,7 @@ diff --git a/SKILL.md b/SKILL.md
 +- `doctor` is read-only and prints JSON. When the app is stopped, exit non-zero with `ok: false` and an `alternative` that names the command to run first, for example `mise run verify:<app> -- launch`.
 +- Every destructive subcommand accepts `--dry-run` with no other arguments, prints a JSON object with `"dry_run": true`, exits 0, and changes nothing observable: no process, file, port or external state.
 +- An unknown subcommand or invalid argument exits non-zero and prints one JSON object on stdout with `ok: false`, a specific `error`, and an `alternative` that names the command to run instead.
-+- Write JSON on stdout only; send progress and logs to stderr.
++- Write JSON on stdout only; send progress and logs to stderr. The Factory's shape check runs every dry-run with an isolated `TMPDIR` and rejects new project files or processes; a dry-run that writes elsewhere or starts something is still a contract violation.
 +
 +The CLI is how later verification runs drive the app; the skill body should use it rather than ad-hoc shell.
 +

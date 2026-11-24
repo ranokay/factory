@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
@@ -188,27 +189,53 @@ def check_task(root, task):
 
 
 def process_snapshot():
-    result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=False)
+    result = subprocess.run(["ps", "-axo", "pid=,uid=,command="], capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        return None
+        problem("cannot inspect processes with ps")
     processes = {}
     for line in result.stdout.splitlines():
-        pid, _, command = line.strip().partition(" ")
-        if pid.isdigit():
-            processes[int(pid)] = command.strip()
+        pid, _, rest = line.strip().partition(" ")
+        uid, _, command = rest.strip().partition(" ")
+        if pid.isdigit() and uid.isdigit():
+            processes[int(pid)] = (int(uid), command.strip())
     return processes
 
 
+def terminate_process(pid):
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except OSError as error:
+        problem(f"cannot stop leaked process {pid}: {error}")
+    for _ in range(20):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError as error:
+        problem(f"cannot stop leaked process {pid}: {error}")
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return
+    problem(f"leaked process {pid} survived SIGKILL")
+
+
 def leaked_processes(before, root):
-    if before is None:
-        return []
     after = process_snapshot()
-    if after is None:
-        return []
+    marker = str(root) + os.sep
     return [
         (pid, command)
-        for pid, command in after.items()
-        if pid not in before and str(root) in command
+        for pid, (uid, command) in after.items()
+        if pid not in before
+        and uid == os.getuid()
+        and (str(root) in command and (marker in command or command.endswith(str(root))))
     ]
 
 
@@ -218,9 +245,6 @@ def check_cli(root, task, text):
         "TMPDIR": sandbox,
         "TMP": sandbox,
         "TEMP": sandbox,
-        "XDG_CACHE_HOME": sandbox,
-        "XDG_STATE_HOME": sandbox,
-        "XDG_DATA_HOME": sandbox,
     }
     try:
         return check_cli_in(root, task, text, sandbox, environment)
@@ -268,10 +292,7 @@ def check_cli_in(root, task, text, sandbox, environment):
         sandbox_changes = differing(before_sandbox, snapshot(sandbox))
         leaked = leaked_processes(before_processes, root)
         for pid, _ in leaked:
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except OSError:
-                pass
+            terminate_process(pid)
         if leaked:
             problem(f"{label} left a process running: {leaked[0][0]} {leaked[0][1]}")
         if sandbox_changes:

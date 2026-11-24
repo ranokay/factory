@@ -712,41 +712,41 @@ case_verify_agent() {
 	setup_case verify-agent
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
-	plist=$home/Library/LaunchAgents/dev.factory.verify-maintenance.plist
-	[ -f "$plist" ] || fail "verify-maintenance plist missing"
-	[ "$(plist_value "$plist" Label)" = dev.factory.verify-maintenance ] || fail "wrong label"
+	plist=$home/Library/LaunchAgents/dev.factory.verify-skill-maintenance.plist
+	[ -f "$plist" ] || fail "verify-skill-maintenance plist missing"
+	[ "$(plist_value "$plist" Label)" = dev.factory.verify-skill-maintenance ] || fail "wrong label"
 	[ "$(plist_value "$plist" StartCalendarInterval.Weekday)" = 1 ] || fail "wrong day"
 	[ "$(plist_value "$plist" StartCalendarInterval.Hour)" = 3 ] || fail "wrong hour"
 	[ "$(plist_value "$plist" StartCalendarInterval.Minute)" = 0 ] || fail "wrong minute"
 	[ "$(plist_value "$plist" ProgramArguments.2)" = "$home/.agents" ] || fail "wrong working directory"
 	[ "$(plist_value "$plist" ProgramArguments.3)" = run ] || fail "does not run a task"
 	[ "$(plist_value "$plist" ProgramArguments.4)" = verify-skill:maintain ] || fail "does not run verify-skill:maintain"
-	[ "$(plist_value "$plist" StandardOutPath)" = "$home/Library/Logs/factory-verify-maintenance.log" ] || fail "wrong log path"
-	[ "$(plist_value "$plist" StandardErrorPath)" = "$home/Library/Logs/factory-verify-maintenance-error.log" ] || fail "wrong error log path"
+	[ "$(plist_value "$plist" StandardOutPath)" = "$home/Library/Logs/factory-verify-skill-maintenance.log" ] || fail "wrong log path"
+	[ "$(plist_value "$plist" StandardErrorPath)" = "$home/Library/Logs/factory-verify-skill-maintenance-error.log" ] || fail "wrong error log path"
 	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v mise)")"
 	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v gh)")"
-	[ -n "$(env -i PATH="$(plist_value "$plist" EnvironmentVariables.PATH)" /bin/sh -c 'command -v uv')" ] || fail "uv is not on the verify-maintenance agent PATH"
+	[ -n "$(env -i PATH="$(plist_value "$plist" EnvironmentVariables.PATH)" /bin/sh -c 'command -v uv')" ] || fail "uv is not on the verify-skill-maintenance agent PATH"
 	if grep -q 'launchctl bootstrap gui/' "$log"; then fail "the temp home loaded the agent"; fi
 	run_discovery
-	[ "$code" -eq 0 ] || fail "verify-maintenance discovery failed: $output"
-	printf 'ok: verify-maintenance plist installed at %s and discovery passed\n' "$plist"
+	[ "$code" -eq 0 ] || fail "verify-skill-maintenance discovery failed: $output"
+	printf 'ok: verify-skill-maintenance plist installed at %s and discovery passed\n' "$plist"
 	run_python -c 'import plistlib,sys; p=sys.argv[1]; d=plistlib.loads(open(p,"rb").read()); d["StartCalendarInterval"]["Hour"]=4; open(p,"wb").write(plistlib.dumps(d))' "$plist"
 	run_discovery
-	[ "$code" -ne 0 ] || fail "verify-maintenance drift went undetected"
-	expect_contains "$output" dev.factory.verify-maintenance.plist
-	printf 'ok: verify-maintenance plist drift detected\n'
+	[ "$code" -ne 0 ] || fail "verify-skill-maintenance drift went undetected"
+	expect_contains "$output" dev.factory.verify-skill-maintenance.plist
+	printf 'ok: verify-skill-maintenance plist drift detected\n'
 	rm "$plist"
 	run_discovery
-	[ "$code" -ne 0 ] || fail "missing verify-maintenance plist went undetected"
-	expect_contains "$output" dev.factory.verify-maintenance.plist
-	printf 'ok: missing verify-maintenance plist detected\n'
+	[ "$code" -ne 0 ] || fail "missing verify-skill-maintenance plist went undetected"
+	expect_contains "$output" dev.factory.verify-skill-maintenance.plist
+	printf 'ok: missing verify-skill-maintenance plist detected\n'
 }
 
 case_verify_agent_narrow() {
 	setup_case verify-agent-narrow
 	run_bootstrap --install-verify-agent
 	[ "$code" -eq 0 ] || fail "narrow verify-agent install failed: $output"
-	[ -f "$home/Library/LaunchAgents/dev.factory.verify-maintenance.plist" ] || fail "narrow install wrote no plist"
+	[ -f "$home/Library/LaunchAgents/dev.factory.verify-skill-maintenance.plist" ] || fail "narrow install wrote no plist"
 	[ ! -e "$home/.claude" ] || fail "narrow install wrote harness links"
 	[ ! -e "$home/.agents" ] || fail "narrow install wrote the agents link"
 	if grep -q 'launchctl bootstrap gui/' "$log"; then fail "the narrow install loaded the agent"; fi

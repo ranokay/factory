@@ -104,6 +104,18 @@ case $output in
 *) fail "the passing fixture did not report ok: $output" ;;
 esac
 
+string_task=$(prepare string-task)
+python3 -c 'import sys; from pathlib import Path; p=Path(sys.argv[1]); t=p.read_text(); old="[tasks.\"verify:counter\"]\ndescription = \"Drive the Counter fixture app for verification\"\nrun = \"python3 .agents/skills/verify-counter/scripts/verify.py\"\n"; assert old in t; p.write_text(t.replace(old, "[tasks]\n\"verify:counter\" = \"python3 .agents/skills/verify-counter/scripts/verify.py\"\n"))' "$string_task/mise.toml"
+if ! output=$(check "$string_task"); then
+	fail "the string task form failed: $output"
+fi
+
+read_only=$(prepare read-only)
+replace_all "$read_only/.agents/skills/verify-counter/scripts/verify.py" '"destructive": True' '"destructive": False'
+if ! output=$(check "$read_only"); then
+	fail "a read-only inventory failed: $output"
+fi
+
 stopped=$(prepare stopped)
 export VERIFY_COUNTER_STATE="$tmp/stopped-state" VERIFY_COUNTER_EVIDENCE="$tmp/stopped-evidence"
 mkdir -p "$VERIFY_COUNTER_EVIDENCE"
@@ -239,7 +251,6 @@ rm "$no_feature_readme/.agents/skills/verify-counter/references/features/README.
 expect_failure no-feature-readme "README.md is missing"
 
 no_features=$(prepare no-features)
-printf '# Map\n' >"$no_features/.agents/skills/verify-counter/references/features/README.md"
 rm "$no_features/.agents/skills/verify-counter/references/features/"*.md
 printf '# Map\n' >"$no_features/.agents/skills/verify-counter/references/features/README.md"
 expect_failure no-features "has no feature files"

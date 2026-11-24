@@ -139,16 +139,16 @@ def closed_head(repo, repo_slug, branch):
     match = HEAD_MARKER.search(str(latest.get("body") or ""))
     if match is None:
         print(
-            f"verify-maintenance: warning: closed maintenance issue #{latest.get('number')} has no head marker",
+            f"verify-skill-maintenance: warning: closed maintenance issue #{latest.get('number')} has no head marker",
             file=sys.stderr,
         )
         return None
     head = match.group(1)
     if git(repo, "cat-file", "-e", f"{head}^{{commit}}").returncode != 0:
-        print(f"verify-maintenance: warning: closed maintenance issue head {head} is not in {repo}", file=sys.stderr)
+        print(f"verify-skill-maintenance: warning: closed maintenance issue head {head} is not in {repo}", file=sys.stderr)
         return None
     if not is_ancestor(repo, head, branch):
-        print(f"verify-maintenance: warning: closed maintenance head {head} is not on {branch}", file=sys.stderr)
+        print(f"verify-skill-maintenance: warning: closed maintenance head {head} is not on {branch}", file=sys.stderr)
         return None
     return head
 
@@ -205,7 +205,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     root = args.root.expanduser().resolve()
     if not root.is_dir():
-        print(f"verify-maintenance: no such directory: {root}", file=sys.stderr)
+        print(f"verify-skill-maintenance: no such directory: {root}", file=sys.stderr)
         return 1
     clones = load_canonical_clones()
     failures = 0
@@ -260,7 +260,7 @@ def main(argv=None):
                 raise RuntimeError(f"gh issue create failed: {created.stderr.strip() or created.stdout.strip()}")
             print(f"filed {repo_slug}: {created.stdout.strip()}", flush=True)
         except (OSError, subprocess.SubprocessError, RuntimeError) as error:
-            print(f"verify-maintenance: {repo_slug}: {error}", file=sys.stderr)
+            print(f"verify-skill-maintenance: {repo_slug}: {error}", file=sys.stderr)
             failures += 1
     return 1 if failures else 0
 

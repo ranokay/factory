@@ -22,6 +22,7 @@ import sys
 import tempfile
 import tomllib
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,9 +45,9 @@ SECRET_LOG = Path("Library") / "Logs" / "factory-secrets.log"
 GC_LABEL = "dev.factory.gc"
 GC_LOG = Path("Library") / "Logs" / "factory-gc.log"
 GC_ERROR_LOG = Path("Library") / "Logs" / "factory-gc-error.log"
-VERIFY_LABEL = "dev.factory.verify-maintenance"
-VERIFY_LOG = Path("Library") / "Logs" / "factory-verify-maintenance.log"
-VERIFY_ERROR_LOG = Path("Library") / "Logs" / "factory-verify-maintenance-error.log"
+VERIFY_LABEL = "dev.factory.verify-skill-maintenance"
+VERIFY_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance.log"
+VERIFY_ERROR_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance-error.log"
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
 SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
 GITHUB_HOST_RE = re.compile(r"(?i)^\s*Host\s+github\.com(?![A-Za-z0-9.-])")
@@ -463,7 +464,7 @@ def install_agent(home: Path, label: str, name: str, path: Path, data: bytes) ->
     return load_agent(launchctl, label, path)
 
 
-def agent_errors(home: Path, path: Path, expected) -> list[str]:
+def agent_errors(home: Path, path: Path, expected: Callable[[], bytes]) -> list[str]:
     try:
         if path.read_bytes() != expected():
             return [f"{display(path, home)} differs from what bootstrap writes now; run mise run bootstrap"]
@@ -490,7 +491,7 @@ def gc_agent_errors(home: Path) -> list[str]:
     return agent_errors(home, gc_agent_path(home), lambda: gc_agent_plist(home))
 
 
-def verify_maintenance_agent_plist(home: Path) -> bytes:
+def verify_skill_maintenance_agent_plist(home: Path) -> bytes:
     return launchd_agent_plist(
         home,
         VERIFY_LABEL,
@@ -501,18 +502,18 @@ def verify_maintenance_agent_plist(home: Path) -> bytes:
     )
 
 
-def verify_maintenance_agent_path(home: Path) -> Path:
+def verify_skill_maintenance_agent_path(home: Path) -> Path:
     return launchd_agent_path(home, VERIFY_LABEL)
 
 
-def install_verify_maintenance_agent(home: Path) -> bool:
+def install_verify_skill_maintenance_agent(home: Path) -> bool:
     return install_agent(
-        home, VERIFY_LABEL, "verify-maintenance", verify_maintenance_agent_path(home), verify_maintenance_agent_plist(home)
+        home, VERIFY_LABEL, "verify-skill-maintenance", verify_skill_maintenance_agent_path(home), verify_skill_maintenance_agent_plist(home)
     )
 
 
-def verify_maintenance_agent_errors(home: Path) -> list[str]:
-    return agent_errors(home, verify_maintenance_agent_path(home), lambda: verify_maintenance_agent_plist(home))
+def verify_skill_maintenance_agent_errors(home: Path) -> list[str]:
+    return agent_errors(home, verify_skill_maintenance_agent_path(home), lambda: verify_skill_maintenance_agent_plist(home))
 
 
 def github_slug(url: str) -> tuple[str, str] | None:
@@ -877,7 +878,7 @@ def discovery(home: Path) -> int:
         return 1
     errors.extend(secret_agent_errors(home))
     errors.extend(gc_agent_errors(home))
-    errors.extend(verify_maintenance_agent_errors(home))
+    errors.extend(verify_skill_maintenance_agent_errors(home))
     errors.extend(github_push_errors())
     reference_check = mcp_sync(home, "--check-references")
     if reference_check.returncode != 0:
@@ -1112,7 +1113,7 @@ def main(argv: list[str] | None = None) -> int:
             for line in guard:
                 print(f"bootstrap: {line}", file=sys.stderr)
             return 2
-        return 0 if install_verify_maintenance_agent(home) else 1
+        return 0 if install_verify_skill_maintenance_agent(home) else 1
     if args.check:
         return discovery(home)
     guard = worktree_guard(home)
@@ -1143,7 +1144,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if not install_gc_agent(home):
         return 1
-    if not install_verify_maintenance_agent(home):
+    if not install_verify_skill_maintenance_agent(home):
         return 1
     if not setup_github_ssh(home):
         return 1
