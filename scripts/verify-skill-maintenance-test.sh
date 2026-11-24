@@ -283,7 +283,7 @@ clone_repo partial "$tmp/partial-root"
 printf 'one\n' >"$tmp/partial-root/partial/app.txt"
 write_skill "$tmp/partial-root/partial" partial
 commit_all "$tmp/partial-root/partial" "add verify skill"
-partial_skill=$(git -C "$tmp/partial-root/partial" rev-parse HEAD)
+partial_skill=$(git -C "$tmp/partial-root/partial" rev-parse main)
 printf 'two\n' >>"$tmp/partial-root/partial/app.txt"
 commit_all "$tmp/partial-root/partial" "change the app"
 set_github_origin "$tmp/partial-root/partial" partial
@@ -396,7 +396,7 @@ if run_maintenance --root "$tmp/partial-root" --no-fetch >"$tmp/partial-out" 2>"
 	fail "an incomplete search returned success"
 fi
 grep -q 'returned incomplete results' "$tmp/partial-err" || fail "an incomplete search did not fail loudly"
-grep -q 'state:closed.* page 2' "$GH_QUERY_LOG" || fail "the incomplete search did not page before failing"
+grep -Fq 'search repo:ranokay/partial is:issue state:closed "factory:verify-maintenance" in:body per_page 100 page 2' "$GH_QUERY_LOG" || fail "the incomplete search did not page before failing"
 [ ! -s "$GH_LOG" ] || fail "an incomplete search filed an issue"
 
 : >"$GH_LOG"
