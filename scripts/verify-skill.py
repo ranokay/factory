@@ -18,6 +18,7 @@ import subprocess  # nosec B404 -- the checker runs mise and ps
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import tomllib
 from pathlib import Path
 
@@ -92,7 +93,7 @@ def run_task(root, task, *args, environment=None):
     command = [mise, "--cd", str(root), "run", task, "--", *args]
     try:
         # nosemgrep
-        process = subprocess.Popen(  # nosec B603 B607 -- mise from PATH with an argument list
+        process = subprocess.Popen(  # nosec B603 B607 -- mise from PATH with an argument list; nosemgrep
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -111,7 +112,7 @@ def run_task(root, task, *args, environment=None):
     terminate_group(process.pid)
     if leaked:
         problem(f"`mise run {task} -- {' '.join(args)}` left a process running")
-    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    return SimpleNamespace(args=process.args, returncode=process.returncode, stdout=stdout, stderr=stderr)
 
 
 def parse_json(result, label):
