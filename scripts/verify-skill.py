@@ -301,11 +301,11 @@ def check_dry_runs(root, task, destructive, sandbox, environment):
         result = run_task(root, task, name, "--dry-run", environment=environment, cleanup_group=True)
         label = f"{name} --dry-run"
         dry = parse_json(result, label)
-        check_unchanged(label, root, sandbox, before_root, before_sandbox)
         if result.returncode != 0:
             problem(f"{label} exited {result.returncode}; a dry-run must succeed")
         if dry.get("dry_run") is not True:
             problem(f"{label} did not report dry_run: true")
+        check_unchanged(label, root, sandbox, before_root, before_sandbox)
 
 
 def check_command_errors(root, task, names, environment):

@@ -300,6 +300,10 @@ if pgrep -f "$doctor_process/stubborn.py" >/dev/null 2>&1; then
 	fail "a leaked doctor process survived the check"
 fi
 
+doctor_temp_leak=$(prepare doctor-temp-leak)
+insert_after "$doctor_temp_leak/.agents/skills/verify-counter/scripts/verify.py" '    command, *args = argv' '    if command == "doctor" and not args: Path(os.environ["TMPDIR"], "doctor-temp-leak").write_text("changed"); return emit({"ok": True, "running": True})'
+expect_failure doctor-temp-leak "doctor changed its temp state: doctor-temp-leak"
+
 doctor_no_ok=$(prepare doctor-no-ok)
 replace "$doctor_no_ok/.agents/skills/verify-counter/scripts/verify.py" 'return emit({"ok": False, "error": message, "alternative": alternative}, code)' 'return emit({"error": message, "alternative": alternative}, code)'
 expect_failure doctor-no-ok "a failing doctor must report ok: false"
