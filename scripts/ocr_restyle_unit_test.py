@@ -108,6 +108,16 @@ class RestyleTests(unittest.TestCase):
         links, _ = restyle.match_inline(ocr_result([first, second]), posted)
         self.assertEqual(links, {0: "u1", 1: "u2"})
 
+    def test_inline_matching_prefers_the_matching_line(self):
+        content = "**Same title**\n\nSame explanation."
+        comment = finding(path="scripts/a.py", start=20, end=20, content=content)
+        posted = [
+            {"body": content, "html_url": "u12", "path": "scripts/a.py", "line": 12},
+            {"body": content, "html_url": "u20", "path": "scripts/a.py", "line": 20},
+        ]
+        links, _ = restyle.match_inline(ocr_result([comment]), posted)
+        self.assertEqual(links, {0: "u20"})
+
     def test_inline_matching_does_not_link_on_a_title_alone(self):
         comment = finding(content="**Same title**\n\nUnique explanation.")
         posted = [{"body": "**🟠 P1 · Same title**", "html_url": "u1"}]

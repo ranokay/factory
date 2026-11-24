@@ -53,8 +53,10 @@ class CommandLineTests(unittest.TestCase):
             "OCR_VERSION": "1.14.0",
         }
         env.update(environment or {})
-        # Run the local script with argv and no shell.
-        return subprocess.run(  # nosemgrep  # nosec B603 -- local script, argv, no shell
+        # The audit rule flags the variable first argument; this test runs
+        # the script with argv and no shell. See
+        # https://semgrep.dev/r/python.lang.security.audit.dangerous-subprocess-use-audit
+        return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit  # nosec B603 -- local script, argv, no shell
             [sys.executable, str(SCRIPT)],
             env=env,
             capture_output=True,
@@ -242,10 +244,12 @@ class CommandLineTests(unittest.TestCase):
 
     def test_missing_counts_are_a_warning_noop(self):
         self.write(ocr_result([finding()]))
-        result = self.run_cli(environment={"OCR_INLINE": ""})
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("OCR_INLINE is missing", result.stdout)
-        self.assertEqual(self.github.patches, [])
+        for name in ("OCR_INLINE", "OCR_SKIPPED"):
+            with self.subTest(name=name):
+                result = self.run_cli(environment={name: ""})
+                self.assertEqual(result.returncode, 0)
+                self.assertIn(f"{name} is missing", result.stdout)
+                self.assertEqual(self.github.patches, [])
 
     def test_two_summaries_with_the_same_run_tag_are_a_warning_noop(self):
         self.github.issue_comments.append(

@@ -8,11 +8,11 @@ inputs:
     description: Path to the OCR rules JSON; falls back to <workspace>/ai-review-rule.json.
     required: false
     default: ''
-  # These mirror the Review step's literals. They exist so the restyle step
+  # These mirror the Review step's defaults. They exist so the restyle step
   # classifies findings with the same routing policy the Review step used and
-  # labels the footer with the same effort. Keeping the literals in the Review
-  # step leaves its checkpoint fingerprint byte-identical; the action tests
-  # pin each default to its literal.
+  # labels the footer with the same effort. The defaults keep the Review step's
+  # checkpoint fingerprint byte-identical; a caller that overrides them changes
+  # both steps together. The action tests pin each default and the wiring.
   route_severity_below:
     description: Severity threshold the Review and restyle steps route to the summary.
     required: false
@@ -22,7 +22,7 @@ inputs:
     required: false
     default: style,documentation
   effort:
-    description: Review effort recorded in the restyled footer.
+    description: Review effort used by the Review step and recorded in the restyled footer.
     required: false
     default: high
 runs:
@@ -146,8 +146,10 @@ runs:
       # fail the job and never lose a finding. The step lives beside this
       # action so a caller that uses the action remotely still has it, and
       # github.action_path resolves it without this repository's workspace.
-      # A caller must grant issues: write and pull-requests: write; a read-only
-      # token leaves each rewrite warning and OCR's comments in place.
+      # A caller must grant pull-requests: write (with issues: read) for the
+      # PATCHes; a read-only token leaves each rewrite warning and OCR's
+      # comments in place. See
+      # https://docs.github.com/actions/using-jobs/assigning-permissions-to-jobs
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}

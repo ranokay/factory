@@ -237,7 +237,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning::", result.stdout)
 
-    def test_restyle_inputs_mirror_the_review_literals(self):
+    def test_review_and_restyle_inputs_share_defaults(self):
         source = action("ocr-review")
         inputs = yaml.safe_load(source)["inputs"]
         with_ = review_step(source)["with"]

@@ -114,22 +114,24 @@ def meta_from(result: dict[str, Any], environment: dict[str, str]) -> dict[str, 
     }
 
 
+def path_matches(item: dict[str, Any], path: str) -> bool:
+    item_path = str(item.get("path") or "")
+    return not path or not item_path or item_path == path
+
+
 def inline_match(
     comment: dict[str, Any],
-    content: str,
-    expected: str,
     posted: list[dict[str, Any]],
     used: set[int],
 ) -> tuple[int, dict[str, Any]] | None:
     path = str(comment.get("path") or "")
     start = integer(comment.get("start_line"))
     end = integer(comment.get("end_line"))
-    matches = []
+    content = str(comment.get("content") or "").strip()
+    expected = f"**{badge_of(comment)} · {title_of(comment)}**"
+    matches: list[tuple[int, dict[str, Any]]] = []
     for position, item in enumerate(posted):
-        if position in used:
-            continue
-        item_path = str(item.get("path") or "")
-        if path and item_path and item_path != path:
+        if position in used or not path_matches(item, path):
             continue
         if content and content in str(item.get("body") or ""):
             matches.append((position, item))
@@ -145,7 +147,7 @@ def inline_match(
         (position, item)
         for position, item in enumerate(posted)
         if position not in used
-        and (not path or not item.get("path") or item.get("path") == path)
+        and path_matches(item, path)
         and expected in str(item.get("body") or "")
     ]
     return titled[0] if len(titled) == 1 else None
@@ -160,9 +162,7 @@ def match_inline(
     for index, comment in enumerate(result.get("comments") or []):
         if is_diagram_carrier(comment):
             continue
-        content = str(comment.get("content") or "").strip()
-        expected = f"**{badge_of(comment)} · {title_of(comment)}**"
-        match = inline_match(comment, content, expected, posted, used)
+        match = inline_match(comment, posted, used)
         if match is None:
             continue
         position, item = match
