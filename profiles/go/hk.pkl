@@ -1,53 +1,61 @@
 amends "../universal/hk.pkl"
 
 steps {
-  ["golangci-lint"] = new Step {
-    glob = "**/*.go"
-    check = "golangci-lint run ./..."
-    tests {
-      ["rejects an unused variable"] {
-        run = "check"
-        tmpdir = true
-        write {
-          ["go.mod"] = "module example.com/test\n\ngo 1.27\n"
-          ["bad.go"] = "package main\n\nfunc main() { unused := 1 }\n"
+  ["lint"] {
+    steps {
+      ["golangci-lint"] = new Step {
+        glob = "**/*.go"
+        check = "golangci-lint run ./..."
+        tests {
+          ["rejects an unused variable"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["go.mod"] = "module example.com/test\n\ngo 1.27\n"
+              ["bad.go"] = "package main\n\nfunc main() { unused := 1 }\n"
+            }
+            files = List("bad.go")
+            expect { code = 1 }
+          }
         }
-        files = List("bad.go")
-        expect { code = 1 }
+      }
+      ["gofumpt"] = new Step {
+        glob = "**/*.go"
+        check = "golangci-lint fmt --diff"
+        fix = "golangci-lint fmt"
+        tests {
+          ["rejects unformatted Go"] {
+            run = "check"
+            tmpdir = true
+            write {
+              [".golangci.yml"] = "version: '2'\nformatters:\n  enable:\n    - gofumpt\n"
+              ["bad.go"] = "package main\nfunc main(){println(1)}\n"
+            }
+            files = List("bad.go")
+            expect { code = 1 }
+          }
+        }
       }
     }
   }
-  ["gofumpt"] = new Step {
-    glob = "**/*.go"
-    check = "golangci-lint fmt --diff"
-    fix = "golangci-lint fmt"
-    tests {
-      ["rejects unformatted Go"] {
-        run = "check"
-        tmpdir = true
-        write {
-          [".golangci.yml"] = "version: '2'\nformatters:\n  enable:\n    - gofumpt\n"
-          ["bad.go"] = "package main\nfunc main(){println(1)}\n"
+  ["security"] {
+    steps {
+      ["govulncheck"] = new Step {
+        glob = "**/*.go"
+        check = "govulncheck -db ${GOVULNDB:-https://vuln.go.dev} ./..."
+        tests {
+          ["fails when the vulnerability database is unavailable"] {
+            run = "check"
+            tmpdir = true
+            env { ["GOVULNDB"] = "file:///nonexistent-factory-vulnerability-db" }
+            write {
+              ["go.mod"] = "module example.com/test\n\ngo 1.27\n"
+              ["main.go"] = "package main\n\nfunc main() {}\n"
+            }
+            files = List("main.go")
+            expect { code = 1 }
+          }
         }
-        files = List("bad.go")
-        expect { code = 1 }
-      }
-    }
-  }
-  ["govulncheck"] = new Step {
-    glob = "**/*.go"
-    check = "govulncheck -db ${GOVULNDB:-https://vuln.go.dev} ./..."
-    tests {
-      ["fails when the vulnerability database is unavailable"] {
-        run = "check"
-        tmpdir = true
-        env { ["GOVULNDB"] = "file:///nonexistent-factory-vulnerability-db" }
-        write {
-          ["go.mod"] = "module example.com/test\n\ngo 1.27\n"
-          ["main.go"] = "package main\n\nfunc main() {}\n"
-        }
-        files = List("main.go")
-        expect { code = 1 }
       }
     }
   }

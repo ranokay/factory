@@ -35,8 +35,8 @@ description = "Run the MCP registry renderer and secrets agent tests"
 run = "hk test --step mcp-sync"
 
 [tasks."gitleaks:test"]
-description = "Run the gitleaks rule and repository scan tests"
-run = "hk test --step gitleaks"
+description = "Run the gitleaks rule tests"
+run = "hk test --step gitleaks-test"
 
 [tasks."tools:test"]
 description = "Run the agent hook helper tests"
@@ -82,10 +82,9 @@ run = "uv run --offline --no-project --no-config --python \"$(mise which python)
 description = "Run canonical clone fixture tests"
 run = "hk test --step canonical-clones"
 
-[tasks.check]
-description = "Run every Gate"
+[tasks."check:test"]
+description = "Run the Tests group and every step fixture"
 depends = [
-  "check:codacy",
   "skills:test",
   "profiles:test",
   "profiles:fixtures",
@@ -100,7 +99,6 @@ depends = [
   "evidence:test",
   "pr-text:test",
   "bootstrap:test",
-  "gc:test",
   "verify-skill:test",
   "verify-skill-maintenance:test",
   "canonical-clones:test",
@@ -114,10 +112,11 @@ depends = [
   "codacy-gate:test",
   "sync-upstream:test",
 ]
+run = ["hk run tests --all", "hk test --step gc", "hk test --step comment-ban", "hk test --step pinact", "hk test --step gate-groups", "hk test --step renovate-managers-test", "hk test --step renovate-re2-test"]
 
 [tasks."check:gates"]
-description = "Run the Factory's shared Gates"
-run = ["hk check --all", "hk test --step comment-ban", "hk test --step pinact"]
+description = "Run every hk step"
+run = ["hk check --all"]
 
 [tasks."workflow-invariant:test"]
 run = "hk test --step workflow-invariant-test"

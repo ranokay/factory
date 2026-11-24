@@ -67,6 +67,7 @@ run_fixture() {
 		cd "$repo"
 		fixture_env mise install
 		fixture_env mise run check
+		fixture_env mise exec -- hk run tests -S gate-groups --all
 		fixture_env mise exec -- hk check --all --plan -a --json --no-progress >"$tmp/$name-steps.json"
 		fixture_env mise ls --current --json >"$tmp/$name-tools.json"
 	)
