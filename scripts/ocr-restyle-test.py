@@ -27,6 +27,8 @@ SPEC.loader.exec_module(restyle)
 SUMMARY_MARKER = "<!-- ocr-summary -->"
 RUN_MARKER = "<!-- ocr-summary-run:1-1 -->"
 CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxfQ== -->"
+CLEAN_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIxIn0= -->"
+STALE_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiI5OSJ9 -->"
 FINGERPRINT = "<!-- ocr-1-1-abcdef0123456789 -->"
 
 SUMMARY_BODY = f"""\
@@ -186,6 +188,7 @@ class FakeGitHub:
     def close(self):
         self.server.shutdown()
         self.server.server_close()
+        self.thread.join()
 
     def seed(self):
         self.issue_comments.append(
@@ -265,6 +268,16 @@ class RestyleTests(unittest.TestCase):
         )
         for marker in restyle.markers(SUMMARY_BODY):
             self.assertIn(marker, body)
+
+    def test_inline_matching_accepts_posted_comments_without_an_id(self):
+        result = ocr_result([finding(), finding(path="scripts/b.py", start=20, end=20)])
+        posted = [
+            {"body": INLINE_BODY, "html_url": "u1"},
+            {"body": INLINE_BODY, "html_url": "u2"},
+        ]
+        links, pairs = restyle.match_inline(result, posted)
+        self.assertEqual(links, {0: "u1", 1: "u2"})
+        self.assertEqual(len(pairs), 2)
 
     def test_missing_message_adds_no_sentence(self):
         result = ocr_result([finding()])
@@ -534,6 +547,36 @@ class CommandLineTests(unittest.TestCase):
         result = self.run_cli()
         self.assertEqual(result.returncode, 0)
         self.assertIn("::warning::", result.stdout)
+        self.assertEqual(self.github.patches, [])
+
+    def test_clean_run_rewrites_a_summary_without_a_run_tag(self):
+        clean = (
+            f"{SUMMARY_MARKER}\n"
+            "✅ **OpenCodeReview**: Review complete: 0 finding(s) across 1 selected item(s).\n\n"
+            f"{CLEAN_CHECKPOINT}"
+        )
+        self.github.issue_comments[:] = [
+            {"id": 1, "body": clean, "html_url": "https://example.test/issues/1"}
+        ]
+        self.write(ocr_result([], message="Review complete: 0 finding(s) across 1 selected item(s)."))
+        result = self.run_cli(environment={"OCR_INLINE": "0", "OCR_SKIPPED": "0"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.github.patches), 1, self.github.patches)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertIn("## AI Review · 5/5 · Safe to merge", summary)
+        self.assertIn("Review complete: 0 finding(s) across 1 selected item(s).", summary)
+        self.assertIn(CLEAN_CHECKPOINT, summary)
+        self.assertNotIn("| | Finding | Where |", summary)
+
+    def test_summary_from_another_run_is_a_warning_noop(self):
+        stale = f"{SUMMARY_MARKER}\n✅ **OpenCodeReview**: Review complete.\n\n{STALE_CHECKPOINT}"
+        self.github.issue_comments[:] = [
+            {"id": 1, "body": stale, "html_url": "https://example.test/issues/1"}
+        ]
+        self.write(ocr_result([finding()]))
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("no sticky summary comment for this run", result.stdout)
         self.assertEqual(self.github.patches, [])
 
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import os
 import re
@@ -11,6 +13,7 @@ import urllib.request
 from typing import Any, Iterable, NamedTuple
 
 SUMMARY_MARKER = "<!-- ocr-summary -->"
+CHECKPOINT = re.compile(r"<!--\s*ocr-checkpoint:v1\s+([A-Za-z0-9+/=_-]+)\s*-->")
 MAX_BODY = 65000
 TITLE_LIMIT = 110
 
@@ -551,22 +554,21 @@ def match_inline(
 ) -> tuple[dict[int, str], list[tuple[dict[str, Any], dict[str, Any]]]]:
     links: dict[int, str] = {}
     pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    used: set[Any] = set()
+    used: set[int] = set()
     for index, comment in enumerate(result.get("comments") or []):
         if is_diagram_carrier(comment):
             continue
         content = strip_markers(str(comment.get("content") or "")).strip()
         title = title_of(comment)
         expected = f"**{badge_of(comment)} · {title}**"
-        for item in posted:
-            identifier = item.get("id")
-            if identifier in used:
+        for position, item in enumerate(posted):
+            if position in used:
                 continue
             body = str(item.get("body") or "")
             if (content and content in body) or expected in body:
                 links[index] = str(item.get("html_url") or "")
                 pairs.append((item, comment))
-                used.add(identifier)
+                used.add(position)
                 break
     return links, pairs
 
@@ -624,6 +626,19 @@ class GitHub:
         self.request("PATCH", f"/repos/{repo}/{path}/comments/{identifier}", {"body": body})
 
 
+def checkpoint_run(body: str) -> str:
+    match = CHECKPOINT.search(body)
+    if match is None:
+        return ""
+    try:
+        payload = json.loads(base64.b64decode(match.group(1)))
+    except (binascii.Error, ValueError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("run") or "")
+
+
 def find_summary(
     github: GitHub, repo: str, pr: Any, run_id: str, attempt: str
 ) -> dict[str, Any]:
@@ -631,7 +646,11 @@ def find_summary(
     found: dict[str, Any] | None = None
     for comment in github.paginate(f"/repos/{repo}/issues/{pr}/comments"):
         body = comment.get("body")
-        if isinstance(body, str) and SUMMARY_MARKER in body and tag in body:
+        if not isinstance(body, str) or SUMMARY_MARKER not in body:
+            continue
+        # A clean run posts no findings, so OCR omits the per-run tag and only
+        # the checkpoint carries its run id.
+        if tag in body or checkpoint_run(body) == run_id:
             found = comment
     if found is None:
         raise RewriteError("no sticky summary comment for this run")
