@@ -127,7 +127,7 @@ A quota-limited review bot whose comments are read when they arrive and never wa
 _Avoid_: optional check, nice-to-have bot
 
 **Merge Guard**:
-The Outside Contributor check in `skills/merge-pr/scripts/merge_guard.py`, used by `merge`: it refuses a merge whose author is outside `factory_authors` or whose head is another repository.
+The Outside Contributor check in `skills/merge-pr/scripts/merge_guard.py` and its byte-identical `skills/babysit-pr/scripts/merge_guard.py` copy, used by `merge` and `request-advisory-reviews`; it refuses a merge whose author is outside `factory_authors` or whose head is another repository.
 _Avoid_: merge check, approval gate
 
 ### Profiles
