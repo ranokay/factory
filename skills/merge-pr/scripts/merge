@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Merge an ordinary pull request after the Outside Contributor guard.
+"""Merge an ordinary pull request after the Merge Guard.
 
-An Outside Contributor author, or a head from another repository, is refused so
-only ranokay merges that PR. Anything else is merged head-pinned in one command.
+The Merge Guard refuses an Outside Contributor author, or a head from another
+repository, so only ranokay merges that PR. Anything else is merged head-pinned
+in one command.
 """
 
 import argparse
@@ -13,7 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from author_guard import is_outside  # noqa: E402 -- the guard lives beside this script
+from merge_guard import is_outside  # noqa: E402 -- the Merge Guard lives beside this script
 
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -34,7 +35,7 @@ def gh(*arguments):
 
 
 def merge(args):
-    if not REPO.match(args.repo):
+    if not REPO.match(args.repo) or any(part in (".", "..") for part in args.repo.split("/")):
         problem(f"repository must be <owner>/<repo>, not {args.repo!r}")
     if args.pr < 1:
         problem("pull request must be a positive number")
@@ -56,7 +57,7 @@ def merge(args):
             f"Outside Contributor PR: {author} from {head}; "
             "a Factory agent never merges it, so ranokay must merge it by hand"
         )
-    method = "--squash" if args.squash else "--merge"
+    method = args.method
     merged = gh(
         "pr", "merge", str(args.pr), "-R", args.repo, "--match-head-commit", args.head, method
     )
@@ -71,9 +72,9 @@ def main(argv=None):
     parser.add_argument("repo")
     parser.add_argument("pr", type=int)
     parser.add_argument("--head", required=True, help="the verified head SHA to pin the merge to")
-    method = parser.add_mutually_exclusive_group(required=True)
-    method.add_argument("--squash", action="store_true")
-    method.add_argument("--merge-commit", action="store_true")
+    methods = parser.add_mutually_exclusive_group(required=True)
+    methods.add_argument("--squash", dest="method", action="store_const", const="--squash")
+    methods.add_argument("--merge-commit", dest="method", action="store_const", const="--merge")
     args = parser.parse_args(argv)
     try:
         merge(args)

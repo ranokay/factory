@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "merge-pr" / "scripts"))
-from author_guard import is_outside  # noqa: E402 -- shared with the merge command
+from merge_guard import is_outside  # noqa: E402 -- the Merge Guard lives with the merge command
 
 
 def gh(*args):
