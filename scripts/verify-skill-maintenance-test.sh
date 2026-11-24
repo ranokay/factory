@@ -283,19 +283,26 @@ clone_repo partial "$tmp/partial-root"
 printf 'one\n' >"$tmp/partial-root/partial/app.txt"
 write_skill "$tmp/partial-root/partial" partial
 commit_all "$tmp/partial-root/partial" "add verify skill"
+partial_skill=$(git -C "$tmp/partial-root/partial" rev-parse HEAD)
 printf 'two\n' >>"$tmp/partial-root/partial/app.txt"
 commit_all "$tmp/partial-root/partial" "change the app"
 set_github_origin "$tmp/partial-root/partial" partial
 set_origin_head "$tmp/partial-root/partial" main
-python3 - "$GH_STATE" <<'PARTIAL'
+python3 - "$GH_STATE" "$partial_skill" <<'PARTIAL'
 import json
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-item = {"number": 1, "title": "Unrelated", "body": "unrelated", "closed_at": None}
-(root / "ranokay_partial-open-page1.json").write_text(
-	json.dumps({"total_count": 1, "incomplete_results": True, "items": [item]})
+head = sys.argv[2]
+first = [
+	{"number": number, "title": f"Issue {number}", "body": "unrelated", "closed_at": "2026-11-20T00:00:00Z"}
+	for number in range(1, 101)
+]
+marker = {"number": 200, "title": "Maintain verify-partial skill", "body": f"<!-- factory:verify-maintenance head={head} -->", "closed_at": "2026-11-20T00:00:00Z"}
+(root / "ranokay_partial-closed-page1.json").write_text(json.dumps({"total_count": 101, "items": first}))
+(root / "ranokay_partial-closed-page2.json").write_text(
+	json.dumps({"total_count": 101, "incomplete_results": True, "items": [marker]})
 )
 PARTIAL
 
@@ -383,11 +390,13 @@ grep -q 'page 10' "$GH_QUERY_LOG" || fail "the search did not page through every
 [ ! -s "$GH_LOG" ] || fail "a search that filled every page filed an issue"
 
 : >"$GH_LOG"
+: >"$GH_QUERY_LOG"
 if run_maintenance --root "$tmp/partial-root" --no-fetch >"$tmp/partial-out" 2>"$tmp/partial-err"; then
 	cat "$tmp/partial-out" "$tmp/partial-err" >&2
 	fail "an incomplete search returned success"
 fi
 grep -q 'returned incomplete results' "$tmp/partial-err" || fail "an incomplete search did not fail loudly"
+grep -q 'state:closed.* page 2' "$GH_QUERY_LOG" || fail "the incomplete search did not page before failing"
 [ ! -s "$GH_LOG" ] || fail "an incomplete search filed an issue"
 
 : >"$GH_LOG"
