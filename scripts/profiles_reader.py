@@ -50,10 +50,6 @@ def profiles_entries(text):
 
 
 def factory_ref(reference):
-    if reference.startswith('git::') and FACTORY_INCLUDE.match(reference):
-        match = GIT_REF.search(reference)
-        if match is not None:
-            return match.group(1)
     match = REF_PATH.match(reference)
     if match is not None:
         return match.group('ref')
@@ -61,4 +57,8 @@ def factory_ref(reference):
         match = pattern.match(reference)
         if match is not None:
             return match.group('ref')
+    if FACTORY_INCLUDE.match(reference):
+        match = GIT_REF.search(reference)
+        if match is not None:
+            return match.group(1)
     return None

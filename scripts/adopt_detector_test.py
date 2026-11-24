@@ -367,6 +367,20 @@ class AdoptDetectorTests(AdoptCase):
         self.assertEqual(len(self.markers(tooling)), 1)
         self.assertIn("mise.toml", tooling["body"])
 
+    def test_plain_factory_url_query_ref_is_accepted(self):
+        include = "https://github.com/ranokay/factory//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "https://github.com/ranokay/factory//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "tooling",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
     def test_fenced_profiles_example_does_not_count(self):
         (self.project / "AGENTS.md").write_text(
             "# Fixture\n\n```md\nProfiles: universal\n```\n"
