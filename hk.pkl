@@ -1031,7 +1031,7 @@ steps {
   }
 
   ["adopt"] = new Step {
-    check = "python3 {{root}}/scripts/adopt-test.py"
+    check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/adopt-test.py"
     tests {
       ["files one issue per category, then only new findings"] {
         run = "check"

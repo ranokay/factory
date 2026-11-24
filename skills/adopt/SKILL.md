@@ -2,6 +2,8 @@
 name: adopt
 description: "Inventory a repository, apply the Factory's repository settings, and file one issue per unseen cleanup finding, so existing repos reach the standard through ordinary Runs."
 disable-model-invocation: true
+metadata:
+  author: ranokay
 ---
 
 # Adopt
@@ -19,14 +21,17 @@ clean and `origin` must match `<owner>/<repo>`.
 Dry run:
 
 ```sh
-~/Developer/factory/scripts/adopt.py <owner>/<repo> --project ~/Developer/<repo> --dry-run
+mise -C ~/Developer/factory run adopt -- <owner>/<repo> --project ~/Developer/<repo> --dry-run
 ```
 
 Apply:
 
 ```sh
-~/Developer/factory/scripts/adopt.py <owner>/<repo> --project ~/Developer/<repo>
+mise -C ~/Developer/factory run adopt -- <owner>/<repo> --project ~/Developer/<repo>
 ```
+
+The task runs the Factory's pinned Python from any cwd. The script also carries
+an executable `#!/usr/bin/env python3` shebang for direct use.
 
 The script runs `~/Developer/factory/scripts/repo-settings.py <owner>/<repo>
 --apply` first: canonical labels, removal of GitHub's default labels, merge

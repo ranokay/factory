@@ -50,6 +50,10 @@ run = "./skills/evidence/scripts/evidence"
 description = "Compare or reconcile repository settings"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/repo-settings.py"
 
+[tasks.adopt]
+description = "Inventory a repository and file unseen adoption findings"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/adopt.py"
+
 [tasks.gc]
 description = "Prune stale Factory data and tool caches"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/gc.py --notify"

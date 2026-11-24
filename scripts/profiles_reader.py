@@ -4,6 +4,10 @@ import re
 PROFILES_LINE = re.compile(r'^[ \t]*Profiles:[ \t]*(.*)$')
 TAG = re.compile(r'^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$')
 GIT_REF = re.compile(r'[?&]ref=([^&]+)')
+FACTORY_INCLUDE = re.compile(
+    r'^(?:git::)?https?://(?:github\.com|raw\.githubusercontent\.com)/ranokay/factory',
+    re.IGNORECASE,
+)
 RAW_FACTORY = re.compile(
     r'^https?://raw\.githubusercontent\.com/ranokay/factory/(?P<ref>[^/]+)/', re.IGNORECASE
 )
@@ -43,7 +47,7 @@ def profiles_entries(text):
 
 def factory_ref(reference):
     match = GIT_REF.search(reference)
-    if match is not None and 'ranokay/factory' in reference.lower():
+    if match is not None and FACTORY_INCLUDE.match(reference):
         return match.group(1)
     match = REF_PATH.match(reference)
     if match is not None:
