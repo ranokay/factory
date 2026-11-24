@@ -201,6 +201,17 @@ class Adopt(unittest.TestCase):
         committed = self.git("commit", "-qm", message)
         self.assertEqual(committed.returncode, 0, committed.stderr)
 
+    def write_tooling(self, includes, tasks, hk):
+        (self.project / "mise.toml").write_text(
+            f"include = {json.dumps(includes)}\n\n"
+            f"[task_config]\nincludes = {json.dumps(tasks)}\n"
+        )
+        (self.project / "hk.pkl").write_text(f'amends "{hk}"\n')
+        (self.project / "renovate.json").write_text(
+            '{"extends": ["github>ranokay/factory"]}\n'
+        )
+        self.commit("add tooling")
+
     def write_repo(self):
         self.project.mkdir()
         for path, content in FILES.items():
@@ -592,6 +603,52 @@ class Adopt(unittest.TestCase):
         self.assertEqual(len(issues), 8)
         self.assertIn("icon", self.issue_for(issues, "brand")["body"])
 
+    def test_string_includes_are_accepted(self):
+        (self.project / "mise.toml").write_text(
+            'include = "./profiles/universal/mise.toml"\n\n'
+            '[task_config]\nincludes = "profiles/universal/tasks.toml"\n'
+        )
+        (self.project / "hk.pkl").write_text('amends "profiles/universal/hk.pkl"\n')
+        (self.project / "renovate.json").write_text(
+            '{"extends": ["github>ranokay/factory"]}\n'
+        )
+        self.commit("add string includes")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "tooling",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
+    def test_verification_skill_without_mise_does_not_abort(self):
+        skill = self.project / ".agents/skills/verify-counter"
+        (skill / "references/features").mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\nname: verify-counter\ndescription: fixture\n---\n"
+        )
+        (skill / "references/features/feature.md").write_text("feature\n")
+        link = self.project / ".claude/skills/verify-counter"
+        link.parent.mkdir(parents=True)
+        os.symlink("../../.agents/skills/verify-counter", link)
+        self.commit("add a verification skill")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(
+            {category for issue in issues for category in self.categories(issue)},
+            {
+                "tooling",
+                "comments",
+                "dead-code",
+                "agents",
+                "stale-files",
+                "test-pruning",
+                "brand",
+            },
+        )
+
     def test_unpinned_factory_includes_are_a_finding(self):
         (self.project / "mise.toml").write_text(
             'include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=main"]\n\n'
@@ -612,6 +669,45 @@ class Adopt(unittest.TestCase):
         self.assertNotIn("renovate.json is not extending", tooling["body"])
         self.assertEqual(len(self.markers(tooling)), 2)
 
+    def test_mixed_pinned_and_unpinned_includes_are_a_finding(self):
+        pinned = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        unpinned = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=main"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        self.write_tooling([pinned, unpinned], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 1)
+        self.assertIn("mise.toml", tooling["body"])
+        self.assertNotIn("hk.pkl is not amending", tooling["body"])
+
+    def test_prerelease_factory_tag_is_accepted(self):
+        include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0-rc.1"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0-rc.1"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0-rc.1/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "tooling",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
+    def test_short_ref_is_not_a_factory_tag(self):
+        include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v1"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v1"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v1/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 2)
+        self.assertIn("mise.toml", tooling["body"])
+        self.assertIn("hk.pkl", tooling["body"])
+
     def test_malformed_tooling_configs_are_findings(self):
         (self.project / "mise.toml").write_text("include = 1\n")
         (self.project / "renovate.json").write_text("[]\n")
@@ -628,7 +724,13 @@ class Adopt(unittest.TestCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("skipping it as a reference source", result.stderr)
-        self.assertEqual(len(self.issues()), 8)
+        self.assertIn("dead-code detection skipped", result.stderr)
+        issues = self.issues()
+        self.assertEqual(len(issues), 7)
+        self.assertNotIn(
+            "dead-code",
+            {category for issue in issues for category in self.categories(issue)},
+        )
 
     def test_environment_shadows_gh_and_op(self):
         for name in ("gh", "op"):

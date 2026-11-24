@@ -33,6 +33,7 @@ TEST_NAME_RE = re.compile(
     r"(?:\.(?:test|spec)\.[^./]+|_test\.[^./]+|Tests?\.swift|\.bats)$"
 )
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+TAG = re.compile(r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$")
 SEARCH_PAGE_SIZE = 100
 SEARCH_MAX_PAGES = 10
 BATCH_SIZE = 100
@@ -206,6 +207,9 @@ def read_file(project, path):
 
 
 def read_reference(project, path):
+    target = project / path
+    if target.is_dir() or (target.is_symlink() and not target.exists()):
+        return ""
     try:
         return read_file(project, path)
     except Problem as error:
@@ -213,7 +217,7 @@ def read_reference(project, path):
             f"adopt: warning: {error}; skipping it as a reference source",
             file=sys.stderr,
         )
-        return ""
+        return None
 
 
 def is_test_path(path):
@@ -234,6 +238,22 @@ def comment_rule(message):
     return "comment"
 
 
+def factory_ref(value):
+    match = re.search(r"[?&]ref=([^&]+)", value)
+    if match and "ranokay/factory" in value:
+        return match.group(1)
+    match = re.search(r"raw\.githubusercontent\.com/ranokay/factory/([^/]+)/", value)
+    if match:
+        return match.group(1)
+    match = re.search(r"github\.com/ranokay/factory/(?:raw|blob|tree)/([^/]+)/", value)
+    if match:
+        return match.group(1)
+    match = re.search(r"github\.com/ranokay/factory/refs/(?:heads|tags)/([^/]+)/", value)
+    if match:
+        return match.group(1)
+    return None
+
+
 def valid_factory_include(value):
     if not isinstance(value, str) or "profiles/" not in value:
         return False
@@ -241,8 +261,27 @@ def valid_factory_include(value):
         return True
     if "ranokay/factory" not in value:
         return False
-    return bool(
-        re.search(r"(?:[?&]ref=|/factory/)v\d+(?:\.\d+)*(?:[&#/]|$)", value)
+    ref = factory_ref(value)
+    return bool(ref and TAG.match(ref))
+
+
+def factory_references(values):
+    return [
+        value
+        for value in values
+        if isinstance(value, str)
+        and "profiles/" in value
+        and (
+            "ranokay/factory" in value
+            or value.startswith(("./profiles/", "profiles/"))
+        )
+    ]
+
+
+def includes_are_factory(values):
+    references = factory_references(values)
+    return bool(references) and all(
+        valid_factory_include(value) for value in references
     )
 
 
@@ -255,7 +294,7 @@ def tooling_findings(project, tracked):
                 "tooling",
                 "mise.toml",
                 "factory-include",
-                "mise.toml is missing the Factory Profile include.",
+                "mise.toml is missing a Factory Profile include pinned to a v* tag.",
             )
         )
     else:
@@ -266,28 +305,31 @@ def tooling_findings(project, tracked):
                 finding(
                     "tooling",
                     "mise.toml",
-                    "invalid-toml",
+                    "factory-include",
                     f"mise.toml is not valid TOML: {error}",
                 )
             )
         else:
             includes = mise.get("include")
-            if not isinstance(includes, list):
+            if isinstance(includes, str):
+                includes = [includes]
+            elif not isinstance(includes, list):
                 includes = []
             task_config = mise.get("task_config")
             tasks = task_config.get("includes") if isinstance(task_config, dict) else []
-            if not isinstance(tasks, list):
+            if isinstance(tasks, str):
+                tasks = [tasks]
+            elif not isinstance(tasks, list):
                 tasks = []
             if not (
-                any(valid_factory_include(value) for value in includes)
-                and any(valid_factory_include(value) for value in tasks)
+                includes_are_factory(includes) and includes_are_factory(tasks)
             ):
                 found.append(
                     finding(
                         "tooling",
                         "mise.toml",
                         "factory-include",
-                        "mise.toml is missing the Factory Profile include.",
+                        "mise.toml is missing a Factory Profile include pinned to a v* tag.",
                     )
                 )
     if "hk.pkl" not in present:
@@ -296,7 +338,7 @@ def tooling_findings(project, tracked):
                 "tooling",
                 "hk.pkl",
                 "factory-amend",
-                "hk.pkl is not amending a Factory Profile.",
+                "hk.pkl is not amending a Factory Profile pinned to a v* tag.",
             )
         )
     else:
@@ -307,7 +349,7 @@ def tooling_findings(project, tracked):
                     "tooling",
                     "hk.pkl",
                     "factory-amend",
-                    "hk.pkl is not amending a Factory Profile.",
+                    "hk.pkl is not amending a Factory Profile pinned to a v* tag.",
                 )
             )
     if "renovate.json" not in present:
@@ -327,7 +369,7 @@ def tooling_findings(project, tracked):
                 finding(
                     "tooling",
                     "renovate.json",
-                    "invalid-json",
+                    "factory-preset",
                     f"renovate.json is not valid JSON: {error}",
                 )
             )
@@ -337,8 +379,8 @@ def tooling_findings(project, tracked):
                     finding(
                         "tooling",
                         "renovate.json",
-                        "invalid-json",
-                        "renovate.json must contain a JSON object.",
+                        "factory-preset",
+                        "renovate.json must contain a JSON object with the Factory preset.",
                     )
                 )
             else:
@@ -407,16 +449,27 @@ def comment_findings(project, tracked):
 def dead_code_findings(project, tracked):
     tokens = {}
     counts = {}
+    incomplete = False
     for path in tracked:
         if path.endswith(".d.ts"):
             continue
         text = read_reference(project, path)
+        if text is None:
+            incomplete = True
+            continue
         if not text:
             continue
         names = set(TOKEN_RE.findall(text))
         tokens[path] = names
         for name in names:
             counts[name] = counts.get(name, 0) + 1
+    if incomplete:
+        print(
+            "adopt: warning: dead-code detection skipped because a reference "
+            "file could not be read",
+            file=sys.stderr,
+        )
+        return []
     found = []
     for path in tracked:
         item = PurePosixPath(path)
@@ -535,7 +588,8 @@ def verification_findings(project, tracked):
             )
         ]
     found = []
-    mise = read_file(project, "mise.toml") if "mise.toml" in tracked else ""
+    mise_present = "mise.toml" in tracked
+    mise = read_file(project, "mise.toml") if mise_present else ""
     for name in sorted(skills):
         app = name.removeprefix("verify-")
         link = f".claude/skills/{name}"
@@ -558,7 +612,7 @@ def verification_findings(project, tracked):
                     f"{features}/ is missing.",
                 )
             )
-        if f"verify:{app}" not in mise:
+        if mise_present and f"verify:{app}" not in mise:
             found.append(
                 finding(
                     "verification",

@@ -43,14 +43,14 @@ output and rerun; the marker search prevents duplicates.
 
 | Category | Detector | Issue tells the Run |
 | --- | --- | --- |
-| tooling baseline | `mise.toml` missing a Factory Profile include pinned to a `v*` tag, `hk.pkl` not amending a pinned Factory Profile, `renovate.json` not extending `github>ranokay/factory`, or a missing advisory bot config. | Add the Factory baseline from `project/`. |
+| tooling baseline | `mise.toml` missing a Factory Profile include (local `./profiles/` in the Factory repo, or a `v*`-pinned Factory URL in a consuming repo), `hk.pkl` not amending a pinned Factory Profile, `renovate.json` not extending `github>ranokay/factory`, or a missing advisory bot config. | Add the Factory baseline from `project/`. |
 | comment purge | The universal Profile's `comment-ban.sh` over every tracked non-Markdown file: banned `TODO`, `FIXME`, `HACK`, `XXX` and commented-out code. | Use the `no-comments` skill; run `mise run check`. |
-| dead code | Source files under `src/`, `lib/`, `Sources/`, `cmd/`, `internal/` or `pkg/` whose stem no other tracked file references; entry points and tests are excluded. | Confirm each candidate, delete the provably dead code, keep tests green. |
+| dead code | Source files under `src/`, `lib/`, `Sources/`, `cmd/`, `internal/` or `pkg/` whose stem no other tracked file references; entry points and tests are excluded. If a reference file cannot be read, `adopt` warns and files no dead-code issue rather than guess. | Confirm each candidate, delete the provably dead code, keep tests green. |
 | AGENTS.md rewrite | Missing `AGENTS.md`, missing `Profiles:` line, no `mise run check`, `CLAUDE.md` not a relative symlink, or over 120 lines. | Rewrite from `project/AGENTS.md`; keep `CLAUDE.md -> AGENTS.md`. |
 | stale files | Tracked OS/editor/backup artifacts (`*.orig`, `*.bak`, `*~`, `.DS_Store`, ...), logs, and tracked cache/build directories. | Remove them, ignore generated ones. |
-| verification skill | No `.agents/skills/verify-<app>/SKILL.md`, or a skill missing its `.claude/skills` symlink, `references/features/` map, or `verify:<app>` mise task. | Use `create-verification-skill`. |
+| verification skill | No `.agents/skills/verify-<app>/SKILL.md`, or a skill missing its `.claude/skills` symlink, `references/features/` map, or a `verify:<app>` task when `mise.toml` exists. | Use `create-verification-skill`. |
 | test pruning | Any tracked test file (`*.test.*`, `*.spec.*`, `test_*`, `tests/`, ...). | Work it with `prune-tests`. |
-| brand | No `icon` SVG master under `assets/brand/`. This issue is `ready-for-human`. | Run `brand-assets`; the choice of masters stays with ranokay. |
+| brand | No `icon` SVG master under `assets/brand/`. This issue is `ready-for-human`. | Run the `brand-assets` Own Skill; the choice of masters stays with ranokay. |
 
 ## Gardening and markers
 
