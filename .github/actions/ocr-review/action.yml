@@ -8,6 +8,23 @@ inputs:
     description: Path to the OCR rules JSON; falls back to <workspace>/ai-review-rule.json.
     required: false
     default: ''
+  # These mirror the Review step's defaults. They exist so the restyle step
+  # classifies findings with the same routing policy the Review step used and
+  # labels the footer with the same effort. The defaults keep the Review step's
+  # checkpoint fingerprint byte-identical; a caller that overrides them changes
+  # both steps together. The action tests pin each default and the wiring.
+  route_severity_below:
+    description: Severity threshold the Review and restyle steps route to the summary.
+    required: false
+    default: medium
+  route_categories:
+    description: Categories the Review and restyle steps route to the summary.
+    required: false
+    default: style,documentation
+  effort:
+    description: Review effort used by the Review step and recorded in the restyled footer.
+    required: false
+    default: high
 runs:
   using: composite
   steps:
@@ -97,10 +114,10 @@ runs:
         sticky_summary: 'true'
         incremental: 'true'
         checkpoint_range: 'true'
-        route_severity_below: medium
-        route_categories: style,documentation
+        route_severity_below: ${{ inputs.route_severity_below }}
+        route_categories: ${{ inputs.route_categories }}
         resolve_outdated: 'true'
-        effort: high
+        effort: ${{ inputs.effort }}
         # The checkpoint travels in the sticky summary comment, not in
         # uploaded artifacts. See the checkpoint outputs in
         # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/action.yml
@@ -121,3 +138,37 @@ runs:
           exit 1
         fi
         python3 -c 'import json, os, sys; result = json.load(open(os.environ["RESULT_PATH"])); sys.exit(result.get("status") not in ("complete", "skipped"))'
+    - name: Restyle review comments
+      # OCR has no template hook, so rewrite its sticky summary and this run's
+      # inline comments after it posts. Every hidden marker is preserved, which
+      # keeps checkpoint_range, incremental and resolve_outdated working. A
+      # failure restores whatever was already written and only warns: never
+      # fail the job and never lose a finding. The step lives beside this
+      # action so a caller that uses the action remotely still has it, and
+      # github.action_path resolves it without this repository's workspace.
+      # A caller must grant pull-requests: write (with issues: read) for the
+      # PATCHes; a read-only token leaves each rewrite warning and OCR's
+      # comments in place. See
+      # https://docs.github.com/actions/using-jobs/assigning-permissions-to-jobs
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        OCR_RESULT: /tmp/ocr-result.json
+        OCR_RANGE_REASON: ${{ steps.review.outputs.range_reason }}
+        OCR_RANGE_FROM: ${{ steps.review.outputs.range_from }}
+        OCR_RANGE_TO: ${{ steps.review.outputs.range_to }}
+        OCR_INLINE: ${{ steps.review.outputs.comments_inline }}
+        OCR_SKIPPED: ${{ steps.review.outputs.comments_skipped }}
+        OCR_ROUTE_SEVERITY_BELOW: ${{ inputs.route_severity_below }}
+        OCR_ROUTE_CATEGORIES: ${{ inputs.route_categories }}
+        OCR_EFFORT: ${{ inputs.effort }}
+        OCR_SCRIPT: ${{ github.action_path }}/restyle.py
+      run: |
+        set +e
+        python3 "$OCR_SCRIPT"
+        status=$?
+        if [ "$status" -ne 0 ]; then
+          echo "::warning::OCR restyle exited $status; OCR's original comments were left in place"
+        fi
+        exit 0

@@ -99,10 +99,10 @@ class AiReviewWorkflowTests(unittest.TestCase):
             "sticky_summary": "true",
             "incremental": "true",
             "checkpoint_range": "true",
-            "route_severity_below": "medium",
-            "route_categories": "style,documentation",
+            "route_severity_below": "${{ inputs.route_severity_below }}",
+            "route_categories": "${{ inputs.route_categories }}",
             "resolve_outdated": "true",
-            "effort": "high",
+            "effort": "${{ inputs.effort }}",
         }
         for name, value in expected.items():
             with self.subTest(input=name):
@@ -211,6 +211,51 @@ class AiReviewWorkflowTests(unittest.TestCase):
             job["steps"][-1]["with"]["opencode_zen_api_key"],
             "${{ secrets.OPENCODE_ZEN_API_KEY }}",
         )
+
+    def test_restyle_step_follows_review_and_uses_the_action_directory(self):
+        source = action("ocr-review")
+        steps = action_steps(source)
+        names = [item.get("name") for item in steps]
+        self.assertLess(names.index("Review"), names.index("Restyle review comments"))
+        restyle = named_step(steps, "Restyle review comments")
+        self.assertEqual(restyle["env"]["OCR_SCRIPT"], "${{ github.action_path }}/restyle.py")
+        self.assertEqual(
+            restyle["env"]["OCR_INLINE"], "${{ steps.review.outputs.comments_inline }}"
+        )
+        self.assertEqual(
+            restyle["env"]["OCR_SKIPPED"], "${{ steps.review.outputs.comments_skipped }}"
+        )
+        self.assertNotIn("github.workspace", restyle["env"]["OCR_SCRIPT"])
+        self.assertTrue((ROOT / ".github/actions/ocr-review/restyle.py").is_file())
+
+    def test_restyle_step_never_fails_the_job(self):
+        restyle = named_step(action_steps(action("ocr-review")), "Restyle review comments")
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "fail.py"
+            script.write_text("raise SystemExit(1)\n")
+            result = run_step(restyle, {"OCR_SCRIPT": str(script)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning::", result.stdout)
+
+    def test_review_and_restyle_inputs_share_defaults(self):
+        source = action("ocr-review")
+        inputs = yaml.safe_load(source)["inputs"]
+        with_ = review_step(source)["with"]
+        restyle = named_step(action_steps(source), "Restyle review comments")
+        defaults = {
+            "route_severity_below": "medium",
+            "route_categories": "style,documentation",
+            "effort": "high",
+        }
+        for name, variable in (
+            ("route_severity_below", "OCR_ROUTE_SEVERITY_BELOW"),
+            ("route_categories", "OCR_ROUTE_CATEGORIES"),
+            ("effort", "OCR_EFFORT"),
+        ):
+            with self.subTest(input=name):
+                self.assertEqual(inputs[name]["default"], defaults[name])
+                self.assertEqual(with_[name], "${{ inputs." + name + " }}")
+                self.assertEqual(restyle["env"][variable], "${{ inputs." + name + " }}")
 
     def test_missing_key_fails_before_review(self):
         source = action("ocr-review")

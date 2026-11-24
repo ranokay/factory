@@ -96,6 +96,13 @@ steps {
     exclude = vendored
   }
   ["comment-ban"] {
+    // The pinned Profile (v0.2.0) predates the PEP 723 exemption in
+    // https://github.com/ranokay/factory/blob/main/profiles/universal/scripts/comment-ban.sh
+    // Drop this override when the include/amends pin moves past that release.
+    env {
+      ["COMMENT_BAN"] =
+        "{% raw %}" + read("profiles/universal/scripts/comment-ban.sh").text + "{% endraw %}"
+    }
     exclude = List("profiles/universal/tests/fixtures/**")
   }
   ["gitleaks"] = (Builtins.gitleaks) {
@@ -1000,6 +1007,16 @@ steps {
     check = "python3 {{root}}/scripts/triage-test.py"
     tests {
       ["derives both outcomes and labels after the comment"] {
+        run = "check"
+        expect { code = 0 }
+      }
+    }
+  }
+
+  ["ocr-restyle"] = new Step {
+    check = "uv run --script {{root}}/scripts/ocr-restyle-test.py"
+    tests {
+      ["restyles, preserves markers and rolls back a failed rewrite"] {
         run = "check"
         expect { code = 0 }
       }

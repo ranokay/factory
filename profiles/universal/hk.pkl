@@ -50,6 +50,27 @@ steps {
         files = List("clean.sh", "clean.pkl", "clean.ini")
         expect { code = 0 }
       }
+      ["accepts a PEP 723 script block"] {
+        run = "check"
+        tmpdir = true
+        write { ["script.py"] = read("tests/fixtures/pep723.py").text }
+        files = List("script.py")
+        expect { code = 0 }
+      }
+      ["rejects an unterminated PEP 723 block"] {
+        run = "check"
+        tmpdir = true
+        write { ["script.py"] = "# /// script\n# dependencies = [\"x==1\"]\nprint(1)\n" }
+        files = List("script.py")
+        expect { code = 1 }
+      }
+      ["does not exempt a non-Python file"] {
+        run = "check"
+        tmpdir = true
+        write { ["script.sh"] = "# /// script\n# TODO: fix\n# ///\n" }
+        files = List("script.sh")
+        expect { code = 1 }
+      }
       ["rejects commented-out code"] {
         run = "check"
         tmpdir = true
