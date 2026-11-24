@@ -4,6 +4,7 @@ import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.
 
 // comment-ban's help contains ${#array[@]}, which Tera reads as a comment tag; see https://keats.github.io/tera/docs/#raw-blocks.
 local const commentBan = "{% raw %}" + read("scripts/comment-ban.sh").text + "{% endraw %}"
+// Inline the checker for the same reason as comment-ban: a repository that amends this Profile by URL has no local scripts path.
 local const assetMasters = "{% raw %}" + read("scripts/asset-masters.js").text + "{% endraw %}"
 local const pinactScript = read("scripts/pinact.sh").text
 local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")

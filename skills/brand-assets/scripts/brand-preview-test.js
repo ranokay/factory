@@ -23,6 +23,10 @@ function svg(color, body = "") {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="${color}"/>${body}</svg>\n`;
 }
 
+function lockup(color) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80"><circle cx="40" cy="40" r="28" fill="${color}"/><path d="M88 58c0-18 14-32 32-32s32 14 32 32" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/></svg>\n`;
+}
+
 function write(name, content) {
   const file = path.join(workspace, name);
   fs.writeFileSync(file, content);
@@ -38,6 +42,9 @@ try {
   const orbit = write("orbit.svg", svg("#2563eb"));
   const fold = write("fold.svg", svg("#16a34a"));
   const signal = write("signal.svg", svg("#ea580c"));
+  const orbitLockup = write("orbit-lockup.svg", lockup("#2563eb"));
+  const foldLockup = write("fold-lockup.svg", lockup("#16a34a"));
+  const signalLockup = write("signal-lockup.svg", lockup("#ea580c"));
   const output = path.join(workspace, "out", "preview.html");
   const args = [
     "--title", "Northwind",
@@ -46,6 +53,9 @@ try {
     "--concept", `Orbit=${orbit}`,
     "--concept", `Fold=${fold}`,
     "--concept", `Signal=${signal}`,
+    "--lockup", `Orbit=${orbitLockup}`,
+    "--lockup", `Fold=${foldLockup}`,
+    "--lockup", `Signal=${signalLockup}`,
     "--note", "Orbit=A ring in motion",
     "--output", output,
   ];
@@ -65,6 +75,9 @@ try {
   assert.ok(html.includes('class="tabs"'));
   assert.ok(html.includes('class="dock"'));
   assert.ok(html.includes("Menu bar 18 px template"));
+  assert.ok(html.includes("Silhouettes at 16 px"));
+  assert.equal((html.match(/class="silhouette"/g) ?? []).length, 3);
+  assert.equal((html.match(/class="lockup"/g) ?? []).length, 6);
   assert.ok(html.includes("Show all sizes"));
   assert.ok(html.includes("https://northwind.app"));
   assert.ok(html.includes('class="mark template"'));
@@ -111,6 +124,7 @@ try {
   expectFailure(fails(["--title", "Bad", "--concept", `Same=${orbit}`, "--concept", `Same=${fold}`, "--output", path.join(workspace, "bad.html")]), "duplicate concept name");
 
   expectFailure(fails(["--title", "Bad", "--concept", `Orbit=${orbit}`, "--note", "Elsewhere=nope", "--output", path.join(workspace, "bad.html")]), "names no concept");
+  expectFailure(fails(["--title", "Bad", "--concept", `Orbit=${orbit}`, "--lockup", "Elsewhere=nope", "--output", path.join(workspace, "bad.html")]), "--lockup names no concept");
 
   console.log("brand-preview: tests passed");
 } finally {

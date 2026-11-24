@@ -49,6 +49,17 @@ gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"'
 If there is no GitHub remote, parse `git remote get-url origin`; without a
 remote, use `local/<directory-name>`.
 
+Resolve the Factory checkout once and use it for every script below:
+
+```sh
+factory=${FACTORY_CHECKOUT:-$HOME/.agents}
+[ -d "$factory/profiles/universal" ] || factory=$HOME/Developer/factory
+[ -f "$factory/profiles/universal/scripts/asset-masters.js" ] || {
+  echo "brand-assets: set FACTORY_CHECKOUT to the Factory checkout" >&2
+  exit 1
+}
+```
+
 Set `cache=~/.cache/factory/<owner>/<repo>/brand-assets` and create it. Record
 the pre-pick state there:
 
@@ -62,9 +73,11 @@ the repository, stage anything or commit before step 6.
 
 ## 3. Draw three concepts
 
-Write `concept-1-<slug>.svg`, `concept-2-<slug>.svg` and
-`concept-3-<slug>.svg` into `$cache`. Each is a square 1024 `viewBox` with a
-transparent background and no app tile.
+Write `concept-1-<slug>-icon.svg`, `concept-2-<slug>-icon.svg` and
+`concept-3-<slug>-icon.svg` into `$cache`, and a matching
+`concept-N-<slug>-lockup.svg` for each. Each icon is a square 1024 `viewBox`
+with a transparent background and no app tile. Each lockup pairs that mark with
+the wordmark as outlined paths, at a wide `viewBox`.
 
 - Build every shape from primitives and Bezier curves: `path`, `circle`,
   `rect`, `line`, `polygon`. Never embed a raster, never trace a pixel image.
@@ -76,31 +89,34 @@ transparent background and no app tile.
 
 **The difference check runs before the concepts are shown.** For each concept,
 write one line: “it forms *<metaphor>* as *<silhouette>*”. Then compare the
-three at 16 px in one colour (the preview page's index row does this). If two
-share a metaphor, or collapse into the same silhouette, redraw one and repeat
-the check. Three recolours of one shape are not three concepts.
+three icons at 16 px in one colour (the preview page's silhouette strip does
+this), and compare the three lockups beside each other. If two share a
+metaphor, or collapse into the same silhouette, redraw one and repeat the check.
+Three recolours of one shape are not three concepts.
 
 Run the checker on the concepts before showing them:
 
 ```sh
-node ~/.agents/profiles/universal/scripts/asset-masters.js "$cache"/*.svg
+node "$factory/profiles/universal/scripts/asset-masters.js" "$cache"/*.svg
 ```
 
-Inside the Factory checkout use `profiles/universal/scripts/asset-masters.js`
-instead. Fix every reported file and rerun.
+Fix every reported file and rerun.
 
 ## 4. Preview
 
 Generate one self-contained page with the script beside this skill:
 
 ```sh
-node ~/.agents/skills/brand-assets/scripts/brand-preview.js \
+node "$factory/skills/brand-assets/scripts/brand-preview.js" \
   --title "<Product> brand concepts" \
   --subtitle "<one line from the brief>" \
   --site "<product-slug>.app" \
-  --concept "Orbit=$cache/concept-1-orbit.svg" \
-  --concept "Fold=$cache/concept-2-fold.svg" \
-  --concept "Signal=$cache/concept-3-signal.svg" \
+  --concept "Orbit=$cache/concept-1-orbit-icon.svg" \
+  --concept "Fold=$cache/concept-2-fold-icon.svg" \
+  --concept "Signal=$cache/concept-3-signal-icon.svg" \
+  --lockup "Orbit=$cache/concept-1-orbit-lockup.svg" \
+  --lockup "Fold=$cache/concept-2-fold-lockup.svg" \
+  --lockup "Signal=$cache/concept-3-signal-lockup.svg" \
   --note "Orbit=<one-line metaphor>" \
   --note "Fold=<one-line metaphor>" \
   --note "Signal=<one-line metaphor>" \
@@ -113,10 +129,12 @@ Show it with T3:
     `contentHeight`.
 2. `html_render({ path: "$cache/preview.html", title: "<Product> brand concepts", height: <contentHeight> })`.
 
-The page shows every concept at 16, 32, 64, 128, 256, 512 and 1024 px, as a
-menu-bar template glyph, as a favicon in a mock tab bar, and in a mock Dock, on
-light and dark. The size ladder scrolls for 512 and 1024. If T3 preview tools
-are unavailable, open the file with `open` and give ranokay its path.
+The page shows each concept's icon at 16, 32, 64, 128, 256, 512 and 1024 px,
+its logo lockup, a 16 px silhouette strip, the mark as a menu-bar template
+glyph, as a favicon in a mock tab bar, and in a mock Dock, on light and dark. The
+size ladder scrolls for 512 and 1024; “Show all sizes” expands one board to the
+full page width so the 1024 master is shown whole. If T3 preview tools are
+unavailable, open the file with `open` and give ranokay its path.
 
 ## 5. The pick
 
@@ -139,15 +157,15 @@ the difference check. The baseline must still match before the next ask.
 
 After the pick, draw the final masters into `assets/brand/` in the repository:
 
-- `icon.svg`: the chosen concept redrawn at a 1024 square `viewBox`, transparent
-  background, primitives and Bezier curves.
-- `logo.svg`: a horizontal lockup of the same mark with the wordmark outlined as
+- `icon.svg`: the chosen concept's icon redrawn at a 1024 square `viewBox`,
+  transparent background, primitives and Bezier curves.
+- `logo.svg`: the chosen concept's lockup redrawn, with the wordmark outlined as
   paths, never `<text>`. For an icon-only brand, make a wide variant of the mark.
 
 Then:
 
 ```sh
-node ~/.agents/profiles/universal/scripts/asset-masters.js assets/brand/*.svg
+node "$factory/profiles/universal/scripts/asset-masters.js" assets/brand/*.svg
 mise run check
 ```
 

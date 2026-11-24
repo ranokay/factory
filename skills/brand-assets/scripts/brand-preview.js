@@ -7,10 +7,10 @@ const path = require("node:path");
 const SIZES = [16, 32, 64, 128, 256, 512, 1024];
 const MAX_CONCEPTS = 6;
 
-const USAGE = `Usage: brand-preview.js --output <file> --title <title> --concept <name>=<svg> [--concept ...] [--note <name>=<text>] [--subtitle <text>] [--site <host>]
+const USAGE = `Usage: brand-preview.js --output <file> --title <title> --concept <name>=<svg> [--concept ...] [--lockup <name>=<svg>] [--note <name>=<text>] [--subtitle <text>] [--site <host>]
 
 Render brand concepts as one self-contained HTML page.
-Pass one --concept per direction; the skill passes three.
+Pass one --concept per direction; the skill passes three. Add one --lockup per direction to show its logo lockup.
 Each SVG must have a viewBox and no script, foreignObject, data URI or external reference.`;
 
 function escapeHtml(value) {
@@ -31,7 +31,7 @@ function splitPair(value, flag) {
 }
 
 function parseArgs(argv) {
-  const options = { output: null, title: null, subtitle: null, site: "example.app", concepts: [], notes: new Map() };
+  const options = { output: null, title: null, subtitle: null, site: "example.app", concepts: [], lockups: new Map(), notes: new Map() };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") {
@@ -61,6 +61,9 @@ function parseArgs(argv) {
         throw new Error("--concept needs a non-empty name and path");
       }
       options.concepts.push({ name, file });
+    } else if (flag === "lockup") {
+      const [name, file] = splitPair(next, "--lockup");
+      options.lockups.set(name, file);
     } else if (flag === "note") {
       const [name, text] = splitPair(next, "--note");
       options.notes.set(name, text);
@@ -119,6 +122,13 @@ function board(concept, theme, site, boardId) {
   const sizes = SIZES.map(
     (size) => `<figure class="size">${mark(concept.svg, size)}<figcaption>${size} px</figcaption></figure>`,
   ).join("");
+  const lockup =
+    concept.lockup === undefined
+      ? ""
+      : `<div class="lockup">
+          <span class="lockup-label">Logo lockup</span>
+          <span class="lockup-art" aria-hidden="true">${concept.lockup}</span>
+        </div>`;
   return `<div class="board board-${theme}">
         <div class="board-label">${note}</div>
         <input class="sizes-toggle" id="sizes-${boardId}" type="checkbox">
@@ -128,6 +138,7 @@ function board(concept, theme, site, boardId) {
         </div>
         <div class="rail" role="group" aria-label="${note} size ladder">${sizes}</div>
         <p class="rail-hint">Scroll the ladder for 512 and 1024.</p>
+        ${lockup}
         <div class="menu">
           <div class="menu-left">${mark(concept.svg, 18, "template")}<b>${name}</b><span>File</span><span>Edit</span><span>View</span></div>
           <div class="menu-right"><span>Mon 9:41</span></div>
@@ -175,15 +186,20 @@ function indexCard(concept, index) {
   return `<a class="index-card" href="#concept-${index + 1}">${mark(concept.svg, 32)}<span class="index-copy"><strong>${escapeHtml(concept.name)}</strong><span>${escapeHtml(concept.note)}</span></span></a>`;
 }
 
+function silhouette(concept) {
+  return `<span class="silhouette">${mark(concept.svg, 16, "silhouette-glyph")}<span>${escapeHtml(concept.name)}</span></span>`;
+}
+
 function render(concepts, options) {
   const template = fs.readFileSync(path.join(__dirname, "preview-template.html"), "utf8");
   const slots = {
     TITLE: escapeHtml(options.title),
     SUBTITLE: escapeHtml(options.subtitle),
     INDEX: concepts.map(indexCard).join(""),
+    SILHOUETTES: concepts.map(silhouette).join(""),
     CONCEPTS: concepts.map((concept, index) => section(concept, index, options.site)).join(""),
   };
-  return template.replace(/%%(TITLE|SUBTITLE|INDEX|CONCEPTS)%%/g, (match, key) => slots[key]);
+  return template.replace(/%%(TITLE|SUBTITLE|INDEX|SILHOUETTES|CONCEPTS)%%/g, (match, key) => slots[key]);
 }
 
 function main(argv) {
@@ -215,6 +231,13 @@ function main(argv) {
       names.add(concept.name);
       concept.svg = loadSvg(concept.file);
       concept.note = options.notes.has(concept.name) ? options.notes.get(concept.name) : "One direction";
+    }
+    for (const [name, file] of options.lockups) {
+      const concept = options.concepts.find((candidate) => candidate.name === name);
+      if (concept === undefined) {
+        throw new Error(`--lockup names no concept: ${name}`);
+      }
+      concept.lockup = loadSvg(file);
     }
     for (const name of options.notes.keys()) {
       if (!names.has(name)) {
