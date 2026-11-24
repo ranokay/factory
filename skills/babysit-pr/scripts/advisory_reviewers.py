@@ -11,11 +11,6 @@ comment and Copilot's "insufficient remaining quota" review are from #133.
 Greptile's summary marker and CodeRabbit's generated-comment marker are from
 #133 and #150. CodeRabbit's "Review rate limited" wording is from its
 status-check documentation; ranokay/factory has no rate-limit comment.
-
-Status text sits at the top of a reviewer comment, while its later walkthrough
-can quote a placeholder string from the diff; the placeholder match therefore
-stops at PLACEHOLDER_PREFIX, the status area seen at
-https://github.com/Jgocunha/dynamic-neural-field-composer/pull/80.
 """
 
 import json
@@ -41,8 +36,6 @@ REVIEWERS = {
         "skip_phrases": {
             "review skipped": "review skipped",
             "skip review by coderabbit.ai": "review skipped",
-            "review rate limited": "rate limit",
-            "rate limit exceeded": "rate limit",
             "rate limit": "rate limit",
         },
     },

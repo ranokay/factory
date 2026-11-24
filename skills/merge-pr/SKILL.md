@@ -82,7 +82,8 @@ Readiness requires all of:
   `~/Developer/factory/skills/babysit-pr/scripts/advisory-review-status
   <owner>/<repo> <pr>`; exit 1 means a reviewer is still pending, so this skill
   does not merge and the PR needs `babysit-pr`'s bounded wait. A reviewer that
-  timed out is recorded there, not inferred here;
+  timed out is recorded there, not inferred here. Exit 2 is an operational
+  error: report it and stop;
 - no unresolved thread contains an actionable finding that the current head has
   not addressed. A thread whose finding is already fixed but still open does not
   block unless repository rules require resolution;

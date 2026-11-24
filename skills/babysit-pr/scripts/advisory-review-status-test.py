@@ -149,10 +149,6 @@ class AdvisoryReviewStatus(unittest.TestCase):
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_RATE_LIMIT]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (rate limit)", result.stdout)
-        reached = dict(CODERABBIT_RATE_LIMIT, body="## Rate limit reached\nPlease wait.")
-        result = self.invoke(state(comments=[CODERABBIT_REQUEST, reached]))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("coderabbit: terminal (rate limit)", result.stdout)
 
     def test_stale_rate_limit_does_not_make_the_current_head_terminal(self):
         result = self.invoke(

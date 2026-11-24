@@ -19,8 +19,9 @@ from advisory_reviewers import (  # noqa: E402 -- the shared table ships beside 
 )
 
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-PLACEHOLDER_PREFIX = 600
-ERRORS = (
+# CodeRabbit and Greptile put status text at the top of a comment; their later walkthroughs can quote a placeholder from the diff (https://github.com/Jgocunha/dynamic-neural-field-composer/pull/80).
+PLACEHOLDER_SCAN_CHARS = 600
+READ_ERRORS = (
     ValueError,
     KeyError,
     TypeError,
@@ -44,12 +45,12 @@ def covers(item, head, head_date):
 
 
 def placeholder(item):
-    body = (item.get("body") or "").lower()[:PLACEHOLDER_PREFIX]
+    body = (item.get("body") or "").lower()[:PLACEHOLDER_SCAN_CHARS]
     return any(marker in body for marker in PLACEHOLDERS)
 
 
 def skip_reason(name, item):
-    body = (item.get("body") or "").lower()
+    body = (item.get("body") or "").lower()[:PLACEHOLDER_SCAN_CHARS]
     for phrase, reason in REVIEWERS[name]["skip_phrases"].items():
         if phrase in body:
             return reason
@@ -156,7 +157,7 @@ def main(argv=None):
             return 1
         print("all advisory reviewers terminal")
         return 0
-    except ERRORS + (Problem,) as error:
+    except READ_ERRORS + (Problem,) as error:
         print(f"advisory-review-status: {error}", file=sys.stderr)
         return 2
 
