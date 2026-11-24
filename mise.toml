@@ -99,7 +99,6 @@ depends = [
   "evidence:test",
   "pr-text:test",
   "bootstrap:test",
-  "gc:test",
   "verify-skill:test",
   "verify-skill-maintenance:test",
   "canonical-clones:test",
@@ -113,7 +112,7 @@ depends = [
   "codacy-gate:test",
   "sync-upstream:test",
 ]
-run = ["hk run tests --all", "hk test --step comment-ban", "hk test --step pinact", "hk test --step gate-groups", "hk test --step renovate-managers-test", "hk test --step renovate-re2-test"]
+run = ["hk run tests --all", "hk test --step gc", "hk test --step comment-ban", "hk test --step pinact", "hk test --step gate-groups", "hk test --step renovate-managers-test", "hk test --step renovate-re2-test"]
 
 [tasks."check:gates"]
 description = "Run every hk step"

@@ -15,5 +15,5 @@ runs:
       shell: bash
       env:
         GROUP: ${{ inputs.group }}
-        GITHUB_TOKEN: ${{ inputs.group == 'security' && github.token || '' }}
+        GITHUB_TOKEN: ${{ inputs.group != 'lint' && github.token || '' }}
       run: mise run "check:$GROUP"
