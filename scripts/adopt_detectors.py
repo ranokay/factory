@@ -94,11 +94,16 @@ def skills_lock_names(project):
     spec = importlib.util.spec_from_file_location(
         "factory_skills_sync", Path(__file__).resolve().parent / "skills-sync.py"
     )
+    if spec is None or spec.loader is None:
+        raise Problem("cannot read skills.lock: skills-sync.py is unavailable")
     sync = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sync)
+    try:
+        spec.loader.exec_module(sync)
+    except (OSError, ValueError, AttributeError, TypeError) as error:
+        raise Problem(f"cannot read skills.lock: {error}") from error
     try:
         lock = sync.load_lock(project)
-    except (sync.SyncError, OSError, ValueError, AttributeError) as error:
+    except (sync.SyncError, OSError, ValueError, AttributeError, TypeError) as error:
         raise Problem(f"cannot read skills.lock: {error}") from error
     return {entry["name"] for entry in lock["skills"]}
 
