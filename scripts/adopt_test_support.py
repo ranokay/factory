@@ -221,11 +221,15 @@ class AdoptCase(unittest.TestCase):
         text = (ROOT / "project/.github/workflows/blocked.yml").read_text()
         if uses is not None:
             replacement = f"{quote}{uses}{quote}{comment}"
-            text = re.sub(
+            text, count = re.subn(
                 r"(?m)^(    uses:).*$",
                 lambda match: f"{match.group(1)} {replacement}",
                 text,
             )
+            if count != 1:
+                raise AssertionError(
+                    f"expected one uses line in the Project Template caller, found {count}"
+                )
         path.write_bytes(text.replace("\n", newline).encode())
 
     def use_factory_state(self, repo="ranokay/factory"):

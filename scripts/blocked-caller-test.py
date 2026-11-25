@@ -15,7 +15,14 @@ PINNED_USES = f"{BLOCKER_WORKFLOW}@v0.4.0"
 
 
 def with_uses(path, uses):
-    return re.sub(r"(?m)^(    uses:).*$", rf"\1 {uses}", path.read_text())
+    text, count = re.subn(
+        r"(?m)^(    uses:).*$",
+        lambda match: f"{match.group(1)} {uses}",
+        path.read_text(),
+    )
+    if count != 1:
+        raise AssertionError(f"expected one uses line, found {count}")
+    return text
 
 
 def run(factory, template):
