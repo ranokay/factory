@@ -20,7 +20,7 @@ const MASTERS = {
 };
 
 let failures = 0;
-const temporary = [];
+const tempDirectories = [];
 
 function ok(name) {
   process.stdout.write(`ok - assets: ${name}\n`);
@@ -48,7 +48,7 @@ function assert(condition, message) {
 
 function tempDir(prefix) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), `factory-assets-test-${prefix}-`));
-  temporary.push(directory);
+  tempDirectories.push(directory);
   return directory;
 }
 
@@ -341,6 +341,9 @@ function universalWebTest() {
   const escape = run(root, ["--check", "--modules", modules]);
   assert(escape.status === 1, "a lock path outside the repository passed the check");
   assert(escape.stderr.includes("is outside the repository"), escape.stderr);
+  const escapeWrite = run(root, ["--write"]);
+  assert(escapeWrite.status === 1, "a write with a poisoned lock passed");
+  assert(escapeWrite.stderr.includes("outside the repository"), escapeWrite.stderr);
   fs.writeFileSync(lockFile, originalLock);
 
   const unexpected = path.join(root, "public", "icon-64.png");
@@ -449,7 +452,7 @@ function lockOnlyFixture() {
   const stub = `module.exports = {
   profile: "apple",
   tools: { ictool: { command: "/usr/bin/ictool", env: "ICTOOL", hint: "install Xcode 26 or later" } },
-  managedRoots: ["assets/brand/AppIcon.icon"],
+  managedRoots: ["assets/brand/AppIcon.icon", "assets/brand/AppIcon.icns", "assets/brand/Brand.xcassets"],
   generate(context) {
     context.write("assets/brand/AppIcon.icns", "fake icns\\n");
   },
@@ -532,6 +535,14 @@ function appleTest() {
   assert(ghostCheck.stderr.includes("Ghost.svg is not produced"), ghostCheck.stderr);
   fs.rmSync(ghost, { force: true });
 
+  const ghostAsset = path.join(lockOnly.root, "assets", "brand", "Brand.xcassets", "Ghost.imageset", "Contents.json");
+  fs.mkdirSync(path.dirname(ghostAsset), { recursive: true });
+  fs.writeFileSync(ghostAsset, "{}\n");
+  const ghostAssetCheck = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], { ICTOOL: "/nonexistent" });
+  assert(ghostAssetCheck.status === 1, "a stray xcassets file passed the lock-only check");
+  assert(ghostAssetCheck.stderr.includes("Ghost.imageset/Contents.json is not produced"), ghostAssetCheck.stderr);
+  fs.rmSync(path.dirname(ghostAsset), { recursive: true, force: true });
+
   const noTools = { ICTOOL: "/nonexistent", RESVG: "/nonexistent" };
   const clean = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], noTools);
   assert(clean.status === 0, clean.stderr);
@@ -572,7 +583,7 @@ function checkerMissingTest() {
 }
 
 process.on("exit", () => {
-  for (const directory of temporary) {
+  for (const directory of tempDirectories) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
