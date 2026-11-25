@@ -96,9 +96,11 @@ class Pushback(PushbackCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         before = self.issue(2)["body"]
+        self.log.write_text("")
         refused = self.cli("accept-reshape", "o/one", "2")
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn("--reason", refused.stderr)
+        self.assertNotIn(["issue", "edit"], [call[:2] for call in self.calls()])
         self.assertEqual(self.issue(2)["body"], before)
         self.assertEqual(len(self.comments(2)), 1)
         self.assertNotIn("ready-for-agent", self.labels(2))
@@ -132,9 +134,7 @@ class Pushback(PushbackCase):
         self.assertIn("## Reshaped scope", self.issue(2)["body"])
         self.assertIn(smaller, self.issue(2)["body"])
         self.assertIn("<!-- factory:pushback-accept verdict=reshape accepted=true -->", self.comments(2)[-1]["body"])
-        again = self.cli(
-            "accept-reshape", "o/one", "2", "--reason", "Accept it twice."
-        )
+        again = self.cli("accept-reshape", "o/one", "2")
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertEqual(len(self.comments(2)), 2)
         self.assertEqual(self.issue(2)["body"].count("factory:reshape"), 1)
@@ -245,6 +245,9 @@ class Pushback(PushbackCase):
         )
         self.assertNotEqual(unanswered.returncode, 0)
         self.assertIn("answer comment", unanswered.stderr)
+        state = self.state()
+        state["issues"]["2"]["author"] = {"login": "reporter"}
+        self.write_state(state)
         self.add_comment(2, "The fields are pages and week.", author="outsider")
         outside = self.record(
             2,
@@ -253,7 +256,7 @@ class Pushback(PushbackCase):
         )
         self.assertNotEqual(outside.returncode, 0)
         self.assertIn("reporter or ranokay", outside.stderr)
-        self.add_comment(2, "The fields are pages and week.")
+        self.add_comment(2, "The fields are pages and week.", author="reporter")
         refused = self.record(
             2, {"verdict": "go", "reason": "The answer settles the format."}
         )
