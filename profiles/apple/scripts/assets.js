@@ -111,6 +111,9 @@ module.exports = {
       ],
       { encoding: "utf8" },
     );
+    if (result.error !== undefined) {
+      throw new Error(`assets: ictool failed to start: ${result.error.message}`);
+    }
     if (result.status !== 0) {
       throw new Error(`assets: ictool failed\n${result.stderr}${result.stdout}`);
     }

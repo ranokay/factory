@@ -14,12 +14,8 @@ ffmpeg = "9.0.2"
 [task_config]
 includes = ["profiles/universal/tasks.toml"]
 
-[tasks.assets]
-description = "Generate every brand export from assets/brand masters"
-usage = '''
-flag "--check" help="Verify the lock and regenerate without writing"
-'''
-run = "node profiles/universal/scripts/assets.js{% if usage.check %} --check{% endif %}"
+[env]
+FACTORY_CHECKOUT = "{{ config_root }}"
 
 [tasks."skills:sync"]
 description = "Sync Vendored Skills at their pins; --check, --check --fetch or --update"

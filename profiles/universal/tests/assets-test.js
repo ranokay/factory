@@ -269,6 +269,7 @@ function universalWebTest() {
   assert(pngSize(path.join(root, "assets/store/framed/shot.png")).width === 2880, "the store frame is not 2880 wide");
   assert(pngSize(path.join(root, "assets/store/framed/shot.png")).height === 1800, "the store frame is not 1800 tall");
   assert(fs.readFileSync(path.join(root, "public/favicon.ico")).readUInt16LE(2) === 1, "the favicon is not an ICO");
+  assert(fs.readFileSync(path.join(root, "public/favicon.svg"), "utf8").includes('color="#18181b"'), "the favicon has no concrete ink");
 
   const before = tree(root);
   const secondRun = runTask(root, []);
@@ -355,6 +356,13 @@ function universalWebTest() {
   assert(strayFrameJpgCheck.stderr.includes("assets/store/framed/extra.jpg is not produced"), strayFrameJpgCheck.stderr);
   fs.rmSync(strayFrameJpg, { force: true });
 
+  const strayFavicon = path.join(root, "public", "favicon-16x16.png");
+  fs.writeFileSync(strayFavicon, "stray\n");
+  const strayFaviconCheck = run(root, ["--check", "--modules", modules]);
+  assert(strayFaviconCheck.status === 1, "an unreferenced favicon variant passed the check");
+  assert(strayFaviconCheck.stderr.includes("public/favicon-16x16.png is not produced"), strayFaviconCheck.stderr);
+  fs.rmSync(strayFavicon, { force: true });
+
   fs.writeFileSync(favicon, Buffer.from(`${original.toString("utf8")}<!-- divergent -->\n`));
   const divergentLock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
   divergentLock.exports["public/favicon.svg"] = hash(favicon);
@@ -402,7 +410,7 @@ function universalWebTest() {
 
   const pinned = pinnedFactory();
   const pinnedTmp = tempDir("pinned-tmp");
-  fs.writeFileSync(miseFile, `# git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v-assets-test\n${originalMise}`);
+  fs.writeFileSync(miseFile, `# git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v-assets-test\n${originalMise}`);
   const pinnedCheck = spawnSync("mise", ["run", "assets", "--check"], {
     cwd: root,
     encoding: "utf8",
@@ -482,6 +490,10 @@ function appleTest() {
     assert(interior.a < 16, `the menu-bar template is not transparent between the ring and the dot (alpha ${interior.a})`);
     const centre = pngPixel(fs.readFileSync(menuPng), 9, 9);
     assert(centre.a > 200 && centre.r < 32 && centre.g < 32 && centre.b < 32, "the menu-bar template has no opaque dot at its centre");
+
+    const broken = run(root, ["--write", "--modules", modules], { ICTOOL: "/" });
+    assert(broken.status === 1, "a non-spawnable ictool was accepted");
+    assert(broken.stderr.includes("failed to start"), broken.stderr);
   } else {
     const missing = runTask(root, []);
     assert(missing.status === 1, "the apple exports were generated without ictool");

@@ -34,9 +34,9 @@ function ico(images) {
 module.exports = {
   profile: "web",
   tools: { resvg: RESVG_TOOL },
-  managedGlobs: ["public/favicon.*", "public/apple-touch-icon.png", "public/icon-*.png"],
+  managedGlobs: ["public/favicon*", "public/apple-touch-icon.png", "public/icon-*.png"],
   generate(context) {
-    const icon = context.masters.icon.text;
+    const icon = context.colorize(context.masters.icon.text, "#18181b");
     context.write("public/favicon.svg", icon);
 
     const images = [16, 32, 48].map((size) => ({ size, png: context.renderPng(icon, size, size) }));
