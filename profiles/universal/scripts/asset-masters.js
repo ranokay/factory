@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-object-injection, security/detect-unsafe-regex, xss/no-mixed-html -- Node CLI reads local design files and builds a self-contained preview; inputs are trusted project assets, not web input */
+/* eslint-disable @typescript-eslint/no-var-requires, security/detect-object-injection, security/detect-unsafe-regex, xss/no-mixed-html -- Static SVG checker: fixed regexes and attribute lookups; "<...>" strings are plain diagnostic text, not HTML */
 "use strict";
 
 const fs = require("node:fs");
@@ -25,6 +25,7 @@ With no files, checks assets/brand/**/*.svg in the current directory.
 Rules:
   - reject <image>, <foreignObject>, <script>, <style>, <text>, <use>, <symbol>,
     <pattern>, <mask>, <filter> and <clipPath>
+  - reject event-handler attributes and javascript:/vbscript: values
   - reject data URIs, base64 payloads and empty, raster or external href/src references
   - require a root viewBox
   - reject ${SHORT_RUN} or more consecutive short axis-aligned segments
@@ -254,6 +255,12 @@ function checkSource(source) {
     }
     for (const [name, value] of Object.entries(tag.attributes)) {
       const localName = name.split(":").pop();
+      if (/^on[a-z]/i.test(localName)) {
+        problems.add(`contains an event-handler attribute ${localName}`);
+      }
+      if (/(?:javascript|vbscript)\s*:/i.test(value)) {
+        problems.add("contains a script URL");
+      }
       if (localName === "href" || localName === "src") {
         const reference = value.trim();
         if (reference.startsWith("#")) {
@@ -306,6 +313,7 @@ function checkSource(source) {
 function checkFile(file) {
   let source;
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- reads a caller-supplied master path
     source = fs.readFileSync(file, "utf8"); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
   } catch (error) {
     return [`cannot read: ${error.message}`];
@@ -319,6 +327,7 @@ function defaultFiles() {
   const walk = (directory) => {
     let entries;
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- walks the repository brand directory
       entries = fs.readdirSync(directory, { withFileTypes: true }); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
     } catch {
       return;

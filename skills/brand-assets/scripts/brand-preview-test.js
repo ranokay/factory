@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-object-injection, security/detect-unsafe-regex, xss/no-mixed-html -- Node CLI reads local design files and builds a self-contained preview; inputs are trusted project assets, not web input */
+/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-object-injection, security/detect-unsafe-regex, xss/no-mixed-html -- Test harness reads and writes local fixture files and compares generated HTML strings; no web input */
 "use strict";
 
 const assert = require("node:assert/strict");
@@ -109,6 +109,11 @@ try {
   const markerHtml = read(marker);
   assert.ok(markerHtml.includes("%%CONCEPTS%%"));
   assert.equal((markerHtml.match(/<section class="concept"/g) ?? []).length, 1);
+
+  const slotSvg = write("slot.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor" data-note="%%SILHOUETTES%%"><rect width="64" height="64" fill="currentColor"/></svg>\n`);
+  const slotOut = path.join(workspace, "out", "slot.html");
+  run(["--title", "Slots", "--concept", `Slot=${slotSvg}`, "--output", slotOut]);
+  assert.ok(read(slotOut).includes("%%SILHOUETTES%%"));
 
   const gradient = (color) =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#111827"/></linearGradient><linearGradient id="g2" href="#g"/><circle id="dot" cx="8" cy="8" r="4"/></defs><rect width="64" height="64" fill="url(#g2)"/><circle id="abc" cx="16" cy="16" r="4" fill="#abc"/><circle cx="32" cy="32" r="4" fill="currentColor"/></svg>\n`;
