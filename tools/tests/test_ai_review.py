@@ -4,6 +4,7 @@ import re
 import subprocess
 import tempfile
 import textwrap
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -372,21 +373,50 @@ class TemplateReviewTests(unittest.TestCase):
         self.assertNotIn("@main", source)
 
     def test_review_files_are_generic(self):
-        rule = json.loads((ROOT / "project" / "ai-review-rule.json").read_text())
-        self.assertEqual(
-            rule,
-            {
-                "rules": [
-                    {"path": "**/*", "rule": "REVIEW.md", "merge_system_rule": True}
-                ]
-            },
-        )
+        assert_rule_shape(self, ROOT / "project" / "ai-review-rule.json")
         text = (ROOT / "project" / "REVIEW.md").read_text()
-        self.assertTrue(text)
         self.assertNotIn("Factory", text)
         self.assertNotIn("ranokay", text)
         self.assertIn("## Score", text)
         self.assertIn("## Diagram", text)
+
+    def test_template_profiles_carry_the_gate_tasks(self):
+        mise = tomllib.loads((ROOT / "project" / "mise.toml").read_text())
+        refs = [*mise["include"], *mise["task_config"]["includes"]]
+        self.assertTrue(refs)
+        for ref in refs:
+            self.assertIn("?ref=v0.5.0", ref)
+        hk = (ROOT / "project" / "hk.pkl").read_text()
+        self.assertIn("/v0.5.0/profiles/universal/hk.pkl", hk)
+        tasks = tomllib.loads(
+            (ROOT / "profiles" / "universal" / "tasks.toml").read_text()
+        )
+        for name in ("check:lint", "check:security", "check:test"):
+            self.assertIn(name, tasks)
+
+    def test_template_pin_policies_accept_factory_release_tags(self):
+        pinact = yaml.safe_load((ROOT / "project" / ".pinact.yaml").read_text())
+        self.assertEqual(pinact["version"], 3)
+        self.assertTrue(pinact["rules"][0]["ignore"])
+        self.assertIn(
+            'ActionRepoFullName == "ranokay/factory"',
+            pinact["rules"][0]["conditions"][0]["expr"],
+        )
+        zizmor = yaml.safe_load((ROOT / "project" / "zizmor.yml").read_text())
+        self.assertEqual(
+            zizmor["rules"]["unpinned-uses"]["config"]["policies"]["ranokay/factory/*"],
+            "ref-pin",
+        )
+        jactionlint = yaml.safe_load(
+            (ROOT / "project" / ".github" / "jactionlint.yaml").read_text()
+        )
+        self.assertTrue(
+            any(
+                ignore["rule"] == "unpinned-uses"
+                and ignore["uses"] == "ranokay/factory/*"
+                for ignore in jactionlint["ignores"]
+            )
+        )
 
 
 if __name__ == "__main__":
