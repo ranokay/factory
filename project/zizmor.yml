@@ -1,0 +1,6 @@
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "ranokay/factory/*": ref-pin
+        "*": hash-pin

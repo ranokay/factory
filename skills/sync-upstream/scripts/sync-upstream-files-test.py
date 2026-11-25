@@ -1,8 +1,13 @@
 import json
+import shutil
+import subprocess  # nosec B404 -- the test runs the pinned Gate binaries
 import tomllib
 import unittest
+from pathlib import Path
 
 from sync_upstream_fixtures import SyncFixture
+
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class SyncUpstreamFiles(SyncFixture):
@@ -110,8 +115,11 @@ class SyncUpstreamFiles(SyncFixture):
             "PRODUCT.md",
             "REVIEW.md",
             "ai-review-rule.json",
+            ".pinact.yaml",
+            "zizmor.yml",
             ".coderabbit.yaml",
             ".greptile/config.json",
+            ".github/jactionlint.yaml",
             ".github/workflows/blocked.yml",
             ".github/workflows/check.yml",
             ".github/workflows/ai-review.yml",
@@ -146,12 +154,61 @@ class SyncUpstreamFiles(SyncFixture):
         )
         self.assertEqual(caller.read_text(), original)
 
+    def tool(self, name):
+        mise = shutil.which("mise", path=self.env["PATH"])
+        if mise is None:
+            return None
+        result = subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- resolves the pinned tool
+            [mise, "-C", str(ROOT), "which", name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    def test_installed_template_passes_the_pin_gates(self):
+        target = self.target()
+        self.cli("install-files", "--target", str(target))
+        workflows = (
+            ".github/workflows/check.yml",
+            ".github/workflows/ai-review.yml",
+            ".github/workflows/blocked.yml",
+        )
+        commands = {
+            "pinact": [self.tool("pinact"), "run", "--check", *workflows],
+            "zizmor": [self.tool("zizmor"), "--format", "plain", ".github/workflows/"],
+            "jactionlint": [
+                self.tool("jactionlint"),
+                "--config-file",
+                ".github/jactionlint.yaml",
+                "--format",
+                "gcc",
+                *workflows,
+            ],
+        }
+        if any(not command[0] for command in commands.values()):
+            self.skipTest("pin Gates are not installed")
+        for name, command in commands.items():
+            with self.subTest(tool=name):
+                result = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the test runs the pinned Gate
+                    command,
+                    cwd=target,
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_install_files_keeps_existing_callers_and_review_files(self):
         target = self.target()
         self.cli("install-files", "--target", str(target))
         originals = {
             ".github/workflows/check.yml": "name: Our gates\non: push\n",
             ".github/workflows/ai-review.yml": "name: Our review\non: push\n",
+            ".pinact.yaml": "version: 3\n",
+            "zizmor.yml": "rules: {}\n",
+            ".github/jactionlint.yaml": "ignores: []\n",
             "ai-review-rule.json": '{"rules": []}\n',
             "REVIEW.md": "# Our review rules\n",
         }

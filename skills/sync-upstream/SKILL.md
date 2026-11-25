@@ -64,6 +64,8 @@ upstream already has one, it adds only what the matching `project/` file require
   `.github/workflows/blocked.yml: repository has its own; kept`;
 - `.github/workflows/check.yml` and `.github/workflows/ai-review.yml`: an existing
   Gates or AI Review caller is untouched and reports `<path>: repository has its own; kept`;
+- `.pinact.yaml`, `zizmor.yml` and `.github/jactionlint.yaml`: existing pin
+  policies are untouched and report `<path>: repository has its own; kept`;
 - `ai-review-rule.json` and `REVIEW.md`: existing review rules are untouched and
   report `<path>: repository has its own; kept`;
 - an existing `hk.pkl` is untouched and reports

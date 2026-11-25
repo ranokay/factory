@@ -810,6 +810,9 @@ def merge_text(path, template_root, existing, template):
             name: f"{name}: repository has its own; kept"
             for name in (
                 "PRODUCT.md",
+                ".pinact.yaml",
+                "zizmor.yml",
+                ".github/jactionlint.yaml",
                 ".github/workflows/blocked.yml",
                 ".github/workflows/check.yml",
                 ".github/workflows/ai-review.yml",
