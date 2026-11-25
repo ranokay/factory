@@ -404,6 +404,17 @@ def record_verdict(args):
             )
         if last != "needs-info":
             problem(f"the last verdict is {last or 'unknown'}; --again only follows needs-info")
+        last_review = max(
+            index
+            for index, comment in enumerate(comments)
+            if MARKER.search(comment.get("body") or "")
+        )
+        answered = any(
+            not any(pattern.search(comment.get("body") or "") for pattern, _ in PATTERNS)
+            for comment in comments[last_review + 1 :]
+        )
+        if not answered:
+            problem("--again needs a recorded answer after the needs-info review")
     category = category_for(args.repo, args.issue, args.category)
     kind = pass_kind(issue_labels(args.repo, args.issue), comments)
     body = comment_body(values["verdict"], values, kind, canonical)

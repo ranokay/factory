@@ -219,6 +219,13 @@ class Pushback(PushbackCase):
             },
         )
         self.assertEqual(first.returncode, 0, first.stderr)
+        unanswered = self.record(
+            2,
+            {"verdict": "go", "reason": "The answer settles the format."},
+            "--again",
+        )
+        self.assertNotEqual(unanswered.returncode, 0)
+        self.assertIn("recorded answer", unanswered.stderr)
         self.add_comment(2, "The fields are pages and week.")
         refused = self.record(
             2, {"verdict": "go", "reason": "The answer settles the format."}
