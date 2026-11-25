@@ -87,15 +87,16 @@ icon-only mark, the lockup is a wide mark-only variant instead.
 
 - Build every shape from primitives and Bezier curves: `path`, `circle`,
   `rect`, `line`, `polygon`. Never embed a raster, never trace a pixel image.
-- No `<image>`, data URIs, `<foreignObject>`, `<style>`, raster or external
-  references, or `<text>`. Use presentation attributes, and outline a wordmark as
-  paths.
+- No `<image>`, data URIs, `<foreignObject>`, `<style>`, `<text>`, `<use>` or
+  `<symbol>`, and no raster or external references. Draw the mark's shapes in
+  place and use `<defs>` only for paints. Use presentation attributes, and
+  outline the wordmark as paths.
 - Declare the neutral ink on every concept and lockup root as
   `data-brand-ink="currentColor"`; the preview sets it to `#18181b` on light and
   `#f4f4f5` on dark. Accents may use explicit colours. Fixed ink declares
   `data-brand-ink="#rrggbb"` and ships a dark variant with
-  `--dark`/`--dark-lockup`. Keep ink and accents opaque; a translucent tint is
-  flagged, so use a solid lighter colour.
+  `--dark`/`--dark-lockup`. Keep ink and accents opaque; a translucent paint is
+  measured at its effective alpha and flagged below 3:1.
 - Keep every path under 400 drawing commands and avoid long runs of tiny
   axis-aligned steps.
 - A concept must still read at 16 px on both boards.

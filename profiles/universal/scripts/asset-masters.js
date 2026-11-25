@@ -22,7 +22,7 @@ Check brand masters for embedded rasters and traced staircase paths.
 With no files, checks assets/brand/**/*.svg in the current directory.
 
 Rules:
-  - reject <image>, <foreignObject>, <script>, <style> and <text>
+  - reject <image>, <foreignObject>, <script>, <style>, <text>, <use> and <symbol>
   - reject data URIs, base64 payloads and empty, raster or external href/src references
   - require a root viewBox
   - reject ${SHORT_RUN} or more consecutive short axis-aligned segments
@@ -233,6 +233,12 @@ function checkSource(source) {
     }
     if (local === "text") {
       problems.add("contains <text>; outline the wordmark as paths");
+    }
+    if (local === "use") {
+      problems.add("contains <use>; inline the mark's shapes");
+    }
+    if (local === "symbol") {
+      problems.add("contains <symbol>; inline the mark's shapes");
     }
     for (const [name, value] of Object.entries(tag.attributes)) {
       const localName = name.split(":").pop();

@@ -289,7 +289,7 @@ function paintedElements(source) {
 
 function partialOpacityOnInk(source, inkRaw) {
   for (const element of paintedElements(source)) {
-    if (!element.rendered) {
+    if (!element.rendered || (element.name !== "svg" && CONTAINERS.has(element.name))) {
       continue;
     }
     const paintsInk = (value) =>

@@ -106,7 +106,7 @@ try {
   assert.equal((markerHtml.match(/<section class="concept"/g) ?? []).length, 1);
 
   const gradient = (color) =>
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#111827"/></linearGradient><circle id="dot" cx="8" cy="8" r="4"/></defs><rect width="64" height="64" fill="url(#g)"/><circle id="abc" cx="16" cy="16" r="4" fill="#abc"/><circle cx="32" cy="32" r="4" fill="currentColor"/><use href="#dot"/></svg>\n`;
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#111827"/></linearGradient><linearGradient id="g2" href="#g"/><circle id="dot" cx="8" cy="8" r="4"/></defs><rect width="64" height="64" fill="url(#g2)"/><circle id="abc" cx="16" cy="16" r="4" fill="#abc"/><circle cx="32" cy="32" r="4" fill="currentColor"/></svg>\n`;
   const gradientA = write("gradient-a.svg", gradient("#111827"));
   const gradientB = write("gradient-b.svg", gradient("#e4572e"));
   const namespaced = path.join(workspace, "out", "namespaced.html");
@@ -114,11 +114,10 @@ try {
   const namespacedHtml = fs.readFileSync(namespaced, "utf8");
   assert.ok(namespacedHtml.includes('id="concept-1-icon-g"'));
   assert.ok(namespacedHtml.includes('id="concept-2-icon-g"'));
-  assert.ok(namespacedHtml.includes('id="concept-1-icon-dot"'));
   assert.ok(namespacedHtml.includes('id="concept-1-icon-abc"'));
-  assert.ok(namespacedHtml.includes("url(#concept-1-icon-g)"));
-  assert.ok(namespacedHtml.includes("url(#concept-2-icon-g)"));
-  assert.ok(namespacedHtml.includes('href="#concept-1-icon-dot"'));
+  assert.ok(namespacedHtml.includes("url(#concept-1-icon-g2)"));
+  assert.ok(namespacedHtml.includes("url(#concept-2-icon-g2)"));
+  assert.ok(namespacedHtml.includes('href="#concept-1-icon-g"'));
   assert.ok(namespacedHtml.includes('stop-color="#111827"'));
   assert.ok(namespacedHtml.includes('fill="#abc"'));
   assert.ok(!namespacedHtml.includes("url(#g)"));
@@ -210,6 +209,11 @@ try {
   const hiddenDefsOut = path.join(workspace, "out", "hidden-defs.html");
   run(["--title", "Defs", "--concept", `Defs=${hiddenDefs}`, "--output", hiddenDefsOut]);
   assert.ok(!fs.readFileSync(hiddenDefsOut, "utf8").includes("Contrast check"));
+
+  const groupOverride = write("group-override.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor" fill="currentColor"><g opacity=".5"><rect width="64" height="64" fill="#e4572e"/></g></svg>\n`);
+  const groupOverrideOut = path.join(workspace, "out", "group-override.html");
+  run(["--title", "Override", "--concept", `Override=${groupOverride}`, "--output", groupOverrideOut]);
+  assert.ok(!fs.readFileSync(groupOverrideOut, "utf8").includes("partial opacity"));
 
   const multiplied = write("multiplied.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="#e4572e" opacity=".5" fill-opacity=".5"/></svg>\n`);
   const multipliedOut = path.join(workspace, "out", "multiplied.html");

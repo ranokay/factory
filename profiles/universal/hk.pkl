@@ -296,6 +296,16 @@ steps = new Mapping<String, Step | Group> {
               stderr = "contains <style>"
             }
           }
+          ["rejects a use element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-use.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <use>"
+            }
+          }
           ["rejects an external url reference"] {
             run = "check"
             tmpdir = true
