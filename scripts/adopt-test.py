@@ -50,7 +50,7 @@ class Adopt(AdoptCase):
             {category: len(self.markers(issue)) for category, issue in by_category.items()},
             {
                 "product": 1,
-                "tooling": 3,
+                "tooling": 4,
                 "comments": 1,
                 "dead-code": 1,
                 "agents": 3,

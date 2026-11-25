@@ -19,6 +19,9 @@ steps {
       ["workflow-invariant"] = new Step {
         check = "python3 {{root}}/scripts/workflow-invariant.py {{root}}/.github/workflows"
       }
+      ["blocked-caller"] = new Step {
+        check = "python3 {{root}}/scripts/blocked-caller-check.py"
+      }
       ["renovate-config"] = new Step {
         check = "sh {{root}}/scripts/renovate-config-check.sh"
       }
@@ -641,6 +644,15 @@ steps {
         check = "python3 {{root}}/scripts/workflow-invariant-test.py"
         tests {
           ["rejects an unsafe fork workflow"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["blocked-caller-test"] = new Step {
+        check = "python3 {{root}}/scripts/blocked-caller-test.py"
+        tests {
+          ["the template caller matches the Factory"] {
             run = "check"
             expect { code = 0 }
           }

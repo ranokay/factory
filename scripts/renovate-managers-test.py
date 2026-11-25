@@ -57,6 +57,20 @@ jobs:
       - uses: ranokay/factory/.github/actions/gates@{FIXTURE_SHA}
 """
 
+BLOCKED = f"""\
+name: Blocked
+on:
+  issues:
+    types: [labeled]
+permissions: {{}}
+jobs:
+  notify:
+    permissions:
+      issues: write
+    if: github.event.label.name == 'blocked'
+    uses: ranokay/factory/.github/workflows/blocker-notify.yml@{TAG}
+"""
+
 EXPECTED_PINS = {
     "mise.toml": MISE.count(f"?ref={TAG}"),
     "hk.pkl": len(
@@ -69,6 +83,7 @@ EXPECTED_PINS = {
         ]
     ),
     ".github/workflows/check.yml": WORKFLOW.count(f"@{TAG}"),
+    ".github/workflows/blocked.yml": BLOCKED.count(f"@{TAG}"),
 }
 
 
@@ -190,6 +205,7 @@ class FactoryPins(unittest.TestCase):
         workflows = self.fixture / ".github" / "workflows"
         workflows.mkdir(parents=True)
         (workflows / "check.yml").write_text(WORKFLOW)
+        (workflows / "blocked.yml").write_text(BLOCKED)
         (self.fixture / "script.py").write_text(PEP723)
         self.deps = extract(self.fixture)
 
@@ -224,6 +240,12 @@ class FactoryPins(unittest.TestCase):
         self.assertEqual(len(pins), 1)
         self.assertEqual(pins[0].get("packageName"), "ranokay/factory")
         self.assertEqual(pins[0].get("versioning"), "github-actions")
+
+    def test_job_level_reusable_workflow_uses_the_builtin_manager(self):
+        pins = tag_pins(self.deps.get(".github/workflows/blocked.yml", []))
+        self.assertEqual(len(pins), 1)
+        self.assertEqual(pins[0].get("packageName"), "ranokay/factory")
+        self.assertEqual(pins[0].get("depType"), "workflow")
 
     def test_branches_and_shas_are_not_tag_pins(self):
         mise = self.deps.get("mise.toml", [])

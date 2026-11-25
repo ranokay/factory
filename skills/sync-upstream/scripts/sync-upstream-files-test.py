@@ -110,6 +110,7 @@ class SyncUpstreamFiles(SyncFixture):
             "PRODUCT.md",
             ".coderabbit.yaml",
             ".greptile/config.json",
+            ".github/workflows/blocked.yml",
         ):
             self.assertTrue((target / name).is_file(), name)
         again = self.cli("install-files", "--target", str(target), "--check")
@@ -119,6 +120,19 @@ class SyncUpstreamFiles(SyncFixture):
         kept = self.cli("install-files", "--target", str(target), "--check")
         self.assertEqual(kept.returncode, 0, kept.stdout)
         self.assertEqual((target / "PRODUCT.md").read_text(), "# Our product\n")
+
+    def test_install_files_keeps_an_existing_blocked_caller(self):
+        target = self.target()
+        self.cli("install-files", "--target", str(target))
+        caller = target / ".github/workflows/blocked.yml"
+        original = "name: Our blocker\non: issues\n"
+        caller.write_text(original)
+        check = self.cli("install-files", "--target", str(target), "--check")
+        self.assertIn(
+            ".github/workflows/blocked.yml: repository has its own; kept",
+            check.stdout,
+        )
+        self.assertEqual(caller.read_text(), original)
 
     def test_install_files_fails_on_an_existing_file_with_no_merge_rule(self):
         template = self.root / "template"
