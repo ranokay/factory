@@ -45,6 +45,8 @@ STATES = {
 }
 FIELDS = ("verdict", "reason", "smaller", "question", "non_goal")
 MAX_LINE = 600
+SEARCH_PAGE_SIZE = 50
+SEARCH_MAX_PAGES = 10
 PATTERNS = ((MARKER, "review"), (ACCEPT, "accept"), (OVERRIDE, "override"), (CONFIRM, "confirm"))
 
 
@@ -89,6 +91,8 @@ def extract_lines(body):
         ("**Non-goal:**", "non_goal"),
     )
     for line in body.splitlines():
+        if line.startswith("**Verdict:**") and " — " in line:
+            found["reason"] = line.split(" — ", 1)[1].strip()
         for label, key in labels:
             if line.startswith(label):
                 found[key] = line[len(label) :].strip().strip('"').strip()
@@ -115,14 +119,14 @@ def records(comments):
     return found
 
 
-def allowed(records):
-    if any(item["kind"] == "review" and item.get("verdict") == "go" for item in records):
+def allowed(items):
+    if any(item["kind"] == "review" and item.get("verdict") == "go" for item in items):
         return True, "go"
-    if any(item["kind"] == "accept" for item in records):
+    if any(item["kind"] == "accept" for item in items):
         return True, "reshape accepted"
-    if any(item["kind"] == "override" for item in records):
+    if any(item["kind"] == "override" for item in items):
         return True, "override"
-    reviews = [item for item in records if item["kind"] == "review"]
+    reviews = [item for item in items if item["kind"] == "review"]
     if not reviews:
         return False, "no pushback verdict; run the pushback review and record it"
     verdict = reviews[-1].get("verdict")
@@ -179,38 +183,55 @@ def check_names(kind):
 
 
 def repo_overrides(repo):
-    payload = parse_json(
-        gh(
-            "api",
-            "--method",
-            "GET",
-            "search/issues",
-            "-f",
-            f'q=repo:{repo} "pushback-override" in:comments',
-            "-f",
-            "per_page=50",
-        ),
-        f"override search for {repo}",
-    )
+    label = f"override search for {repo}"
     found = []
-    for item in payload.get("items") or []:
-        number = item.get("number")
-        if not isinstance(number, int):
-            problem(f"override search for {repo} returned an item without a number")
-        for entry in records(issue_comments(repo, number)):
-            if entry["kind"] != "override":
+    seen = set()
+    for page in range(1, SEARCH_MAX_PAGES + 1):
+        payload = parse_json(
+            gh(
+                "api",
+                "--method",
+                "GET",
+                "search/issues",
+                "-f",
+                f'q=repo:{repo} "pushback-override" in:comments',
+                "-f",
+                f"per_page={SEARCH_PAGE_SIZE}",
+                "-f",
+                f"page={page}",
+            ),
+            label,
+        )
+        items = payload.get("items")
+        if not isinstance(items, list):
+            problem(f"{label} did not return items")
+        if payload.get("incomplete_results") is True:
+            problem(f"{label} returned incomplete results")
+        for item in items:
+            number = item.get("number")
+            if not isinstance(number, int):
+                problem(f"{label} returned an item without a number")
+            if number in seen:
                 continue
-            accepted = entry.get("accepted")
-            if not accepted:
-                problem(f"the override on {repo}#{number} has no accepted verdict")
-            found.append(
-                {
-                    "issue": number,
-                    "verdict": accepted,
-                    "reason": entry.get("reason") or "",
-                    "url": entry.get("url") or "",
-                }
-            )
+            seen.add(number)
+            for entry in records(issue_comments(repo, number)):
+                if entry["kind"] != "override":
+                    continue
+                accepted = entry.get("accepted")
+                if not accepted:
+                    problem(f"the override on {repo}#{number} has no accepted verdict")
+                found.append(
+                    {
+                        "issue": number,
+                        "verdict": accepted,
+                        "reason": entry.get("reason") or "",
+                        "url": entry.get("url") or "",
+                    }
+                )
+        if len(items) < SEARCH_PAGE_SIZE:
+            break
+    else:
+        problem(f"{label} filled all {SEARCH_MAX_PAGES} pages")
     return sorted(found, key=lambda item: (item["issue"], item["url"]))
 
 
@@ -271,6 +292,23 @@ def comment_body(verdict, values, kind, canonical):
         lines.extend(["", f'**Non-goal:** "{canonical}"'])
     lines.append("")
     return "\n".join(lines)
+
+
+def transition_comment(marker, heading, text, reason, reason_label="Reason"):
+    return "\n".join(
+        [
+            DISCLAIMER,
+            "",
+            marker,
+            "",
+            f"## {heading}",
+            "",
+            text,
+            "",
+            f"**{reason_label}:** {reason}",
+            "",
+        ]
+    )
 
 
 def gh_write(arguments, body, failure):
@@ -370,14 +408,6 @@ def record_verdict(args):
     kind = pass_kind(issue_labels(args.repo, args.issue), comments)
     body = comment_body(values["verdict"], values, kind, canonical)
     state = STATES[values["verdict"]]
-    if args.dry_run:
-        print(
-            json.dumps(
-                {"ok": True, "dry_run": True, "comment": body, "labels": [category, state]},
-                indent=2,
-            )
-        )
-        return 0
     url = post_comment(args.repo, args.issue, body)
     apply_labels(args.repo, args.issue, category, state)
     print(
@@ -409,19 +439,12 @@ def accept_reshape(args):
     if "factory:reshape" in body_text:
         problem("the issue body already carries a Reshaped scope section")
     reason = one_line(args.reason, "reason")
-    comment = "\n".join(
-        [
-            DISCLAIMER,
-            "",
-            "<!-- factory:pushback-accept verdict=reshape accepted=true -->",
-            "",
-            "## Reshaped scope",
-            "",
-            smaller,
-            "",
-            f"**Accepted:** {reason}",
-            "",
-        ]
+    comment = transition_comment(
+        "<!-- factory:pushback-accept verdict=reshape accepted=true -->",
+        "Reshaped scope",
+        smaller,
+        reason,
+        "Accepted",
     )
     url = post_comment(args.repo, args.issue, comment)
     new_body = (
@@ -449,19 +472,11 @@ def override(args):
     if any(item["kind"] == "override" for item in records(issue_comments(args.repo, args.issue))):
         problem("the issue already has an override")
     reason = one_line(args.reason, "reason")
-    body = "\n".join(
-        [
-            DISCLAIMER,
-            "",
-            f"<!-- factory:pushback-override verdict=go accepted={verdict or 'unknown'} -->",
-            "",
-            "## Pushback override",
-            "",
-            f"**Override:** {verdict or 'unknown'} → go",
-            "",
-            f"**Reason:** {reason}",
-            "",
-        ]
+    body = transition_comment(
+        f"<!-- factory:pushback-override verdict=go accepted={verdict or 'unknown'} -->",
+        "Pushback override",
+        f"**Override:** {verdict or 'unknown'} → go",
+        reason,
     )
     url = post_comment(args.repo, args.issue, body)
     category = category_for(args.repo, args.issue, args.category)
@@ -477,19 +492,11 @@ def confirm_dont(args):
     if any(item["kind"] == "override" for item in records(issue_comments(args.repo, args.issue))):
         problem("the don't verdict has an override and cannot become wontfix")
     reason = one_line(args.reason, "reason")
-    body = "\n".join(
-        [
-            DISCLAIMER,
-            "",
-            "<!-- factory:pushback-confirm verdict=wontfix -->",
-            "",
-            "## Pushback confirmation",
-            "",
-            f"**Confirmed:** don't → wontfix",
-            "",
-            f"**Reason:** {reason}",
-            "",
-        ]
+    body = transition_comment(
+        "<!-- factory:pushback-confirm verdict=wontfix -->",
+        "Pushback confirmation",
+        "**Confirmed:** don't → wontfix",
+        reason,
     )
     url = post_comment(args.repo, args.issue, body)
     category = category_for(args.repo, args.issue, args.category)
@@ -524,7 +531,6 @@ def main(argv=None):
         "--again", action="store_true", help="record a fresh review after a needs-info answer"
     )
     review.add_argument("--project", default=".", help="checkout holding PRODUCT.md")
-    review.add_argument("--dry-run", action="store_true", help="print the comment without posting")
 
     accept = subcommands.add_parser("accept-reshape", help="accept a reshape and make it the spec")
     accept.add_argument("repo")

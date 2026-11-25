@@ -128,6 +128,10 @@ class Pushback(PushbackCase):
         self.assertEqual(sorted(self.labels(3)), ["enhancement", "ready-for-agent"])
         self.assertEqual(self.gate(3).returncode, 0)
         self.assertEqual(len(self.comments(3)), 1)
+        self.assertEqual(
+            self.context(3)["prior"][0]["reason"],
+            "Small, in scope and the log already holds the data.",
+        )
         again = self.record(
             3, {"verdict": "go", "reason": "A second review must not post."}
         )
@@ -279,6 +283,17 @@ class Pushback(PushbackCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("override on o/one#1 has no accepted verdict", result.stderr)
+
+    def test_incomplete_override_search_fails_loudly(self):
+        state = self.state()
+        state["search"] = [1]
+        state["incomplete_results"] = True
+        self.write_state(state)
+        result = self.cli(
+            "context", "o/one", "2", "--project", str(self.project)
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomplete results", result.stderr)
 
     def test_gate_refuses_ready_without_a_verdict(self):
         result = self.gate(1)

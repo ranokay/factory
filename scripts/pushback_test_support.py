@@ -132,11 +132,6 @@ class PushbackCase(unittest.TestCase):
     def gate(self, number):
         return self.cli("gate", "o/one", str(number))
 
-    def env_without_gh(self):
-        empty = self.root / "empty-bin"
-        empty.mkdir(exist_ok=True)
-        return dict(self.env, PATH=f"{empty}:/usr/bin:/bin")
-
     def add_comment(self, number, body):
         state = self.state()
         state["issues"][str(number)].setdefault("comments", []).append(

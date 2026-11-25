@@ -86,7 +86,8 @@ elif args[0] == "api" and "search/issues" in args:
                 "items": [
                     {"number": number, "url": f"https://example.test/issues/{number}"}
                     for number in state.get("search", [])
-                ]
+                ],
+                "incomplete_results": state.get("incomplete_results", False),
             }
         )
     )

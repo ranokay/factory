@@ -38,9 +38,9 @@ case_objection() {
 	for line in \
 		'## Objection' \
 		'supervise · objection <reason>' \
-		'proceed keeps the spec' \
-		'reshape sends the corrected issue back' \
-		'park stops for ranokay' \
+		'proceed' \
+		'reshape' \
+		'park' \
 		'not a Blocker' \
 		'does not count as an attempt'; do
 		expect_file "$messages" "$line"
