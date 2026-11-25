@@ -34,7 +34,7 @@ A plain line comment (#, //, ; or --) that continues a multi-line
 comment block is prose when it has no code operators and carries
 sentence punctuation. A continuation ending in .:!? needs three or more
 words, one ending in ; needs four, and one with internal . ; or , needs
-four. Known workflow keys stay code.
+four. Known workflow keys stay code. A comment ending in a flag is code.
 
 A PEP 723 script block in a .py file (a comment line /// script through the
 next ///) is executable script metadata, not commented-out code, and is
@@ -150,6 +150,7 @@ for file in "$@"; do
 		function is_code(s,    v) {
 			if (s ~ /^(if|then|else|elif|fi|for|while|do|done|case|esac|function|def|class|import|from|return|export|local|const|let|var|set|echo|printf|cd|git|gh|npm|bun|pnpm|yarn|uv|pip|brew|mise|docker|kubectl|curl|wget|sudo|rm|cp|mv|mkdir|touch|source|exec|await|async|throw|raise|try|catch|finally|switch|package|type|interface|struct|enum|public|private|protected|static|final|void|int|string|bool|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)([ \t]|$)/) return 1
 			if (s ~ /^[A-Za-z_$][A-Za-z0-9_.$]*\(/) return 1
+			if (s ~ /(^|[ \t])-{1,2}[A-Za-z][A-Za-z0-9-]*[ \t]*$/) return 1
 			if (s ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=[^=]/) return 1
 			if (keyed_code(s)) return 1
 			if (s ~ /^-[ \t]+/) {
