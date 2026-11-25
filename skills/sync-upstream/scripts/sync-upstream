@@ -804,13 +804,20 @@ def merge_text(path, template_root, existing, template):
         return merged, merged != existing
     keep = {
         "hk.pkl": "hk.pkl: upstream has its own; Factory Gates not amended",
-        "PRODUCT.md": "PRODUCT.md: repository has its own; kept",
-        ".github/workflows/blocked.yml": ".github/workflows/blocked.yml: repository has its own; kept",
-        ".github/workflows/check.yml": ".github/workflows/check.yml: repository has its own; kept",
-        ".github/workflows/ai-review.yml": ".github/workflows/ai-review.yml: repository has its own; kept",
-        "ai-review-rule.json": "ai-review-rule.json: repository has its own; kept",
-        "REVIEW.md": "REVIEW.md: repository has its own; kept",
     }
+    keep.update(
+        {
+            name: f"{name}: repository has its own; kept"
+            for name in (
+                "PRODUCT.md",
+                ".github/workflows/blocked.yml",
+                ".github/workflows/check.yml",
+                ".github/workflows/ai-review.yml",
+                "ai-review-rule.json",
+                "REVIEW.md",
+            )
+        }
+    )
     if name in keep:
         print(keep[name])
         return existing, False

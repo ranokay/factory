@@ -224,9 +224,7 @@ class FactoryPins(unittest.TestCase):
                 replacements = [dep.get("replaceString") for dep in pins]
                 self.assertEqual(len(replacements), len(set(replacements)))
                 for dep in pins:
-                    self.assertEqual(
-                        dep.get("packageName") or dep.get("depName"), "ranokay/factory"
-                    )
+                    self.assertEqual(dep.get("packageName"), "ranokay/factory")
                     self.assertEqual(dep["currentValue"], TAG)
 
     def test_mise_includes_and_task_includes_both_extract(self):
@@ -264,9 +262,7 @@ class FactoryPins(unittest.TestCase):
                 ]
                 self.assertEqual(len(pins), expected, self.deps.get(path))
                 for dep in pins:
-                    self.assertEqual(
-                        dep.get("packageName") or dep.get("depName"), "ranokay/factory"
-                    )
+                    self.assertEqual(dep.get("packageName"), "ranokay/factory")
                     self.assertEqual(dep.get("datasource"), "github-tags")
                     self.assertEqual(dep.get("versioning"), "github-actions")
                     self.assertIn(f"@{TEMPLATE_TAG}", dep.get("replaceString", ""))

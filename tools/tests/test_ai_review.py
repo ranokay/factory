@@ -38,6 +38,16 @@ def run_step(source, environment):
     )
 
 
+def assert_rule_shape(test, path):
+    test.assertEqual(json.loads(path.read_text()), {
+        "rules": [{
+            "path": "**/*",
+            "rule": "REVIEW.md",
+            "merge_system_rule": True,
+        }],
+    })
+
+
 def assert_review_permissions(test, source):
     parsed = yaml.safe_load(source)
     test.assertEqual(parsed["permissions"], {})
@@ -122,13 +132,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
 
     def test_rule_path_resolves_and_rejects_missing_files(self):
         path = ROOT / "ai-review-rule.json"
-        self.assertEqual(json.loads(path.read_text()), {
-            "rules": [{
-                "path": "**/*",
-                "rule": "REVIEW.md",
-                "merge_system_rule": True,
-            }],
-        })
+        assert_rule_shape(self, path)
         self.assertTrue((ROOT / "REVIEW.md").is_file())
         rule_step = named_step(action_steps(action("ocr-review")), "Resolve rule path")
         self.assertEqual(rule_step["env"]["RULE"], "${{ inputs.rule }}")
@@ -338,7 +342,8 @@ class TemplateReviewTests(unittest.TestCase):
         source = self.template("ai-review.yml")
         parsed = yaml.safe_load(source)
         self.assertEqual(parsed["name"], "AI Review")
-        self.assertEqual(parsed["permissions"], {})
+        assert_review_permissions(self, source)
+        assert_draft_guard(self, source)
         self.assertEqual(
             self.triggers(source),
             {
@@ -356,15 +361,6 @@ class TemplateReviewTests(unittest.TestCase):
         )
         job = parsed["jobs"]["review"]
         self.assertEqual(job["name"], "OCR")
-        self.assertEqual(
-            job["permissions"],
-            {"contents": "write", "issues": "read", "pull-requests": "write"},
-        )
-        self.assertIn(
-            "github.event.pull_request.head.repo.full_name == github.repository",
-            job["if"],
-        )
-        self.assertIn("github.event.pull_request.draft == false", job["if"])
         review = job["steps"][-1]
         self.assertEqual(
             review["uses"], "ranokay/factory/.github/actions/ocr-review@v0.5.0"
@@ -377,7 +373,14 @@ class TemplateReviewTests(unittest.TestCase):
 
     def test_review_files_are_generic(self):
         rule = json.loads((ROOT / "project" / "ai-review-rule.json").read_text())
-        self.assertEqual(rule, json.loads((ROOT / "ai-review-rule.json").read_text()))
+        self.assertEqual(
+            rule,
+            {
+                "rules": [
+                    {"path": "**/*", "rule": "REVIEW.md", "merge_system_rule": True}
+                ]
+            },
+        )
         text = (ROOT / "project" / "REVIEW.md").read_text()
         self.assertTrue(text)
         self.assertNotIn("Factory", text)
