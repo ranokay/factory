@@ -477,6 +477,10 @@ def accept_reshape(args):
     body_text = issue.get("body") or ""
     comments = issue_comments(args.repo, args.issue)
     accepted = [item for item in records(comments) if item["kind"] == "accept"]
+    if not accepted:
+        if not args.reason:
+            problem("accept-reshape needs --reason to record the acceptance")
+        reason = one_line(args.reason, "reason")
     if "factory:reshape" not in body_text:
         new_body = (
             body_text.rstrip()
@@ -488,9 +492,6 @@ def accept_reshape(args):
     if accepted:
         url = accepted[-1]["url"]
     else:
-        if not args.reason:
-            problem("accept-reshape needs --reason to record the acceptance")
-        reason = one_line(args.reason, "reason")
         comment = transition_comment(
             "<!-- factory:pushback-accept verdict=reshape accepted=true -->",
             "Reshaped scope",

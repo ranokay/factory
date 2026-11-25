@@ -85,6 +85,24 @@ class Pushback(PushbackCase):
         self.assertNotIn("**Non-goal:**", body)
         self.assertEqual(sorted(self.labels(1)), ["enhancement", "needs-triage"])
 
+    def test_reshape_acceptance_without_a_reason_changes_nothing(self):
+        result = self.record(
+            2,
+            {
+                "verdict": "reshape",
+                "reason": "The report command already prints JSON.",
+                "smaller": "Use the existing `reading report --json`.",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        before = self.issue(2)["body"]
+        refused = self.cli("accept-reshape", "o/one", "2")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("--reason", refused.stderr)
+        self.assertEqual(self.issue(2)["body"], before)
+        self.assertEqual(len(self.comments(2)), 1)
+        self.assertNotIn("ready-for-agent", self.labels(2))
+
     def test_reshape_requires_acceptance_and_updates_the_body(self):
         smaller = "Use `reading report --json`; add the flag to `stats` only if a pipe needs it."
         result = self.record(
