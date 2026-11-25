@@ -125,6 +125,8 @@ try {
   assert.ok(namespacedHtml.includes('id="concept-1-icon-g"'));
   assert.ok(namespacedHtml.includes('id="concept-2-icon-g"'));
   assert.ok(namespacedHtml.includes('id="concept-1-icon-abc"'));
+  assert.ok(namespacedHtml.includes('id="board-1-light-icon-concept-1-icon-g"'));
+  assert.ok(namespacedHtml.includes('id="board-1-dark-icon-concept-1-icon-g"'));
   assert.ok(namespacedHtml.includes("url(#concept-1-icon-g2)"));
   assert.ok(namespacedHtml.includes("url(#concept-2-icon-g2)"));
   assert.ok(namespacedHtml.includes('href="#concept-1-icon-g"'));
@@ -133,6 +135,16 @@ try {
   assert.ok(!namespacedHtml.includes("url(#g)"));
 
   assert.ok(!html.includes("Contrast check"));
+  const namedInk = write("named-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="white"><rect width="64" height="64" fill="white"/></svg>\n`);
+  const namedOut = path.join(workspace, "out", "named.html");
+  run(["--title", "Named", "--concept", `Named=${namedInk}`, "--output", namedOut]);
+  assert.ok(read(namedOut).includes("light icon: white is 1.1:1; minimum 3:1"));
+
+  const hslInk = write("hsl-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="hsl(0, 0%, 100%)"><rect width="64" height="64" fill="hsl(0, 0%, 100%)"/></svg>\n`);
+  const hslOut = path.join(workspace, "out", "hsl.html");
+  run(["--title", "HSL", "--concept", `HSL=${hslInk}`, "--output", hslOut]);
+  assert.ok(read(hslOut).includes("light icon: hsl(0, 0%, 100%) is 1.1:1; minimum 3:1"));
+
   const fixedInk = write("fixed-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="#141821"><rect width="64" height="64" fill="#141821"/></svg>\n`);
   const flagged = path.join(workspace, "out", "flagged.html");
   run(["--title", "Fixed ink", "--concept", `Fixed=${fixedInk}`, "--output", flagged]);
@@ -155,8 +167,8 @@ try {
   const variantHtml = read(variant);
   assert.ok(!variantHtml.includes("Contrast check"));
   const darkBoard = variantHtml.slice(variantHtml.indexOf('class="board board-dark"'));
-  assert.ok(darkBoard.includes('id="concept-1-dark-icon-darkonly"'));
-  assert.ok(darkBoard.includes('id="concept-1-dark-lockup-darklock"'));
+  assert.ok(darkBoard.includes('id="board-1-dark-icon-concept-1-dark-icon-darkonly"'));
+  assert.ok(darkBoard.includes('id="board-1-dark-lockup-concept-1-dark-lockup-darklock"'));
 
   const undeclared = write("undeclared.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#141821"/></svg>\n`);
   const undeclaredOut = path.join(workspace, "out", "undeclared.html");

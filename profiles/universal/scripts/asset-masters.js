@@ -12,7 +12,7 @@ const COMMAND_PARAMS = { m: 2, l: 2, h: 1, v: 1, c: 6, s: 4, q: 4, t: 2, a: 7, z
 const RASTER_EXTENSION = /\.(?:png|jpe?g|gif|webp|bmp|tiff?|avif|heic|ico)(?:[?#].*)?$/i;
 const DATA_URI = /data:[a-z0-9.+-]+\//i;
 const BASE64 = /;base64,/i;
-const EXTERNAL_URL = /url\(\s*['"]?(?!#)/i;
+const URL_REFERENCE = /url\(\s*(?:'([^']*)'|"([^"]*)"|([^)]*))\s*\)/gi;
 const TAG = /<([A-Za-z][\w:.-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
 const ATTRIBUTE = /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const PATH_TOKEN = /([MmZzLlHhVvCcSsQqTtAa])|([-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?)/g;
@@ -43,6 +43,17 @@ function tagAttributes(source) {
     attributes[match[1].toLowerCase()] = match[2] ?? match[3] ?? "";
   }
   return attributes;
+}
+
+function externalUrls(source) {
+  const found = [];
+  for (const match of source.matchAll(URL_REFERENCE)) {
+    const target = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    if (target !== "" && !target.startsWith("#")) {
+      found.push(target);
+    }
+  }
+  return found;
 }
 
 function tags(source) {
@@ -216,10 +227,10 @@ function checkSource(source) {
   if (BASE64.test(source)) {
     problems.add("contains a base64 payload");
   }
-  if (EXTERNAL_URL.test(source) || /@import\b/i.test(source)) {
+  if (externalUrls(source).length > 0 || /@import\b/i.test(source)) {
     problems.add("references an external stylesheet or URL");
   }
-  if (/(?:^|[\s"'])on[a-z]+\s*=/i.test(source)) {
+  if (/(?:^|[\s"'=/><])on[a-z]+\s*=/i.test(source)) {
     problems.add("contains an event-handler attribute");
   }
   if (/(?:javascript|vbscript)\s*:/i.test(source)) {

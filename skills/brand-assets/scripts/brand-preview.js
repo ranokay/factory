@@ -119,12 +119,56 @@ function namespaceIds(source, prefix) {
     .replace(/(\b(?:xlink:)?href\s*=\s*)(["'])#([^"']+)\2/g, (match, attribute, quote, id) => (ids.has(id) ? `${attribute}${quote}#${prefix}${id}${quote}` : match));
 }
 
+const NAMED_COLORS = {
+  black: "#000000",
+  white: "#ffffff",
+  gray: "#808080",
+  grey: "#808080",
+  silver: "#c0c0c0",
+  red: "#ff0000",
+  green: "#008000",
+  blue: "#0000ff",
+  yellow: "#ffff00",
+  orange: "#ffa500",
+  purple: "#800080",
+};
+
+function hslToRgb(hue, saturation, lightness) {
+  const h = ((hue % 360) + 360) % 360 / 360;
+  const s = saturation / 100;
+  const l = lightness / 100;
+  if (s === 0) {
+    const channel = Math.round(l * 255);
+    return { r: channel, g: channel, b: channel, a: 1 };
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const convert = (t) => {
+    let value = t;
+    if (value < 0) value += 1;
+    if (value > 1) value -= 1;
+    if (value < 1 / 6) return p + (q - p) * 6 * value;
+    if (value < 1 / 2) return q;
+    if (value < 2 / 3) return p + (q - p) * (2 / 3 - value) * 6;
+    return p;
+  };
+  return { r: Math.round(convert(h + 1 / 3) * 255), g: Math.round(convert(h) * 255), b: Math.round(convert(h - 1 / 3) * 255), a: 1 };
+}
+
 function parseColor(value) {
   const text = String(value).trim().toLowerCase();
+  if (NAMED_COLORS[text] !== undefined) {
+    return parseColor(NAMED_COLORS[text]);
+  }
   let match = /^#([0-9a-f]{3})$/.exec(text);
   if (match !== null) {
     const [r, g, b] = match[1].split("").map((digit) => Number.parseInt(digit + digit, 16));
     return { r, g, b, a: 1 };
+  }
+  match = /^#([0-9a-f]{4})$/.exec(text);
+  if (match !== null) {
+    const [r, g, b, a] = match[1].split("").map((digit) => Number.parseInt(digit + digit, 16));
+    return { r, g, b, a: a / 255 };
   }
   match = /^#([0-9a-f]{6})$/.exec(text);
   if (match !== null) {
@@ -134,6 +178,21 @@ function parseColor(value) {
       b: Number.parseInt(match[1].slice(4, 6), 16),
       a: 1,
     };
+  }
+  match = /^#([0-9a-f]{8})$/.exec(text);
+  if (match !== null) {
+    return {
+      r: Number.parseInt(match[1].slice(0, 2), 16),
+      g: Number.parseInt(match[1].slice(2, 4), 16),
+      b: Number.parseInt(match[1].slice(4, 6), 16),
+      a: Number.parseInt(match[1].slice(6, 8), 16) / 255,
+    };
+  }
+  match = /^hsla?\(\s*([0-9.]+)(?:deg)?[,\s]+([0-9.]+)%[,\s]+([0-9.]+)%(?:[,\s/]+([0-9.]+))?\s*\)$/.exec(text);
+  if (match !== null) {
+    const color = hslToRgb(Number.parseFloat(match[1]), Number.parseFloat(match[2]), Number.parseFloat(match[3]));
+    color.a = match[4] === undefined ? 1 : Number.parseFloat(match[4]);
+    return color;
   }
   match = /^rgba?\(\s*([0-9.]+)[,\s]+([0-9.]+)[,\s]+([0-9.]+)(?:[,\s/]+([0-9.]+))?\s*\)$/.exec(text);
   if (match !== null) {
@@ -387,8 +446,10 @@ function mark(svg, size, extra = "") {
 function board(concept, theme, site, boardId) {
   const name = escapeHtml(concept.name);
   const note = theme === "light" ? "Light" : "Dark";
-  const icon = theme === "dark" && concept.darkSvg !== undefined ? concept.darkSvg : concept.svg;
-  const lockupSource = theme === "dark" && concept.darkLockup !== undefined ? concept.darkLockup : concept.lockup;
+  const iconSource = theme === "dark" && concept.darkSvg !== undefined ? concept.darkSvg : concept.svg;
+  const lockupBase = theme === "dark" && concept.darkLockup !== undefined ? concept.darkLockup : concept.lockup;
+  const icon = namespaceIds(iconSource, `board-${boardId}-icon-`);
+  const lockupSource = lockupBase === undefined ? undefined : namespaceIds(lockupBase, `board-${boardId}-lockup-`);
   const sizes = SIZES.map(
     (size) => `<figure class="size">${mark(icon, size)}<figcaption>${size} px</figcaption></figure>`,
   ).join("");
