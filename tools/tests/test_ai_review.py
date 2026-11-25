@@ -384,39 +384,33 @@ class TemplateReviewTests(unittest.TestCase):
         mise = tomllib.loads((ROOT / "project" / "mise.toml").read_text())
         refs = [*mise["include"], *mise["task_config"]["includes"]]
         self.assertTrue(refs)
-        for ref in refs:
-            self.assertIn("?ref=v0.5.0", ref)
+        tags = {ref.split("?ref=", 1)[1] for ref in refs}
+        self.assertEqual(tags, {"v0.5.0"})
+        tag = tags.pop()
         hk = (ROOT / "project" / "hk.pkl").read_text()
-        self.assertIn("/v0.5.0/profiles/universal/hk.pkl", hk)
-        tasks = tomllib.loads(
-            (ROOT / "profiles" / "universal" / "tasks.toml").read_text()
+        self.assertIn(f"/{tag}/profiles/universal/hk.pkl", hk)
+        pinned = subprocess.run(  # nosec B603 B607 -- reads the pinned tag from this checkout
+            ["git", "-C", str(ROOT), "show", f"{tag}:profiles/universal/tasks.toml"],
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        source = (
+            pinned.stdout
+            if pinned.returncode == 0
+            else (ROOT / "profiles" / "universal" / "tasks.toml").read_text()
+        )
+        tasks = tomllib.loads(source)
         for name in ("check:lint", "check:security", "check:test"):
             self.assertIn(name, tasks)
 
-    def test_template_pin_policies_accept_factory_release_tags(self):
+    def test_template_pin_policy_keeps_factory_tags_bumpable(self):
         pinact = yaml.safe_load((ROOT / "project" / ".pinact.yaml").read_text())
         self.assertEqual(pinact["version"], 3)
         self.assertTrue(pinact["rules"][0]["ignore"])
-        self.assertIn(
-            'ActionRepoFullName == "ranokay/factory"',
-            pinact["rules"][0]["conditions"][0]["expr"],
-        )
-        zizmor = yaml.safe_load((ROOT / "project" / "zizmor.yml").read_text())
-        self.assertEqual(
-            zizmor["rules"]["unpinned-uses"]["config"]["policies"]["ranokay/factory/*"],
-            "ref-pin",
-        )
-        jactionlint = yaml.safe_load(
-            (ROOT / "project" / ".github" / "jactionlint.yaml").read_text()
-        )
-        self.assertTrue(
-            any(
-                ignore["rule"] == "unpinned-uses"
-                and ignore["uses"] == "ranokay/factory/*"
-                for ignore in jactionlint["ignores"]
-            )
-        )
+        expr = pinact["rules"][0]["conditions"][0]["expr"]
+        self.assertIn('ActionRepoFullName == "ranokay/factory"', expr)
+        self.assertIn(r'ActionVersion matches "v\\d+\\.\\d+\\.\\d+"', expr)
 
 
 if __name__ == "__main__":

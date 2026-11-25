@@ -47,6 +47,6 @@ Mise refuses `settings` in a config include and gates remote `git::` task includ
 amends "https://raw.githubusercontent.com/ranokay/factory/vX.Y.Z/profiles/web/hk.pkl"
 ```
 
-Replace `vX.Y.Z` with the Factory release that carries the Profiles you declare. The `v0.5.0` pins in `mise.toml` and `hk.pkl` carry the universal fragments the Template callers use: re-pin both files whenever you add a Profile from a newer release.
+Replace `vX.Y.Z` with the Factory release that carries the Profiles you declare. The `v0.5.0` pins in `mise.toml` and `hk.pkl` provide the tasks and Gates the Template callers run: re-pin both files whenever you add a Profile from a newer release.
 
 Terms are in `GLOSSARY.md`; decisions are in `docs/adr/`.

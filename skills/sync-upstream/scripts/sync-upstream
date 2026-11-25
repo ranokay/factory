@@ -807,8 +807,8 @@ def merge_text(path, template_root, existing, template):
     }
     keep.update(
         {
-            name: f"{name}: repository has its own; kept"
-            for name in (
+            kept: f"{kept}: repository has its own; kept"
+            for kept in (
                 "PRODUCT.md",
                 ".pinact.yaml",
                 "zizmor.yml",
