@@ -420,7 +420,35 @@ steps = new Mapping<String, Step | Group> {
           ["rejects a continuation with a shell operator"] {
             run = "check"
             tmpdir = true
-            write { ["comment.sh"] = "# first line of the block\n# git show HEAD > snapshot.txt;\n" }
+            write { ["comment.sh"] = "# first line of the block\n# cat notes.txt | wc -l;\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a make run key"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: make lint check.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a cargo run key"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: cargo test.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a python run key"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: python3 -m pytest.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a just run key"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: just build.\n" }
             files = List("comment.sh")
             expect { code = 1 }
           }

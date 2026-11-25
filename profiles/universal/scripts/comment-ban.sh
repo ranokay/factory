@@ -34,7 +34,7 @@ A plain line comment (#, //, ; or --) that continues a multi-line
 comment block is prose when it has no code operators and carries
 sentence punctuation. A continuation ending in .:,!? needs three or more
 words, one ending in ; needs four, and one with internal . ; or , needs
-four. A run: value that starts with a command, and any uses:/with:
+four. A run: value whose first word is a command, and any uses:/with:
 line, stay code; other key words can read as prose. A comment ending in
 a flag is code.
 
@@ -111,13 +111,21 @@ for file in "$@"; do
 			return s ~ /^(on|push|pull_request|workflow_call|jobs|steps|uses|run|name|with|permissions|contents|version|timeout-minutes|env|id|needs|concurrency|group|cancel-in-progress|runs-on):[ \t]/
 		}
 
-		function strong_key(s,    v) {
+		function stopword(s) {
+			return s ~ /^(a|an|the|this|that|these|those|it|its|we|you|they|he|she|i|if|when|while|for|with|on|in|at|to|from|by|as|after|before|because|since|but|and|or|so|then|there|here|one|two|three|four|five|six|seven|eight|nine|ten|do|does|did|is|are|was|were|be|been|being|has|have|had|can|could|should|would|may|might|must|not|no|all|any|each|every|some|more|most|other|such|only|own|same|than|too|very)$/
+		}
+
+		function strong_key(s,    v, w, first) {
 			if (s ~ /^(uses|with):[ \t]/) return 1
 			if (s !~ /^run:[ \t]/) return 0
 			v = s
 			sub(/^run:[ \t]+/, "", v)
-			if (v ~ /^(\.\/|[-$|])/) return 1
-			return v ~ /^(mise|git|npm|bun|pnpm|yarn|uv|pip|brew|swift|xcodebuild|echo|cd|rm|cp|mv|mkdir|touch|curl|wget|sudo|docker|kubectl|gh)([ \t]|$)/
+			if (v ~ /^(\.\/|[-$|(<"`])/) return 1
+			split(v, w, /[ \t]+/)
+			first = w[1]
+			if (first ~ /^[0-9]/) return 1
+			if (first ~ /[=<>|&;()]/) return 1
+			return first ~ /^[a-z0-9_.\/-]+$/ && !stopword(first)
 		}
 
 		function is_prose(s,    n, words) {
