@@ -267,7 +267,7 @@ def blocker_caller_findings(project, present, allow_local):
     if accepted:
         return []
     required = (
-        BLOCKER_LOCAL if allow_local else f"{BLOCKER_WORKFLOW}@<vX.Y.Z>"
+        BLOCKER_LOCAL if allow_local else f"{BLOCKER_WORKFLOW}@vX.Y.Z"
     )
     return [
         finding(

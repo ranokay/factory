@@ -15,7 +15,7 @@ PINNED_USES = f"{BLOCKER_WORKFLOW}@v0.4.0"
 
 
 def with_uses(path, uses):
-    return re.sub(r"(?m)^([ \t]*uses:).*$", rf"\1 {uses}", path.read_text())
+    return re.sub(r"(?m)^(    uses:).*$", rf"\1 {uses}", path.read_text())
 
 
 def run(factory, template):
