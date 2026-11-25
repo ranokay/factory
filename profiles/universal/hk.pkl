@@ -363,13 +363,33 @@ steps = new Mapping<String, Step | Group> {
             files = List("assets/brand/icon.svg")
             expect {
               code = 1
-              stderr = "contains an event-handler attribute onload"
+              stderr = "contains an event-handler attribute"
+            }
+          }
+          ["rejects an unquoted event-handler attribute"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\" onload=alert(1)></rect></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains an event-handler attribute"
             }
           }
           ["rejects a script URL"] {
             run = "check"
             tmpdir = true
             write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><a href=\"javascript:alert(1)\"><rect width=\"8\" height=\"8\"/></a></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains a script URL"
+            }
+          }
+          ["rejects an unquoted script URL"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><a href=javascript:alert(1)><rect width=\"8\" height=\"8\"/></a></svg>\n" }
             files = List("assets/brand/icon.svg")
             expect {
               code = 1

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-object-injection, security/detect-unsafe-regex, xss/no-mixed-html -- Test harness reads and writes local fixture files and compares generated HTML strings; no web input */
+/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-unsafe-regex, xss/no-mixed-html -- Test harness reads and writes local fixture files and compares generated HTML strings; no web input */
 "use strict";
 
 const assert = require("node:assert/strict");

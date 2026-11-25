@@ -219,6 +219,12 @@ function checkSource(source) {
   if (EXTERNAL_URL.test(source) || /@import\b/i.test(source)) {
     problems.add("references an external stylesheet or URL");
   }
+  if (/\bon[a-z]+\s*=/i.test(source)) {
+    problems.add("contains an event-handler attribute");
+  }
+  if (/(?:javascript|vbscript)\s*:/i.test(source)) {
+    problems.add("contains a script URL");
+  }
   const short = Math.max(0.5, 0.005 * viewBoxScale(source));
   for (const tag of tags(source)) {
     const local = tag.name.split(":").pop();
@@ -255,12 +261,6 @@ function checkSource(source) {
     }
     for (const [name, value] of Object.entries(tag.attributes)) {
       const localName = name.split(":").pop();
-      if (/^on[a-z]/i.test(localName)) {
-        problems.add(`contains an event-handler attribute ${localName}`);
-      }
-      if (/(?:javascript|vbscript)\s*:/i.test(value)) {
-        problems.add("contains a script URL");
-      }
       if (localName === "href" || localName === "src") {
         const reference = value.trim();
         if (reference.startsWith("#")) {
