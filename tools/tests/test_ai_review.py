@@ -295,5 +295,96 @@ class AiReviewWorkflowTests(unittest.TestCase):
             )
 
 
+class TemplateReviewTests(unittest.TestCase):
+    def template(self, name):
+        return (ROOT / "project" / ".github" / "workflows" / name).read_text()
+
+    def triggers(self, source):
+        parsed = yaml.safe_load(source)
+        return parsed.get("on", parsed.get(True))
+
+    def test_gates_caller_names_the_required_contexts(self):
+        source = self.template("check.yml")
+        parsed = yaml.safe_load(source)
+        self.assertEqual(parsed["name"], "Gates")
+        self.assertEqual(parsed["permissions"], {"contents": "read"})
+        self.assertEqual(
+            self.triggers(source),
+            {"pull_request": None, "push": {"branches": ["main"]}},
+        )
+        self.assertEqual(
+            parsed["concurrency"],
+            {
+                "group": "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+                "cancel-in-progress": True,
+            },
+        )
+        jobs = parsed["jobs"]
+        self.assertEqual(set(jobs), {"lint", "security", "tests"})
+        self.assertEqual(
+            [jobs[name]["name"] for name in ("lint", "security", "tests")],
+            ["Lint", "Security", "Tests"],
+        )
+        for name, group in (("lint", "lint"), ("security", "security"), ("tests", "test")):
+            with self.subTest(job=name):
+                gate = jobs[name]["steps"][-1]
+                self.assertEqual(
+                    gate["uses"], "ranokay/factory/.github/actions/gates@v0.5.0"
+                )
+                self.assertEqual(gate["with"]["group"], group)
+        self.assertNotIn("@main", source)
+
+    def test_ai_review_caller_names_ocr(self):
+        source = self.template("ai-review.yml")
+        parsed = yaml.safe_load(source)
+        self.assertEqual(parsed["name"], "AI Review")
+        self.assertEqual(parsed["permissions"], {})
+        self.assertEqual(
+            self.triggers(source),
+            {
+                "pull_request": {
+                    "types": ["opened", "synchronize", "reopened", "ready_for_review"]
+                }
+            },
+        )
+        self.assertEqual(
+            parsed["concurrency"],
+            {
+                "group": "ai-review-${{ github.event.pull_request.number }}",
+                "cancel-in-progress": True,
+            },
+        )
+        job = parsed["jobs"]["review"]
+        self.assertEqual(job["name"], "OCR")
+        self.assertEqual(
+            job["permissions"],
+            {"contents": "write", "issues": "read", "pull-requests": "write"},
+        )
+        self.assertIn(
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            job["if"],
+        )
+        self.assertIn("github.event.pull_request.draft == false", job["if"])
+        review = job["steps"][-1]
+        self.assertEqual(
+            review["uses"], "ranokay/factory/.github/actions/ocr-review@v0.5.0"
+        )
+        self.assertEqual(
+            review["with"]["opencode_zen_api_key"],
+            "${{ secrets.OPENCODE_ZEN_API_KEY }}",
+        )
+        self.assertNotIn("@main", source)
+
+    def test_review_files_are_generic(self):
+        rule = json.loads((ROOT / "project" / "ai-review-rule.json").read_text())
+        self.assertEqual(rule, json.loads((ROOT / "ai-review-rule.json").read_text()))
+        text = (ROOT / "project" / "REVIEW.md").read_text()
+        self.assertTrue(text)
+        self.assertNotIn("Factory", text)
+        self.assertNotIn("ranokay", text)
+        self.assertIn("## Score", text)
+        self.assertIn("## Diagram", text)
+
+
 if __name__ == "__main__":
     unittest.main()

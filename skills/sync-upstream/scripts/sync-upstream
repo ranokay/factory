@@ -806,6 +806,10 @@ def merge_text(path, template_root, existing, template):
         "hk.pkl": "hk.pkl: upstream has its own; Factory Gates not amended",
         "PRODUCT.md": "PRODUCT.md: repository has its own; kept",
         ".github/workflows/blocked.yml": ".github/workflows/blocked.yml: repository has its own; kept",
+        ".github/workflows/check.yml": ".github/workflows/check.yml: repository has its own; kept",
+        ".github/workflows/ai-review.yml": ".github/workflows/ai-review.yml: repository has its own; kept",
+        "ai-review-rule.json": "ai-review-rule.json: repository has its own; kept",
+        "REVIEW.md": "REVIEW.md: repository has its own; kept",
     }
     if name in keep:
         print(keep[name])

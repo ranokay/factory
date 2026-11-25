@@ -108,11 +108,23 @@ class SyncUpstreamFiles(SyncFixture):
             "hk.pkl",
             "renovate.json",
             "PRODUCT.md",
+            "REVIEW.md",
+            "ai-review-rule.json",
             ".coderabbit.yaml",
             ".greptile/config.json",
             ".github/workflows/blocked.yml",
+            ".github/workflows/check.yml",
+            ".github/workflows/ai-review.yml",
         ):
             self.assertTrue((target / name).is_file(), name)
+        gates = (target / ".github/workflows/check.yml").read_text()
+        for name in ("Lint", "Security", "Tests"):
+            self.assertIn(f"name: {name}", gates)
+        self.assertEqual(gates.count("ranokay/factory/.github/actions/gates@v0.5.0"), 3)
+        review = (target / ".github/workflows/ai-review.yml").read_text()
+        self.assertIn("name: OCR", review)
+        self.assertIn("ranokay/factory/.github/actions/ocr-review@v0.5.0", review)
+        self.assertNotIn("@main", gates + review)
         again = self.cli("install-files", "--target", str(target), "--check")
         self.assertIn("hk.pkl: upstream has its own; Factory Gates not amended", again.stdout)
         self.assertIn("PRODUCT.md: repository has its own; kept", again.stdout)
@@ -133,6 +145,22 @@ class SyncUpstreamFiles(SyncFixture):
             check.stdout,
         )
         self.assertEqual(caller.read_text(), original)
+
+    def test_install_files_keeps_existing_callers_and_review_files(self):
+        target = self.target()
+        self.cli("install-files", "--target", str(target))
+        originals = {
+            ".github/workflows/check.yml": "name: Our gates\non: push\n",
+            ".github/workflows/ai-review.yml": "name: Our review\non: push\n",
+            "ai-review-rule.json": '{"rules": []}\n',
+            "REVIEW.md": "# Our review rules\n",
+        }
+        for name, content in originals.items():
+            (target / name).write_text(content)
+        check = self.cli("install-files", "--target", str(target), "--check")
+        for name, content in originals.items():
+            self.assertIn(f"{name}: repository has its own; kept", check.stdout)
+            self.assertEqual((target / name).read_text(), content)
 
     def test_install_files_fails_on_an_existing_file_with_no_merge_rule(self):
         template = self.root / "template"
