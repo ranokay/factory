@@ -20,11 +20,11 @@ function fails(args) {
 }
 
 function svg(color, body = "") {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="${color}"/>${body}</svg>\n`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="${color}"/>${body}</svg>\n`;
 }
 
 function lockup(color) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80"><circle cx="40" cy="40" r="28" fill="${color}"/><path d="M88 58c0-18 14-32 32-32s32 14 32 32" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/></svg>\n`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80"><circle cx="40" cy="40" r="28" fill="currentColor"/><path d="M88 58c0-18 14-32 32-32s32 14 32 32" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/><circle cx="196" cy="24" r="8" fill="${color}"/></svg>\n`;
 }
 
 function write(name, content) {
@@ -122,6 +122,19 @@ try {
   assert.ok(namespacedHtml.includes('stop-color="#111827"'));
   assert.ok(namespacedHtml.includes('fill="#abc"'));
   assert.ok(!namespacedHtml.includes("url(#g)"));
+
+  assert.ok(!html.includes("Contrast check"));
+  const fixedInk = write("fixed-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="#141821"><rect width="64" height="64" fill="#141821"/></svg>\n`);
+  const flagged = path.join(workspace, "out", "flagged.html");
+  run(["--title", "Fixed ink", "--concept", `Fixed=${fixedInk}`, "--output", flagged]);
+  const flaggedHtml = fs.readFileSync(flagged, "utf8");
+  assert.ok(flaggedHtml.includes("Contrast check"));
+  assert.ok(flaggedHtml.includes("dark icon: #141821 is 1.1:1; minimum 3:1"));
+
+  const fixedDark = write("fixed-ink-dark.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/></svg>\n`);
+  const variant = path.join(workspace, "out", "variant.html");
+  run(["--title", "Fixed ink", "--concept", `Fixed=${fixedInk}`, "--dark", `Fixed=${fixedDark}`, "--output", variant]);
+  assert.ok(!fs.readFileSync(variant, "utf8").includes("Contrast check"));
 
   const noViewBox = write("no-viewbox.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n");
   expectFailure(fails(["--title", "Bad", "--concept", `No=${noViewBox}`, "--output", path.join(workspace, "bad.html")]), "has no viewBox");

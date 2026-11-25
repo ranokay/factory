@@ -8,11 +8,17 @@ const path = require("node:path");
 const { checkSource } = require(path.join(__dirname, "../../../profiles/universal/scripts/asset-masters.js"));
 
 const SIZES = [16, 32, 64, 128, 256, 512, 1024];
+const MIN_CONTRAST = 3;
+const BOARDS = {
+  light: { background: "#f6f6f3", text: "#18181b" },
+  dark: { background: "#0e0e11", text: "#f4f4f5" },
+};
 
-const USAGE = `Usage: brand-preview.js --output <file> --title <title> --concept <name>=<svg> [--concept ...] [--lockup <name>=<svg>] [--note <name>=<text>] [--subtitle <text>] [--site <host>]
+const USAGE = `Usage: brand-preview.js --output <file> --title <title> --concept <name>=<svg> [--concept ...] [--lockup <name>=<svg>] [--dark <name>=<svg>] [--dark-lockup <name>=<svg>] [--note <name>=<text>] [--subtitle <text>] [--site <host>]
 
 Render brand concepts as one self-contained HTML page.
 Pass one --concept per direction; the skill passes three. Add one --lockup per direction to show its logo lockup.
+Draw neutral ink in currentColor; add --dark or --dark-lockup only for a fixed-ink concept.
 Each SVG must pass the brand master checker (viewBox, primitives and Bezier curves, no raster or external references).`;
 
 function escapeHtml(value) {
@@ -33,7 +39,7 @@ function splitPair(value, flag) {
 }
 
 function parseArgs(argv) {
-  const options = { output: null, title: null, subtitle: null, site: "example.app", concepts: [], lockups: new Map(), notes: new Map() };
+  const options = { output: null, title: null, subtitle: null, site: "example.app", concepts: [], lockups: new Map(), darks: new Map(), darkLockups: new Map(), notes: new Map() };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") {
@@ -66,6 +72,12 @@ function parseArgs(argv) {
     } else if (flag === "lockup") {
       const [name, file] = splitPair(next, "--lockup");
       options.lockups.set(name, file);
+    } else if (flag === "dark") {
+      const [name, file] = splitPair(next, "--dark");
+      options.darks.set(name, file);
+    } else if (flag === "dark-lockup") {
+      const [name, file] = splitPair(next, "--dark-lockup");
+      options.darkLockups.set(name, file);
     } else if (flag === "note") {
       const [name, text] = splitPair(next, "--note");
       options.notes.set(name, text);
@@ -105,6 +117,82 @@ function namespaceIds(source, prefix) {
     .replace(/(\b(?:xlink:)?href\s*=\s*)(["'])#([^"']+)\2/g, (match, attribute, quote, id) => (ids.has(id) ? `${attribute}${quote}#${prefix}${id}${quote}` : match));
 }
 
+function parseColor(value) {
+  const text = String(value).trim().toLowerCase();
+  let match = /^#([0-9a-f]{3})$/.exec(text);
+  if (match !== null) {
+    const [r, g, b] = match[1].split("").map((digit) => Number.parseInt(digit + digit, 16));
+    return { r, g, b };
+  }
+  match = /^#([0-9a-f]{6})$/.exec(text);
+  if (match !== null) {
+    return {
+      r: Number.parseInt(match[1].slice(0, 2), 16),
+      g: Number.parseInt(match[1].slice(2, 4), 16),
+      b: Number.parseInt(match[1].slice(4, 6), 16),
+    };
+  }
+  match = /^rgba?\(\s*([0-9.]+)[,\s]+([0-9.]+)[,\s]+([0-9.]+)/.exec(text);
+  if (match !== null) {
+    return { r: Number.parseFloat(match[1]), g: Number.parseFloat(match[2]), b: Number.parseFloat(match[3]) };
+  }
+  return null;
+}
+
+function channel(value) {
+  const normalized = value / 255;
+  return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function luminance(color) {
+  return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
+}
+
+function contrastRatio(foreground, background) {
+  const a = luminance(foreground);
+  const b = luminance(background);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+function inkFor(source, textColor) {
+  const root = source.match(/<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i);
+  if (root === null) {
+    return { color: null, raw: null };
+  }
+  const declared = /data-brand-ink\s*=\s*["']([^"']+)["']/i.exec(root[1]);
+  if (declared !== null) {
+    const raw = declared[1].trim();
+    return raw.toLowerCase() === "currentcolor" ? { color: parseColor(textColor), raw: textColor } : { color: parseColor(raw), raw };
+  }
+  if (/(?:fill|stroke)\s*=\s*["']currentColor["']/i.test(source)) {
+    return { color: parseColor(textColor), raw: textColor };
+  }
+  return { color: null, raw: null };
+}
+
+function contrastProblems(concept) {
+  const problems = [];
+  const check = (theme, source, kind) => {
+    const board = BOARDS[theme];
+    const ink = inkFor(source, board.text);
+    if (ink.color === null) {
+      problems.push(`${theme} ${kind}: declare the ink with currentColor or data-brand-ink`);
+      return;
+    }
+    const ratio = contrastRatio(ink.color, parseColor(board.background));
+    if (ratio < MIN_CONTRAST) {
+      problems.push(`${theme} ${kind}: ${ink.raw} is ${ratio.toFixed(1)}:1; minimum ${MIN_CONTRAST}:1`);
+    }
+  };
+  check("light", concept.svg, "icon");
+  check("dark", concept.darkSvg === undefined ? concept.svg : concept.darkSvg, "icon");
+  if (concept.lockup !== undefined) {
+    check("light", concept.lockup, "lockup");
+    check("dark", concept.darkLockup === undefined ? concept.lockup : concept.darkLockup, "lockup");
+  }
+  return problems;
+}
+
 function mark(svg, size, extra = "") {
   const classes = extra === "" ? "mark" : `mark ${extra}`;
   return `<span class="${classes}" style="width:${size}px;height:${size}px" aria-hidden="true">${svg}</span>`;
@@ -113,15 +201,17 @@ function mark(svg, size, extra = "") {
 function board(concept, theme, site, boardId) {
   const name = escapeHtml(concept.name);
   const note = theme === "light" ? "Light" : "Dark";
+  const icon = theme === "dark" && concept.darkSvg !== undefined ? concept.darkSvg : concept.svg;
+  const lockupSource = theme === "dark" && concept.darkLockup !== undefined ? concept.darkLockup : concept.lockup;
   const sizes = SIZES.map(
-    (size) => `<figure class="size">${mark(concept.svg, size)}<figcaption>${size} px</figcaption></figure>`,
+    (size) => `<figure class="size">${mark(icon, size)}<figcaption>${size} px</figcaption></figure>`,
   ).join("");
   const lockup =
-    concept.lockup === undefined
+    lockupSource === undefined
       ? ""
       : `<div class="lockup">
           <span class="lockup-label">Logo lockup</span>
-          <span class="lockup-art" aria-hidden="true">${concept.lockup}</span>
+          <span class="lockup-art" aria-hidden="true">${lockupSource}</span>
         </div>`;
   return `<div class="board board-${theme}">
         <div class="board-label">${note}</div>
@@ -134,12 +224,12 @@ function board(concept, theme, site, boardId) {
         <p class="rail-hint">Scroll the ladder for 512 and 1024.</p>
         ${lockup}
         <div class="menu">
-          <div class="menu-left">${mark(concept.svg, 18, "template")}<b>${name}</b><span>File</span><span>Edit</span><span>View</span></div>
+          <div class="menu-left">${mark(icon, 18, "template")}<b>${name}</b><span>File</span><span>Edit</span><span>View</span></div>
           <div class="menu-right"><span>Mon 9:41</span></div>
         </div>
         <div class="browser">
           <div class="tabs">
-            <span class="tab active">${mark(concept.svg, 16)}<span>${name}</span></span>
+            <span class="tab active">${mark(icon, 16)}<span>${name}</span></span>
             <span class="tab"><span>Overview</span></span>
             <span class="tab"><span>Settings</span></span>
           </div>
@@ -150,7 +240,7 @@ function board(concept, theme, site, boardId) {
           <span class="app app-b">B</span>
           <span class="app app-c">C</span>
           <span class="app app-d">D</span>
-          <span class="app brand-app">${mark(concept.svg, 64)}</span>
+          <span class="app brand-app">${mark(icon, 64)}</span>
         </div>
         <p class="board-note">Menu bar 18 px template · tab favicon 16 px · Dock 64 px</p>
       </div>`;
@@ -160,6 +250,10 @@ function section(concept, index, site) {
   const number = String(index + 1).padStart(2, "0");
   const name = escapeHtml(concept.name);
   const note = escapeHtml(concept.note);
+  const flags =
+    concept.flags.length === 0
+      ? ""
+      : `<div class="flag" role="status"><strong>Contrast check</strong><span>${concept.flags.map(escapeHtml).join(" · ")}</span></div>`;
   return `<section class="concept" id="concept-${index + 1}">
       <header class="concept-head">
         <span class="number">${number}</span>
@@ -169,6 +263,7 @@ function section(concept, index, site) {
         </div>
         <span class="head-mark">${mark(concept.svg, 56)}</span>
       </header>
+      ${flags}
       <div class="boards">
         ${board(concept, "light", site, `${index + 1}-light`)}
         ${board(concept, "dark", site, `${index + 1}-dark`)}
@@ -232,6 +327,23 @@ function main(argv) {
         throw new Error(`--lockup names no concept: ${name}`);
       }
       options.concepts[index].lockup = namespaceIds(loadSvg(file), `concept-${index + 1}-lockup-`);
+    }
+    for (const [name, file] of options.darks) {
+      const index = options.concepts.findIndex((candidate) => candidate.name === name);
+      if (index === -1) {
+        throw new Error(`--dark names no concept: ${name}`);
+      }
+      options.concepts[index].darkSvg = namespaceIds(loadSvg(file), `concept-${index + 1}-dark-icon-`);
+    }
+    for (const [name, file] of options.darkLockups) {
+      const index = options.concepts.findIndex((candidate) => candidate.name === name);
+      if (index === -1) {
+        throw new Error(`--dark-lockup names no concept: ${name}`);
+      }
+      options.concepts[index].darkLockup = namespaceIds(loadSvg(file), `concept-${index + 1}-dark-lockup-`);
+    }
+    for (const concept of options.concepts) {
+      concept.flags = contrastProblems(concept);
     }
     for (const name of options.notes.keys()) {
       if (!names.has(name)) {

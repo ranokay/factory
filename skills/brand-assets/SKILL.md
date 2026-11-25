@@ -90,16 +90,23 @@ icon-only mark, the lockup is a wide mark-only variant instead.
 - No `<image>`, data URIs, `<foreignObject>`, `<style>`, raster or external
   references, or `<text>`. Use presentation attributes, and outline a wordmark as
   paths.
+- Draw the neutral ink in `currentColor`; the preview sets it to `#18181b` on
+  light and `#f4f4f5` on dark. Accents may use explicit colours. A concept that
+  must use fixed ink declares `data-brand-ink="#rrggbb"` on its root and ships a
+  dark variant with `--dark`/`--dark-lockup`; otherwise the page flags its
+  contrast.
 - Keep every path under 400 drawing commands and avoid long runs of tiny
   axis-aligned steps.
-- Use explicit colours. A concept must still read at 16 px.
+- A concept must still read at 16 px on both boards.
 
 **The difference check runs before the concepts are shown.** For each concept,
 write one line: “it forms *<metaphor>* as *<silhouette>*”. Then compare the
 three icons at 16 px in one colour (the preview page's silhouette strip does
-this), and compare the three lockups beside each other. If two share a
-metaphor, or collapse into the same silhouette, redraw one and repeat the check.
-Three recolours of one shape are not three concepts.
+this), and compare the three lockups beside each other. Check both the light and
+dark board: a `Contrast check` banner means the ink falls below 3:1 on that
+board, so redraw it or add the dark variant. If two share a metaphor, or collapse
+into the same silhouette, redraw one and repeat the check. Three recolours of
+one shape are not three concepts.
 
 Run the checker on the concepts before showing them:
 
@@ -130,6 +137,10 @@ node "$factory/skills/brand-assets/scripts/brand-preview.js" \
   --output "$cache/preview.html"
 ```
 
+The command above relies on `currentColor`. For a fixed-ink concept, add
+`--dark "Name=$cache/concept-N-slug-dark-icon.svg"` and
+`--dark-lockup "Name=$cache/concept-N-slug-dark-lockup.svg"` for the same name.
+
 Show it with T3:
 
 1. `html_preview({ path: "$cache/preview.html", width: 1440 })` and read
@@ -138,10 +149,11 @@ Show it with T3:
 
 The page shows each concept's icon at 16, 32, 64, 128, 256, 512 and 1024 px,
 its logo lockup, a 16 px silhouette strip, the mark as a menu-bar template
-glyph, as a favicon in a mock tab bar, and in a mock Dock, on light and dark. The
-size ladder scrolls for 512 and 1024; “Show all sizes” expands one board to the
-full page width so the 1024 master is shown whole. If T3 preview tools are
-unavailable, open the file with `open` and give ranokay its path.
+glyph, as a favicon in a mock tab bar, and in a mock Dock, on light and dark. A
+`Contrast check` banner names any ink below 3:1 on a board. The size ladder
+scrolls for 512 and 1024; “Show all sizes” expands one board to the full page
+width so the 1024 master is shown whole. If T3 preview tools are unavailable,
+open the file with `open` and give ranokay its path.
 
 ## 5. The pick
 
@@ -170,9 +182,11 @@ the difference check. The baseline must still match before the next ask.
 After the pick, draw the final masters into `assets/brand/` in the repository:
 
 - `icon.svg`: the chosen concept's icon redrawn at a 1024 square `viewBox`,
-  transparent background, primitives and Bezier curves.
+  transparent background, primitives and Bezier curves, neutral ink in
+  `currentColor`.
 - `logo.svg`: the chosen concept's lockup redrawn, with the wordmark outlined as
-  paths, never `<text>`. For an icon-only brand, make a wide variant of the mark.
+  paths and its ink in `currentColor`, never `<text>`. For an icon-only brand,
+  make a wide variant of the mark.
 
 Then:
 
