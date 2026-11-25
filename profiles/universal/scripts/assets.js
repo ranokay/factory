@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-var-requires, no-undef, security/detect-object-injection, security/detect-unsafe-regex, security/detect-non-literal-fs-filename, security/detect-non-literal-regexp, security/detect-non-literal-require, security/detect-possible-timing-attacks, security-node/detect-non-literal-require-calls, security-node/non-literal-reg-expr, security-node/detect-possible-timing-attacks, xss/no-mixed-html -- Local asset generator and tests read and write checked repository paths, build fixed regexes and render checked SVG; the CLI has no untrusted web input */
 "use strict";
 
 const crypto = require("node:crypto");

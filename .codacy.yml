@@ -1,0 +1,11 @@
+---
+# The asset driver is one self-contained file so the hk Gate can inline it and
+# a repository that amends the Profile by URL needs no scripts checkout. It is
+# deliberately long and branchy. Only its complexity metrics are excluded.
+# ESLint, Semgrep and the other engines keep scanning it.
+engines:
+  metric:
+    exclude_paths:
+      - "profiles/universal/scripts/assets.js"
+      - "profiles/apple/scripts/assets.js"
+      - "profiles/web/scripts/assets.js"
