@@ -306,8 +306,7 @@ function checkSource(source) {
 function checkFile(file) {
   let source;
   try {
-    // nosemgrep -- master paths are repository assets
-    source = fs.readFileSync(file, "utf8");
+    source = fs.readFileSync(file, "utf8"); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
   } catch (error) {
     return [`cannot read: ${error.message}`];
   }
@@ -320,8 +319,7 @@ function defaultFiles() {
   const walk = (directory) => {
     let entries;
     try {
-      // nosemgrep -- master paths are repository assets
-      entries = fs.readdirSync(directory, { withFileTypes: true });
+      entries = fs.readdirSync(directory, { withFileTypes: true }); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
     } catch {
       return;
     }

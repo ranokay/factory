@@ -9,8 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 function read(file) {
-  // nosemgrep -- local fixture paths are created by this test
-  return fs.readFileSync(file, "utf8");
+  return fs.readFileSync(file, "utf8"); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
 }
 
 const GENERATOR = path.join(__dirname, "brand-preview.js");

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-object-injection, security/detect-unsafe-regex, xss/no-mixed-html -- Node CLI reads local design files and builds a self-contained preview; inputs are trusted project assets, not web input */
+/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-object-injection, security/detect-unsafe-regex, security-node/detect-non-literal-require-calls, xss/no-mixed-html -- Node CLI reads local design files and builds a self-contained preview; inputs are trusted project assets, not web input */
 "use strict";
 
 const fs = require("node:fs");
 const path = require("node:path");
 
 // The skill ships inside the Factory checkout, so it uses the profile's one master contract rather than a second copy.
-const { checkSource, tagAttributes } = require(path.join(__dirname, "../../../profiles/universal/scripts/asset-masters.js"));
+const { checkSource, tagAttributes } = require(path.join(__dirname, "../../../profiles/universal/scripts/asset-masters.js")); // nosemgrep: javascript.require.rule-non-literal-require
 
 const SIZES = [16, 32, 64, 128, 256, 512, 1024];
 const MIN_CONTRAST = 3;
@@ -92,8 +92,7 @@ function parseArgs(argv) {
 function loadSvg(file) {
   let source;
   try {
-    // nosemgrep -- local SVG paths are project assets
-    source = fs.readFileSync(file, "utf8");
+    source = fs.readFileSync(file, "utf8"); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
   } catch (error) {
     throw new Error(`${file}: cannot read: ${error.message}`);
   }
@@ -542,8 +541,7 @@ function main(argv) {
       throw new Error("--site needs a host name");
     }
     const html = render(options.concepts, { title: options.title, subtitle, site: options.site });
-    // nosemgrep -- output path is the cache path supplied by the caller
-    fs.mkdirSync(path.dirname(path.resolve(options.output)), { recursive: true });
+    fs.mkdirSync(path.dirname(path.resolve(options.output)), { recursive: true }); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
     fs.writeFileSync(options.output, html);
   } catch (error) {
     process.stderr.write(`brand-preview: ${error.message}\n`);
