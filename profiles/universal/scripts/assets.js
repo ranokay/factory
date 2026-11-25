@@ -141,6 +141,11 @@ function relativePath(root, file) {
   return posix(path.relative(root, file));
 }
 
+function globMatch(pattern, relative) {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`).test(relative);
+}
+
 function sortedObject(entries) {
   const result = {};
   for (const key of Object.keys(entries).sort()) {
@@ -313,6 +318,7 @@ function loadModuleSources(root, modulesDirectory, profiles) {
       source: driverSource,
       tools: { resvg: RESVG_TOOL },
       managedRoots: [],
+      managedGlobs: ["assets/brand/*.png", "assets/brand/og-image*.png", "assets/brand/readme-header-*.png"],
       generate: universalGenerate,
     },
   ];
@@ -335,6 +341,7 @@ function loadModuleSources(root, modulesDirectory, profiles) {
       source,
       tools: loaded.tools ?? {},
       managedRoots: loaded.managedRoots ?? [],
+      managedGlobs: loaded.managedGlobs ?? [],
       generate: loaded.generate,
     });
   }
@@ -746,6 +753,15 @@ function check(options) {
         for (const file of walkFiles(full)) {
           if (!produced.has(relativePath(options.root, file))) {
             problems.push(`${relativePath(options.root, file)} is not produced by mise run assets`);
+          }
+        }
+      }
+      for (const pattern of module.managedGlobs) {
+        const directory = path.dirname(pattern.split("*")[0]);
+        for (const file of walkFiles(path.join(options.root, directory))) {
+          const relative = relativePath(options.root, file);
+          if (globMatch(pattern, relative) && !produced.has(relative)) {
+            problems.push(`${relative} is not produced by mise run assets`);
           }
         }
       }

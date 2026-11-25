@@ -24,7 +24,7 @@ if [ -n "$ref" ]; then
       exit 1
     }
   done
-  exec node "$tmp/profiles/universal/scripts/assets.js"{% if usage.check %} --check{% endif %}
+  node "$tmp/profiles/universal/scripts/assets.js"{% if usage.check %} --check{% endif %}
 fi
 [ -f "$factory/profiles/universal/scripts/assets.js" ] || {
   printf 'assets: FACTORY_CHECKOUT (%s) does not contain profiles/universal/scripts/assets.js; set it to the Factory checkout\n' "$factory" >&2

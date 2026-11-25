@@ -133,6 +133,28 @@ function writeMise(root, profiles) {
   assert(trust.status === 0, trust.stderr);
 }
 
+function pinnedFactory() {
+  const repo = tempDir("factory-pin");
+  for (const profile of ["universal", "apple", "web"]) {
+    const target = path.join(repo, "profiles", profile, "scripts");
+    fs.mkdirSync(target, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, "profiles", profile, "scripts", "assets.js"), path.join(target, "assets.js"));
+  }
+  fs.copyFileSync(
+    path.join(ROOT, "profiles", "universal", "scripts", "asset-masters.js"),
+    path.join(repo, "profiles", "universal", "scripts", "asset-masters.js"),
+  );
+  const git = (args) => {
+    const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+    assert(result.status === 0, result.stderr);
+  };
+  git(["init", "-q"]);
+  git(["add", "-A"]);
+  git(["-c", "user.name=assets-test", "-c", "user.email=assets-test@invalid", "commit", "-qm", "pin"]);
+  git(["tag", "v-assets-test"]);
+  return repo;
+}
+
 function runTask(root, args) {
   return spawnSync("mise", ["run", "assets", ...args], {
     cwd: root,
@@ -223,16 +245,40 @@ function universalWebTest() {
 
   const lockFile = path.join(root, "assets", "exports.lock");
   const originalLock = fs.readFileSync(lockFile);
-  const staleFile = path.join(root, "public", "icon-64.png");
+  const staleFile = path.join(root, "assets", "brand", "extra.png");
   fs.writeFileSync(staleFile, "stale\n");
   const lock = JSON.parse(originalLock);
-  lock.exports["public/icon-64.png"] = hash(staleFile);
+  lock.exports["assets/brand/extra.png"] = hash(staleFile);
   fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
   const stale = run(root, ["--check", "--modules", modules]);
   assert(stale.status === 1, "a stale lock export passed the check");
-  assert(stale.stderr.includes("public/icon-64.png is in assets/exports.lock"), stale.stderr);
+  assert(stale.stderr.includes("assets/brand/extra.png is in assets/exports.lock"), stale.stderr);
   fs.writeFileSync(lockFile, originalLock);
   fs.rmSync(staleFile, { force: true });
+
+  const unexpected = path.join(root, "public", "icon-64.png");
+  fs.writeFileSync(unexpected, "unexpected\n");
+  const unexpectedCheck = run(root, ["--check", "--modules", modules]);
+  assert(unexpectedCheck.status === 1, "an unreferenced web export passed the check");
+  assert(unexpectedCheck.stderr.includes("public/icon-64.png is not produced"), unexpectedCheck.stderr);
+  fs.rmSync(unexpected, { force: true });
+
+  const stray = path.join(root, "assets", "brand", "random-export.png");
+  fs.writeFileSync(stray, "stray\n");
+  const strayCheck = run(root, ["--check", "--modules", modules]);
+  assert(strayCheck.status === 1, "an unreferenced brand export passed the check");
+  assert(strayCheck.stderr.includes("assets/brand/random-export.png is not produced"), strayCheck.stderr);
+  fs.rmSync(stray, { force: true });
+
+  fs.writeFileSync(favicon, Buffer.from(`${original.toString("utf8")}<!-- divergent -->\n`));
+  const divergentLock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+  divergentLock.exports["public/favicon.svg"] = hash(favicon);
+  fs.writeFileSync(lockFile, `${JSON.stringify(divergentLock, null, 2)}\n`);
+  const divergence = run(root, ["--check", "--modules", modules]);
+  assert(divergence.status === 1, "a lock-consistent but divergent export passed the check");
+  assert(divergence.stderr.includes("differs from what mise run assets generates"), divergence.stderr);
+  fs.writeFileSync(favicon, original);
+  fs.writeFileSync(lockFile, originalLock);
 
   const agents = path.join(root, "AGENTS.md");
   fs.renameSync(agents, `${agents}.bak`);
@@ -267,6 +313,16 @@ function universalWebTest() {
   });
   assert(badPinned.status === 1, "a pinned task with a broken FACTORY_CHECKOUT passed");
   assert(badPinned.stderr.includes("FACTORY_CHECKOUT"), badPinned.stderr);
+  fs.writeFileSync(miseFile, originalMise);
+
+  const pinned = pinnedFactory();
+  fs.writeFileSync(miseFile, `# git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v-assets-test\n${originalMise}`);
+  const pinnedCheck = spawnSync("mise", ["run", "assets", "--check"], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, FACTORY_CHECKOUT: pinned },
+  });
+  assert(pinnedCheck.status === 0, pinnedCheck.stderr);
   fs.writeFileSync(miseFile, originalMise);
 
   fs.writeFileSync(icon, fs.readFileSync(path.join(FIXTURES, "fail-staircase.svg")));
