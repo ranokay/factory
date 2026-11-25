@@ -23,14 +23,23 @@ A comment is commented-out code when its body is name=value, a known
 workflow key (run:, uses:, jobs: and the like), a YAML list item that
 starts code, starts with a shell, build or language keyword (if, echo,
 git, mise, const, import, return, SELECT and the like), starts with a
-./path or flag (./build.sh, --release), is [table], or ends in ;, { or }.
+./path or flag (./build.sh, --release), is [table], starts a call (name(
+or receiver.name(), or ends in ;, { or }.
+
+Documentation comments (///, //!, and lines inside /** ... */) are not
+inspected for code, though banned markers still fail.
+
+A plain comment line that continues a multi-line comment block is prose
+when it has no code operators and carries sentence punctuation. A
+continuation line ending in ; needs four or more words to read as prose.
 
 A PEP 723 script block in a .py file (a comment line /// script through the
 next ///) is executable script metadata, not commented-out code, and is
 skipped; an unterminated block fails.
 
 Exempt tool directives: shellcheck, zizmor:, typos:, yamllint, pinact,
-oxlint-, biome-, eslint-, prettier-ignore, shfmt, tombi, editorconfig.
+oxlint-, biome-, eslint-, prettier-ignore, shfmt, tombi, editorconfig,
+yaml-language-server: and NOSONAR.
 EOF
 }
 
@@ -90,12 +99,41 @@ for file in "$@"; do
 		}
 
 		function exempt(s) {
-			return s ~ /^(shellcheck|zizmor:|typos:|yamllint|pinact|oxlint-|biome-|eslint-|prettier-ignore|shfmt|tombi|editorconfig)/
+			return s ~ /^(shellcheck|zizmor:|typos:|yamllint|pinact|oxlint-|biome-|eslint-|prettier-ignore|shfmt|tombi|editorconfig|yaml-language-server:|NOSONAR(:|[ \t]|$))/
+		}
+
+		function known_key(s) {
+			return s ~ /^(on|push|pull_request|workflow_call|jobs|steps|uses|run|name|with|permissions|contents|version|timeout-minutes|env|id|needs|concurrency|group|cancel-in-progress|runs-on):[ \t]/
+		}
+
+		function documentation() {
+			return docblock || doc_comment
+		}
+
+		function prose_line(s,    n, words) {
+			if (s ~ /[(){}=$"`]/) return 0
+			if (s ~ /\[/ || s ~ /\]/) return 0
+			if (s ~ /(^|[ \t])(--|\.\/|->|=>|&&|\|\|)/) return 0
+			if (s ~ /;[ \t]*$/) {
+				n = split(s, words, /[ \t]+/)
+				return n >= 4
+			}
+			if (s ~ /[.:,!?][ \t]*$/) return 1
+			if (s ~ /[.;,][ \t]+[A-Za-z]/) return 1
+			return 0
+		}
+
+		function starts_comment_line(line,    s, k) {
+			s = line
+			sub(/^[ \t]+/, "", s)
+			for (k = 1; k <= count; k++)
+				if (substr(s, 1, length(marker[k])) == marker[k]) return 1
+			return 0
 		}
 
 		function keyed_code(s,    v) {
 			if (s !~ /^[A-Za-z0-9_.-]+:[ \t]/) return 0
-			if (s ~ /^(on|push|pull_request|workflow_call|jobs|steps|uses|run|name|with|permissions|contents|version|timeout-minutes|env|id|needs|concurrency|group|cancel-in-progress|runs-on):[ \t]/) return 1
+			if (known_key(s)) return 1
 			v = s
 			sub(/^[A-Za-z0-9_.-]+:[ \t]+/, "", v)
 			if (is_code(v)) return 1
@@ -106,6 +144,7 @@ for file in "$@"; do
 
 		function is_code(s,    v) {
 			if (s ~ /^(if|then|else|elif|fi|for|while|do|done|case|esac|function|def|class|import|from|return|export|local|const|let|var|set|echo|printf|cd|git|gh|npm|bun|pnpm|yarn|uv|pip|brew|mise|docker|kubectl|curl|wget|sudo|rm|cp|mv|mkdir|touch|source|exec|await|async|throw|raise|try|catch|finally|switch|package|type|interface|struct|enum|public|private|protected|static|final|void|int|string|bool|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)([ \t]|$)/) return 1
+			if (s ~ /^[A-Za-z_$][A-Za-z0-9_.$]*\(/) return 1
 			if (s ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=[^=]/) return 1
 			if (keyed_code(s)) return 1
 			if (s ~ /^-[ \t]+/) {
@@ -139,6 +178,8 @@ for file in "$@"; do
 				return
 			}
 			if (exempt(s)) return
+			if (documentation()) return
+			if (!inblock && continuation && !known_key(s) && prose_line(s)) return
 			if (is_code(s)) {
 				printf "%s:%d: commented-out code: %s\n", FILENAME, FNR, s
 				failed = 1
@@ -159,11 +200,24 @@ for file in "$@"; do
 		BEGIN {
 			count = split(markers, marker, " ")
 			inpep = 0
+			inblock = 0
+			docblock = 0
+			doc_comment = 0
+			prev_comment = 0
+			continuation = 0
 		}
 
 		{
 			line = $0
+			if (FNR == 1) {
+				inblock = 0
+				docblock = 0
+				prev_comment = 0
+			}
+			doc_comment = 0
 			if (FNR == 1 && substr(line, 1, 2) == "#!") next
+			starts_comment = starts_comment_line(line)
+			continuation = prev_comment && starts_comment
 			n = length(line)
 			i = 1
 			inq = ""
@@ -177,6 +231,7 @@ for file in "$@"; do
 						inspect(substr(line, i, p - 1))
 						i += p - 1 + length(block_end)
 						inblock = 0
+						docblock = 0
 					}
 					continue
 				}
@@ -192,11 +247,13 @@ for file in "$@"; do
 				}
 				if (block_start != "" && substr(line, i, length(block_start)) == block_start) {
 					inblock = 1
+					docblock = block_start == "/*" && substr(line, i, 3) == "/**"
 					i += length(block_start)
 					continue
 				}
 				mlen = marker_length(line, i)
 				if (mlen > 0) {
+					doc_comment = markers == "//" && (substr(line, i + mlen, 1) == "/" || substr(line, i + mlen, 1) == "!")
 					inspect(substr(line, i + mlen))
 					i = n + 1
 					continue
@@ -208,6 +265,7 @@ for file in "$@"; do
 				}
 				i++
 			}
+			prev_comment = starts_comment
 		}
 
 		END {

@@ -195,6 +195,113 @@ steps = new Mapping<String, Step | Group> {
             write { ["{{tmp}}/sub/.gitignore"] = "# TODO: nested\n" }
             expect { code = 1 }
           }
+          ["accepts documentation comments"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["Docs.swift"] = """
+                /// The failure text stored on a delivery row. It never includes a credential;
+                //! Inner documentation.
+                /**
+                 * A block documentation line;
+                 */
+                """
+            }
+            files = List("Docs.swift")
+            expect { code = 0 }
+          }
+          ["rejects a TODO in a documentation comment"] {
+            run = "check"
+            tmpdir = true
+            write { ["Docs.swift"] = "/// TODO: fix\n" }
+            files = List("Docs.swift")
+            expect { code = 1 }
+          }
+          ["accepts tool directives"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["config.yaml"] = "# yaml-language-server: $schema=https://example.com/schema.json\n"
+              ["About.swift"] = "droplet.openURL(url) // NOSONAR: public licence link\n"
+            }
+            files = List("config.yaml", "About.swift")
+            expect { code = 0 }
+          }
+          ["accepts prose continuing a hash comment"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["prose.sh"] = """
+                # The panel's host contract: the panel is key and main,
+                # for this run; a panel that refuses main raises the same exception the host
+                # local gate runs.
+                """
+            }
+            files = List("prose.sh")
+            expect { code = 0 }
+          }
+          ["accepts prose continuing a slash comment"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["Prose.swift"] = """
+                // Measured: elapsedTime 174.6 reported at the resume, read 8.5 s later
+                // while Music said 183.3. The position must not stay at 174.6.
+                // follow-up: if it cannot run, the connection stays linked and its
+                """
+            }
+            files = List("Prose.swift")
+            expect { code = 0 }
+          }
+          ["rejects a commented-out method call"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// store.flush()\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a commented-out call with arguments"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// foo(bar, baz) more words\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a commented-out call with labels"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// await service.send(listen, to: target)\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a sentence that starts a comment block"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# local gate runs.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a continuation command without punctuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# git push origin main\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a short continuation statement"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// The block begins here\n// return cached;\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a continuation statement with an operator"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// The block begins here\n// count += 1;\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
         }
       }
       ["shellcheck"] = Builtins.shellcheck

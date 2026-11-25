@@ -58,6 +58,34 @@ class AdoptInventoryTests(AdoptCase):
         self.assertNotIn("tests/fixtures/case.test.ts", pruning["body"])
         self.assertEqual(len(self.markers(pruning)), 1)
 
+    def test_documentation_prose_and_directives_are_not_commented_out_code(self):
+        docs = self.project / "src/Docs.swift"
+        docs.parent.mkdir(parents=True, exist_ok=True)
+        docs.write_text(
+            "/// The failure text stored on a delivery row. It never includes a credential;\n"
+            "//! Inner documentation.\n"
+            "/**\n"
+            " * A block documentation line;\n"
+            " */\n"
+            "// Measured: elapsedTime 174.6 reported at the resume, read 8.5 s later\n"
+            "// while Music said 183.3. The position must not stay at 174.6.\n"
+        )
+        probing = self.project / "src/Probing.swift"
+        probing.write_text(
+            "droplet.openURL(url) // NOSONAR: public licence link\n"
+        )
+        config = self.project / "src/config.yaml"
+        config.write_text(
+            "# yaml-language-server: $schema=https://example.com/schema.json\n"
+        )
+        self.commit("add documentation and directives")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        comments = self.issue_for(self.issues(), "comments")
+        for path in ("src/Docs.swift", "src/Probing.swift", "src/config.yaml"):
+            self.assertNotIn(path, comments["body"])
+        self.assertIn("src/used.ts", comments["body"])
+
     def test_fixture_references_still_keep_dead_code_alive(self):
         (self.project / "src/orphan.ts").write_text("export const orphan = 1;\n")
         usage = self.project / "tests/fixtures/usage.ts"
