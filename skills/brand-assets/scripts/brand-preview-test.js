@@ -176,6 +176,31 @@ try {
   run(["--title", "Group", "--concept", `Group=${groupOpacity}`, "--output", groupOpacityOut]);
   assert.ok(fs.readFileSync(groupOpacityOut, "utf8").includes("partial opacity makes the ink untestable"));
 
+  const inheritedInk = write("inherited-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><g fill="currentColor"><rect width="64" height="64" opacity=".2"/></g></svg>\n`);
+  const inheritedInkOut = path.join(workspace, "out", "inherited-ink.html");
+  run(["--title", "Inherited", "--concept", `Inherited=${inheritedInk}`, "--output", inheritedInkOut]);
+  assert.ok(fs.readFileSync(inheritedInkOut, "utf8").includes("partial opacity makes the ink untestable"));
+
+  const inheritedAccent = write("inherited-accent.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><g fill="#888888"><circle cx="52" cy="12" r="6" opacity=".5"/></g></svg>\n`);
+  const inheritedAccentOut = path.join(workspace, "out", "inherited-accent.html");
+  run(["--title", "Accent", "--concept", `Accent=${inheritedAccent}`, "--output", inheritedAccentOut]);
+  assert.ok(fs.readFileSync(inheritedAccentOut, "utf8").includes("accent #888888 at 0.5"));
+
+  const styleAccent = write("style-accent.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" style="fill:#888888;opacity:.2"/></svg>\n`);
+  const styleAccentOut = path.join(workspace, "out", "style-accent.html");
+  run(["--title", "Style", "--concept", `Style=${styleAccent}`, "--output", styleAccentOut]);
+  assert.ok(fs.readFileSync(styleAccentOut, "utf8").includes("accent #888888 at 0.2"));
+
+  const styleInk = write("style-ink-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" style="fill:currentColor" fill-opacity=".2"/></svg>\n`);
+  const styleInkOut = path.join(workspace, "out", "style-ink-opacity.html");
+  run(["--title", "Style", "--concept", `Style=${styleInk}`, "--output", styleInkOut]);
+  assert.ok(fs.readFileSync(styleInkOut, "utf8").includes("partial opacity makes the ink untestable"));
+
+  const multiplied = write("multiplied.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="#e4572e" opacity=".5" fill-opacity=".5"/></svg>\n`);
+  const multipliedOut = path.join(workspace, "out", "multiplied.html");
+  run(["--title", "Multiplied", "--concept", `Multiplied=${multiplied}`, "--output", multipliedOut]);
+  assert.ok(fs.readFileSync(multipliedOut, "utf8").includes("accent #e4572e at 0.25"));
+
   const styledInk = write("styled-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" style="fill:currentColor"/></svg>\n`);
   const styledInkOut = path.join(workspace, "out", "styled-ink.html");
   run(["--title", "Styled ink", "--concept", `Styled=${styledInk}`, "--output", styledInkOut]);

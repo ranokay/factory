@@ -224,9 +224,33 @@ const CONTAINERS = new Set([
   "a",
 ]);
 
+function styleProperties(style) {
+  const properties = {};
+  if (style === undefined) {
+    return properties;
+  }
+  for (const declaration of style.split(";")) {
+    const index = declaration.indexOf(":");
+    if (index === -1) {
+      continue;
+    }
+    const name = declaration.slice(0, index).trim().toLowerCase();
+    const value = declaration.slice(index + 1).trim();
+    if (name !== "" && value !== "") {
+      properties[name] = value;
+    }
+  }
+  return properties;
+}
+
+function numeric(value, fallback) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function paintedElements(source) {
   const elements = [];
-  const stack = [{ name: "svg", opacity: 1 }];
+  const stack = [{ name: "svg", groupOpacity: 1, fill: undefined, stroke: undefined }];
   const token = /<\/?([A-Za-z][\w:.-]*)((?:[^>"']|"[^"]*"|'[^']*')*)?>/g;
   let match;
   while ((match = token.exec(source)) !== null) {
@@ -242,15 +266,16 @@ function paintedElements(source) {
       continue;
     }
     const attributes = tagAttributes(match[2] ?? "");
-    const own = [attributes.opacity, attributes["fill-opacity"], attributes["stroke-opacity"]]
-      .filter((value) => value !== undefined)
-      .map(Number.parseFloat)
-      .filter(Number.isFinite);
-    const ownOpacity = own.length === 0 ? 1 : Math.min(1, Math.max(0, Math.min(...own)));
-    const opacity = stack[stack.length - 1].opacity * ownOpacity;
-    elements.push({ name, attributes, opacity });
+    const style = styleProperties(attributes.style);
+    const parent = stack[stack.length - 1];
+    const groupOpacity = parent.groupOpacity * numeric(style.opacity ?? attributes.opacity, 1);
+    const fill = style.fill ?? attributes.fill ?? parent.fill;
+    const stroke = style.stroke ?? attributes.stroke ?? parent.stroke;
+    const fillOpacity = numeric(style["fill-opacity"] ?? attributes["fill-opacity"], 1);
+    const strokeOpacity = numeric(style["stroke-opacity"] ?? attributes["stroke-opacity"], 1);
+    elements.push({ name, fill, stroke, groupOpacity, fillOpacity, strokeOpacity });
     if (CONTAINERS.has(name) && !/\/\s*>$/.test(match[0])) {
-      stack.push({ name, opacity });
+      stack.push({ name, groupOpacity, fill, stroke });
     }
   }
   return elements;
@@ -258,12 +283,11 @@ function paintedElements(source) {
 
 function partialOpacityOnInk(source, inkRaw) {
   for (const element of paintedElements(source)) {
-    if (element.opacity >= 1) {
-      continue;
-    }
-    const paintValues = [element.attributes.fill, element.attributes.stroke].filter((value) => value !== undefined);
-    const paintsInk = paintValues.some((value) => /^currentcolor$/i.test(value.trim()) || value.trim().toLowerCase() === inkRaw.toLowerCase());
-    if (element.name === "svg" || paintsInk) {
+    const fillAlone = (value) =>
+      value !== undefined && (/^currentcolor$/i.test(value.trim()) || value.trim().toLowerCase() === inkRaw.toLowerCase());
+    const fillAlpha = element.groupOpacity * element.fillOpacity;
+    const strokeAlpha = element.groupOpacity * element.strokeOpacity;
+    if ((fillAlone(element.fill) && fillAlpha < 1) || (fillAlone(element.stroke) && strokeAlpha < 1) || (element.name === "svg" && element.groupOpacity < 1)) {
       return true;
     }
   }
@@ -275,10 +299,11 @@ function fixedPaintProblems(source, board, kind, theme, inkRaw) {
   const seen = new Set();
   const background = parseColor(board.background);
   for (const element of paintedElements(source)) {
-    const alpha = element.opacity;
-    for (const attribute of ["fill", "stroke"]) {
-      const value = element.attributes[attribute];
-      if (value === undefined) {
+    for (const [attribute, value, opacity] of [
+      ["fill", element.fill, element.groupOpacity * element.fillOpacity],
+      ["stroke", element.stroke, element.groupOpacity * element.strokeOpacity],
+    ]) {
+      if (value === undefined || attribute === undefined) {
         continue;
       }
       const lower = value.trim().toLowerCase();
@@ -297,6 +322,7 @@ function fixedPaintProblems(source, board, kind, theme, inkRaw) {
       if (color === null) {
         continue;
       }
+      const alpha = Math.min(1, Math.max(0, opacity));
       const key = `${lower}|${alpha}`;
       if (seen.has(key)) {
         continue;
