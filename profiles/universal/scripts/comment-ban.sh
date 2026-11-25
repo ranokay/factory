@@ -111,7 +111,7 @@ for file in "$@"; do
 		}
 
 		function is_prose(s,    n, words) {
-			if (s ~ /[(){}=$"`]/) return 0
+			if (s ~ /[(){}=$"`<>|]/) return 0
 			if (s ~ /\[/ || s ~ /\]/) return 0
 			if (s ~ /(^|[ \t])(\.\/|->|=>|&&|\|\|)/) return 0
 			n = split(s, words, /[ \t]+/)
