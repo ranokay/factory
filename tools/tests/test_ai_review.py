@@ -395,12 +395,9 @@ class TemplateReviewTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        source = (
-            pinned.stdout
-            if pinned.returncode == 0
-            else (ROOT / "profiles" / "universal" / "tasks.toml").read_text()
-        )
-        tasks = tomllib.loads(source)
+        if pinned.returncode != 0:
+            self.skipTest(f"{tag} is not fetched in this checkout")
+        tasks = tomllib.loads(pinned.stdout)
         for name in ("check:lint", "check:security", "check:test"):
             self.assertIn(name, tasks)
 
