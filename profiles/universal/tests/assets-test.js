@@ -278,6 +278,13 @@ function universalWebTest() {
   assert(strayFrameCheck.stderr.includes("assets/store/framed/extra.png is not produced"), strayFrameCheck.stderr);
   fs.rmSync(strayFrame, { force: true });
 
+  const strayFrameJpg = path.join(root, "assets", "store", "framed", "extra.jpg");
+  fs.writeFileSync(strayFrameJpg, "stray\n");
+  const strayFrameJpgCheck = run(root, ["--check", "--modules", modules]);
+  assert(strayFrameJpgCheck.status === 1, "an unreferenced non-PNG store frame passed the check");
+  assert(strayFrameJpgCheck.stderr.includes("assets/store/framed/extra.jpg is not produced"), strayFrameJpgCheck.stderr);
+  fs.rmSync(strayFrameJpg, { force: true });
+
   fs.writeFileSync(favicon, Buffer.from(`${original.toString("utf8")}<!-- divergent -->\n`));
   const divergentLock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
   divergentLock.exports["public/favicon.svg"] = hash(favicon);
