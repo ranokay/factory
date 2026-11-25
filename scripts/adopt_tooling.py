@@ -5,7 +5,14 @@ import json
 import re
 import tomllib
 
-from profiles_reader import PROFILE_PATH, TAG, factory_ref
+from profiles_reader import (
+    BLOCKER_CALLER,
+    BLOCKER_LOCAL,
+    BLOCKER_WORKFLOW,
+    PROFILE_PATH,
+    TAG,
+    factory_ref,
+)
 
 from adopt_common import PROFILE_NAMES, Problem, finding, read_file
 
@@ -215,6 +222,63 @@ def advisory_config_findings(present):
     ]
 
 
+BLOCKER_USES = re.compile(
+    rf"""^[ \t]*uses:[ \t]*["']?{re.escape(BLOCKER_WORKFLOW)}@(\S+?)["']?(?:[ \t]+#[^\n]*)?[ \t]*$""",
+    re.MULTILINE,
+)
+LOCAL_BLOCKER_USES = re.compile(
+    rf"""^[ \t]*uses:[ \t]*["']?{re.escape(BLOCKER_LOCAL)}["']?(?:[ \t]+#[^\n]*)?[ \t]*$""",
+    re.MULTILINE,
+)
+
+
+def pinned_blocker_uses(text):
+    return any(
+        TAG.match(match.group(1))
+        for match in BLOCKER_USES.finditer(text.replace("\r\n", "\n"))
+    )
+
+
+def blocker_caller_findings(project, present, allow_local):
+    if BLOCKER_CALLER not in present:
+        return [
+            finding(
+                "tooling",
+                BLOCKER_CALLER,
+                "blocker-caller",
+                f"{BLOCKER_CALLER} is missing; add the Blocker caller from the Project Template.",
+            )
+        ]
+    try:
+        text = read_file(project, BLOCKER_CALLER)
+    except Problem as error:
+        return [
+            finding(
+                "tooling",
+                BLOCKER_CALLER,
+                "blocker-caller",
+                f"{BLOCKER_CALLER} could not be read: {error}",
+            )
+        ]
+    if allow_local:
+        accepted = LOCAL_BLOCKER_USES.search(text.replace("\r\n", "\n"))
+    else:
+        accepted = pinned_blocker_uses(text)
+    if accepted:
+        return []
+    required = (
+        BLOCKER_LOCAL if allow_local else f"{BLOCKER_WORKFLOW}@<vX.Y.Z>"
+    )
+    return [
+        finding(
+            "tooling",
+            BLOCKER_CALLER,
+            "blocker-caller",
+            f"{BLOCKER_CALLER} does not call {required}.",
+        )
+    ]
+
+
 def tooling_findings(project, tracked, repo):
     present = set(tracked)
     allow_local = repo.lower() == "ranokay/factory"
@@ -223,4 +287,5 @@ def tooling_findings(project, tracked, repo):
         *hk_findings(project, present, allow_local),
         *renovate_findings(project, present),
         *advisory_config_findings(present),
+        *blocker_caller_findings(project, present, allow_local),
     ]

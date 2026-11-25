@@ -3,6 +3,9 @@ import re
 
 PROFILES_LINE = re.compile(r'^[ \t]*Profiles:[ \t]*(.*)$')
 TAG = re.compile(r'^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$')
+BLOCKER_CALLER = ".github/workflows/blocked.yml"
+BLOCKER_WORKFLOW = "ranokay/factory/.github/workflows/blocker-notify.yml"
+BLOCKER_LOCAL = "$/.github/workflows/blocker-notify.yml"
 GIT_REF = re.compile(r'[?&]ref=([^&]+)')
 FACTORY_INCLUDE = re.compile(
     r'^(?:git::)?(?:'

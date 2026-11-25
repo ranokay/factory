@@ -16,8 +16,10 @@ from adopt_tooling import tooling_findings
 TOOLING_INSTRUCTION = (
     "Add the Factory baseline in a PR: `mise.toml` including the Factory Profile "
     "fragments, `hk.pkl` amending the matching Profile, `renovate.json` extending "
-    "`github>ranokay/factory`, and the advisory bot configs. The Factory's "
-    "`project/` directory holds the template. Run `mise run check`."
+    "`github>ranokay/factory`, the advisory bot configs, and the Blocker caller "
+    "at `.github/workflows/blocked.yml` pinned to a Factory release tag (the "
+    "Factory repo may call its local `$/.github/workflows/blocker-notify.yml`). "
+    "The Factory's `project/` directory holds the template. Run `mise run check`."
 )
 COMMENTS_INSTRUCTION = (
     "Run the `no-comments` skill or the universal Profile's `comment-ban.sh`; "

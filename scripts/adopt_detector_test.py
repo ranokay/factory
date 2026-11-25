@@ -1,6 +1,7 @@
 import os
 
 from adopt_test_support import AdoptCase
+from profiles_reader import BLOCKER_LOCAL, BLOCKER_WORKFLOW
 
 
 class AdoptDetectorTests(AdoptCase):
@@ -63,7 +64,9 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         tooling = self.issue_for(self.issues(), "tooling")
-        self.assertEqual(len(self.markers(tooling)), 2)
+        self.assertEqual(len(self.markers(tooling)), 3)
+        self.write_blocked_caller(BLOCKER_LOCAL)
+        self.commit("add the local blocker caller")
         self.use_factory_state("Ranokay/Factory")
         result = self.run_adopt(repo="Ranokay/Factory")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -73,6 +76,38 @@ class AdoptDetectorTests(AdoptCase):
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
         )
+        self.write_blocked_caller(BLOCKER_LOCAL, comment=" # local caller")
+        self.commit("comment the local blocker caller")
+        self.use_factory_state("Ranokay/Factory")
+        result = self.run_adopt(repo="Ranokay/Factory")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn(
+            "tooling",
+            {
+                category
+                for issue in self.issues()
+                for category in self.categories(issue)
+            },
+        )
+
+    def test_remote_blocker_caller_is_a_finding_in_the_factory_repo(self):
+        (self.project / "mise.toml").write_text(
+            'include = ["./profiles/universal/mise.toml"]\n\n'
+            '[task_config]\nincludes = ["./profiles/universal/tasks.toml"]\n'
+        )
+        (self.project / "hk.pkl").write_text('amends "profiles/universal/hk.pkl"\n')
+        (self.project / "renovate.json").write_text(
+            '{"extends": ["github>ranokay/factory"]}\n'
+        )
+        self.write_blocked_caller(f"{BLOCKER_WORKFLOW}@v0.4.0")
+        self.commit("add a remote blocker caller")
+        self.use_factory_state("Ranokay/Factory")
+        result = self.run_adopt(repo="Ranokay/Factory")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 1)
+        self.assertIn(".github/workflows/blocked.yml", tooling["body"])
+        self.assertIn("blocker-notify.yml", tooling["body"])
 
     def test_local_include_must_name_a_profile_file(self):
         for include in (
@@ -91,6 +126,7 @@ class AdoptDetectorTests(AdoptCase):
                 (self.project / "renovate.json").write_text(
                     '{"extends": ["github>ranokay/factory"]}\n'
                 )
+                self.write_blocked_caller(BLOCKER_LOCAL)
                 self.commit(f"add local include {include}")
                 self.use_factory_state()
                 result = self.run_adopt(repo="ranokay/factory")
@@ -98,6 +134,67 @@ class AdoptDetectorTests(AdoptCase):
                 tooling = self.issue_for(self.issues(), "tooling")
                 self.assertEqual(len(self.markers(tooling)), 1)
                 self.assertIn("mise.toml", tooling["body"])
+
+    def test_missing_blocker_caller_is_a_finding(self):
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 4)
+        self.assertIn(".github/workflows/blocked.yml", tooling["body"])
+
+    def test_pinned_blocker_caller_suppresses_the_finding(self):
+        include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 8)
+        self.assertNotIn(
+            "tooling",
+            {category for issue in issues for category in self.categories(issue)},
+        )
+
+    def test_quoted_and_crlf_blocker_callers_are_accepted(self):
+        include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        caller = f"{BLOCKER_WORKFLOW}@v0.4.0"
+        self.write_tooling([include], [tasks], hk)
+        for name, options in (
+            ("double quoted", {"quote": '"'}),
+            ("single quoted", {"quote": "'"}),
+            ("crlf", {"newline": "\r\n"}),
+        ):
+            with self.subTest(name):
+                self.write_blocked_caller(uses=caller, **options)
+                self.commit(f"rewrite the blocker caller as {name}")
+                self.reset_state()
+                self.reset_log()
+                result = self.run_adopt()
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertNotIn(
+                    "tooling",
+                    {
+                        category
+                        for issue in self.issues()
+                        for category in self.categories(issue)
+                    },
+                )
+
+    def test_unpinned_blocker_caller_is_a_finding(self):
+        include = "git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"
+        tasks = "git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"
+        hk = "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
+        self.write_tooling([include], [tasks], hk)
+        self.write_blocked_caller(f"{BLOCKER_WORKFLOW}@main")
+        self.commit("unpin the blocker caller")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tooling = self.issue_for(self.issues(), "tooling")
+        self.assertEqual(len(self.markers(tooling)), 1)
+        self.assertIn(".github/workflows/blocked.yml", tooling["body"])
 
     def test_unrelated_svg_does_not_suppress_the_brand_issue(self):
         master = self.project / "assets/brand/export.svg"
@@ -135,6 +232,7 @@ class AdoptDetectorTests(AdoptCase):
         (self.project / "renovate.json").write_text(
             '{"extends": ["github>ranokay/factory"]}\n'
         )
+        self.write_blocked_caller()
         self.commit("add string includes")
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -275,6 +373,7 @@ class AdoptDetectorTests(AdoptCase):
         (self.project / "renovate.json").write_text(
             '{"extends": ["github>ranokay/factory"]}\n'
         )
+        self.write_blocked_caller()
         self.commit("add unpinned includes")
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)

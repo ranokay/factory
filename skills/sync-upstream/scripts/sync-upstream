@@ -805,6 +805,7 @@ def merge_text(path, template_root, existing, template):
     keep = {
         "hk.pkl": "hk.pkl: upstream has its own; Factory Gates not amended",
         "PRODUCT.md": "PRODUCT.md: repository has its own; kept",
+        ".github/workflows/blocked.yml": ".github/workflows/blocked.yml: repository has its own; kept",
     }
     if name in keep:
         print(keep[name])

@@ -212,7 +212,17 @@ class AdoptCase(unittest.TestCase):
         (self.project / "renovate.json").write_text(
             '{"extends": ["github>ranokay/factory"]}\n'
         )
+        self.write_blocked_caller()
         self.commit("add tooling")
+
+    def write_blocked_caller(self, uses=None, quote="", newline="\n", comment=""):
+        path = self.project / ".github/workflows/blocked.yml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = (ROOT / "project/.github/workflows/blocked.yml").read_text()
+        if uses is not None:
+            replacement = f"{quote}{uses}{quote}{comment}"
+            text = re.sub(r"(?m)^([ \t]*uses:).*$", rf"\1 {replacement}", text)
+        path.write_bytes(text.replace("\n", newline).encode())
 
     def use_factory_state(self, repo="ranokay/factory"):
         self.reset_state()

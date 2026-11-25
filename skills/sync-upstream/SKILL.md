@@ -60,6 +60,8 @@ upstream already has one, it adds only what the matching `project/` file require
 - `.greptile/config.json`: each missing key from `project/.greptile/config.json`;
 - `.coderabbit.yaml`: the `enabled` value from `project/.coderabbit.yaml`, set when
   missing or different;
+- `.github/workflows/blocked.yml`: an existing caller is untouched and reports
+  `.github/workflows/blocked.yml: repository has its own; kept`;
 - an existing `hk.pkl` is untouched and reports
   `hk.pkl: upstream has its own; Factory Gates not amended`;
 - an existing `PRODUCT.md` is untouched and reports

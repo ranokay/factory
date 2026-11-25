@@ -35,7 +35,7 @@ Deferred work becomes an issue: never a TODO, a follow-up note in the PR body, o
 
 ## Blockers
 
-If your own access can't resolve something, first try remediation you are already allowed to do. Otherwise apply the Blocker shape in `skills/supervise/references/messages.md` with `skills/supervise/scripts/block-issue`: the `blocked` label plus one comment with the exact unblock step mentioning @ranokay, the last evidence and the open findings. The comment is posted before the label, so the repository's `blocker-notify.yml` caller sends the GitHub Mobile push (the Project Template installs it; `ranokay/factory` has it). Remove `blocked` when the Run resumes. Never work around a Blocker by mocking it or narrowing scope. An exhausted Orchestrator quota is a Blocker; never downgrade the Supervisor model.
+If your own access can't resolve something, first try remediation you are already allowed to do. Otherwise apply the Blocker shape in `skills/supervise/references/messages.md` with `skills/supervise/scripts/block-issue`: the `blocked` label plus one comment with the exact unblock step mentioning @ranokay, the last evidence and the open findings. The comment is posted before the label, so the repository's `blocked.yml` caller runs `blocker-notify.yml` and sends the GitHub Mobile push (the Project Template installs the caller; `ranokay/factory` has both). Remove `blocked` when the Run resumes. Never work around a Blocker by mocking it or narrowing scope. An exhausted Orchestrator quota is a Blocker; never downgrade the Supervisor model.
 
 ## Tools
 
