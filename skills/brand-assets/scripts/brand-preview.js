@@ -175,6 +175,8 @@ function paintsRendered(source, value) {
   return paintedElements(source).some(
     (element) =>
       element.rendered &&
+      element.name !== "svg" &&
+      !CONTAINERS.has(element.name) &&
       [element.fill, element.stroke].some((paint) => paint !== undefined && paint.trim().toLowerCase() === wanted),
   );
 }

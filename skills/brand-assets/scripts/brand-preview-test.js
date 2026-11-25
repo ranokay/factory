@@ -163,6 +163,11 @@ try {
   run(["--title", "Defs only", "--concept", `Defs=${defsOnly}`, "--output", defsOnlyOut]);
   assert.ok(fs.readFileSync(defsOnlyOut, "utf8").includes("declares currentColor but paints no currentColor"));
 
+  const containerOnly = write("container-only.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor" fill="currentColor"><g fill="currentColor"><rect width="64" height="64" fill="none"/></g></svg>\n`);
+  const containerOnlyOut = path.join(workspace, "out", "container-only.html");
+  run(["--title", "Container", "--concept", `Container=${containerOnly}`, "--output", containerOnlyOut]);
+  assert.ok(fs.readFileSync(containerOnlyOut, "utf8").includes("declares currentColor but paints no currentColor"));
+
   const faint = write("faint.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor" opacity=".04"/></svg>\n`);
   const faintOut = path.join(workspace, "out", "faint.html");
   run(["--title", "Faint", "--concept", `Faint=${faint}`, "--output", faintOut]);

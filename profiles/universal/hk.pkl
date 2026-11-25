@@ -306,6 +306,16 @@ steps = new Mapping<String, Step | Group> {
               stderr = "contains <use>"
             }
           }
+          ["rejects a symbol element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><symbol id=\"s\"><rect width=\"8\" height=\"8\"/></symbol><rect width=\"8\" height=\"8\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <symbol>"
+            }
+          }
           ["rejects an external url reference"] {
             run = "check"
             tmpdir = true

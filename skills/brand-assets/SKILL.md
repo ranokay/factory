@@ -87,10 +87,11 @@ icon-only mark, the lockup is a wide mark-only variant instead.
 
 - Build every shape from primitives and Bezier curves: `path`, `circle`,
   `rect`, `line`, `polygon`. Never embed a raster, never trace a pixel image.
-- No `<image>`, data URIs, `<foreignObject>`, `<style>`, `<text>`, `<use>` or
-  `<symbol>`, and no raster or external references. Draw the mark's shapes in
-  place and use `<defs>` only for paints. Use presentation attributes, and
-  outline the wordmark as paths.
+- No `<image>`, data URIs, `<foreignObject>`, `<style>`, `<text>`, `<use>`,
+  `<symbol>`, patterns, masks, filters or clip paths, and no raster or external
+  references. Draw the mark's shapes in place with flat paints or gradients, and
+  use `<defs>` only for paints. Use presentation attributes, and outline the
+  wordmark as paths.
 - Declare the neutral ink on every concept and lockup root as
   `data-brand-ink="currentColor"`; the preview sets it to `#18181b` on light and
   `#f4f4f5` on dark. Accents may use explicit colours. Fixed ink declares
