@@ -2486,7 +2486,7 @@
       "patches": [
         {
           "path": "0001-factory-triage.patch",
-          "sha256": "72cf064cf19da35f531b3eec50459d8fdc828cf5deab03e32cae58ff3d66344a"
+          "sha256": "2a064b04d0d4d46e6ee8c1214cd4fdd4c1130a2bfa4cabbe30db62384b8207c6"
         }
       ],
       "files": [
@@ -2500,7 +2500,7 @@
         },
         {
           "path": "SKILL.md",
-          "sha256": "2c944f536228eec36917bda562cefc4083f2f686b55971d73689ab84a1b48f14"
+          "sha256": "2a4b3c90915ad387d1831280df6f7c412ab4c4d849df2636a39d3a1ec931006a"
         },
         {
           "path": "agents/openai.yaml",

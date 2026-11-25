@@ -226,7 +226,15 @@ class Pushback(PushbackCase):
             "--again",
         )
         self.assertNotEqual(unanswered.returncode, 0)
-        self.assertIn("recorded answer", unanswered.stderr)
+        self.assertIn("answer comment", unanswered.stderr)
+        self.add_comment(2, "The fields are pages and week.", author="outsider")
+        outside = self.record(
+            2,
+            {"verdict": "go", "reason": "The answer settles the format."},
+            "--again",
+        )
+        self.assertNotEqual(outside.returncode, 0)
+        self.assertIn("reporter or ranokay", outside.stderr)
         self.add_comment(2, "The fields are pages and week.")
         refused = self.record(
             2, {"verdict": "go", "reason": "The answer settles the format."}
@@ -241,10 +249,10 @@ class Pushback(PushbackCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(self.labels(2)), ["enhancement", "ready-for-agent"])
         self.assertEqual(self.gate(2).returncode, 0)
-        self.assertEqual(len(self.comments(2)), 3)
+        self.assertEqual(len(self.comments(2)), 4)
         self.assertEqual(
             [comment["body"].count("factory:pushback verdict=") for comment in self.comments(2)],
-            [1, 0, 1],
+            [1, 0, 0, 1],
         )
 
     def test_malformed_verdict_is_refused_before_gh(self):

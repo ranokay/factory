@@ -119,6 +119,14 @@ def records(comments):
     return found
 
 
+def review_positions(comments):
+    return [
+        index
+        for index, comment in enumerate(comments)
+        if MARKER.search(comment.get("body") or "")
+    ]
+
+
 def allowed(items):
     if any(item["kind"] == "review" and item.get("verdict") == "go" for item in items):
         return True, "go"
@@ -151,11 +159,23 @@ def require_allowed(repo, issue):
 
 
 def require_confirmed(repo, issue):
-    items = records(issue_comments(repo, issue))
-    reviews = [item for item in items if item["kind"] == "review"]
-    if reviews and reviews[-1].get("verdict") == "don't":
-        if not any(item["kind"] == "confirm" for item in items):
-            problem("wontfix needs ranokay's confirmation of the don't: run pushback confirm-dont")
+    comments = issue_comments(repo, issue)
+    positions = review_positions(comments)
+    if not positions:
+        return
+    review = records([comments[positions[-1]]])
+    if not review or review[0].get("verdict") != "don't":
+        return
+    confirmed = any(
+        any(
+            item["kind"] == "confirm" and item.get("verdict") == "wontfix"
+            for item in records([comment])
+        )
+        for index, comment in enumerate(comments)
+        if index > positions[-1]
+    )
+    if not confirmed:
+        problem("wontfix needs ranokay's confirmation of the don't: run pushback confirm-dont")
 
 
 def read_product(project):
@@ -412,17 +432,19 @@ def record_verdict(args):
             )
         if last != "needs-info":
             problem(f"the last verdict is {last or 'unknown'}; --again only follows needs-info")
-        last_review = max(
-            index
-            for index, comment in enumerate(comments)
-            if MARKER.search(comment.get("body") or "")
-        )
+        last_review = review_positions(comments)[-1]
+        author = (issue_payload(args.repo, args.issue, "author").get("author") or {}).get("login")
+        trusted = {"ranokay"}
+        if author:
+            trusted.add(author)
         answered = any(
-            not any(pattern.search(comment.get("body") or "") for pattern, _ in PATTERNS)
-            for comment in comments[last_review + 1 :]
+            index > last_review
+            and not any(pattern.search(comment.get("body") or "") for pattern, _ in PATTERNS)
+            and (comment.get("author") or {}).get("login") in trusted
+            for index, comment in enumerate(comments)
         )
         if not answered:
-            problem("--again needs a recorded answer after the needs-info review")
+            problem("--again needs an answer comment from the reporter or ranokay")
     category = category_for(args.repo, args.issue, args.category)
     kind = pass_kind(issue_labels(args.repo, args.issue), comments)
     body = comment_body(values["verdict"], values, kind, canonical)
@@ -455,7 +477,6 @@ def accept_reshape(args):
     body_text = issue.get("body") or ""
     comments = issue_comments(args.repo, args.issue)
     accepted = [item for item in records(comments) if item["kind"] == "accept"]
-    reason = one_line(args.reason, "reason")
     if "factory:reshape" not in body_text:
         new_body = (
             body_text.rstrip()
@@ -467,6 +488,9 @@ def accept_reshape(args):
     if accepted:
         url = accepted[-1]["url"]
     else:
+        if not args.reason:
+            problem("accept-reshape needs --reason to record the acceptance")
+        reason = one_line(args.reason, "reason")
         comment = transition_comment(
             "<!-- factory:pushback-accept verdict=reshape accepted=true -->",
             "Reshaped scope",
@@ -556,7 +580,7 @@ def main(argv=None):
     accept = subcommands.add_parser("accept-reshape", help="accept a reshape and make it the spec")
     accept.add_argument("repo")
     accept.add_argument("issue", type=int)
-    accept.add_argument("--reason", required=True)
+    accept.add_argument("--reason")
     accept.add_argument("--category", choices=CATEGORIES)
 
     overrule = subcommands.add_parser("override", help="record ranokay's one-line override")

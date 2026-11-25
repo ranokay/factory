@@ -85,7 +85,7 @@ Show counts and a one-line summary per item. Let the maintainer pick.
 5. **Pushback review.** Every issue passes [../pushback/SKILL.md](../pushback/SKILL.md) before `ready-for-agent`, on the Worker model that skill names, never the model that wrote the issue. The review's context comes from `~/Developer/factory/scripts/pushback.py context <owner>/<repo> <issue>`; a promotion or a reproduced bug selects the light pass automatically. The reviewer records one verdict, and the script applies the matching state:
    - `go` applies `ready-for-agent`.
    - `reshape` stays `needs-triage`; when ranokay accepts the smaller version, `pushback.py accept-reshape` appends it to the issue as the `Reshaped scope` and applies `ready-for-agent`.
-   - `needs-info` applies `needs-info` with the exact question; when the reporter answers, run one fresh review with `record --again`.
+   - `needs-info` applies `needs-info` with the exact question; when the reporter answers in a comment, run one fresh review with `record --again`.
    - `don't` stays `needs-triage` with the reason and any quoted non-goal; `wontfix` comes only after ranokay confirms, through `pushback.py confirm-dont`.
    `triage.py labels` refuses `ready-for-agent` without that record, so never set it any other way. The review does not choose a category: an issue may reach it without one, and step 6 applies the pair afterwards.
 

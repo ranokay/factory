@@ -132,13 +132,13 @@ class PushbackCase(unittest.TestCase):
     def gate(self, number):
         return self.cli("gate", "o/one", str(number))
 
-    def add_comment(self, number, body):
+    def add_comment(self, number, body, author="ranokay"):
         state = self.state()
         state["issues"][str(number)].setdefault("comments", []).append(
             {
                 "body": body,
                 "url": f"https://example.test/issue/{number}#issuecomment-seed",
-                "author": {"login": "ranokay"},
+                "author": {"login": author},
                 "createdAt": "2026-11-25T00:00:00Z",
             }
         )

@@ -112,7 +112,8 @@ Use `--again` for the one fresh review after a `needs-info` answer.
   `pushback.py accept-reshape <owner>/<repo> <issue> --reason "<one line>"`,
   which appends `## Reshaped scope` to the issue and applies `ready-for-agent`.
 - **needs-info** waits on the reporter for the exact question. When the answer
-  arrives, run one fresh review and record it with `--again`.
+  arrives as a comment from the reporter or ranokay, run one fresh review and
+  record it with `--again`; a body edit alone does not count.
 - **don't** stays `needs-triage`; ranokay can confirm it with
   `pushback.py confirm-dont`, or override it with a one-line reason through
   `pushback.py override`.

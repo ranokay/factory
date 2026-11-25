@@ -35,31 +35,24 @@ class Triage(TriageCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.calls()), 5, self.calls())
 
-    def test_wontfix_needs_confirmation_of_a_dont(self):
-        self.set_comments(
-            [
-                {
-                    "body": "<!-- factory:pushback verdict=don't pass=full -->",
-                    "url": "https://example.test/issue/6#issuecomment-1",
-                }
-            ]
-        )
-        result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "wontfix")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("confirmation", result.stderr)
-        self.assertNotIn("issue edit", [call[:2] for call in self.calls()])
-        self.set_comments(
-            [
-                {
-                    "body": "<!-- factory:pushback verdict=don't pass=full -->",
-                    "url": "https://example.test/issue/6#issuecomment-1",
-                },
-                {
-                    "body": "<!-- factory:pushback-confirm verdict=wontfix -->",
-                    "url": "https://example.test/issue/6#issuecomment-2",
-                },
-            ]
-        )
+    def test_wontfix_needs_confirmation_after_the_dont(self):
+        review = {
+            "body": "<!-- factory:pushback verdict=don't pass=full -->",
+            "url": "https://example.test/issue/6#issuecomment-1",
+        }
+        confirm = {
+            "body": "<!-- factory:pushback-confirm verdict=wontfix -->",
+            "url": "https://example.test/issue/6#issuecomment-2",
+        }
+        for comments in ([review], [confirm, review]):
+            with self.subTest(comments=comments):
+                self.reset()
+                self.set_comments(comments)
+                result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "wontfix")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("confirmation", result.stderr)
+                self.assertNotIn("issue edit", [call[:2] for call in self.calls()])
+        self.set_comments([review, confirm])
         result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "wontfix")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(self.labels()), ["blocked", "bug", "wontfix"])
