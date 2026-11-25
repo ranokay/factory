@@ -75,11 +75,11 @@ def apply_labels(repo, issue, category, state):
     if state not in STATES:
         problem(f"state must be one of {', '.join(STATES)}")
     if state == "ready-for-agent":
-        from pushback import require_allowed
+        from pushback_common import require_allowed
 
         require_allowed(repo, issue)
     if state == "wontfix":
-        from pushback import require_confirmed
+        from pushback_common import require_confirmed
 
         require_confirmed(repo, issue)
     current = issue_labels(repo, issue)

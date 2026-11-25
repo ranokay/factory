@@ -30,7 +30,6 @@ from pushback_common import (
     records,
     repo_overrides,
     require_allowed,
-    require_confirmed,
     review_positions,
     transition_comment,
     verdict_values,
