@@ -95,9 +95,9 @@ def extract_lines(body):
     return found
 
 
-def record(kind, match, comment):
+def marker_record(marker_kind, match, comment):
     item = dict(ATTR.findall(match.group("attrs")))
-    item["kind"] = kind
+    item["kind"] = marker_kind
     item["url"] = comment.get("url") or ""
     item.update(extract_lines(comment.get("body") or ""))
     return item
@@ -107,10 +107,10 @@ def records(comments):
     found = []
     for comment in comments:
         body = comment.get("body") or ""
-        for pattern, kind in PATTERNS:
+        for pattern, marker_kind in PATTERNS:
             match = pattern.search(body)
             if match:
-                found.append(record(kind, match, comment))
+                found.append(marker_record(marker_kind, match, comment))
                 break
     return found
 
@@ -137,6 +137,13 @@ def allowed(records):
 
 def allowed_for_issue(repo, issue):
     return allowed(records(issue_comments(repo, issue)))
+
+
+def require_allowed(repo, issue):
+    ok, detail = allowed_for_issue(repo, issue)
+    if not ok:
+        problem(f"ready-for-agent needs an allowing pushback verdict: {detail}")
+    return detail
 
 
 def read_product(project):
@@ -189,14 +196,17 @@ def repo_overrides(repo):
     for item in payload.get("items") or []:
         number = item.get("number")
         if not isinstance(number, int):
-            continue
+            problem(f"override search for {repo} returned an item without a number")
         for entry in records(issue_comments(repo, number)):
             if entry["kind"] != "override":
                 continue
+            accepted = entry.get("accepted")
+            if not accepted:
+                problem(f"the override on {repo}#{number} has no accepted verdict")
             found.append(
                 {
                     "issue": number,
-                    "verdict": entry.get("accepted") or "go",
+                    "verdict": accepted,
                     "reason": entry.get("reason") or "",
                     "url": entry.get("url") or "",
                 }
@@ -263,13 +273,13 @@ def comment_body(verdict, values, kind, canonical):
     return "\n".join(lines)
 
 
-def post_comment(repo, issue, body):
+def gh_write(arguments, body, failure):
     handle = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
     try:
         with handle:
             handle.write(body)
         result = subprocess.run(  # nosec B603 B607 -- gh from PATH with an argument list
-            ["gh", "issue", "comment", str(issue), "-R", repo, "--body-file", handle.name],
+            ["gh", *arguments, "--body-file", handle.name],
             capture_output=True,
             text=True,
         )
@@ -277,26 +287,24 @@ def post_comment(repo, issue, body):
         os.unlink(handle.name)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
-        problem(f"posting the pushback comment failed: {detail}")
+        problem(f"{failure}: {detail}")
     return result.stdout.strip()
+
+
+def post_comment(repo, issue, body):
+    return gh_write(
+        ["issue", "comment", str(issue), "-R", repo],
+        body,
+        "posting the pushback comment failed",
+    )
 
 
 def edit_body(repo, issue, body):
-    handle = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
-    try:
-        with handle:
-            handle.write(body)
-        result = subprocess.run(  # nosec B603 B607 -- gh from PATH with an argument list
-            ["gh", "issue", "edit", str(issue), "-R", repo, "--body-file", handle.name],
-            capture_output=True,
-            text=True,
-        )
-    finally:
-        os.unlink(handle.name)
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        problem(f"updating the issue body failed: {detail}")
-    return result.stdout.strip()
+    return gh_write(
+        ["issue", "edit", str(issue), "-R", repo],
+        body,
+        "updating the issue body failed",
+    )
 
 
 def category_for(repo, issue, requested):
@@ -313,26 +321,13 @@ def category_for(repo, issue, requested):
 
 
 def verdict_values(args):
-    if args.from_json:
-        text = sys.stdin.read() if args.from_json == "-" else Path(args.from_json).read_text()
-        data = parse_json(text, "verdict")
-        if not isinstance(data, dict):
-            problem("the verdict must be a JSON object")
-        unknown = sorted(set(data) - set(FIELDS))
-        if unknown:
-            problem(f"unknown verdict field(s): {', '.join(unknown)}")
-    else:
-        data = {
-            key: value
-            for key, value in (
-                ("verdict", args.verdict),
-                ("reason", args.reason),
-                ("smaller", args.smaller),
-                ("question", args.question),
-                ("non_goal", args.non_goal),
-            )
-            if value is not None
-        }
+    text = sys.stdin.read() if args.from_json == "-" else Path(args.from_json).read_text()
+    data = parse_json(text, "verdict")
+    if not isinstance(data, dict):
+        problem("the verdict must be a JSON object")
+    unknown = sorted(set(data) - set(FIELDS))
+    if unknown:
+        problem(f"unknown verdict field(s): {', '.join(unknown)}")
     verdict = data.get("verdict")
     if verdict not in VERDICTS:
         problem(f"verdict must be one of {', '.join(VERDICTS)}")
@@ -500,9 +495,7 @@ def confirm_dont(args):
 
 
 def gate(args):
-    ok, detail = allowed_for_issue(args.repo, args.issue)
-    if not ok:
-        problem(f"ready-for-agent needs an allowing pushback verdict: {detail}")
+    detail = require_allowed(args.repo, args.issue)
     print(json.dumps({"ok": True, "gate": detail}))
     return 0
 
@@ -519,12 +512,9 @@ def main(argv=None):
     review = subcommands.add_parser("record", help="validate and record one verdict")
     review.add_argument("repo")
     review.add_argument("issue", type=int)
-    review.add_argument("--from", dest="from_json", help="verdict JSON file, or - for stdin")
-    review.add_argument("--verdict", choices=VERDICTS)
-    review.add_argument("--reason")
-    review.add_argument("--smaller")
-    review.add_argument("--question")
-    review.add_argument("--non-goal", dest="non_goal")
+    review.add_argument(
+        "--from", dest="from_json", required=True, help="verdict JSON file, or - for stdin"
+    )
     review.add_argument("--category", choices=CATEGORIES)
     review.add_argument("--project", default=".", help="checkout holding PRODUCT.md")
     review.add_argument("--dry-run", action="store_true", help="print the comment without posting")
@@ -560,13 +550,6 @@ def main(argv=None):
         if args.command == "context":
             return context(args)
         if args.command == "record":
-            if args.from_json and any(
-                value is not None
-                for value in (args.verdict, args.reason, args.smaller, args.question, args.non_goal)
-            ):
-                problem("use either --from or the verdict flags")
-            if not args.from_json and not args.verdict:
-                problem("record needs --verdict or --from")
             return record_verdict(args)
         if args.command == "accept-reshape":
             return accept_reshape(args)

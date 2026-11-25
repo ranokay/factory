@@ -110,4 +110,4 @@ confirms a `don't`, through `confirm-dont`.
   `pushback.py confirm-dont`, or override it with a one-line reason through
   `pushback.py override`.
 
-Nothing else sets `ready-for-agent`.
+No path sets `ready-for-agent` without a recorded verdict.

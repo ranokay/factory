@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from pushback_test_support import ROOT, TRIAGE_MARKER, PushbackCase
+from pushback_test_support import TRIAGE_MARKER, PushbackCase
 
 
 class Pushback(PushbackCase):
@@ -233,17 +233,12 @@ class Pushback(PushbackCase):
         self.assertIn("no pushback verdict", result.stderr)
         self.assertEqual(self.comments(1), [])
 
-    def test_product_files_have_the_four_sections(self):
-        for path in (ROOT / "PRODUCT.md", ROOT / "project/PRODUCT.md"):
-            with self.subTest(path=path):
-                text = path.read_text()
-                for heading in (
-                    "## Who it's for",
-                    "## Goals",
-                    "## Non-goals",
-                    "## Quality bars",
-                ):
-                    self.assertIn(heading, text, path)
+    def test_context_reports_a_missing_product(self):
+        (self.project / "PRODUCT.md").unlink()
+        payload = self.context(1)
+        self.assertIsNone(payload["product"])
+        self.assertEqual(payload["non_goals"], [])
+        self.assertEqual(payload["pass"], "full")
 
 
 if __name__ == "__main__":

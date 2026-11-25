@@ -105,7 +105,7 @@ The judgement every issue passes before `ready-for-agent`: a reviewer on the Wor
 _Avoid_: approval, sign-off, spec review
 
 **Maintenance Issue**:
-The weekly `ready-for-agent` issue that runs `/maintain-verification-skill` in a repository whose app changed since the verification skill's last maintenance, with the filed head recorded in its body.
+The weekly `needs-triage` issue that runs `/maintain-verification-skill` in a repository whose app changed since the verification skill's last maintenance, with the filed head recorded in its body; the Pushback Review applies `ready-for-agent` when it allows the issue.
 _Avoid_: upkeep ticket, weekly chore
 
 **GC**:

@@ -75,11 +75,9 @@ def apply_labels(repo, issue, category, state):
     if state not in STATES:
         problem(f"state must be one of {', '.join(STATES)}")
     if state == "ready-for-agent":
-        from pushback import allowed_for_issue
+        from pushback import require_allowed
 
-        ok, detail = allowed_for_issue(repo, issue)
-        if not ok:
-            problem(f"ready-for-agent needs an allowing pushback verdict: {detail}")
+        require_allowed(repo, issue)
     current = issue_labels(repo, issue)
     triage = {name for name in current if name in CATEGORIES or name in STATES}
     remove = sorted(triage - {category, state})
