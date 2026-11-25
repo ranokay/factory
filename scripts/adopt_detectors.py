@@ -2,7 +2,6 @@
 """Detectors and category definitions for the adopt inventory."""
 
 import importlib.util
-import json
 import os
 import re
 import sys
@@ -19,6 +18,7 @@ from adopt_common import (
     read_file,
     read_reference,
     run,
+    tracked_files,
 )
 from profiles_reader import profiles_entries
 
@@ -98,7 +98,7 @@ def skills_lock_names(project):
     spec.loader.exec_module(sync)
     try:
         lock = sync.load_lock(project)
-    except (sync.SyncError, OSError, json.JSONDecodeError) as error:
+    except (sync.SyncError, OSError, ValueError, AttributeError) as error:
         raise Problem(f"cannot read skills.lock: {error}") from error
     return {entry["name"] for entry in lock["skills"]}
 
@@ -241,7 +241,7 @@ def dead_code_candidates(tracked, tokens, counts):
 
 
 def dead_code_findings(project, tracked, _repo):
-    tokens, counts, incomplete = reference_tokens(project, tracked)
+    tokens, counts, incomplete = reference_tokens(project, tracked_files(project))
     if incomplete:
         print(
             "adopt: warning: dead-code detection skipped because a reference "

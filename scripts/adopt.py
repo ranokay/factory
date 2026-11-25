@@ -25,6 +25,7 @@ from adopt_common import (
     problem,
     run,
     show,
+    tracked_files,
     valid_repo,
 )
 from adopt_categories import CATEGORIES
@@ -75,13 +76,6 @@ def resolve_checkout(project, repo):
     if status.stdout.strip():
         problem(f"{project} has uncommitted changes; commit or stash them first")
     return project
-
-
-def tracked_files(project):
-    result = git(project, "ls-files", "-z")
-    if result.returncode != 0:
-        problem(f"cannot list tracked files: {(result.stderr or result.stdout).strip()}")
-    return [path for path in result.stdout.split("\0") if path]
 
 
 def file_category(category, unseen, total, repo, head, dry_run):

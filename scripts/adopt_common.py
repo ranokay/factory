@@ -77,6 +77,14 @@ def git_out(project, *arguments):
     return result.stdout
 
 
+def tracked_files(project):
+    result = git(project, "ls-files", "-z")
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        problem(f"cannot list tracked files: {detail}")
+    return [path for path in result.stdout.split("\0") if path]
+
+
 def parse_json(text, label):
     try:
         return json.loads(text)

@@ -86,6 +86,26 @@ class AdoptDetectorTests(AdoptCase):
         self.assertNotIn("tests/fixtures/case.test.ts", pruning["body"])
         self.assertEqual(len(self.markers(pruning)), 1)
 
+    def test_fixture_references_still_keep_dead_code_alive(self):
+        (self.project / "src/orphan.ts").write_text("export const orphan = 1;\n")
+        usage = self.project / "tests/fixtures/usage.ts"
+        usage.parent.mkdir(parents=True)
+        usage.write_text('import { orphan } from "../../src/orphan";\n')
+        self.commit("add a fixture reference")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        dead = self.issue_for(self.issues(), "dead-code")
+        self.assertNotIn("src/orphan.ts", dead["body"])
+        self.assertIn("src/unused.ts", dead["body"])
+
+    def test_non_object_skills_lock_stops_the_inventory(self):
+        (self.project / "skills.lock").write_text("[]\n")
+        self.commit("add a list skills lock")
+        result = self.run_adopt()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("skills.lock", result.stderr)
+        self.assertEqual(self.issues(), [])
+
     def test_source_fixtures_are_still_inventoried(self):
         fixtures = self.project / "src/fixtures"
         fixtures.mkdir(parents=True)
