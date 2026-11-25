@@ -34,8 +34,8 @@ A plain line comment (#, //, ; or --) that continues a multi-line
 comment block is prose when it has no code operators and carries
 sentence punctuation. A continuation ending in .:,!? needs three or more
 words, one ending in ; needs four, and one with internal . ; or , needs
-four. Known workflow keys are code unless the line reads as prose. A
-comment ending in a flag is code.
+four. Command-like workflow keys (run:, uses:, with:) stay code; other
+key words can read as prose. A comment ending in a flag is code.
 
 A PEP 723 script block in a .py file (a comment line /// script through the
 next ///) is executable script metadata, not commented-out code, and is
@@ -108,6 +108,10 @@ for file in "$@"; do
 
 		function known_key(s) {
 			return s ~ /^(on|push|pull_request|workflow_call|jobs|steps|uses|run|name|with|permissions|contents|version|timeout-minutes|env|id|needs|concurrency|group|cancel-in-progress|runs-on):[ \t]/
+		}
+
+		function strong_key(s) {
+			return s ~ /^(run|uses|with|jobs|steps|permissions|contents|version|timeout-minutes|concurrency|runs-on|cancel-in-progress|workflow_call):[ \t]/
 		}
 
 		function is_prose(s,    n, words) {
@@ -186,6 +190,11 @@ for file in "$@"; do
 			}
 			if (exempt(s)) return
 			if (docblock || doc_comment) return
+			if (!inblock && is_continuation && strong_key(s)) {
+				printf "%s:%d: commented-out code: %s\n", FILENAME, FNR, s
+				failed = 1
+				return
+			}
 			if (!inblock && is_continuation && is_prose(s)) return
 			if (is_code(s)) {
 				printf "%s:%d: commented-out code: %s\n", FILENAME, FNR, s
