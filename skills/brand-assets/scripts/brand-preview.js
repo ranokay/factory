@@ -363,6 +363,24 @@ function partialOpacityOnInk(source, inkRaw) {
   return false;
 }
 
+function gradientStops(source, id) {
+  const escaped = String(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const gradient = source.match(
+    new RegExp(`<(?:linear|radial)Gradient\\b[^>]*\\bid\\s*=\\s*["']${escaped}["'][^>]*>([\\s\\S]*?)</(?:linear|radial)Gradient>`, "i"),
+  );
+  if (gradient === null) {
+    return [];
+  }
+  const stops = [];
+  for (const match of gradient[1].matchAll(/<stop\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
+    const attributes = tagAttributes(match[1]);
+    if (attributes["stop-color"] !== undefined) {
+      stops.push({ color: attributes["stop-color"], opacity: attributes["stop-opacity"] });
+    }
+  }
+  return stops;
+}
+
 function fixedPaintProblems(source, board, kind, theme, inkRaw) {
   const problems = [];
   const seen = new Set();
@@ -385,9 +403,32 @@ function fixedPaintProblems(source, board, kind, theme, inkRaw) {
         lower === "transparent" ||
         lower === "inherit" ||
         lower === "currentcolor" ||
-        lower.startsWith("url(") ||
         lower === String(inkRaw).toLowerCase()
       ) {
+        continue;
+      }
+      if (lower.startsWith("url(")) {
+        const reference = /url\(\s*["']?#([^"')\s]+)/i.exec(value);
+        if (reference === null) {
+          continue;
+        }
+        for (const stop of gradientStops(source, reference[1])) {
+          const color = parseColor(stop.color);
+          if (color === null) {
+            continue;
+          }
+          const alpha = Math.min(1, Math.max(0, opacity * (stop.opacity === undefined ? 1 : parseFloat(stop.opacity))));
+          const key = `stop|${stop.color.toLowerCase()}|${alpha}`;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          const effective = composite({ ...color, a: (color.a === undefined ? 1 : color.a) * alpha }, background);
+          const ratio = contrastRatio(effective, background);
+          if (ratio < MIN_CONTRAST) {
+            problems.push(`${theme} ${kind} gradient stop ${stop.color}${alpha < 1 ? ` at ${alpha}` : ""}: ${ratio.toFixed(1)}:1; minimum ${MIN_CONTRAST}:1`);
+          }
+        }
         continue;
       }
       const color = parseColor(value);

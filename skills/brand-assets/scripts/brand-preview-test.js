@@ -145,6 +145,11 @@ try {
   run(["--title", "HSL", "--concept", `HSL=${hslInk}`, "--output", hslOut]);
   assert.ok(read(hslOut).includes("light icon: hsl(0, 0%, 100%) is 1.1:1; minimum 3:1"));
 
+  const gradientInk = write("gradient-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><linearGradient id="g"><stop offset="0" stop-color="#f6f6f3"/><stop offset="1" stop-color="#111827"/></linearGradient></defs><rect width="64" height="64" fill="url(#g)"/><circle cx="32" cy="32" r="4" fill="currentColor"/></svg>\n`);
+  const gradientInkOut = path.join(workspace, "out", "gradient-ink.html");
+  run(["--title", "Gradient", "--concept", `Gradient=${gradientInk}`, "--output", gradientInkOut]);
+  assert.ok(read(gradientInkOut).includes("light icon gradient stop #f6f6f3"));
+
   const fixedInk = write("fixed-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="#141821"><rect width="64" height="64" fill="#141821"/></svg>\n`);
   const flagged = path.join(workspace, "out", "flagged.html");
   run(["--title", "Fixed ink", "--concept", `Fixed=${fixedInk}`, "--output", flagged]);
