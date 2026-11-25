@@ -152,6 +152,7 @@ function pinnedFactory() {
   git(["add", "-A"]);
   git(["-c", "user.name=assets-test", "-c", "user.email=assets-test@invalid", "commit", "-qm", "pin"]);
   git(["tag", "v-assets-test"]);
+  fs.appendFileSync(path.join(repo, "profiles", "universal", "scripts", "assets.js"), "\n// the working tree differs from the pinned tag\n");
   return repo;
 }
 
@@ -270,6 +271,13 @@ function universalWebTest() {
   assert(strayCheck.stderr.includes("assets/brand/random-export.png is not produced"), strayCheck.stderr);
   fs.rmSync(stray, { force: true });
 
+  const strayFrame = path.join(root, "assets", "store", "framed", "extra.png");
+  fs.writeFileSync(strayFrame, "stray\n");
+  const strayFrameCheck = run(root, ["--check", "--modules", modules]);
+  assert(strayFrameCheck.status === 1, "an unreferenced store frame passed the check");
+  assert(strayFrameCheck.stderr.includes("assets/store/framed/extra.png is not produced"), strayFrameCheck.stderr);
+  fs.rmSync(strayFrame, { force: true });
+
   fs.writeFileSync(favicon, Buffer.from(`${original.toString("utf8")}<!-- divergent -->\n`));
   const divergentLock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
   divergentLock.exports["public/favicon.svg"] = hash(favicon);
@@ -316,13 +324,18 @@ function universalWebTest() {
   fs.writeFileSync(miseFile, originalMise);
 
   const pinned = pinnedFactory();
+  const pinnedTmp = tempDir("pinned-tmp");
   fs.writeFileSync(miseFile, `# git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v-assets-test\n${originalMise}`);
   const pinnedCheck = spawnSync("mise", ["run", "assets", "--check"], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, FACTORY_CHECKOUT: pinned },
+    env: { ...process.env, FACTORY_CHECKOUT: pinned, TMPDIR: pinnedTmp },
   });
   assert(pinnedCheck.status === 0, pinnedCheck.stderr);
+  assert(
+    fs.readdirSync(pinnedTmp).filter((name) => name.startsWith("factory-assets-")).length === 0,
+    "the pinned task leaked its temporary tree",
+  );
   fs.writeFileSync(miseFile, originalMise);
 
   fs.writeFileSync(icon, fs.readFileSync(path.join(FIXTURES, "fail-staircase.svg")));
