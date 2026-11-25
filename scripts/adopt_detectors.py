@@ -72,7 +72,11 @@ STALE_SUFFIXES = (
 
 
 def is_fixture_path(path):
-    return any(part in FIXTURE_DIRS for part in PurePosixPath(path).parts[:-1])
+    parts = PurePosixPath(path).parts[:-1]
+    return any(
+        part in FIXTURE_DIRS and index and parts[index - 1] in TEST_DIRS
+        for index, part in enumerate(parts)
+    )
 
 
 def is_test_path(path):
@@ -95,12 +99,7 @@ def skills_lock_names(project):
     try:
         lock = sync.load_lock(project)
     except (sync.SyncError, OSError, json.JSONDecodeError) as error:
-        print(
-            f"adopt: warning: cannot read skills.lock ({error}); "
-            "inventorying vendored skill files",
-            file=sys.stderr,
-        )
-        return set()
+        problem(f"cannot read skills.lock: {error}")
     return {entry["name"] for entry in lock["skills"]}
 
 

@@ -82,27 +82,37 @@ class AdoptDetectorTests(AdoptCase):
         self.assertNotIn("tests/fixtures/case.test.ts", pruning["body"])
         self.assertEqual(len(self.markers(pruning)), 1)
 
-    def test_malformed_skills_lock_warns_and_continues(self):
+    def test_source_fixtures_are_still_inventoried(self):
+        fixtures = self.project / "src/fixtures"
+        fixtures.mkdir(parents=True)
+        (fixtures / "seed.ts").write_text("// TODO: owned source\n")
+        (fixtures / "seed.test.ts").write_text("export const x = 1;\n")
+        self.commit("add source fixtures")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        comments = self.issue_for(issues, "comments")
+        self.assertIn("src/fixtures/seed.ts", comments["body"])
+        pruning = self.issue_for(issues, "test-pruning")
+        self.assertIn("src/fixtures/seed.test.ts", pruning["body"])
+
+    def test_malformed_skills_lock_stops_the_inventory(self):
         (self.project / "skills.lock").write_text("{not json\n")
         self.commit("add a malformed skills lock")
         result = self.run_adopt()
-        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotEqual(result.returncode, 0)
         self.assertIn("skills.lock", result.stderr)
-        self.assertEqual(len(self.issues()), 9)
+        self.assertEqual(self.issues(), [])
 
-    def test_invalid_skills_lock_entry_warns_and_inventories(self):
-        vendored = self.project / "skills/vendor/note.sh"
-        vendored.parent.mkdir(parents=True)
-        vendored.write_text("#!/bin/sh\n# TODO: upstream follows\n")
+    def test_invalid_skills_lock_entry_stops_the_inventory(self):
         (self.project / "skills.lock").write_text(
             '{"version": 1, "skills": [{"name": "vendor"}]}\n'
         )
         self.commit("add an incomplete skills lock")
         result = self.run_adopt()
-        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotEqual(result.returncode, 0)
         self.assertIn("skills.lock", result.stderr)
-        comments = self.issue_for(self.issues(), "comments")
-        self.assertIn("skills/vendor/note.sh", comments["body"])
+        self.assertEqual(self.issues(), [])
 
     def test_comment_key_uses_the_banned_marker_not_the_prose(self):
         note = self.project / "src/note.ts"
