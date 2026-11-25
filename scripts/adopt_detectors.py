@@ -71,10 +71,10 @@ STALE_SUFFIXES = (
 )
 
 
-def is_fixture_path(path):
+def is_test_fixture_path(path):
     parts = PurePosixPath(path).parts[:-1]
     return any(
-        part in FIXTURE_DIRS and index and parts[index - 1] in TEST_DIRS
+        part in FIXTURE_DIRS and index > 0 and parts[index - 1] in TEST_DIRS
         for index, part in enumerate(parts)
     )
 
@@ -99,7 +99,7 @@ def skills_lock_names(project):
     try:
         lock = sync.load_lock(project)
     except (sync.SyncError, OSError, json.JSONDecodeError) as error:
-        problem(f"cannot read skills.lock: {error}")
+        raise Problem(f"cannot read skills.lock: {error}") from error
     return {entry["name"] for entry in lock["skills"]}
 
 
@@ -114,7 +114,7 @@ def inventory_files(project, tracked):
     fixtures = 0
     vendored_files = 0
     for path in tracked:
-        if is_fixture_path(path):
+        if is_test_fixture_path(path):
             fixtures += 1
         elif is_vendored_skill(path, vendored):
             vendored_files += 1

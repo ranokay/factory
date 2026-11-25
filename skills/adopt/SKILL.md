@@ -62,9 +62,10 @@ output and rerun; the marker search prevents duplicates.
 Adopt inventories only the repository's own files. It skips tracked paths under a
 `fixture/` or `fixtures/` directory that sits directly in a test directory,
 because that is test input, and under a skill directory named in `skills.lock`,
-because `skills:sync` owns the vendored tree. Both exclusions match the Factory's
-own `hk.pkl` steps, so no finding asks for an edit the Gate or the sync tool
-would revert. An unreadable `skills.lock` stops the run before anything is filed.
+because `skills:sync` owns the vendored tree. The vendored exclusion matches the
+Factory's `hk.pkl` steps. A fixture finding would rewrite test input, so adopt
+leaves it alone even when the Gate still scans it. An unreadable `skills.lock`
+stops the run before anything is filed.
 
 ## Gardening and markers
 
