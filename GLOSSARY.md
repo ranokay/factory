@@ -100,8 +100,12 @@ _Avoid_: test harness, automation framework
 Moving an issue to exactly one category label and one state label, where a bug is reproduced through the Verification Skill and its observed checks before it becomes `ready-for-agent`.
 _Avoid_: label pass, sorting
 
+**Pushback Review**:
+The judgement every issue passes before `ready-for-agent`: a reviewer on the Worker model, separate from the issue's author, checks it against `PRODUCT.md` and the codebase and records one verdict on the issue — go, reshape, needs-info or don't. Only go or an accepted reshape applies `ready-for-agent`; ranokay's one-line override is recorded on the issue too.
+_Avoid_: approval, sign-off, spec review
+
 **Maintenance Issue**:
-The weekly `ready-for-agent` issue that runs `/maintain-verification-skill` in a repository whose app changed since the verification skill's last maintenance, with the filed head recorded in its body.
+The weekly `needs-triage` issue that runs `/maintain-verification-skill` in a repository whose app changed since the verification skill's last maintenance, with the filed head recorded in its body; the Pushback Review applies `ready-for-agent` when it allows the issue.
 _Avoid_: upkeep ticket, weekly chore
 
 **GC**:

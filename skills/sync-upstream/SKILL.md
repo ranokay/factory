@@ -61,7 +61,9 @@ upstream already has one, it adds only what the matching `project/` file require
 - `.coderabbit.yaml`: the `enabled` value from `project/.coderabbit.yaml`, set when
   missing or different;
 - an existing `hk.pkl` is untouched and reports
-  `hk.pkl: upstream has its own; Factory Gates not amended`.
+  `hk.pkl: upstream has its own; Factory Gates not amended`;
+- an existing `PRODUCT.md` is untouched and reports
+  `PRODUCT.md: repository has its own; kept`.
 
 ### 2. Prepare the branch and the merge
 

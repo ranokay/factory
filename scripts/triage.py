@@ -70,14 +70,27 @@ def issue_labels(repo, issue):
 
 
 def apply_labels(repo, issue, category, state):
-    if category not in CATEGORIES:
+    if category is not None and category not in CATEGORIES:
         problem(f"category must be one of {', '.join(CATEGORIES)}")
     if state not in STATES:
         problem(f"state must be one of {', '.join(STATES)}")
+    if state == "ready-for-agent":
+        from pushback_common import require_allowed
+
+        require_allowed(repo, issue)
+    if state == "wontfix":
+        from pushback_common import require_confirmed
+
+        require_confirmed(repo, issue)
     current = issue_labels(repo, issue)
-    triage = {name for name in current if name in CATEGORIES or name in STATES}
-    remove = sorted(triage - {category, state})
-    add = sorted({category, state} - set(current))
+    managed = {name for name in current if name in CATEGORIES or name in STATES}
+    keep = {state}
+    if category is None:
+        keep.update(name for name in current if name in CATEGORIES)
+    else:
+        keep.add(category)
+    remove = sorted(managed - keep)
+    add = sorted(keep - set(current))
     if add or remove:
         command = ["issue", "edit", str(issue), "-R", repo]
         for name in add:
@@ -87,15 +100,16 @@ def apply_labels(repo, issue, category, state):
         result = run_gh(*command)
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
-            problem(f"applying {category} and {state} failed: {detail}")
+            problem(f"applying the labels failed: {detail}")
     after = issue_labels(repo, issue)
     categories = [name for name in after if name in CATEGORIES]
     states = [name for name in after if name in STATES]
-    if categories != [category] or states != [state]:
-        problem(
-            f"labels are {categories or 'none'} and {states or 'none'}; "
-            f"expected exactly {category} and {state}"
-        )
+    if states != [state]:
+        problem(f"state labels are {states or 'none'}; expected exactly {state}")
+    if category is not None and categories != [category]:
+        problem(f"category labels are {categories or 'none'}; expected exactly {category}")
+    if category is None and len(categories) > 1:
+        problem(f"category labels are {categories}; expected at most one")
 
 
 def fetch_issue(repo, issue):
@@ -360,7 +374,7 @@ def reproduce(args):
             args.issue,
             comment_body(issue, rows, executions, cleanup),
         )
-        state = "ready-for-agent" if outcome == "reproduced" else "needs-info"
+        state = "needs-triage" if outcome == "reproduced" else "needs-info"
         apply_labels(args.repo, args.issue, "bug", state)
     except Exception:
         print(f"triage: evidence kept at {directory}", file=sys.stderr)
@@ -369,7 +383,17 @@ def reproduce(args):
         shutil.rmtree(directory)
     except OSError as error:
         print(f"triage: evidence kept at {directory}; deleting it failed: {error}", file=sys.stderr)
-    print(json.dumps({"ok": True, "outcome": outcome, "comment": url, "labels": ["bug", state]}))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "outcome": outcome,
+                "comment": url,
+                "labels": ["bug", state],
+                "pushback": "light" if outcome == "reproduced" else "none",
+            }
+        )
+    )
 
 
 def main(argv=None):
@@ -415,4 +439,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault("triage", sys.modules[__name__])
     sys.exit(main())

@@ -15,7 +15,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn("brand", {category for issue in issues for category in self.categories(issue)})
 
     def test_icon_only_still_requests_a_logo(self):
@@ -26,7 +26,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 8)
+        self.assertEqual(len(issues), 9)
         brand = self.issue_for(issues, "brand")
         self.assertIn("logo", brand["body"])
 
@@ -68,7 +68,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt(repo="Ranokay/Factory")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
@@ -107,7 +107,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 8)
+        self.assertEqual(len(issues), 9)
         self.assertIn(
             "brand",
             {category for issue in issues for category in self.categories(issue)},
@@ -121,7 +121,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 8)
+        self.assertEqual(len(issues), 9)
         self.assertIn("icon", self.issue_for(issues, "brand")["body"])
 
     def test_string_includes_are_accepted(self):
@@ -139,7 +139,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
@@ -153,7 +153,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
@@ -167,7 +167,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
@@ -217,7 +217,7 @@ class AdoptDetectorTests(AdoptCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertNotIn("dead-code detection skipped", result.stderr)
         issues = self.issues()
-        self.assertEqual(len(issues), 8)
+        self.assertEqual(len(issues), 9)
         self.assertIn(
             "dead-code",
             {category for issue in issues for category in self.categories(issue)},
@@ -233,6 +233,7 @@ class AdoptDetectorTests(AdoptCase):
         self.assertEqual(
             {category for issue in issues for category in self.categories(issue)},
             {
+                "product",
                 "tooling",
                 "comments",
                 "dead-code",
@@ -304,7 +305,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
@@ -340,7 +341,7 @@ class AdoptDetectorTests(AdoptCase):
         self.assertIn("skipping it as a reference source", result.stderr)
         self.assertIn("dead-code detection skipped", result.stderr)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "dead-code",
             {category for issue in issues for category in self.categories(issue)},
@@ -354,7 +355,7 @@ class AdoptDetectorTests(AdoptCase):
         self.assertIn("cannot read broken.txt", result.stderr)
         self.assertIn("dead-code detection skipped", result.stderr)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "dead-code",
             {category for issue in issues for category in self.categories(issue)},
@@ -402,7 +403,7 @@ class AdoptDetectorTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "tooling",
             {category for issue in issues for category in self.categories(issue)},
@@ -470,7 +471,7 @@ class AdoptDetectorTests(AdoptCase):
                 result = self.run_adopt()
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
                 issues = self.issues()
-                self.assertEqual(len(issues), 8)
+                self.assertEqual(len(issues), 9)
                 self.assertIn("logo", self.issue_for(issues, "brand")["body"])
 
     def test_outside_directory_symlink_withholds_dead_code(self):
@@ -484,7 +485,7 @@ class AdoptDetectorTests(AdoptCase):
         self.assertIn("resolves outside the checkout", result.stderr)
         self.assertIn("dead-code detection skipped", result.stderr)
         issues = self.issues()
-        self.assertEqual(len(issues), 7)
+        self.assertEqual(len(issues), 8)
         self.assertNotIn(
             "dead-code",
             {category for issue in issues for category in self.categories(issue)},

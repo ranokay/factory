@@ -14,7 +14,7 @@ __all__ = ["Adopt", "AdoptDetectorTests"]
 class Adopt(AdoptCase):
     def first_run_issues(self):
         issues = self.issues()
-        self.assertEqual(len(issues), 8)
+        self.assertEqual(len(issues), 9)
         by_category = {}
         for issue in issues:
             categories = self.categories(issue)
@@ -23,6 +23,7 @@ class Adopt(AdoptCase):
         self.assertEqual(
             set(by_category),
             {
+                "product",
                 "tooling",
                 "comments",
                 "dead-code",
@@ -38,15 +39,16 @@ class Adopt(AdoptCase):
     def assert_first_run_labels(self, by_category):
         for category, issue in by_category.items():
             labels = set(issue["labels"])
-            if category == "brand":
+            if category in ("product", "brand"):
                 self.assertEqual(labels, {"ready-for-human", "enhancement"})
             else:
-                self.assertEqual(labels, {"ready-for-agent", "enhancement"})
+                self.assertEqual(labels, {"needs-triage", "enhancement"})
 
     def assert_first_run_markers(self, by_category):
         self.assertEqual(
             {category: len(self.markers(issue)) for category, issue in by_category.items()},
             {
+                "product": 1,
                 "tooling": 3,
                 "comments": 1,
                 "dead-code": 1,
@@ -59,6 +61,7 @@ class Adopt(AdoptCase):
         )
 
     def assert_first_run_bodies(self, by_category):
+        self.assertIn("PRODUCT.md", by_category["product"]["body"])
         self.assertIn("mise.toml", by_category["tooling"]["body"])
         self.assertIn("src/used.ts", by_category["comments"]["body"])
         self.assertIn("src/unused.ts", by_category["dead-code"]["body"])
@@ -108,6 +111,31 @@ class Adopt(AdoptCase):
         self.assert_first_run_settings()
         self.assert_unchanged(before)
 
+    def test_missing_product_md_files_one_ready_for_human_issue(self):
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        product = self.issue_for(self.issues(), "product")
+        self.assertEqual(set(product["labels"]), {"ready-for-human", "enhancement"})
+        self.assertIn("PRODUCT.md", product["body"])
+        self.assertIn("non-goals", product["body"])
+
+    def test_product_md_suppresses_the_product_issue(self):
+        (self.project / "PRODUCT.md").write_text(
+            "# Fixture\n\n## Who it's for\n\nAgents.\n\n## Goals\n\nShip.\n\n"
+            "## Non-goals\n\nNo dashboards.\n\n## Quality bars\n\nFast.\n"
+        )
+        self.commit("add PRODUCT.md")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn(
+            "product",
+            {
+                category
+                for issue in self.issues()
+                for category in self.categories(issue)
+            },
+        )
+
     def test_second_run_files_nothing_and_applies_no_settings(self):
         first = self.run_adopt()
         self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
@@ -135,7 +163,7 @@ class Adopt(AdoptCase):
         self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
         self.assertIn("no new findings", second.stdout)
         self.no_creates()
-        self.assertEqual(len(self.issues()), 8)
+        self.assertEqual(len(self.issues()), 9)
 
     def test_new_finding_files_only_the_new_finding(self):
         first = self.run_adopt()
@@ -176,7 +204,7 @@ class Adopt(AdoptCase):
         before = self.snapshot()
         result = self.run_adopt()
         self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
-        self.assertEqual(len(self.issues()), 8)
+        self.assertEqual(len(self.issues()), 9)
         self.assertIn("needs PR", result.stdout)
         self.assertIn("unresolved drift", result.stderr)
         self.assert_unchanged(before)
@@ -279,7 +307,7 @@ class Adopt(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         filed = [issue for issue in self.issues() if issue["number"] > 99]
-        self.assertEqual(len(filed), 8)
+        self.assertEqual(len(filed), 9)
         comments = [issue for issue in filed if "comments" in self.categories(issue)]
         self.assertEqual(len(comments), 1)
         self.assertIn("src/used.ts", comments[0]["body"])

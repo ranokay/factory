@@ -1006,6 +1006,15 @@ steps {
           }
         }
       }
+      ["pushback"] = new Step {
+        check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/pushback-test.py"
+        tests {
+          ["parses verdicts, posts one comment and gates ready-for-agent"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
       ["ocr-restyle"] = new Step {
         check = "uv run --script {{root}}/scripts/ocr-restyle-test.py"
         tests {
@@ -1148,6 +1157,26 @@ steps {
           }
         }
       }
+      ["messages"] = new Step {
+        check = "sh {{root}}/skills/supervise/scripts/messages-test.sh"
+        tests {
+          ["documents every header, including the objection"] {
+            run = "check"
+            env { ["MESSAGES_CASE"] = "headers" }
+            expect { code = 0 }
+          }
+          ["the objection has its own header and ruling"] {
+            run = "check"
+            env { ["MESSAGES_CASE"] = "objection" }
+            expect { code = 0 }
+          }
+          ["the Supervisor does not count an objection as an attempt"] {
+            run = "check"
+            env { ["MESSAGES_CASE"] = "skill" }
+            expect { code = 0 }
+          }
+        }
+      }
       ["file-promotion"] = new Step {
         check = "sh {{root}}/skills/supervise/scripts/file-promotion-test.sh"
         tests {
@@ -1169,6 +1198,11 @@ steps {
           ["refuses both at once"] {
             run = "check"
             env { ["FILE_PROMOTION_CASE"] = "both" }
+            expect { code = 0 }
+          }
+          ["refuses ready-for-agent and leaves it to the gate"] {
+            run = "check"
+            env { ["FILE_PROMOTION_CASE"] = "ready_for_agent" }
             expect { code = 0 }
           }
         }

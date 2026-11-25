@@ -6,6 +6,7 @@ from adopt_detectors import (
     brand_findings,
     comment_findings,
     dead_code_findings,
+    product_findings,
     stale_findings,
     test_pruning_findings,
     verification_findings,
@@ -50,54 +51,66 @@ BRAND_INSTRUCTION = (
     "Run `brand-assets` in the interactive session. Choose one concept; the "
     "masters land in `assets/brand/`. `adopt` files this once."
 )
+PRODUCT_INSTRUCTION = (
+    "Write `PRODUCT.md` from the Factory's `project/PRODUCT.md`: who the "
+    "repository is for, its goals, its non-goals and its quality bars. Keep it "
+    "short; the pushback review quotes the non-goals."
+)
 
 CATEGORIES = (
     {
+        "key": "product",
+        "title": "Adopt: add PRODUCT.md",
+        "state": "ready-for-human",
+        "findings": product_findings,
+        "instruction": PRODUCT_INSTRUCTION,
+    },
+    {
         "key": "tooling",
         "title": "Adopt: tooling baseline",
-        "state": "ready-for-agent",
+        "state": "needs-triage",
         "findings": tooling_findings,
         "instruction": TOOLING_INSTRUCTION,
     },
     {
         "key": "comments",
         "title": "Adopt: purge slop comments",
-        "state": "ready-for-agent",
+        "state": "needs-triage",
         "findings": comment_findings,
         "instruction": COMMENTS_INSTRUCTION,
     },
     {
         "key": "dead-code",
         "title": "Adopt: remove dead code",
-        "state": "ready-for-agent",
+        "state": "needs-triage",
         "findings": dead_code_findings,
         "instruction": DEAD_CODE_INSTRUCTION,
     },
     {
         "key": "agents",
         "title": "Adopt: rewrite AGENTS.md",
-        "state": "ready-for-agent",
+        "state": "needs-triage",
         "findings": agents_findings,
         "instruction": AGENTS_INSTRUCTION,
     },
     {
         "key": "stale-files",
         "title": "Adopt: remove stale files",
-        "state": "ready-for-agent",
+        "state": "needs-triage",
         "findings": stale_findings,
         "instruction": STALE_INSTRUCTION,
     },
     {
         "key": "verification",
         "title": "Adopt: add a verification skill",
-        "state": "ready-for-agent",
+        "state": "needs-triage",
         "findings": verification_findings,
         "instruction": VERIFICATION_INSTRUCTION,
     },
     {
         "key": "test-pruning",
         "title": "Adopt: prune tests",
-        "state": "ready-for-agent",
+        "state": "needs-triage",
         "findings": test_pruning_findings,
         "instruction": TEST_PRUNING_INSTRUCTION,
     },

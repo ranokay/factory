@@ -2439,11 +2439,16 @@
       "source": "https://github.com/mattpocock/skills.git",
       "path": "skills/engineering/to-spec",
       "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
-      "patches": [],
+      "patches": [
+        {
+          "path": "0001-factory-pushback.patch",
+          "sha256": "b5095b10700d86e3a8ba5d440e0c04a6fba39b6b566fc29fcd39642835fc41f1"
+        }
+      ],
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "43ad9cf318e5e7d3d1fa360253a37021796dc87a0c2e595ad262661a10f85088"
+          "sha256": "3ef2f7f51079a4c6491c758a57e89e886ef9d66f0fe079b0fc48c7121110c57e"
         },
         {
           "path": "agents/openai.yaml",
@@ -2456,11 +2461,16 @@
       "source": "https://github.com/mattpocock/skills.git",
       "path": "skills/engineering/to-tickets",
       "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
-      "patches": [],
+      "patches": [
+        {
+          "path": "0001-factory-pushback.patch",
+          "sha256": "9cd7b6015ca7877070768418f348c8632c5f287190c998937ee4b40959facb1a"
+        }
+      ],
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "56ec23c5b2782785d4e65bff9e315b6d3aeb4ef977c174a219e99489fada1995"
+          "sha256": "4e2150e2e56cc064df0bb9ca890bee1480a872edd3c08adf4b4f578e74318043"
         },
         {
           "path": "agents/openai.yaml",
@@ -2476,7 +2486,7 @@
       "patches": [
         {
           "path": "0001-factory-triage.patch",
-          "sha256": "17db8e4f17d9c9d917b71af1b3a172895f240f99e8956a256eb89403b0564c9c"
+          "sha256": "2a064b04d0d4d46e6ee8c1214cd4fdd4c1130a2bfa4cabbe30db62384b8207c6"
         }
       ],
       "files": [
@@ -2490,7 +2500,7 @@
         },
         {
           "path": "SKILL.md",
-          "sha256": "36b4168bbab72465a0bf4619bef746d3c6222c8d53bf04bada11d477118b5bb9"
+          "sha256": "2a4b3c90915ad387d1831280df6f7c412ab4c4d849df2636a39d3a1ec931006a"
         },
         {
           "path": "agents/openai.yaml",

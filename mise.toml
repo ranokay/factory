@@ -92,7 +92,9 @@ depends = [
   "brand-assets:test",
   "run-slot:test",
   "block-issue:test",
+  "messages:test",
   "triage:test",
+  "pushback:test",
   "adopt:test",
   "ocr-restyle:test",
   "merge:test",
@@ -170,6 +172,14 @@ run = "hk test --step triage"
 [tasks."adopt:test"]
 description = "Run the adopt CLI fixture tests"
 run = "hk test --step adopt"
+
+[tasks."pushback:test"]
+description = "Run the pushback review tests"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/pushback-test.py"
+
+[tasks."messages:test"]
+description = "Run the supervise message fixtures"
+run = "sh skills/supervise/scripts/messages-test.sh"
 
 [tasks."ocr-restyle:test"]
 description = "Run the OCR comment restyle tests"

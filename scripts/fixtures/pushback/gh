@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Fake gh for the pushback fixture tests."""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+state_path = Path(os.environ["FAKE_GH_STATE"])
+state = json.loads(state_path.read_text())
+with Path(os.environ["FAKE_GH_LOG"]).open("a") as handle:
+    handle.write(json.dumps(args) + "\n")
+
+
+def value(flag):
+    return args[args.index(flag) + 1] if flag in args else None
+
+
+def issue(number):
+    return state["issues"][str(number)]
+
+
+def label_names(item):
+    return [label["name"] if isinstance(label, dict) else label for label in item["labels"]]
+
+
+def save():
+    state_path.write_text(json.dumps(state))
+
+
+if args[:2] == ["issue", "view"]:
+    item = issue(args[2])
+    fields = value("--json") or ""
+    if fields == "labels":
+        print(json.dumps({"labels": [{"name": name} for name in label_names(item)]}))
+    else:
+        payload = {field: item.get(field) for field in fields.split(",")}
+        payload["labels"] = [{"name": name} for name in label_names(item)]
+        payload["comments"] = item.get("comments", [])
+        print(json.dumps(payload))
+elif args[:2] == ["issue", "comment"]:
+    item = issue(args[2])
+    body = Path(value("--body-file")).read_text()
+    comments = item.setdefault("comments", [])
+    comments.append(
+        {
+            "body": body,
+            "url": f"https://example.test/issue/{args[2]}#issuecomment-{len(comments) + 1}",
+            "author": {"login": "ranokay"},
+            "createdAt": "2026-11-25T00:00:00Z",
+        }
+    )
+    save()
+    print(comments[-1]["url"])
+elif args[:2] == ["issue", "edit"]:
+    item = issue(args[2])
+    index = 0
+    while index < len(args):
+        if args[index] == "--add-label":
+            name = args[index + 1]
+            if name not in label_names(item):
+                item["labels"].append({"name": name})
+            index += 2
+        elif args[index] == "--remove-label":
+            name = args[index + 1]
+            item["labels"] = [
+                label
+                for label in item["labels"]
+                if (label["name"] if isinstance(label, dict) else label) != name
+            ]
+            index += 2
+        elif args[index] == "--body-file":
+            item["body"] = Path(args[index + 1]).read_text()
+            index += 2
+        else:
+            index += 1
+    save()
+elif args[:2] == ["issue", "close"]:
+    issue(args[2])["state"] = "closed"
+    save()
+elif args[0] == "api" and "search/issues" in args:
+    print(
+        json.dumps(
+            {
+                "items": [
+                    {"number": number, "url": f"https://example.test/issues/{number}"}
+                    for number in state.get("search", [])
+                ],
+                "incomplete_results": state.get("incomplete_results", False),
+            }
+        )
+    )
+else:
+    sys.exit(1)

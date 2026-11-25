@@ -102,10 +102,23 @@ class SyncUpstreamFiles(SyncFixture):
         self.assertEqual(check.returncode, 1)
         self.assertEqual(list(target.iterdir()), [])
         self.cli("install-files", "--target", str(target))
-        for name in ("AGENTS.md", "mise.toml", "hk.pkl", "renovate.json", ".coderabbit.yaml", ".greptile/config.json"):
+        for name in (
+            "AGENTS.md",
+            "mise.toml",
+            "hk.pkl",
+            "renovate.json",
+            "PRODUCT.md",
+            ".coderabbit.yaml",
+            ".greptile/config.json",
+        ):
             self.assertTrue((target / name).is_file(), name)
         again = self.cli("install-files", "--target", str(target), "--check")
         self.assertIn("hk.pkl: upstream has its own; Factory Gates not amended", again.stdout)
+        self.assertIn("PRODUCT.md: repository has its own; kept", again.stdout)
+        (target / "PRODUCT.md").write_text("# Our product\n")
+        kept = self.cli("install-files", "--target", str(target), "--check")
+        self.assertEqual(kept.returncode, 0, kept.stdout)
+        self.assertEqual((target / "PRODUCT.md").read_text(), "# Our product\n")
 
     def test_install_files_fails_on_an_existing_file_with_no_merge_rule(self):
         template = self.root / "template"
