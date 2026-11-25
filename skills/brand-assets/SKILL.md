@@ -90,11 +90,12 @@ icon-only mark, the lockup is a wide mark-only variant instead.
 - No `<image>`, data URIs, `<foreignObject>`, `<style>`, raster or external
   references, or `<text>`. Use presentation attributes, and outline a wordmark as
   paths.
-- Draw the neutral ink in `currentColor`; the preview sets it to `#18181b` on
-  light and `#f4f4f5` on dark. Accents may use explicit colours. A concept that
-  must use fixed ink declares `data-brand-ink="#rrggbb"` on its root and ships a
-  dark variant with `--dark`/`--dark-lockup`; otherwise the page flags its
-  contrast.
+- Declare the neutral ink on every concept and lockup root as
+  `data-brand-ink="currentColor"`; the preview sets it to `#18181b` on light and
+  `#f4f4f5` on dark. Accents may use explicit colours. Fixed ink declares
+  `data-brand-ink="#rrggbb"` and ships a dark variant with
+  `--dark`/`--dark-lockup`. Keep the neutral ink opaque; partial opacity is
+  flagged.
 - Keep every path under 400 drawing commands and avoid long runs of tiny
   axis-aligned steps.
 - A concept must still read at 16 px on both boards.
@@ -137,7 +138,8 @@ node "$factory/skills/brand-assets/scripts/brand-preview.js" \
   --output "$cache/preview.html"
 ```
 
-The command above relies on `currentColor`. For a fixed-ink concept, add
+The command above relies on `data-brand-ink="currentColor"` on each root. For a
+fixed-ink concept, declare its colour and add
 `--dark "Name=$cache/concept-N-slug-dark-icon.svg"` and
 `--dark-lockup "Name=$cache/concept-N-slug-dark-lockup.svg"` for the same name.
 

@@ -18,7 +18,7 @@ const USAGE = `Usage: brand-preview.js --output <file> --title <title> --concept
 
 Render brand concepts as one self-contained HTML page.
 Pass one --concept per direction; the skill passes three. Add one --lockup per direction to show its logo lockup.
-Draw neutral ink in currentColor; add --dark or --dark-lockup only for a fixed-ink concept.
+Declare neutral ink on every root as data-brand-ink="currentColor" (or a fixed colour); add --dark or --dark-lockup for a fixed-ink concept.
 Each SVG must pass the brand master checker (viewBox, primitives and Bezier curves, no raster or external references).`;
 
 function escapeHtml(value) {
@@ -122,7 +122,7 @@ function parseColor(value) {
   let match = /^#([0-9a-f]{3})$/.exec(text);
   if (match !== null) {
     const [r, g, b] = match[1].split("").map((digit) => Number.parseInt(digit + digit, 16));
-    return { r, g, b };
+    return { r, g, b, a: 1 };
   }
   match = /^#([0-9a-f]{6})$/.exec(text);
   if (match !== null) {
@@ -130,13 +130,29 @@ function parseColor(value) {
       r: Number.parseInt(match[1].slice(0, 2), 16),
       g: Number.parseInt(match[1].slice(2, 4), 16),
       b: Number.parseInt(match[1].slice(4, 6), 16),
+      a: 1,
     };
   }
-  match = /^rgba?\(\s*([0-9.]+)[,\s]+([0-9.]+)[,\s]+([0-9.]+)/.exec(text);
+  match = /^rgba?\(\s*([0-9.]+)[,\s]+([0-9.]+)[,\s]+([0-9.]+)(?:[,\s/]+([0-9.]+))?\s*\)$/.exec(text);
   if (match !== null) {
-    return { r: Number.parseFloat(match[1]), g: Number.parseFloat(match[2]), b: Number.parseFloat(match[3]) };
+    return {
+      r: Number.parseFloat(match[1]),
+      g: Number.parseFloat(match[2]),
+      b: Number.parseFloat(match[3]),
+      a: match[4] === undefined ? 1 : Number.parseFloat(match[4]),
+    };
   }
   return null;
+}
+
+function composite(foreground, background) {
+  const alpha = foreground.a === undefined ? 1 : foreground.a;
+  return {
+    r: alpha * foreground.r + (1 - alpha) * background.r,
+    g: alpha * foreground.g + (1 - alpha) * background.g,
+    b: alpha * foreground.b + (1 - alpha) * background.b,
+    a: 1,
+  };
 }
 
 function channel(value) {
@@ -160,26 +176,29 @@ function inkFor(source, textColor) {
     return { color: null, raw: null };
   }
   const declared = /data-brand-ink\s*=\s*["']([^"']+)["']/i.exec(root[1]);
-  if (declared !== null) {
-    const raw = declared[1].trim();
-    return raw.toLowerCase() === "currentcolor" ? { color: parseColor(textColor), raw: textColor } : { color: parseColor(raw), raw };
+  if (declared === null) {
+    return { color: null, raw: null };
   }
-  if (/(?:fill|stroke)\s*=\s*["']currentColor["']/i.test(source)) {
-    return { color: parseColor(textColor), raw: textColor };
-  }
-  return { color: null, raw: null };
+  const raw = declared[1].trim();
+  return raw.toLowerCase() === "currentcolor" ? { color: parseColor(textColor), raw: textColor } : { color: parseColor(raw), raw };
 }
+
+const PARTIAL_OPACITY = /(?:opacity|fill-opacity|stroke-opacity)\s*=\s*["']\s*(?:0(?:\.\d+)?|\.\d+)\s*["']/i;
 
 function contrastProblems(concept) {
   const problems = [];
   const check = (theme, source, kind) => {
     const board = BOARDS[theme];
+    const background = parseColor(board.background);
+    if (PARTIAL_OPACITY.test(source)) {
+      problems.push(`${theme} ${kind}: partial opacity makes the ink untestable; use solid paint`);
+    }
     const ink = inkFor(source, board.text);
     if (ink.color === null) {
-      problems.push(`${theme} ${kind}: declare the ink with currentColor or data-brand-ink`);
+      problems.push(`${theme} ${kind}: declare the neutral ink with data-brand-ink`);
       return;
     }
-    const ratio = contrastRatio(ink.color, parseColor(board.background));
+    const ratio = contrastRatio(composite(ink.color, background), background);
     if (ratio < MIN_CONTRAST) {
       problems.push(`${theme} ${kind}: ${ink.raw} is ${ratio.toFixed(1)}:1; minimum ${MIN_CONTRAST}:1`);
     }

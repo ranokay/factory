@@ -20,11 +20,11 @@ function fails(args) {
 }
 
 function svg(color, body = "") {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="${color}"/>${body}</svg>\n`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><circle cx="32" cy="32" r="24" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="${color}"/>${body}</svg>\n`;
 }
 
 function lockup(color) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80"><circle cx="40" cy="40" r="28" fill="currentColor"/><path d="M88 58c0-18 14-32 32-32s32 14 32 32" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/><circle cx="196" cy="24" r="8" fill="${color}"/></svg>\n`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" data-brand-ink="currentColor"><circle cx="40" cy="40" r="28" fill="currentColor"/><path d="M88 58c0-18 14-32 32-32s32 14 32 32" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/><circle cx="196" cy="24" r="8" fill="${color}"/></svg>\n`;
 }
 
 function write(name, content) {
@@ -106,7 +106,7 @@ try {
   assert.equal((markerHtml.match(/<section class="concept"/g) ?? []).length, 1);
 
   const gradient = (color) =>
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#111827"/></linearGradient><circle id="dot" cx="8" cy="8" r="4"/></defs><rect width="64" height="64" fill="url(#g)"/><circle id="abc" cx="16" cy="16" r="4" fill="#abc"/><use href="#dot"/></svg>\n`;
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#111827"/></linearGradient><circle id="dot" cx="8" cy="8" r="4"/></defs><rect width="64" height="64" fill="url(#g)"/><circle id="abc" cx="16" cy="16" r="4" fill="#abc"/><use href="#dot"/></svg>\n`;
   const gradientA = write("gradient-a.svg", gradient("#111827"));
   const gradientB = write("gradient-b.svg", gradient("#e4572e"));
   const namespaced = path.join(workspace, "out", "namespaced.html");
@@ -131,10 +131,37 @@ try {
   assert.ok(flaggedHtml.includes("Contrast check"));
   assert.ok(flaggedHtml.includes("dark icon: #141821 is 1.1:1; minimum 3:1"));
 
-  const fixedDark = write("fixed-ink-dark.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/></svg>\n`);
+  const fixedLockup = write("fixed-lockup.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" data-brand-ink="#141821"><rect id="lightlock" width="240" height="80" fill="#141821"/></svg>\n`);
+  const fixedDark = write("fixed-ink-dark.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><circle id="darkonly" cx="32" cy="32" r="24" fill="currentColor"/></svg>\n`);
+  const darkLockup = write("fixed-lockup-dark.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" data-brand-ink="currentColor"><rect id="darklock" width="240" height="80" fill="currentColor"/></svg>\n`);
   const variant = path.join(workspace, "out", "variant.html");
-  run(["--title", "Fixed ink", "--concept", `Fixed=${fixedInk}`, "--dark", `Fixed=${fixedDark}`, "--output", variant]);
-  assert.ok(!fs.readFileSync(variant, "utf8").includes("Contrast check"));
+  run([
+    "--title", "Fixed ink",
+    "--concept", `Fixed=${fixedInk}`,
+    "--lockup", `Fixed=${fixedLockup}`,
+    "--dark", `Fixed=${fixedDark}`,
+    "--dark-lockup", `Fixed=${darkLockup}`,
+    "--output", variant,
+  ]);
+  const variantHtml = fs.readFileSync(variant, "utf8");
+  assert.ok(!variantHtml.includes("Contrast check"));
+  assert.ok(variantHtml.includes('id="concept-1-dark-icon-darkonly"'));
+  assert.ok(variantHtml.includes('id="concept-1-dark-lockup-darklock"'));
+
+  const undeclared = write("undeclared.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#141821"/></svg>\n`);
+  const undeclaredOut = path.join(workspace, "out", "undeclared.html");
+  run(["--title", "Undeclared", "--concept", `Undeclared=${undeclared}`, "--output", undeclaredOut]);
+  assert.ok(fs.readFileSync(undeclaredOut, "utf8").includes("declare the neutral ink with data-brand-ink"));
+
+  const faint = write("faint.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor" opacity=".04"/></svg>\n`);
+  const faintOut = path.join(workspace, "out", "faint.html");
+  run(["--title", "Faint", "--concept", `Faint=${faint}`, "--output", faintOut]);
+  assert.ok(fs.readFileSync(faintOut, "utf8").includes("partial opacity makes the ink untestable"));
+
+  const alpha = write("alpha.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="rgba(20,24,33,0.1)"><rect width="64" height="64" fill="#141821"/></svg>\n`);
+  const alphaOut = path.join(workspace, "out", "alpha.html");
+  run(["--title", "Alpha", "--concept", `Alpha=${alpha}`, "--output", alphaOut]);
+  assert.ok(fs.readFileSync(alphaOut, "utf8").includes("minimum 3:1"));
 
   const noViewBox = write("no-viewbox.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n");
   expectFailure(fails(["--title", "Bad", "--concept", `No=${noViewBox}`, "--output", path.join(workspace, "bad.html")]), "has no viewBox");
