@@ -5,21 +5,20 @@ from adopt_test_support import AdoptCase
 
 
 class AdoptDetectorTests(AdoptCase):
-    def write_skills_lock(self, *names):
+    def write_skills_lock(self):
         (self.project / "skills.lock").write_text(
             json.dumps(
                 {
                     "version": 1,
                     "skills": [
                         {
-                            "name": name,
+                            "name": "vendor",
                             "source": "https://example.invalid/skills.git",
-                            "path": f"skills/{name}",
+                            "path": "skills/vendor",
                             "commit": "0" * 40,
                             "patches": [],
                             "files": [],
                         }
-                        for name in names
                     ],
                 }
             )
@@ -58,7 +57,7 @@ class AdoptDetectorTests(AdoptCase):
         own = self.project / "skills/own/scripts/helper.test.ts"
         own.parent.mkdir(parents=True)
         own.write_text("// TODO: ours\n")
-        self.write_skills_lock("vendor")
+        self.write_skills_lock()
         self.commit("add skills")
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
