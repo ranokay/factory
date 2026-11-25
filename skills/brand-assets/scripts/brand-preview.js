@@ -364,21 +364,20 @@ function partialOpacityOnInk(source, inkRaw) {
 }
 
 function gradientStops(source, id) {
-  const escaped = String(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const gradient = source.match(
-    new RegExp(`<(?:linear|radial)Gradient\\b[^>]*\\bid\\s*=\\s*["']${escaped}["'][^>]*>([\\s\\S]*?)</(?:linear|radial)Gradient>`, "i"),
-  );
-  if (gradient === null) {
-    return [];
-  }
-  const stops = [];
-  for (const match of gradient[1].matchAll(/<stop\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
-    const attributes = tagAttributes(match[1]);
-    if (attributes["stop-color"] !== undefined) {
-      stops.push({ color: attributes["stop-color"], opacity: attributes["stop-opacity"] });
+  for (const match of source.matchAll(/<(?:linear|radial)Gradient\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/(?:linear|radial)Gradient>/gi)) {
+    if (tagAttributes(match[1]).id !== id) {
+      continue;
     }
+    const stops = [];
+    for (const stop of match[2].matchAll(/<stop\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
+      const attributes = tagAttributes(stop[1]);
+      if (attributes["stop-color"] !== undefined) {
+        stops.push({ color: attributes["stop-color"], opacity: attributes["stop-opacity"] });
+      }
+    }
+    return stops;
   }
-  return stops;
+  return [];
 }
 
 function fixedPaintProblems(source, board, kind, theme, inkRaw) {
