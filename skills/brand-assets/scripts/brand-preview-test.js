@@ -130,6 +130,7 @@ try {
   assert.ok(namespacedHtml.includes("url(#concept-1-icon-g2)"));
   assert.ok(namespacedHtml.includes("url(#concept-2-icon-g2)"));
   assert.ok(namespacedHtml.includes('href="#concept-1-icon-g"'));
+  assert.ok(namespacedHtml.includes("dark icon gradient stop #111827"));
   assert.ok(namespacedHtml.includes('stop-color="#111827"'));
   assert.ok(namespacedHtml.includes('fill="#abc"'));
   assert.ok(!namespacedHtml.includes("url(#g)"));
@@ -149,6 +150,21 @@ try {
   const gradientInkOut = path.join(workspace, "out", "gradient-ink.html");
   run(["--title", "Gradient", "--concept", `Gradient=${gradientInk}`, "--output", gradientInkOut]);
   assert.ok(read(gradientInkOut).includes("light icon gradient stop #f6f6f3"));
+
+  const percentStop = write("percent-stop.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><linearGradient id="g"><stop offset="0" stop-color="#808080" stop-opacity="50%"/><stop offset="1" stop-color="#111827"/></linearGradient></defs><rect width="64" height="64" fill="url(#g)"/><circle cx="32" cy="32" r="4" fill="currentColor"/></svg>\n`);
+  const percentStopOut = path.join(workspace, "out", "percent-stop.html");
+  run(["--title", "Stop", "--concept", `Stop=${percentStop}`, "--output", percentStopOut]);
+  assert.ok(read(percentStopOut).includes("dark icon gradient stop #808080 at 0.5"));
+
+  const hexAlpha = write("hex-alpha.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="#ffffff80"><rect width="64" height="64" fill="#ffffff80"/></svg>\n`);
+  const hexAlphaOut = path.join(workspace, "out", "hex-alpha.html");
+  run(["--title", "Hex", "--concept", `Hex=${hexAlpha}`, "--output", hexAlphaOut]);
+  assert.ok(read(hexAlphaOut).includes("light icon: #ffffff80"));
+
+  const hslAlpha = write("hsl-alpha.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="hsla(0, 0%, 100%, 0.5)"><rect width="64" height="64" fill="hsla(0, 0%, 100%, 0.5)"/></svg>\n`);
+  const hslAlphaOut = path.join(workspace, "out", "hsl-alpha.html");
+  run(["--title", "HSL alpha", "--concept", `HSL=${hslAlpha}`, "--output", hslAlphaOut]);
+  assert.ok(read(hslAlphaOut).includes("light icon: hsla(0, 0%, 100%, 0.5)"));
 
   const fixedInk = write("fixed-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="#141821"><rect width="64" height="64" fill="#141821"/></svg>\n`);
   const flagged = path.join(workspace, "out", "flagged.html");

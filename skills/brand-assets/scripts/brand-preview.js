@@ -364,18 +364,32 @@ function partialOpacityOnInk(source, inkRaw) {
 }
 
 function gradientStops(source, id) {
-  for (const match of source.matchAll(/<(?:linear|radial)Gradient\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/(?:linear|radial)Gradient>/gi)) {
-    if (tagAttributes(match[1]).id !== id) {
-      continue;
-    }
+  const collect = (body) => {
     const stops = [];
-    for (const stop of match[2].matchAll(/<stop\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
+    for (const stop of body.matchAll(/<stop\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
       const attributes = tagAttributes(stop[1]);
       if (attributes["stop-color"] !== undefined) {
         stops.push({ color: attributes["stop-color"], opacity: attributes["stop-opacity"] });
       }
     }
     return stops;
+  };
+  for (const match of source.matchAll(/<(?:linear|radial)Gradient\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/(?:linear|radial)Gradient>/gi)) {
+    const attributes = tagAttributes(match[1]);
+    if (attributes.id !== id) {
+      continue;
+    }
+    const stops = collect(match[2]);
+    if (stops.length === 0 && attributes.href !== undefined && attributes.href.startsWith("#")) {
+      return gradientStops(source, attributes.href.slice(1));
+    }
+    return stops;
+  }
+  for (const match of source.matchAll(/<(?:linear|radial)Gradient\b((?:[^>"']|"[^"]*"|'[^']*')*)\/>/gi)) {
+    const attributes = tagAttributes(match[1]);
+    if (attributes.id === id && attributes.href !== undefined && attributes.href.startsWith("#")) {
+      return gradientStops(source, attributes.href.slice(1));
+    }
   }
   return [];
 }
@@ -416,7 +430,7 @@ function fixedPaintProblems(source, board, kind, theme, inkRaw) {
           if (color === null) {
             continue;
           }
-          const alpha = Math.min(1, Math.max(0, opacity * (stop.opacity === undefined ? 1 : parseFloat(stop.opacity))));
+          const alpha = Math.min(1, Math.max(0, opacity * parseOpacity(stop.opacity, 1)));
           const key = `stop|${stop.color.toLowerCase()}|${alpha}`;
           if (seen.has(key)) {
             continue;
