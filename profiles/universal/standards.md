@@ -47,7 +47,7 @@ Verify assertions in permitted comments and update or remove them when behaviour
 - The only masters are `assets/brand/icon.svg` and `assets/brand/logo.svg`, written by `brand-assets`. `mise run assets` writes every export and `assets/exports.lock`; `mise run assets --check` verifies both. Never hand-edit a derived file.
 - Universal exports are `assets/brand/og-image.png` (1200×630), `assets/brand/readme-header-{light,dark}.png` and `assets/store/framed/*.png` from screenshots in `assets/store/screenshots/`.
 - The web Profile adds `public/favicon.svg`, `public/favicon.ico`, `public/apple-touch-icon.png`, `public/icon-{192,512}.png` and `public/icon-{16,32,48,128}.png`.
-- The apple Profile adds `assets/brand/AppIcon.icon/`, `assets/brand/AppIcon.icns` and `assets/brand/Brand.xcassets/`. `ictool` and the macOS Swift toolchain are system tools; a missing one fails with its name instead of skipping an export.
+- The apple Profile adds `assets/brand/AppIcon.icon/`, `assets/brand/AppIcon.icns` and `assets/brand/Brand.xcassets/`. `ictool` and the macOS Swift toolchain are system tools; a missing one is named, and `--check` verifies the committed exports by lock where it cannot regenerate.
 - Commit the lock with the exports. A master, generator or export that changes without regenerating fails the `assets` Gate step.
 
 ## Dependencies

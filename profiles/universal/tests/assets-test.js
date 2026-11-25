@@ -212,41 +212,50 @@ function universalWebTest() {
   assert(editedGenerator.stderr.includes("profiles/web/scripts/assets.js changed"), editedGenerator.stderr);
   fs.writeFileSync(webModule, originalModule);
 
+  const agents = path.join(root, "AGENTS.md");
+  fs.renameSync(agents, `${agents}.bak`);
+  const noProfiles = run(root, ["--check", "--modules", modules]);
+  assert(noProfiles.status === 1, "a missing Profiles line passed the check");
+  assert(noProfiles.stderr.includes("AGENTS.md is missing"), noProfiles.stderr);
+  fs.renameSync(`${agents}.bak`, agents);
+
+  const logo = path.join(root, "assets/brand/logo.svg");
+  const originalLogo = fs.readFileSync(logo, "utf8");
+  fs.writeFileSync(logo, originalLogo.replace(/viewBox\s*=\s*"[^"]*"/, 'viewBox="nope"'));
+  const badViewBox = run(root, ["--write", "--modules", modules]);
+  assert(badViewBox.status === 1, "an invalid viewBox was accepted");
+  assert(badViewBox.stderr.includes("invalid viewBox"), badViewBox.stderr);
+  fs.writeFileSync(logo, originalLogo);
+
   fs.writeFileSync(icon, fs.readFileSync(path.join(FIXTURES, "fail-staircase.svg")));
   const traced = run(root, ["--write", "--modules", modules]);
   assert(traced.status === 1, "a traced master was generated");
   assert(traced.stderr.includes("staircase"), traced.stderr);
 }
 
-function appleLock(root) {
-  const driver = fs.readFileSync(DRIVER);
-  const apple = fs.readFileSync(path.join(root, "profiles", "apple", "scripts", "assets.js"));
-  const masters = {};
-  for (const relative of Object.keys(MASTERS)) {
-    masters[relative] = hash(path.join(root, relative));
-  }
-  const icns = path.join(root, "assets", "brand", "AppIcon.icns");
-  fs.mkdirSync(path.dirname(icns), { recursive: true });
-  fs.writeFileSync(icns, "fake icns\n");
-  const lock = {
-    version: 1,
-    generator: {
-      "profiles/universal/scripts/assets.js": crypto.createHash("sha256").update(driver).digest("hex"),
-      "profiles/apple/scripts/assets.js": crypto.createHash("sha256").update(apple).digest("hex"),
-    },
-    masters,
-    exports: { "assets/brand/AppIcon.icns": hash(icns) },
-  };
-  fs.writeFileSync(path.join(root, "assets", "exports.lock"), `${JSON.stringify(lock, null, 2)}\n`);
-  return icns;
+function lockOnlyFixture() {
+  const root = fixture("lock-only", "universal, apple");
+  const stub = `module.exports = {
+  profile: "apple",
+  tools: { ictool: { command: "/usr/bin/ictool", env: "ICTOOL", hint: "install Xcode 26 or later" } },
+  generate(context) {
+    context.write("assets/brand/AppIcon.icns", "fake icns\\n");
+  },
+};
+`;
+  fs.writeFileSync(path.join(root, "profiles", "apple", "scripts", "assets.js"), stub);
+  const written = run(root, ["--write", "--modules", path.join(root, "profiles")]);
+  assert(written.status === 0, written.stderr);
+  return { root, icns: path.join(root, "assets", "brand", "AppIcon.icns") };
 }
 
 function appleTest() {
   const root = fixture("apple", "universal, apple");
+  writeMise(root, ["universal", "apple"]);
   const modules = path.join(root, "profiles");
   const ictool = "/usr/bin/ictool";
   if (process.platform === "darwin" && fs.existsSync(ictool)) {
-    const written = run(root, ["--write", "--modules", modules]);
+    const written = runTask(root, []);
     assert(written.status === 0, written.stderr);
     for (const relative of [
       "assets/brand/AppIcon.icon/icon.json",
@@ -272,29 +281,30 @@ function appleTest() {
     const clean = run(root, ["--check", "--modules", modules]);
     assert(clean.status === 0, clean.stderr);
   } else {
-    const missing = run(root, ["--write", "--modules", modules]);
+    const missing = runTask(root, []);
     assert(missing.status === 1, "the apple exports were generated without ictool");
     assert(missing.stderr.includes("ictool"), missing.stderr);
   }
 
-  const icns = appleLock(root);
-  const noTools = { ICTOOL: "/nonexistent", SWIFT: "/nonexistent", SWIFTC: "/nonexistent", RESVG: "/nonexistent" };
-  const clean = run(root, ["--check", "--modules", modules], noTools);
+  const lockOnly = lockOnlyFixture();
+  const lockOnlyModules = path.join(lockOnly.root, "profiles");
+  const noTools = { ICTOOL: "/nonexistent", RESVG: "/nonexistent" };
+  const clean = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], noTools);
   assert(clean.status === 0, clean.stderr);
   assert(clean.stdout.includes("lock only"), clean.stdout);
   assert(clean.stdout.includes("ictool"), clean.stdout);
 
-  const original = fs.readFileSync(icns);
-  fs.writeFileSync(icns, Buffer.concat([original, Buffer.from("edited")]));
-  const editedExport = run(root, ["--check", "--modules", modules], noTools);
+  const original = fs.readFileSync(lockOnly.icns);
+  fs.writeFileSync(lockOnly.icns, Buffer.concat([original, Buffer.from("edited")]));
+  const editedExport = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], noTools);
   assert(editedExport.status === 1, "a hand-edited apple export passed the lock-only check");
   assert(editedExport.stderr.includes("assets/brand/AppIcon.icns changed"), editedExport.stderr);
-  fs.writeFileSync(icns, original);
+  fs.writeFileSync(lockOnly.icns, original);
 
-  const icon = path.join(root, "assets/brand/icon.svg");
+  const icon = path.join(lockOnly.root, "assets/brand/icon.svg");
   const originalIcon = fs.readFileSync(icon);
   fs.writeFileSync(icon, `${originalIcon.toString("utf8")}\n`);
-  const editedMaster = run(root, ["--check", "--modules", modules], noTools);
+  const editedMaster = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], noTools);
   assert(editedMaster.status === 1, "a master edited without regenerating passed the lock-only check");
   assert(editedMaster.stderr.includes("assets/brand/icon.svg changed"), editedMaster.stderr);
   fs.writeFileSync(icon, originalIcon);

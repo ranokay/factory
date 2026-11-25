@@ -190,14 +190,14 @@ function toolLabel(tool) {
   return command === tool.command ? command : `${command} (expected ${tool.command})`;
 }
 
-function viewBox(svg) {
+function viewBox(svg, label = "the SVG master") {
   const match = svg.match(/<svg\b[^>]*\bviewBox\s*=\s*["']([^"']+)["']/i);
   if (match === null) {
-    return { width: 1024, height: 1024 };
+    throw new Error(`assets: ${label} has no viewBox`);
   }
   const numbers = match[1].trim().split(/[\s,]+/).map(Number);
   if (numbers.length !== 4 || !numbers.every(Number.isFinite) || numbers[2] <= 0 || numbers[3] <= 0) {
-    return { width: 1024, height: 1024 };
+    throw new Error(`assets: ${label} has an invalid viewBox`);
   }
   return { width: numbers[2], height: numbers[3] };
 }
@@ -255,11 +255,11 @@ function imageSize(buffer) {
 function readProfiles(root) {
   const file = path.join(root, "AGENTS.md");
   if (!fs.existsSync(file)) {
-    return ["universal"];
+    throw new Error("assets: AGENTS.md is missing; add a Profiles: line");
   }
   const match = fs.readFileSync(file, "utf8").match(/^Profiles:[ \t]*(.+)$/m);
   if (match === null) {
-    return ["universal"];
+    throw new Error("assets: AGENTS.md has no Profiles: line");
   }
   const profiles = match[1].split(",").map((entry) => entry.trim()).filter(Boolean);
   return profiles.includes("universal") ? profiles : ["universal", ...profiles];
@@ -331,11 +331,15 @@ function loadModuleSources(root, modulesDirectory, profiles) {
     if (loaded.profile !== profile || typeof loaded.generate !== "function") {
       throw new Error(`assets: ${posix(path.relative(root, file))} does not export the ${profile} generator`);
     }
+    const tools = loaded.tools ?? {};
+    if (profile === "web" && tools.resvg === undefined) {
+      tools.resvg = RESVG_TOOL;
+    }
     modules.push({
       profile,
       sourceKey: `profiles/${profile}/scripts/assets.js`,
       source,
-      tools: loaded.tools ?? {},
+      tools,
       managedRoots: loaded.managedRoots ?? [],
       generate: loaded.generate,
     });
@@ -369,9 +373,9 @@ class Context {
     this.masters = masters;
     this.screenshots = screenshots;
     this.tools = tools;
+    this.ink = { light: INK_LIGHT, dark: INK_DARK };
     this.outputs = new Map();
     this.temporary = [];
-    this.resvg = null;
     this.pdfBinary = null;
   }
 
@@ -426,11 +430,12 @@ class Context {
     return command;
   }
 
-  resvgCommand() {
-    if (this.resvg === null) {
-      this.resvg = this.requireTool("resvg");
-    }
-    return this.resvg;
+  colorize(svg, colour) {
+    return colorize(svg, colour);
+  }
+
+  viewBox(svg, label) {
+    return viewBox(svg, label);
   }
 
   renderPng(svg, width, height, options = {}) {
@@ -441,7 +446,7 @@ class Context {
     if (options.background !== undefined) {
       resvgArgs.push("--background", options.background);
     }
-    const result = spawnSync(this.resvgCommand(), resvgArgs, {
+    const result = spawnSync(this.requireTool("resvg"), resvgArgs, {
       input: Buffer.from(svg),
       maxBuffer: 256 * 1024 * 1024,
     });
@@ -495,9 +500,9 @@ function fit(width, height, maximumWidth, maximumHeight) {
 
 function universalGenerate(ctx) {
   const logo = ctx.masters.logo.text;
-  const logoBox = viewBox(logo);
+  const logoBox = ctx.viewBox(logo, ctx.masters.logo.path);
   const header = (output, width, height, logoWidth, ink, board) => {
-    const art = ctx.renderPng(colorize(logo, ink), logoWidth);
+    const art = ctx.renderPng(ctx.colorize(logo, ink), logoWidth);
     const heightOfArt = Math.round((logoWidth * logoBox.height) / logoBox.width);
     const left = Math.round((width - logoWidth) / 2);
     const top = Math.round((height - heightOfArt) / 2);
@@ -520,24 +525,6 @@ function universalGenerate(ctx) {
   }
 }
 
-module.exports = {
-  Context,
-  colorize,
-  generatorHashes,
-  inputHashes,
-  loadMasters,
-  loadModuleSources,
-  loadScreenshots,
-  parseArgs,
-  readProfiles,
-  resolveTool,
-  sha256,
-  toolPresent,
-  usage,
-  viewBox,
-  walkFiles,
-};
-
 function readLock(root) {
   const file = path.join(root, LOCK_PATH);
   if (!fs.existsSync(file)) {
@@ -555,7 +542,10 @@ function removeEmptyDirectories(directory, stop) {
   while (current.startsWith(stop) && current !== stop) {
     try {
       fs.rmdirSync(current);
-    } catch {
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") {
+        throw error;
+      }
       return;
     }
     current = path.dirname(current);
@@ -620,7 +610,7 @@ function write(options) {
   }
 }
 
-function lockProfiles(paths) {
+function exportsByProfile(paths) {
   return {
     universal: paths.filter((relative) => !/^(?:public\/(?:favicon\.(?:svg|ico)|apple-touch-icon\.png|icon-\d+\.png)|assets\/brand\/(?:AppIcon\.(?:icon\/|icns)|Brand\.xcassets\/))/.test(relative)),
     web: paths.filter((relative) => /^public\/(?:favicon\.(?:svg|ico)|apple-touch-icon\.png|icon-\d+\.png)$/.test(relative)),
@@ -717,7 +707,7 @@ function check(options) {
     return state.status;
   }
 
-  const grouped = lockProfiles(Object.keys(state.lock.exports ?? {}));
+  const grouped = exportsByProfile(Object.keys(state.lock.exports ?? {}));
   const lockOnly = [];
   const generated = [];
   for (const module of state.modules) {

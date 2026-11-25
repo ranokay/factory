@@ -5,16 +5,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-const INK_LIGHT = "#18181b";
-const INK_DARK = "#f4f4f5";
-
-function colorize(svg, colour) {
-  return svg.replace(/<svg\b([^>]*)>/i, (match, attributes) => {
-    const without = attributes.replace(/\scolor\s*=\s*(?:"[^"]*"|'[^']*')/i, "");
-    return `<svg${without} color="${colour}">`;
-  });
-}
-
 function silhouette(svg) {
   return svg
     .replace(/\b(fill|stroke|stop-color)\s*=\s*(?:"([^"]*)"|'([^']*)')/g, (match, name, double, single) => {
@@ -22,18 +12,6 @@ function silhouette(svg) {
       return value === "none" || value === "transparent" ? match : `${name}="#000000"`;
     })
     .replace(/\scolor\s*=\s*(?:"[^"]*"|'[^']*')/i, ' color="#000000"');
-}
-
-function viewBox(svg) {
-  const match = svg.match(/<svg\b[^>]*\bviewBox\s*=\s*["']([^"']+)["']/i);
-  if (match === null) {
-    return { width: 1024, height: 1024 };
-  }
-  const numbers = match[1].trim().split(/[\s,]+/).map(Number);
-  if (numbers.length !== 4 || !numbers.every(Number.isFinite) || numbers[2] <= 0 || numbers[3] <= 0) {
-    return { width: 1024, height: 1024 };
-  }
-  return { width: numbers[2], height: numbers[3] };
 }
 
 function iconJson() {
@@ -100,7 +78,7 @@ module.exports = {
 
     const icon = context.masters.icon.text;
     const logo = context.masters.logo.text;
-    const logoBox = viewBox(logo);
+    const logoBox = context.viewBox(logo, context.masters.logo.path);
 
     context.removeDir("assets/brand/AppIcon.icon");
     context.removeDir("assets/brand/Brand.xcassets");
@@ -158,11 +136,11 @@ module.exports = {
     );
     context.write(
       "assets/brand/Brand.xcassets/Logo.imageset/Logo-Light.pdf",
-      context.pdf(colorize(logo, INK_LIGHT), logoBox.width, logoBox.height, INK_LIGHT),
+      context.pdf(context.colorize(logo, context.ink.light), logoBox.width, logoBox.height, context.ink.light),
     );
     context.write(
       "assets/brand/Brand.xcassets/Logo.imageset/Logo-Dark.pdf",
-      context.pdf(colorize(logo, INK_DARK), logoBox.width, logoBox.height, INK_DARK),
+      context.pdf(context.colorize(logo, context.ink.dark), logoBox.width, logoBox.height, context.ink.dark),
     );
     context.write(
       "assets/brand/Brand.xcassets/MenuBarTemplate.imageset/Contents.json",

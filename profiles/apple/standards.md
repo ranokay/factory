@@ -3,7 +3,7 @@
 ## Brand exports
 
 - `mise run assets` writes the Icon Composer `AppIcon.icon`, the compatibility `AppIcon.icns`, the `Brand.xcassets` PDFs and the menu-bar template. Run it instead of hand-editing an export.
-- `ictool` and the macOS Swift toolchain are system tools that mise cannot pin; when one is missing the task names it rather than skipping an export.
+- `ictool` and the macOS Swift toolchain are system tools that mise cannot pin; when one is missing the task names it and `--check` verifies the committed exports by lock instead of skipping them.
 
 ## Verification
 
