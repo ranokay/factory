@@ -1,7 +1,9 @@
 ---
-# Vendored skills are byte-for-byte upstream copies pinned in skills.lock, so their
-# frontmatter cannot carry Factory attribution; Own Skills stay analyzed.
+# The Periphery skills are vendored byte-for-byte upstream copies pinned in
+# skills.lock, so their frontmatter cannot carry Factory attribution; Own Skills
+# stay analyzed.
 exclude_paths:
+  - "skills/periphery-scan/**"
   - "skills/periphery-scan-setup/**"
 # The asset driver is one self-contained file so the hk Gate can inline it and
 # a repository that amends the Profile by URL needs no scripts checkout. It is
