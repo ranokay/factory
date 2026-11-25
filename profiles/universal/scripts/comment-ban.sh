@@ -34,8 +34,9 @@ A plain line comment (#, //, ; or --) that continues a multi-line
 comment block is prose when it has no code operators and carries
 sentence punctuation. A continuation ending in .:,!? needs three or more
 words, one ending in ; needs four, and one with internal . ; or , needs
-four. Command-like workflow keys (run:, uses:, with:) stay code; other
-key words can read as prose. A comment ending in a flag is code.
+four. A run: value that starts with a command, and any uses:/with:
+line, stay code; other key words can read as prose. A comment ending in
+a flag is code.
 
 A PEP 723 script block in a .py file (a comment line /// script through the
 next ///) is executable script metadata, not commented-out code, and is
@@ -110,8 +111,13 @@ for file in "$@"; do
 			return s ~ /^(on|push|pull_request|workflow_call|jobs|steps|uses|run|name|with|permissions|contents|version|timeout-minutes|env|id|needs|concurrency|group|cancel-in-progress|runs-on):[ \t]/
 		}
 
-		function strong_key(s) {
-			return s ~ /^(run|uses|with|jobs|steps|permissions|contents|version|timeout-minutes|concurrency|runs-on|cancel-in-progress|workflow_call):[ \t]/
+		function strong_key(s,    v) {
+			if (s ~ /^(uses|with):[ \t]/) return 1
+			if (s !~ /^run:[ \t]/) return 0
+			v = s
+			sub(/^run:[ \t]+/, "", v)
+			if (v ~ /^(\.\/|[-$|])/) return 1
+			return v ~ /^(mise|git|npm|bun|pnpm|yarn|uv|pip|brew|swift|xcodebuild|echo|cd|rm|cp|mv|mkdir|touch|curl|wget|sudo|docker|kubectl|gh)([ \t]|$)/
 		}
 
 		function is_prose(s,    n, words) {

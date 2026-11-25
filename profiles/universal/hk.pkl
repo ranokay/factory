@@ -333,10 +333,19 @@ steps = new Mapping<String, Step | Group> {
                 # on: this branch the gate is skipped.
                 # env: these values apply to every job.
                 # group: the panel is key.
+                # version: the legacy builder is gone.
+                # run: the gate is described below.
                 """
             }
             files = List("comment.sh")
             expect { code = 0 }
+          }
+          ["rejects a uses key continuing a comment block"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# uses: actions/checkout@v4.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
           }
           ["rejects a two-word semicolon continuation"] {
             run = "check"
