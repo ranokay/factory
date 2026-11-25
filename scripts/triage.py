@@ -439,4 +439,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault("triage", sys.modules[__name__])
     sys.exit(main())

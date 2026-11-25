@@ -51,7 +51,8 @@ class Triage(TriageCase):
                 result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "wontfix")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("confirmation", result.stderr)
-                self.assertNotIn("issue edit", [call[:2] for call in self.calls()])
+                self.assertTrue(result.stderr.startswith("triage: "), result.stderr)
+                self.assertNotIn(["issue", "edit"], [call[:2] for call in self.calls()])
         self.set_comments([review, confirm])
         result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "wontfix")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -61,6 +62,7 @@ class Triage(TriageCase):
         result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "ready-for-agent")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("pushback verdict", result.stderr)
+        self.assertTrue(result.stderr.startswith("triage: "), result.stderr)
         self.assertEqual(
             [call[:2] for call in self.calls()], [["issue", "view"]], self.calls()
         )
