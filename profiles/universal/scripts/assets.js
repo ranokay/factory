@@ -147,6 +147,12 @@ function globMatch(pattern, relative) {
   return new RegExp(`^${escaped}$`).test(relative);
 }
 
+function inside(root, relative) {
+  const base = path.resolve(root);
+  const file = path.resolve(root, relative);
+  return file === base || file.startsWith(`${base}${path.sep}`);
+}
+
 function sortedObject(entries) {
   const result = {};
   for (const key of Object.keys(entries).sort()) {
@@ -504,11 +510,11 @@ function universalGenerate(ctx) {
   const logo = ctx.masters.logo.text;
   const logoBox = ctx.viewBox(logo, ctx.masters.logo.path);
   const header = (output, width, height, logoWidth, ink, board) => {
-    const art = ctx.renderPng(ctx.colorize(logo, ink), logoWidth);
-    const heightOfArt = Math.round((logoWidth * logoBox.height) / logoBox.width);
-    const left = Math.round((width - logoWidth) / 2);
-    const top = Math.round((height - heightOfArt) / 2);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${board}"/><image href="${ctx.embedPng(art)}" x="${left}" y="${top}" width="${logoWidth}" height="${heightOfArt}"/></svg>`;
+    const artSize = fit(logoBox.width, logoBox.height, logoWidth, height - 48);
+    const art = ctx.renderPng(ctx.colorize(logo, ink), artSize.width);
+    const left = Math.round((width - artSize.width) / 2);
+    const top = Math.round((height - artSize.height) / 2);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${board}"/><image href="${ctx.embedPng(art)}" x="${left}" y="${top}" width="${artSize.width}" height="${artSize.height}"/></svg>`;
     ctx.write(output, ctx.renderPng(svg, width, height));
   };
   header("assets/brand/og-image.png", 1200, 630, 840, INK_LIGHT, BOARD_LIGHT);
@@ -522,7 +528,7 @@ function universalGenerate(ctx) {
     const left = Math.round((2880 - shown.width) / 2);
     const top = Math.round((1800 - shown.height) / 2);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="2880" height="1800" viewBox="0 0 2880 1800"><rect width="2880" height="1800" fill="#f4f4f5"/><rect x="${left - 16}" y="${top - 16}" width="${shown.width + 32}" height="${shown.height + 32}" rx="24" fill="#ffffff" stroke="#e4e4e7" stroke-width="2"/><image href="${ctx.embedPng(screenshot.buffer)}" x="${left}" y="${top}" width="${shown.width}" height="${shown.height}"/></svg>`;
-    const name = path.basename(screenshot.path).replace(/\.[^.]+$/, "");
+    const name = screenshot.path.slice("assets/store/screenshots/".length).replace(/\.[^.]+$/, "");
     ctx.write(`assets/store/framed/${name}.png`, ctx.renderPng(svg, 2880, 1800));
   }
 }
@@ -551,6 +557,26 @@ function removeEmptyDirectories(directory, stop) {
       return;
     }
     current = path.dirname(current);
+  }
+}
+
+function sweepManaged(module, allowed, root, problems) {
+  for (const managed of module.managedRoots) {
+    for (const file of walkFiles(path.join(root, managed))) {
+      const relative = relativePath(root, file);
+      if (!allowed.has(relative)) {
+        problems.push(`${relative} is not produced by mise run assets`);
+      }
+    }
+  }
+  for (const pattern of module.managedGlobs) {
+    const directory = path.dirname(pattern.split("*")[0]);
+    for (const file of walkFiles(path.join(root, directory))) {
+      const relative = relativePath(root, file);
+      if (globMatch(pattern, relative) && !allowed.has(relative)) {
+        problems.push(`${relative} is not produced by mise run assets`);
+      }
+    }
   }
 }
 
@@ -598,6 +624,9 @@ function write(options) {
     if (previous !== null && typeof previous.exports === "object") {
       for (const relative of Object.keys(previous.exports)) {
         if (exports[relative] === undefined) {
+          if (!inside(options.out, relative)) {
+            throw new Error(`assets: ${LOCK_PATH} contains a path outside the repository: ${relative}`);
+          }
           const file = path.join(options.out, relative);
           fs.rmSync(file, { force: true });
           removeEmptyDirectories(path.dirname(file), options.out);
@@ -668,6 +697,10 @@ function verifyLock(options) {
   const exports = lock.exports ?? {};
   const verified = [];
   for (const [relative, hash] of Object.entries(exports)) {
+    if (!inside(options.root, relative)) {
+      problems.push(`${relative} is outside the repository; run mise run assets`);
+      continue;
+    }
     const file = path.join(options.root, relative);
     if (!fs.existsSync(file)) {
       problems.push(`${relative} is missing; run mise run assets`);
@@ -749,28 +782,19 @@ function check(options) {
           problems.push(`${relative} differs from what mise run assets generates`);
         }
       }
-      for (const root of module.managedRoots) {
-        const full = path.join(options.root, root);
-        for (const file of walkFiles(full)) {
-          if (!produced.has(relativePath(options.root, file))) {
-            problems.push(`${relativePath(options.root, file)} is not produced by mise run assets`);
-          }
-        }
-      }
-      for (const pattern of module.managedGlobs) {
-        const directory = path.dirname(pattern.split("*")[0]);
-        for (const file of walkFiles(path.join(options.root, directory))) {
-          const relative = relativePath(options.root, file);
-          if (globMatch(pattern, relative) && !produced.has(relative)) {
-            problems.push(`${relative} is not produced by mise run assets`);
-          }
-        }
-      }
+      sweepManaged(module, produced, options.root, problems);
     }
   } catch (error) {
     problems.push(error.message);
   } finally {
     fs.rmSync(out, { recursive: true, force: true });
+  }
+
+  for (const module of state.modules) {
+    if (generated.includes(module)) {
+      continue;
+    }
+    sweepManaged(module, new Set(grouped[module.profile] ?? []), options.root, problems);
   }
 
   for (const line of lockOnly) {

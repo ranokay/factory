@@ -201,9 +201,14 @@ steps = new Mapping<String, Step | Group> {
       ["shfmt"] = Builtins.shfmt
       ["assets"] = new Step {
         glob = List(
+          "AGENTS.md",
           "assets/brand/**",
           "assets/exports.lock",
           "assets/store/framed/**",
+          "assets/store/screenshots/**",
+          "profiles/universal/scripts/assets.js",
+          "profiles/apple/scripts/assets.js",
+          "profiles/web/scripts/assets.js",
           "public/favicon.svg",
           "public/favicon.ico",
           "public/apple-touch-icon.png",

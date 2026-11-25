@@ -20,6 +20,7 @@ const MASTERS = {
 };
 
 let failures = 0;
+const temporary = [];
 
 function ok(name) {
   process.stdout.write(`ok - assets: ${name}\n`);
@@ -46,7 +47,9 @@ function assert(condition, message) {
 }
 
 function tempDir(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `factory-assets-test-${prefix}-`));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `factory-assets-test-${prefix}-`));
+  temporary.push(directory);
+  return directory;
 }
 
 function walk(directory) {
@@ -190,9 +193,11 @@ function screenshot(root) {
     input: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="40" viewBox="0 0 64 40"><rect width="64" height="40" fill="#3b82f6"/></svg>'),
   });
   assert(result.status === 0, "resvg could not create the screenshot fixture");
-  const file = path.join(root, "assets", "store", "screenshots", "shot.png");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, result.stdout);
+  for (const relative of ["shot.png", "phone/shot.png"]) {
+    const file = path.join(root, "assets", "store", "screenshots", relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, result.stdout);
+  }
 }
 
 function writeMise(root, profiles) {
@@ -250,6 +255,7 @@ function universalWebTest() {
     "assets/brand/readme-header-light.png",
     "assets/brand/readme-header-dark.png",
     "assets/store/framed/shot.png",
+    "assets/store/framed/phone/shot.png",
     "public/favicon.svg",
     "public/favicon.ico",
     "public/apple-touch-icon.png",
@@ -268,6 +274,7 @@ function universalWebTest() {
   assert(pngSize(path.join(root, "assets/brand/og-image.png")).height === 630, "the OG image is not 630 tall");
   assert(pngSize(path.join(root, "assets/store/framed/shot.png")).width === 2880, "the store frame is not 2880 wide");
   assert(pngSize(path.join(root, "assets/store/framed/shot.png")).height === 1800, "the store frame is not 1800 tall");
+  assert(fs.existsSync(path.join(root, "assets/store/framed/phone/shot.png")), "a nested frame overwrote its sibling");
   assert(fs.readFileSync(path.join(root, "public/favicon.ico")).readUInt16LE(2) === 1, "the favicon is not an ICO");
   assert(fs.readFileSync(path.join(root, "public/favicon.svg"), "utf8").includes('color="#18181b"'), "the favicon has no concrete ink");
 
@@ -327,6 +334,14 @@ function universalWebTest() {
   assert(stale.stderr.includes("assets/brand/extra.png is in assets/exports.lock"), stale.stderr);
   fs.writeFileSync(lockFile, originalLock);
   fs.rmSync(staleFile, { force: true });
+
+  const escapeLock = JSON.parse(originalLock);
+  escapeLock.exports["../escape.png"] = "0".repeat(64);
+  fs.writeFileSync(lockFile, `${JSON.stringify(escapeLock, null, 2)}\n`);
+  const escape = run(root, ["--check", "--modules", modules]);
+  assert(escape.status === 1, "a lock path outside the repository passed the check");
+  assert(escape.stderr.includes("is outside the repository"), escape.stderr);
+  fs.writeFileSync(lockFile, originalLock);
 
   const unexpected = path.join(root, "public", "icon-64.png");
   fs.writeFileSync(unexpected, "unexpected\n");
@@ -434,6 +449,7 @@ function lockOnlyFixture() {
   const stub = `module.exports = {
   profile: "apple",
   tools: { ictool: { command: "/usr/bin/ictool", env: "ICTOOL", hint: "install Xcode 26 or later" } },
+  managedRoots: ["assets/brand/AppIcon.icon"],
   generate(context) {
     context.write("assets/brand/AppIcon.icns", "fake icns\\n");
   },
@@ -508,6 +524,14 @@ function appleTest() {
   assert(!appleOnlyMissing.stdout.includes("universal exports need resvg"), appleOnlyMissing.stdout);
   assert(!appleOnlyMissing.stdout.includes("web exports need resvg"), appleOnlyMissing.stdout);
 
+  const ghost = path.join(lockOnly.root, "assets", "brand", "AppIcon.icon", "Ghost.svg");
+  fs.mkdirSync(path.dirname(ghost), { recursive: true });
+  fs.writeFileSync(ghost, "<svg/>\n");
+  const ghostCheck = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], { ICTOOL: "/nonexistent" });
+  assert(ghostCheck.status === 1, "a stray apple file passed the lock-only check");
+  assert(ghostCheck.stderr.includes("Ghost.svg is not produced"), ghostCheck.stderr);
+  fs.rmSync(ghost, { force: true });
+
   const noTools = { ICTOOL: "/nonexistent", RESVG: "/nonexistent" };
   const clean = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], noTools);
   assert(clean.status === 0, clean.stderr);
@@ -546,6 +570,12 @@ function checkerMissingTest() {
   assert(missing.status === 1, "a missing master checker was skipped");
   assert(missing.stderr.includes("asset-masters.js"), missing.stderr);
 }
+
+process.on("exit", () => {
+  for (const directory of temporary) {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 for (const [name, runTest] of [
   ["a fixture gets every universal and web export from one command", universalWebTest],

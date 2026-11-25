@@ -9,7 +9,8 @@ if [ -z "$factory" ]; then
   factory=$HOME/.agents
   [ -f "$factory/profiles/universal/scripts/assets.js" ] || factory=$HOME/Developer/factory
 fi
-ref=$(grep -io 'factory\.git//profiles/universal/\(mise\|tasks\)\.toml?ref=[^"]*' mise.toml 2>/dev/null | head -n 1 | sed 's/.*ref=//')
+ref=$(grep -io 'factory\.git//profiles/universal/tasks\.toml?ref=[^"]*' mise.toml 2>/dev/null | head -n 1 | sed 's/.*ref=//' || true)
+[ -n "$ref" ] || ref=$(grep -io 'factory\.git//profiles/universal/mise\.toml?ref=[^"]*' mise.toml 2>/dev/null | head -n 1 | sed 's/.*ref=//' || true)
 if [ -n "$ref" ]; then
   git -C "$factory" rev-parse --git-dir >/dev/null 2>&1 || {
     printf 'assets: FACTORY_CHECKOUT (%s) is not a git checkout; set it to the Factory checkout\n' "$factory" >&2
