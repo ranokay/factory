@@ -1,4 +1,3 @@
-import json
 import unittest
 
 from pushback_test_support import TRIAGE_MARKER, PushbackCase

@@ -1,6 +1,8 @@
 ---
 name: pushback
 description: "Judge a new issue against PRODUCT.md and the codebase before it becomes ready-for-agent, then record one of four verdicts."
+metadata:
+  author: ranokay
 ---
 
 # Pushback review
