@@ -286,13 +286,11 @@ function loadMasters(root) {
     masters[name === "icon.svg" ? "icon" : "logo"] = { path: relative, text: buffer.toString("utf8"), buffer };
   }
   const checkerFile = path.join(__dirname, "asset-masters.js");
-  if (fs.existsSync(checkerFile)) {
-    const checker = require(checkerFile);
-    for (const master of Object.values(masters)) {
-      const problems = checker.checkFile(path.join(root, master.path));
-      if (problems.length > 0) {
-        throw new Error(problems.map((problem) => `assets: ${master.path}: ${problem}`).join("\n"));
-      }
+  const checker = require(checkerFile);
+  for (const master of Object.values(masters)) {
+    const problems = checker.checkFile(path.join(root, master.path));
+    if (problems.length > 0) {
+      throw new Error(problems.map((problem) => `assets: ${master.path}: ${problem}`).join("\n"));
     }
   }
   return masters;

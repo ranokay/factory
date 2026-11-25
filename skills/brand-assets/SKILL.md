@@ -55,8 +55,11 @@ remote, use `local/<directory-name>`.
 Resolve the Factory checkout once and use it for every script below:
 
 ```sh
-factory=${FACTORY_CHECKOUT:-$HOME/.agents}
-[ -d "$factory/profiles/universal" ] || factory=$HOME/Developer/factory
+factory=${FACTORY_CHECKOUT:-}
+if [ -z "$factory" ]; then
+  factory=$HOME/.agents
+  [ -f "$factory/profiles/universal/scripts/asset-masters.js" ] || factory=$HOME/Developer/factory
+fi
 [ -f "$factory/profiles/universal/scripts/asset-masters.js" ] || {
   echo "brand-assets: set FACTORY_CHECKOUT to the Factory checkout" >&2
   exit 1

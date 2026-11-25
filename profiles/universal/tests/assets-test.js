@@ -249,6 +249,26 @@ function universalWebTest() {
   assert(badViewBox.stderr.includes("invalid viewBox"), badViewBox.stderr);
   fs.writeFileSync(logo, originalLogo);
 
+  const badFactory = spawnSync("mise", ["run", "assets", "--check"], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, FACTORY_CHECKOUT: "/nonexistent" },
+  });
+  assert(badFactory.status === 1, "an explicitly broken FACTORY_CHECKOUT fell back silently");
+  assert(badFactory.stderr.includes("FACTORY_CHECKOUT"), badFactory.stderr);
+
+  const miseFile = path.join(root, "mise.toml");
+  const originalMise = fs.readFileSync(miseFile, "utf8");
+  fs.writeFileSync(miseFile, `# git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v1\n${originalMise}`);
+  const badPinned = spawnSync("mise", ["run", "assets", "--check"], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, FACTORY_CHECKOUT: "/nonexistent" },
+  });
+  assert(badPinned.status === 1, "a pinned task with a broken FACTORY_CHECKOUT passed");
+  assert(badPinned.stderr.includes("FACTORY_CHECKOUT"), badPinned.stderr);
+  fs.writeFileSync(miseFile, originalMise);
+
   fs.writeFileSync(icon, fs.readFileSync(path.join(FIXTURES, "fail-staircase.svg")));
   const traced = run(root, ["--write", "--modules", modules]);
   assert(traced.status === 1, "a traced master was generated");
@@ -342,9 +362,23 @@ function appleTest() {
   assert(missing.stderr.includes("ictool"), missing.stderr);
 }
 
+function checkerMissingTest() {
+  const root = fixture("checker", "universal, web");
+  const driver = path.join(tempDir("checker-driver"), "profiles", "universal", "scripts", "assets.js");
+  fs.mkdirSync(path.dirname(driver), { recursive: true });
+  fs.copyFileSync(DRIVER, driver);
+  const missing = spawnSync(process.execPath, [driver, "--write", "--modules", path.join(root, "profiles")], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert(missing.status === 1, "a missing master checker was skipped");
+  assert(missing.stderr.includes("asset-masters.js"), missing.stderr);
+}
+
 for (const [name, runTest] of [
   ["a fixture gets every universal and web export from one command", universalWebTest],
   ["apple exports and the lock-only check", appleTest],
+  ["a missing master checker fails instead of skipping validation", checkerMissingTest],
 ]) {
   test(name, runTest);
 }
