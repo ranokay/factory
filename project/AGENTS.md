@@ -7,6 +7,7 @@ Profiles: universal
 ## Commands
 
 - `mise run check`: every Gate
+- `mise run assets`: every brand export from `assets/brand`; add `--check` to verify
 - `mise run dev`: <what it starts>
 - `mise run build`: <what it produces>
 

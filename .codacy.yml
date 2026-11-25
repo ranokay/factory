@@ -1,0 +1,18 @@
+---
+# The asset driver is one self-contained file so the hk Gate can inline it and
+# a repository that amends the Profile by URL needs no scripts checkout. It is
+# deliberately long and branchy. ESLint still scans it; the two engines below
+# only report false positives for a CLI that reads repository-controlled paths.
+engines:
+  opengrep:
+    exclude_paths:
+      - "profiles/universal/scripts/assets.js"
+      - "profiles/apple/scripts/assets.js"
+      - "profiles/web/scripts/assets.js"
+      - "profiles/universal/tests/assets-test.js"
+  lizard:
+    exclude_paths:
+      - "profiles/universal/scripts/assets.js"
+      - "profiles/apple/scripts/assets.js"
+      - "profiles/web/scripts/assets.js"
+      - "profiles/universal/tests/assets-test.js"

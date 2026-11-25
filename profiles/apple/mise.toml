@@ -1,1 +1,6 @@
+# Apple exports use system tools that mise cannot install:
+# ictool ships with Xcode 26 and later at /usr/bin/ictool, and Swift and swiftc
+# come from the macOS toolchain. The assets task names whichever is missing
+# instead of skipping an export. See
+# https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer
 [tools]

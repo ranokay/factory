@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320">
-  <g fill="#0f172a">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" data-brand-ink="currentColor">
+  <g fill="currentColor">
     <path d="M120 104c31 0 56 25 56 56s-25 56-56 56-56-25-56-56 25-56 56-56Zm0 32c13 0 24 11 24 24s-11 24-24 24-24-11-24-24 11-24 24-24Z"/>
   </g>
-  <g fill="none" stroke="#0f172a" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+  <g fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
     <path d="M280 250V130M280 170c0-40 50-50 80-30 20 14 28 40 28 70v40"/>
     <path d="M470 130c-50 0-72 35-72 60 0 30 22 60 72 60s72-30 72-60c0-25-22-60-72-60Z"/>
     <path d="M590 250V130M590 175c10-35 45-50 80-40"/>

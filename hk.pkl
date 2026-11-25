@@ -25,6 +25,8 @@ steps {
       ["typos"] {
         exclude = vendored
       }
+      // Codacy requires the document start in .codacy.yml; yamlfmt removes it.
+      ["yamlfmt"] = (Builtins.yamlfmt) { exclude = List(".codacy.yml") }
       ["comment-ban"] {
         // The pinned Profile (v0.2.0) predates the PEP 723 exemption in
         // https://github.com/ranokay/factory/blob/main/profiles/universal/scripts/comment-ban.sh
