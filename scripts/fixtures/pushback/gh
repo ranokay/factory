@@ -47,7 +47,7 @@ elif args[:2] == ["issue", "comment"]:
         {
             "body": body,
             "url": f"https://example.test/issue/{args[2]}#issuecomment-{len(comments) + 1}",
-            "author": {"login": "pushback-reviewer"},
+            "author": {"login": "ranokay"},
             "createdAt": "2026-11-25T00:00:00Z",
         }
     )

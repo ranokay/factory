@@ -66,9 +66,20 @@ def context(args):
                 "kind": item["kind"],
                 "verdict": item.get("verdict") or "",
                 "reason": item.get("reason") or "",
+                "question": item.get("question") or "",
+                "smaller": item.get("smaller") or "",
+                "non_goal": item.get("non_goal") or "",
                 "url": item.get("url") or "",
             }
             for item in records(comments)
+        ],
+        "comments": [
+            {
+                "author": (comment.get("author") or {}).get("login") or "",
+                "body": comment.get("body") or "",
+                "url": comment.get("url") or "",
+            }
+            for comment in comments
         ],
         "overrides": repo_overrides(args.repo),
     }
@@ -94,10 +105,28 @@ def record_verdict(args):
     if reviews:
         last = reviews[-1].get("verdict")
         if not args.again:
-            problem(
-                "the issue already has a pushback verdict; after a needs-info "
-                "answer use --again, otherwise use accept-reshape, override or confirm-dont"
+            if last != values["verdict"]:
+                if last == "needs-info":
+                    problem("the issue has a needs-info verdict; after the answer use --again")
+                problem(
+                    "the issue already has a different pushback verdict; "
+                    "use accept-reshape, override or confirm-dont"
+                )
+            category = category_for(args.repo, args.issue, args.category)
+            state = STATES[values["verdict"]]
+            apply_labels(args.repo, args.issue, category, state)
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "resumed": True,
+                        "verdict": last,
+                        "state": state,
+                        "comment": reviews[-1].get("url") or "",
+                    }
+                )
             )
+            return 0
         if last != "needs-info":
             problem(f"the last verdict is {last or 'unknown'}; --again only follows needs-info")
         last_review = review_positions(comments)[-1]
@@ -149,7 +178,10 @@ def accept_reshape(args):
         if not args.reason:
             problem("accept-reshape needs --reason to record the acceptance")
         reason = one_line(args.reason, "reason")
-    if "factory:reshape" not in body_text:
+    saved = f"<!-- factory:reshape -->\n\n## Reshaped scope\n\n{smaller}" in body_text
+    if "factory:reshape" in body_text and not saved:
+        problem("the issue body already carries a different Reshaped scope; update it by hand")
+    if not saved:
         new_body = (
             body_text.rstrip()
             + "\n\n<!-- factory:reshape -->\n\n## Reshaped scope\n\n"

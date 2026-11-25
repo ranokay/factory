@@ -39,10 +39,12 @@ class Triage(TriageCase):
         review = {
             "body": "<!-- factory:pushback verdict=don't pass=full -->",
             "url": "https://example.test/issue/6#issuecomment-1",
+            "author": {"login": "ranokay"},
         }
         confirm = {
             "body": "<!-- factory:pushback-confirm verdict=wontfix -->",
             "url": "https://example.test/issue/6#issuecomment-2",
+            "author": {"login": "ranokay"},
         }
         for comments in ([review], [confirm, review]):
             with self.subTest(comments=comments):
@@ -71,6 +73,7 @@ class Triage(TriageCase):
                 {
                     "body": "<!-- factory:pushback verdict=go pass=full -->",
                     "url": "https://example.test/issue/6#issuecomment-1",
+                    "author": {"login": "ranokay"},
                 }
             ]
         )

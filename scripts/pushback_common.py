@@ -30,6 +30,7 @@ FIELDS = ("verdict", "reason", "smaller", "question", "non_goal")
 MAX_LINE = 600
 SEARCH_PAGE_SIZE = 50
 SEARCH_MAX_PAGES = 10
+TRUSTED_MARKER_AUTHOR = "ranokay"
 PATTERNS = ((MARKER, "review"), (ACCEPT, "accept"), (OVERRIDE, "override"), (CONFIRM, "confirm"))
 
 
@@ -93,6 +94,9 @@ def marker_record(marker_kind, match, comment):
 def records(comments):
     found = []
     for comment in comments:
+        author = (comment.get("author") or {}).get("login")
+        if author != TRUSTED_MARKER_AUTHOR:
+            continue
         body = comment.get("body") or ""
         for pattern, marker_kind in PATTERNS:
             match = pattern.search(body)
