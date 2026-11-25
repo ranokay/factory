@@ -22,7 +22,7 @@ Check brand masters for embedded rasters and traced staircase paths.
 With no files, checks assets/brand/**/*.svg in the current directory.
 
 Rules:
-  - reject <image>, <foreignObject>, <script> and <text>
+  - reject <image>, <foreignObject>, <script>, <style> and <text>
   - reject data URIs, base64 payloads and empty, raster or external href/src references
   - require a root viewBox
   - reject ${SHORT_RUN} or more consecutive short axis-aligned segments
@@ -52,20 +52,26 @@ function tags(source) {
   return found;
 }
 
+function rootAttributes(source) {
+  const cleaned = source
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<\?[\s\S]*?\?>/g, "")
+    .replace(/<!DOCTYPE[^>]*>/gi, "")
+    .trim();
+  const match = cleaned.match(/^<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i);
+  return match === null ? null : tagAttributes(match[1]);
+}
+
 function viewBoxScale(source) {
-  const root = source.match(/<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i);
-  if (root === null) {
+  const attributes = rootAttributes(source);
+  if (attributes === null || attributes.viewbox === undefined) {
     return 100;
   }
-  const attributes = tagAttributes(root[1]);
-  if (attributes.viewbox !== undefined) {
-    const numbers = attributes.viewbox.trim().split(/[\s,]+/).map(Number);
-    if (numbers.length === 4 && numbers.every(Number.isFinite)) {
-      return Math.max(numbers[2], numbers[3]);
-    }
+  const numbers = attributes.viewbox.trim().split(/[\s,]+/).map(Number);
+  if (numbers.length === 4 && numbers.every(Number.isFinite)) {
+    return Math.max(numbers[2], numbers[3]);
   }
-  const sizes = [Number.parseFloat(attributes.width), Number.parseFloat(attributes.height)].filter(Number.isFinite);
-  return sizes.length > 0 ? Math.max(...sizes) : 100;
+  return 100;
 }
 
 function pathSegments(source) {
@@ -195,11 +201,10 @@ function hasPolygonStaircase(points, short) {
 
 function checkSource(source) {
   const problems = new Set();
-  if (!/<svg[\s>]/i.test(source)) {
+  const root = rootAttributes(source);
+  if (root === null) {
     problems.add("is not an SVG document");
-  }
-  const root = source.match(/<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i);
-  if (root === null || tagAttributes(root[1]).viewbox === undefined) {
+  } else if (root.viewbox === undefined) {
     problems.add("has no viewBox");
   }
   if (DATA_URI.test(source)) {
@@ -222,6 +227,9 @@ function checkSource(source) {
     }
     if (local === "script") {
       problems.add("contains <script>");
+    }
+    if (local === "style") {
+      problems.add("contains <style>; use presentation attributes");
     }
     if (local === "text") {
       problems.add("contains <text>; outline the wordmark as paths");

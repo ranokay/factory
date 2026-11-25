@@ -106,7 +106,7 @@ try {
   assert.equal((markerHtml.match(/<section class="concept"/g) ?? []).length, 1);
 
   const gradient = (color) =>
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/></linearGradient></defs><rect width="64" height="64" fill="url(#g)"/></svg>\n`;
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#111827"/></linearGradient><circle id="dot" cx="8" cy="8" r="4"/></defs><rect width="64" height="64" fill="url(#g)"/><use href="#dot"/></svg>\n`;
   const gradientA = write("gradient-a.svg", gradient("#111827"));
   const gradientB = write("gradient-b.svg", gradient("#e4572e"));
   const namespaced = path.join(workspace, "out", "namespaced.html");
@@ -114,8 +114,11 @@ try {
   const namespacedHtml = fs.readFileSync(namespaced, "utf8");
   assert.ok(namespacedHtml.includes('id="concept-1-icon-g"'));
   assert.ok(namespacedHtml.includes('id="concept-2-icon-g"'));
+  assert.ok(namespacedHtml.includes('id="concept-1-icon-dot"'));
   assert.ok(namespacedHtml.includes("url(#concept-1-icon-g)"));
   assert.ok(namespacedHtml.includes("url(#concept-2-icon-g)"));
+  assert.ok(namespacedHtml.includes('href="#concept-1-icon-dot"'));
+  assert.ok(namespacedHtml.includes('stop-color="#111827"'));
   assert.ok(!namespacedHtml.includes("url(#g)"));
 
   const noViewBox = write("no-viewbox.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n");
@@ -131,6 +134,9 @@ try {
 
   const texted = write("texted.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><text x=\"8\" y=\"40\">arc</text></svg>\n");
   expectFailure(fails(["--title", "Bad", "--concept", `Text=${texted}`, "--output", path.join(workspace, "bad.html")]), "contains <text>");
+
+  const styled = write("styled.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><style>#paint{fill:#111827}</style><rect id=\"paint\" width=\"8\" height=\"8\"/></svg>\n");
+  expectFailure(fails(["--title", "Bad", "--concept", `Styled=${styled}`, "--output", path.join(workspace, "bad.html")]), "contains <style>");
 
   const external = write("external.svg", svg("#111827", '<image href="logo.png" width="8" height="8"/>'));
   expectFailure(fails(["--title", "Bad", "--concept", `External=${external}`, "--output", path.join(workspace, "bad.html")]), "contains <image>");

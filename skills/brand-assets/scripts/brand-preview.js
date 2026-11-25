@@ -100,7 +100,9 @@ function namespaceIds(source, prefix) {
     return source;
   }
   const renamed = source.replace(/\sid\s*=\s*(["'])([^"']+)\1/g, (match, quote, id) => ` id=${quote}${prefix}${id}${quote}`);
-  return renamed.replace(/#([^"')\s]+)/g, (match, id) => (ids.has(id) ? `#${prefix}${id}` : match));
+  return renamed
+    .replace(/url\(\s*(["']?)#([^"')\s]+)\1\s*\)/g, (match, quote, id) => (ids.has(id) ? `url(${quote}#${prefix}${id}${quote})` : match))
+    .replace(/(\b(?:xlink:)?href\s*=\s*)(["'])#([^"']+)\2/g, (match, attribute, quote, id) => (ids.has(id) ? `${attribute}${quote}#${prefix}${id}${quote}` : match));
 }
 
 function mark(svg, size, extra = "") {

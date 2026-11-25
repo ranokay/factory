@@ -269,6 +269,33 @@ steps = new Mapping<String, Step | Group> {
               stderr = "has no viewBox"
             }
           }
+          ["rejects a viewBox in a comment"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<!-- <svg viewBox=\"0 0 8 8\"> --><svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has no viewBox"
+            }
+          }
+          ["accepts a comment before the root"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<!-- mark --><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect { code = 0 }
+          }
+          ["rejects a style element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-style.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <style>"
+            }
+          }
           ["rejects an external url reference"] {
             run = "check"
             tmpdir = true

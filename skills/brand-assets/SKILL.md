@@ -87,8 +87,9 @@ icon-only mark, the lockup is a wide mark-only variant instead.
 
 - Build every shape from primitives and Bezier curves: `path`, `circle`,
   `rect`, `line`, `polygon`. Never embed a raster, never trace a pixel image.
-- No `<image>`, data URIs, `<foreignObject>`, raster or external references, or
-  `<text>`. Outline a wordmark as paths.
+- No `<image>`, data URIs, `<foreignObject>`, `<style>`, raster or external
+  references, or `<text>`. Use presentation attributes, and outline a wordmark as
+  paths.
 - Keep every path under 400 drawing commands and avoid long runs of tiny
   axis-aligned steps.
 - Use explicit colours. A concept must still read at 16 px.
