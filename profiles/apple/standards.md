@@ -1,5 +1,10 @@
 # apple
 
+## Brand exports
+
+- `mise run assets` writes the Icon Composer `AppIcon.icon`, the compatibility `AppIcon.icns`, the `Brand.xcassets` PDFs and the menu-bar template. Run it instead of hand-editing an export.
+- `ictool` and the macOS Swift toolchain are system tools that mise cannot pin; when one is missing the task names it rather than skipping an export.
+
 ## Verification
 
 - The universal Verification table picks the driver: cua-driver for a macOS GUI app and T3 device tools for an iOS app. A repository's `verify-<app>` skill records the observed behaviour as Verification Evidence.

@@ -2,6 +2,7 @@
 
 ## Assets
 
+- `mise run assets` writes `public/favicon.svg`, `public/favicon.ico`, `public/apple-touch-icon.png`, the manifest icons and the extension sizes from `assets/brand/icon.svg`. Run it instead of hand-editing one of those files.
 - Files under `public/assets/` are lowercase kebab-case and use `.svg` for vector or `.webp`/`.avif` for photos. The `web-assets` Gate enforces names and extensions.
 - Give every image `width` and `height`, or reserve its space with `aspect-ratio`, so the page does not shift.
 - Strip EXIF and colour-profile metadata from photos before committing. Keep SVG hand-written or exported from the brand masters, never traced or raster-embedded.

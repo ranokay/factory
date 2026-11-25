@@ -26,10 +26,10 @@ COMMON_TOOLS = {
     'zizmor',
 }
 PROFILE_TOOLS = {
-    'universal': set(),
+    'universal': {'resvg'},
     'typescript': {'bun', 'node', 'npm:knip', 'npm:typescript', 'oxfmt', 'oxlint'},
     'python': {'ruff', 'ty', 'uv'},
-    'web': {'npm:@playwright/test'},
+    'web': {'npm:@playwright/test', 'resvg'},
     'swift': {'github:nicklockwood/SwiftFormat', 'aqua:realm/SwiftLint'},
     'apple': set(),
     'go': {'go', 'aqua:golangci/golangci-lint', 'aqua:mvdan/gofumpt', 'go:golang.org/x/vuln/cmd/govulncheck'},

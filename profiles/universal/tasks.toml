@@ -1,4 +1,19 @@
-[check]
+[assets]
+description = "Generate every brand export from assets/brand masters"
+usage = '''
+flag "--check" help="Verify the lock and regenerate without writing"
+'''
+run = '''
+factory=${FACTORY_CHECKOUT:-$HOME/.agents}
+[ -f "$factory/profiles/universal/scripts/assets.js" ] || factory=$HOME/Developer/factory
+[ -f "$factory/profiles/universal/scripts/assets.js" ] || {
+  printf '%s\n' 'assets: set FACTORY_CHECKOUT to the Factory checkout' >&2
+  exit 1
+}
+exec node "$factory/profiles/universal/scripts/assets.js"{% if usage.check %} --check{% endif %}
+'''
+
+["check"]
 description = "Run every Gate"
 depends = ["check:lint", "check:security", "check:test"]
 

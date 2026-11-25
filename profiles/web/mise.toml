@@ -1,2 +1,3 @@
 [tools]
 "npm:@playwright/test" = "1.65.1"
+resvg = "0.50.0"

@@ -6,6 +6,32 @@ import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.
 local const commentBan = "{% raw %}" + read("scripts/comment-ban.sh").text + "{% endraw %}"
 // Inline the checker for the same reason as comment-ban: a repository that amends this Profile by URL has no local scripts path.
 local const assetMasters = "{% raw %}" + read("scripts/asset-masters.js").text + "{% endraw %}"
+local const assetsDriver = "{% raw %}" + read("scripts/assets.js").text + "{% endraw %}"
+local const assetsApple = "{% raw %}" + read("../apple/scripts/assets.js").text + "{% endraw %}"
+local const assetsWeb = "{% raw %}" + read("../web/scripts/assets.js").text + "{% endraw %}"
+local function assetsScript(mode: String): String = """
+  set -eu
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-assets.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+  mkdir -p "$tmp/profiles/universal/scripts" "$tmp/profiles/apple/scripts" "$tmp/profiles/web/scripts"
+  printf '%s' "$ASSETS_DRIVER" > "$tmp/profiles/universal/scripts/assets.js"
+  printf '%s' "$ASSET_MASTERS" > "$tmp/profiles/universal/scripts/asset-masters.js"
+  printf '%s' "$ASSETS_APPLE" > "$tmp/profiles/apple/scripts/assets.js"
+  printf '%s' "$ASSETS_WEB" > "$tmp/profiles/web/scripts/assets.js"
+  masters="$tmp/masters"
+  : > "$masters"
+  for file in "$@"; do
+    case "$file" in
+      assets/brand/?*.svg) printf '%s\\n' "$file" >> "$masters" ;;
+    esac
+  done
+  if [ -s "$masters" ]; then
+    xargs node -e "$ASSET_MASTERS" asset-masters < "$masters"
+  fi
+  if [ -f AGENTS.md ] || [ -f assets/exports.lock ]; then
+    node "$tmp/profiles/universal/scripts/assets.js" \(mode)
+  fi
+  """
 local const pinactScript = read("scripts/pinact.sh").text
 local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")
 
@@ -172,10 +198,23 @@ steps = new Mapping<String, Step | Group> {
       ["shellcheck"] = Builtins.shellcheck
       ["shfmt"] = Builtins.shfmt
       ["assets"] = new Step {
-        glob = List("assets/brand/**/*.svg")
-        env { ["ASSET_MASTERS"] = assetMasters }
+        glob = List(
+          "assets/brand/**",
+          "assets/exports.lock",
+          "assets/store/framed/**",
+          "public/favicon.svg",
+          "public/favicon.ico",
+          "public/apple-touch-icon.png",
+          "public/icon-*.png",
+        )
+        env {
+          ["ASSET_MASTERS"] = assetMasters
+          ["ASSETS_DRIVER"] = assetsDriver
+          ["ASSETS_APPLE"] = assetsApple
+          ["ASSETS_WEB"] = assetsWeb
+        }
         check = new Command {
-          argv = List("sh", "-c", "node -e \"$ASSET_MASTERS\" asset-masters {{files}}")
+          argv = List("sh", "-c", assetsScript("--check"), "assets", "{{files}}")
         }
         tests {
           ["accepts primitives and Bezier curves"] {
@@ -431,6 +470,37 @@ steps = new Mapping<String, Step | Group> {
             expect {
               code = 1
               stderr = "the budget is 400"
+            }
+          }
+          ["accepts exports regenerated from the masters"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, web\n"
+              ["assets/brand/icon.svg"] = read("tests/fixtures/brand/pass-icon.svg").text
+              ["assets/brand/logo.svg"] = read("tests/fixtures/brand/pass-wordmark.svg").text
+              ["public/favicon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"></svg>\n"
+            }
+            before = assetsScript("--write")
+            files = List("public/favicon.svg")
+            expect { code = 0 }
+          }
+          ["rejects a hand-edited export"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["AGENTS.md"] = "Profiles: universal, web\n"
+              ["assets/brand/icon.svg"] = read("tests/fixtures/brand/pass-icon.svg").text
+              ["assets/brand/logo.svg"] = read("tests/fixtures/brand/pass-wordmark.svg").text
+              ["public/favicon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"></svg>\n"
+            }
+            before = assetsScript("--write") + "\n" + """
+              printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>' > public/favicon.svg
+              """
+            files = List("public/favicon.svg")
+            expect {
+              code = 1
+              stderr = "changed"
             }
           }
         }
