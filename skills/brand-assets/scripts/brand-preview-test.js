@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-object-injection, security/detect-unsafe-regex, xss/no-mixed-html -- Node CLI reads local design files and builds a self-contained preview; inputs are trusted project assets, not web input */
 "use strict";
 
 const assert = require("node:assert/strict");
@@ -6,6 +7,11 @@ const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+
+function read(file) {
+  // nosemgrep -- local fixture paths are created by this test
+  return fs.readFileSync(file, "utf8");
+}
 
 const GENERATOR = path.join(__dirname, "brand-preview.js");
 const SIZES = [16, 32, 64, 128, 256, 512, 1024];
@@ -61,7 +67,7 @@ try {
   ];
 
   assert.match(run(args), /wrote/);
-  const html = fs.readFileSync(output, "utf8");
+  const html = read(output);
   for (const value of ["Northwind", "Orbit", "Fold", "Signal", "A calm tool for long projects.", "A ring in motion"]) {
     assert.ok(html.includes(value), value);
   }
@@ -86,7 +92,7 @@ try {
 
   const again = path.join(workspace, "out", "preview-again.html");
   run([...args.slice(0, -1), again]);
-  assert.equal(fs.readFileSync(again, "utf8"), html);
+  assert.equal(read(again), html);
 
   const escaped = path.join(workspace, "out", "escaped.html");
   run([
@@ -94,14 +100,14 @@ try {
     "--concept", `Ring & Co=${orbit}`,
     "--output", escaped,
   ]);
-  const escapedHtml = fs.readFileSync(escaped, "utf8");
+  const escapedHtml = read(escaped);
   assert.ok(escapedHtml.includes("A &lt;b&gt;&amp; &quot;B&quot;"));
   assert.ok(escapedHtml.includes("Ring &amp; Co"));
   assert.ok(!escapedHtml.includes("A <b>"));
 
   const marker = path.join(workspace, "out", "marker.html");
   run(["--title", "Markers", "--concept", `%%CONCEPTS%%=${orbit}`, "--output", marker]);
-  const markerHtml = fs.readFileSync(marker, "utf8");
+  const markerHtml = read(marker);
   assert.ok(markerHtml.includes("%%CONCEPTS%%"));
   assert.equal((markerHtml.match(/<section class="concept"/g) ?? []).length, 1);
 
@@ -111,7 +117,7 @@ try {
   const gradientB = write("gradient-b.svg", gradient("#e4572e"));
   const namespaced = path.join(workspace, "out", "namespaced.html");
   run(["--title", "Gradients", "--concept", `A=${gradientA}`, "--concept", `B=${gradientB}`, "--output", namespaced]);
-  const namespacedHtml = fs.readFileSync(namespaced, "utf8");
+  const namespacedHtml = read(namespaced);
   assert.ok(namespacedHtml.includes('id="concept-1-icon-g"'));
   assert.ok(namespacedHtml.includes('id="concept-2-icon-g"'));
   assert.ok(namespacedHtml.includes('id="concept-1-icon-abc"'));
@@ -126,7 +132,7 @@ try {
   const fixedInk = write("fixed-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="#141821"><rect width="64" height="64" fill="#141821"/></svg>\n`);
   const flagged = path.join(workspace, "out", "flagged.html");
   run(["--title", "Fixed ink", "--concept", `Fixed=${fixedInk}`, "--output", flagged]);
-  const flaggedHtml = fs.readFileSync(flagged, "utf8");
+  const flaggedHtml = read(flagged);
   assert.ok(flaggedHtml.includes("Contrast check"));
   assert.ok(flaggedHtml.includes("dark icon: #141821 is 1.1:1; minimum 3:1"));
 
@@ -142,7 +148,7 @@ try {
     "--dark-lockup", `Fixed=${darkLockup}`,
     "--output", variant,
   ]);
-  const variantHtml = fs.readFileSync(variant, "utf8");
+  const variantHtml = read(variant);
   assert.ok(!variantHtml.includes("Contrast check"));
   const darkBoard = variantHtml.slice(variantHtml.indexOf('class="board board-dark"'));
   assert.ok(darkBoard.includes('id="concept-1-dark-icon-darkonly"'));
@@ -151,106 +157,106 @@ try {
   const undeclared = write("undeclared.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#141821"/></svg>\n`);
   const undeclaredOut = path.join(workspace, "out", "undeclared.html");
   run(["--title", "Undeclared", "--concept", `Undeclared=${undeclared}`, "--output", undeclaredOut]);
-  assert.ok(fs.readFileSync(undeclaredOut, "utf8").includes("declare the neutral ink with data-brand-ink"));
+  assert.ok(read(undeclaredOut).includes("declare the neutral ink with data-brand-ink"));
 
   const lying = write("lying.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="#18181b"/></svg>\n`);
   const lyingOut = path.join(workspace, "out", "lying.html");
   run(["--title", "Lying", "--concept", `Lying=${lying}`, "--output", lyingOut]);
-  assert.ok(fs.readFileSync(lyingOut, "utf8").includes("declares currentColor but paints no currentColor"));
+  assert.ok(read(lyingOut).includes("declares currentColor but paints no currentColor"));
 
   const defsOnly = write("defs-only.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><rect width="8" height="8" fill="currentColor"/></defs><rect width="64" height="64" fill="#18181b"/></svg>\n`);
   const defsOnlyOut = path.join(workspace, "out", "defs-only.html");
   run(["--title", "Defs only", "--concept", `Defs=${defsOnly}`, "--output", defsOnlyOut]);
-  assert.ok(fs.readFileSync(defsOnlyOut, "utf8").includes("declares currentColor but paints no currentColor"));
+  assert.ok(read(defsOnlyOut).includes("declares currentColor but paints no currentColor"));
 
   const containerOnly = write("container-only.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor" fill="currentColor"><g fill="currentColor"><rect width="64" height="64" fill="none"/></g></svg>\n`);
   const containerOnlyOut = path.join(workspace, "out", "container-only.html");
   run(["--title", "Container", "--concept", `Container=${containerOnly}`, "--output", containerOnlyOut]);
-  assert.ok(fs.readFileSync(containerOnlyOut, "utf8").includes("declares currentColor but paints no currentColor"));
+  assert.ok(read(containerOnlyOut).includes("declares currentColor but paints no currentColor"));
 
   const faint = write("faint.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor" opacity=".04"/></svg>\n`);
   const faintOut = path.join(workspace, "out", "faint.html");
   run(["--title", "Faint", "--concept", `Faint=${faint}`, "--output", faintOut]);
-  assert.ok(fs.readFileSync(faintOut, "utf8").includes("partial opacity makes the ink untestable"));
+  assert.ok(read(faintOut).includes("partial opacity makes the ink untestable"));
 
   const accentOpacity = write("accent-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="#e4572e" fill-opacity=".5"/></svg>\n`);
   const accentOpacityOut = path.join(workspace, "out", "accent-opacity.html");
   run(["--title", "Accent", "--concept", `Accent=${accentOpacity}`, "--output", accentOpacityOut]);
-  const accentOpacityHtml = fs.readFileSync(accentOpacityOut, "utf8");
+  const accentOpacityHtml = read(accentOpacityOut);
   assert.ok(!accentOpacityHtml.includes("partial opacity"));
   assert.ok(accentOpacityHtml.includes("light icon accent #e4572e at 0.5"));
 
   const groupOpacity = write("group-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><g opacity=".2"><rect width="64" height="64" fill="currentColor"/></g></svg>\n`);
   const groupOpacityOut = path.join(workspace, "out", "group-opacity.html");
   run(["--title", "Group", "--concept", `Group=${groupOpacity}`, "--output", groupOpacityOut]);
-  assert.ok(fs.readFileSync(groupOpacityOut, "utf8").includes("partial opacity makes the ink untestable"));
+  assert.ok(read(groupOpacityOut).includes("partial opacity makes the ink untestable"));
 
   const inheritedInk = write("inherited-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><g fill="currentColor"><rect width="64" height="64" opacity=".2"/></g></svg>\n`);
   const inheritedInkOut = path.join(workspace, "out", "inherited-ink.html");
   run(["--title", "Inherited", "--concept", `Inherited=${inheritedInk}`, "--output", inheritedInkOut]);
-  assert.ok(fs.readFileSync(inheritedInkOut, "utf8").includes("partial opacity makes the ink untestable"));
+  assert.ok(read(inheritedInkOut).includes("partial opacity makes the ink untestable"));
 
   const inheritedAccent = write("inherited-accent.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><g fill="#888888"><circle cx="52" cy="12" r="6" opacity=".5"/></g></svg>\n`);
   const inheritedAccentOut = path.join(workspace, "out", "inherited-accent.html");
   run(["--title", "Accent", "--concept", `Accent=${inheritedAccent}`, "--output", inheritedAccentOut]);
-  assert.ok(fs.readFileSync(inheritedAccentOut, "utf8").includes("accent #888888 at 0.5"));
+  assert.ok(read(inheritedAccentOut).includes("accent #888888 at 0.5"));
 
   const styleAccent = write("style-accent.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" style="fill:#888888;opacity:.2"/></svg>\n`);
   const styleAccentOut = path.join(workspace, "out", "style-accent.html");
   run(["--title", "Style", "--concept", `Style=${styleAccent}`, "--output", styleAccentOut]);
-  assert.ok(fs.readFileSync(styleAccentOut, "utf8").includes("accent #888888 at 0.2"));
+  assert.ok(read(styleAccentOut).includes("accent #888888 at 0.2"));
 
   const styleInk = write("style-ink-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" style="fill:currentColor" fill-opacity=".2"/></svg>\n`);
   const styleInkOut = path.join(workspace, "out", "style-ink-opacity.html");
   run(["--title", "Style", "--concept", `Style=${styleInk}`, "--output", styleInkOut]);
-  assert.ok(fs.readFileSync(styleInkOut, "utf8").includes("partial opacity makes the ink untestable"));
+  assert.ok(read(styleInkOut).includes("partial opacity makes the ink untestable"));
 
   const inheritedFillOpacity = write("inherited-fill-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><g fill="currentColor" fill-opacity=".2"><rect width="64" height="64"/></g></svg>\n`);
   const inheritedFillOpacityOut = path.join(workspace, "out", "inherited-fill-opacity.html");
   run(["--title", "Inherited", "--concept", `Inherited=${inheritedFillOpacity}`, "--output", inheritedFillOpacityOut]);
-  assert.ok(fs.readFileSync(inheritedFillOpacityOut, "utf8").includes("partial opacity makes the ink untestable"));
+  assert.ok(read(inheritedFillOpacityOut).includes("partial opacity makes the ink untestable"));
 
   const stylePercent = write("style-percent.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" style="fill:#888888;opacity:20% !important"/></svg>\n`);
   const stylePercentOut = path.join(workspace, "out", "style-percent.html");
   run(["--title", "Style", "--concept", `Style=${stylePercent}`, "--output", stylePercentOut]);
-  assert.ok(fs.readFileSync(stylePercentOut, "utf8").includes("accent #888888 at 0.2"));
+  assert.ok(read(stylePercentOut).includes("accent #888888 at 0.2"));
 
   const hiddenDefs = write("hidden-defs.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><rect width="8" height="8" fill="currentColor" opacity=".2"/></defs><rect width="64" height="64" fill="currentColor"/></svg>\n`);
   const hiddenDefsOut = path.join(workspace, "out", "hidden-defs.html");
   run(["--title", "Defs", "--concept", `Defs=${hiddenDefs}`, "--output", hiddenDefsOut]);
-  assert.ok(!fs.readFileSync(hiddenDefsOut, "utf8").includes("Contrast check"));
+  assert.ok(!read(hiddenDefsOut).includes("Contrast check"));
 
   const groupOverride = write("group-override.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor" fill="currentColor"><g opacity=".5"><rect width="64" height="64" fill="#e4572e"/></g></svg>\n`);
   const groupOverrideOut = path.join(workspace, "out", "group-override.html");
   run(["--title", "Override", "--concept", `Override=${groupOverride}`, "--output", groupOverrideOut]);
-  assert.ok(!fs.readFileSync(groupOverrideOut, "utf8").includes("partial opacity"));
+  assert.ok(!read(groupOverrideOut).includes("partial opacity"));
 
   const multiplied = write("multiplied.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="#e4572e" opacity=".5" fill-opacity=".5"/></svg>\n`);
   const multipliedOut = path.join(workspace, "out", "multiplied.html");
   run(["--title", "Multiplied", "--concept", `Multiplied=${multiplied}`, "--output", multipliedOut]);
-  assert.ok(fs.readFileSync(multipliedOut, "utf8").includes("accent #e4572e at 0.25"));
+  assert.ok(read(multipliedOut).includes("accent #e4572e at 0.25"));
 
   const styledInk = write("styled-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" style="fill:currentColor"/></svg>\n`);
   const styledInkOut = path.join(workspace, "out", "styled-ink.html");
   run(["--title", "Styled ink", "--concept", `Styled=${styledInk}`, "--output", styledInkOut]);
-  assert.ok(!fs.readFileSync(styledInkOut, "utf8").includes("Contrast check"));
+  assert.ok(!read(styledInkOut).includes("Contrast check"));
 
   const wrongPaint = write("wrong-paint.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="#141821"><rect width="64" height="64" fill="#ffffff"/></svg>\n`);
   const wrongPaintOut = path.join(workspace, "out", "wrong-paint.html");
   run(["--title", "Wrong paint", "--concept", `Wrong=${wrongPaint}`, "--output", wrongPaintOut]);
-  assert.ok(fs.readFileSync(wrongPaintOut, "utf8").includes("declares #141821 but paints no #141821"));
+  assert.ok(read(wrongPaintOut).includes("declares #141821 but paints no #141821"));
 
   const alpha = write("alpha.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="rgba(128,128,128,0.2)"><rect width="64" height="64" fill="rgba(128,128,128,0.2)"/></svg>\n`);
   const alphaOut = path.join(workspace, "out", "alpha.html");
   run(["--title", "Alpha", "--concept", `Alpha=${alpha}`, "--output", alphaOut]);
-  assert.ok(fs.readFileSync(alphaOut, "utf8").includes("light icon: rgba(128,128,128,0.2)"));
+  assert.ok(read(alphaOut).includes("light icon: rgba(128,128,128,0.2)"));
 
   const noViewBox = write("no-viewbox.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n");
   expectFailure(fails(["--title", "Bad", "--concept", `No=${noViewBox}`, "--output", path.join(workspace, "bad.html")]), "has no viewBox");
 
   const defaults = path.join(workspace, "out", "defaults.html");
   run(["--title", "Defaults", "--concept", `Orbit=${orbit}`, "--output", defaults]);
-  assert.ok(fs.readFileSync(defaults, "utf8").includes("https://example.app"));
+  assert.ok(read(defaults).includes("https://example.app"));
   expectFailure(fails(["--title", "Bad", "--site", "", "--concept", `Orbit=${orbit}`, "--output", path.join(workspace, "bad.html")]), "needs a host name");
 
   const scripted = write("scripted.svg", svg("#111827", "<script>alert(1)</script>"));

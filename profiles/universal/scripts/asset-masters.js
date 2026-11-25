@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-var-requires, security/detect-non-literal-fs-filename, security/detect-object-injection, security/detect-unsafe-regex, xss/no-mixed-html -- Node CLI reads local design files and builds a self-contained preview; inputs are trusted project assets, not web input */
 "use strict";
 
 const fs = require("node:fs");
@@ -305,6 +306,7 @@ function checkSource(source) {
 function checkFile(file) {
   let source;
   try {
+    // nosemgrep -- master paths are repository assets
     source = fs.readFileSync(file, "utf8");
   } catch (error) {
     return [`cannot read: ${error.message}`];
@@ -318,6 +320,7 @@ function defaultFiles() {
   const walk = (directory) => {
     let entries;
     try {
+      // nosemgrep -- master paths are repository assets
       entries = fs.readdirSync(directory, { withFileTypes: true });
     } catch {
       return;
