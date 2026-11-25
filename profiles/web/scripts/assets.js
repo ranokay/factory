@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 "use strict";
 
+const RESVG_TOOL = {
+  command: "resvg",
+  env: "RESVG",
+  hint: "install it with mise install (resvg is pinned in the web Profile)",
+};
+
 function ico(images) {
   const header = Buffer.alloc(6);
   header.writeUInt16LE(0, 0);
@@ -26,6 +32,7 @@ function ico(images) {
 
 module.exports = {
   profile: "web",
+  tools: { resvg: RESVG_TOOL },
   generate(context) {
     const icon = context.masters.icon.text;
     context.write("public/favicon.svg", icon);

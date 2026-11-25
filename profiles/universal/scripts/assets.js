@@ -285,17 +285,14 @@ function loadMasters(root) {
     const buffer = fs.readFileSync(file);
     masters[name === "icon.svg" ? "icon" : "logo"] = { path: relative, text: buffer.toString("utf8"), buffer };
   }
-  try {
-    const checker = require("./asset-masters.js");
+  const checkerFile = path.join(__dirname, "asset-masters.js");
+  if (fs.existsSync(checkerFile)) {
+    const checker = require(checkerFile);
     for (const master of Object.values(masters)) {
       const problems = checker.checkFile(path.join(root, master.path));
       if (problems.length > 0) {
         throw new Error(problems.map((problem) => `assets: ${master.path}: ${problem}`).join("\n"));
       }
-    }
-  } catch (error) {
-    if (error.code !== "MODULE_NOT_FOUND") {
-      throw error;
     }
   }
   return masters;
@@ -334,15 +331,11 @@ function loadModuleSources(root, modulesDirectory, profiles) {
     if (loaded.profile !== profile || typeof loaded.generate !== "function") {
       throw new Error(`assets: ${posix(path.relative(root, file))} does not export the ${profile} generator`);
     }
-    const tools = loaded.tools ?? {};
-    if (profile === "web" && tools.resvg === undefined) {
-      tools.resvg = RESVG_TOOL;
-    }
     modules.push({
       profile,
       sourceKey: `profiles/${profile}/scripts/assets.js`,
       source,
-      tools,
+      tools: loaded.tools ?? {},
       managedRoots: loaded.managedRoots ?? [],
       generate: loaded.generate,
     });
