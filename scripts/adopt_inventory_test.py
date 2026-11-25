@@ -63,13 +63,14 @@ class AdoptInventoryTests(AdoptCase):
         docs.parent.mkdir(parents=True, exist_ok=True)
         docs.write_text(
             "/// The failure text stored on a delivery row. It never includes a credential;\n"
-            "//! Inner documentation.\n"
             "/**\n"
             " * A block documentation line;\n"
             " */\n"
             "// Measured: elapsedTime 174.6 reported at the resume, read 8.5 s later\n"
             "// while Music said 183.3. The position must not stay at 174.6.\n"
         )
+        inner = self.project / "src/lib.rs"
+        inner.write_text("//! return cached;\n")
         probing = self.project / "src/Probing.swift"
         probing.write_text(
             "droplet.openURL(url) // NOSONAR: public licence link\n"
@@ -82,7 +83,12 @@ class AdoptInventoryTests(AdoptCase):
         result = self.run_adopt()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         comments = self.issue_for(self.issues(), "comments")
-        for path in ("src/Docs.swift", "src/Probing.swift", "src/config.yaml"):
+        for path in (
+            "src/Docs.swift",
+            "src/lib.rs",
+            "src/Probing.swift",
+            "src/config.yaml",
+        ):
             self.assertNotIn(path, comments["body"])
         self.assertIn("src/used.ts", comments["body"])
 

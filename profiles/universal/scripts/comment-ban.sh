@@ -26,12 +26,15 @@ git, mise, const, import, return, SELECT and the like), starts with a
 ./path or flag (./build.sh, --release), is [table], starts a call (name(
 or receiver.name(), or ends in ;, { or }.
 
-Documentation comments (///, //!, and lines inside /** ... */) are not
-inspected for code, though banned markers still fail.
+Documentation comments (///, //!, and /** ... */ lines in a language
+that uses //) are not inspected for code, though banned markers still
+fail.
 
-A plain comment line that continues a multi-line comment block is prose
-when it has no code operators and carries sentence punctuation. A
-continuation line ending in ; needs four or more words to read as prose.
+A plain line comment (#, //, ; or --) that continues a multi-line
+comment block of the same marker is prose when it has no code operators
+and carries sentence punctuation. A continuation ending in .!? needs
+three or more words, one ending in ; needs four, and one with internal
+sentence punctuation needs four.
 
 A PEP 723 script block in a .py file (a comment line /// script through the
 next ///) is executable script metadata, not commented-out code, and is
@@ -106,20 +109,14 @@ for file in "$@"; do
 			return s ~ /^(on|push|pull_request|workflow_call|jobs|steps|uses|run|name|with|permissions|contents|version|timeout-minutes|env|id|needs|concurrency|group|cancel-in-progress|runs-on):[ \t]/
 		}
 
-		function documentation() {
-			return docblock || doc_comment
-		}
-
-		function prose_line(s,    n, words) {
+		function is_prose(s,    n, words) {
 			if (s ~ /[(){}=$"`]/) return 0
 			if (s ~ /\[/ || s ~ /\]/) return 0
-			if (s ~ /(^|[ \t])(--|\.\/|->|=>|&&|\|\|)/) return 0
-			if (s ~ /;[ \t]*$/) {
-				n = split(s, words, /[ \t]+/)
-				return n >= 4
-			}
-			if (s ~ /[.:,!?][ \t]*$/) return 1
-			if (s ~ /[.;,][ \t]+[A-Za-z]/) return 1
+			if (s ~ /(^|[ \t])(--|-[A-Za-z]|\.\/|->|=>|&&|\|\|)/) return 0
+			n = split(s, words, /[ \t]+/)
+			if (s ~ /;[ \t]*$/) return n >= 4
+			if (s ~ /[.:!?][ \t]*$/) return n >= 3
+			if (s ~ /[.;,][ \t]+[A-Za-z]/) return n >= 4
 			return 0
 		}
 
@@ -178,8 +175,8 @@ for file in "$@"; do
 				return
 			}
 			if (exempt(s)) return
-			if (documentation()) return
-			if (!inblock && continuation && !known_key(s) && prose_line(s)) return
+			if (docblock || doc_comment) return
+			if (!inblock && is_continuation && !known_key(s) && is_prose(s)) return
 			if (is_code(s)) {
 				printf "%s:%d: commented-out code: %s\n", FILENAME, FNR, s
 				failed = 1
@@ -204,7 +201,7 @@ for file in "$@"; do
 			docblock = 0
 			doc_comment = 0
 			prev_comment = 0
-			continuation = 0
+			is_continuation = 0
 		}
 
 		{
@@ -217,7 +214,7 @@ for file in "$@"; do
 			doc_comment = 0
 			if (FNR == 1 && substr(line, 1, 2) == "#!") next
 			starts_comment = starts_comment_line(line)
-			continuation = prev_comment && starts_comment
+			is_continuation = prev_comment && starts_comment
 			n = length(line)
 			i = 1
 			inq = ""
@@ -247,7 +244,7 @@ for file in "$@"; do
 				}
 				if (block_start != "" && substr(line, i, length(block_start)) == block_start) {
 					inblock = 1
-					docblock = block_start == "/*" && substr(line, i, 3) == "/**"
+					docblock = markers == "//" && block_start == "/*" && substr(line, i, 3) == "/**"
 					i += length(block_start)
 					continue
 				}

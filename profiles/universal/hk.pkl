@@ -201,7 +201,6 @@ steps = new Mapping<String, Step | Group> {
             write {
               ["Docs.swift"] = """
                 /// The failure text stored on a delivery row. It never includes a credential;
-                //! Inner documentation.
                 /**
                  * A block documentation line;
                  */
@@ -210,11 +209,25 @@ steps = new Mapping<String, Step | Group> {
             files = List("Docs.swift")
             expect { code = 0 }
           }
+          ["accepts inner documentation comments"] {
+            run = "check"
+            tmpdir = true
+            write { ["lib.rs"] = "//! return cached;\n" }
+            files = List("lib.rs")
+            expect { code = 0 }
+          }
           ["rejects a TODO in a documentation comment"] {
             run = "check"
             tmpdir = true
             write { ["Docs.swift"] = "/// TODO: fix\n" }
             files = List("Docs.swift")
+            expect { code = 1 }
+          }
+          ["rejects commented-out code in a CSS doc block"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.css"] = "/** store.flush() */\n" }
+            files = List("comment.css")
             expect { code = 1 }
           }
           ["accepts tool directives"] {
@@ -300,6 +313,34 @@ steps = new Mapping<String, Step | Group> {
             tmpdir = true
             write { ["comment.swift"] = "// The block begins here\n// count += 1;\n" }
             files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a short sentence continuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// The block begins here\n// return cached.\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a short continuation with internal punctuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# if true; then\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a short continuation with a comma"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# echo one, two\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a continuation with a flag"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# rm -rf /tmp.\n" }
+            files = List("comment.sh")
             expect { code = 1 }
           }
         }
