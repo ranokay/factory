@@ -36,7 +36,8 @@ an executable `#!/usr/bin/env python3` shebang for direct use.
 The script runs `~/Developer/factory/scripts/repo-settings.py <owner>/<repo>
 --apply` first: canonical labels, removal of GitHub's default labels, merge
 settings and the ruleset are the same code `new` uses. It then files issues
-labelled `ready-for-agent` plus `enhancement`; the brand issue is
+labelled `needs-triage` plus `enhancement`, so the pushback review reads each
+one before `ready-for-agent`; the brand and `PRODUCT.md` issues are
 `ready-for-human` plus `enhancement`.
 
 If repo-settings still reports manual drift after applying (a missing vendor
@@ -48,6 +49,7 @@ output and rerun; the marker search prevents duplicates.
 
 | Category | Detector | Issue tells the Run |
 | --- | --- | --- |
+| PRODUCT.md | No tracked `PRODUCT.md`. This issue is `ready-for-human`. | Write `PRODUCT.md` from `project/PRODUCT.md`: who it's for, goals, non-goals, quality bars. |
 | tooling baseline | `mise.toml` missing a Factory Profile include (local `./profiles/` in the Factory repo, or a `v*`-pinned Factory URL in a consuming repo), `hk.pkl` not amending a pinned Factory Profile, `renovate.json` not extending `github>ranokay/factory`, or a missing advisory bot config. | Add the Factory baseline from `project/`. |
 | comment purge | The universal Profile's `comment-ban.sh` over every tracked non-Markdown file: banned `TODO`, `FIXME`, `HACK`, `XXX` and commented-out code. | Use the `no-comments` skill; run `mise run check`. |
 | dead code | Source files under `src/`, `lib/`, `Sources/`, `cmd/`, `internal/` or `pkg/` whose stem no other tracked file references; files with a NUL byte in the first 1 KiB are treated as binary and skipped, tests are not candidates, and entry points are excluded. If a text reference file cannot be read, `adopt` warns and files no dead-code issue rather than guess. | Confirm each candidate, delete the provably dead code, keep tests green. |

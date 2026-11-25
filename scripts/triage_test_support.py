@@ -80,12 +80,18 @@ class TriageCase(unittest.TestCase):
                     "body": body,
                     "updatedAt": "2026-11-20T12:00:00Z",
                     "labels": labels if labels is not None else ["enhancement", "needs-triage", "blocked"],
+                    "comments": [],
                 }
             )
         )
         self.log.write_text("")
         if self.comment.exists():
             self.comment.unlink()
+
+    def set_comments(self, comments):
+        state = json.loads(self.state_path.read_text())
+        state["comments"] = comments
+        self.state_path.write_text(json.dumps(state))
 
     def triage(self, *arguments, env=None):
         return subprocess.run(  # nosec B603 -- this checkout's triage CLI  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's triage CLI

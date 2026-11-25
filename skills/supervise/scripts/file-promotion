@@ -91,6 +91,9 @@ trap 'rm -f "$body"' EXIT
 set -- issue create -R "$repo" --title "$title" --body-file "$body" --label promotion
 while IFS= read -r label; do
   [ -n "$label" ] || continue
+  if [ "$label" = "ready-for-agent" ]; then
+    fail "ready-for-agent is set by the pushback gate; file with needs-triage and run the review"
+  fi
   set -- "$@" --label "$label"
 done <<EOF
 $labels

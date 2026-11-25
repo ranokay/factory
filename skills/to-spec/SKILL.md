@@ -16,7 +16,7 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Write the spec using the template below, then publish it to the project issue tracker with the `needs-triage` triage label. Run the pushback review in `skills/pushback/SKILL.md` on the Worker model (`opencode-go/deepseek-v4.1-flash` at variant `max`, or `opencode-go/glm-5.3` at variant `max` when it fell back); only its `go` or an accepted reshape applies `ready-for-agent`.
 
 <spec-template>
 

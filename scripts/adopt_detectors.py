@@ -413,6 +413,19 @@ def test_pruning_findings(project, tracked, _repo):
     ]
 
 
+def product_findings(project, tracked, _repo):
+    if "PRODUCT.md" in tracked:
+        return []
+    return [
+        finding(
+            "product",
+            "PRODUCT.md",
+            "missing",
+            "PRODUCT.md is missing; start from the Factory's project/PRODUCT.md.",
+        )
+    ]
+
+
 def brand_findings(project, tracked, _repo):
     masters = [
         path

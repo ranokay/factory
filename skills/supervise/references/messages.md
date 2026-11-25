@@ -20,13 +20,25 @@ The fork wakes the Supervisor with these headers, and the Supervisor replies to 
   - finding: `supervise · wake · finding <ID> · <head SHA>`
   - protected: `supervise · wake · protected <PR URL>`
   - done: `supervise · wake · done <PR URL> · <head SHA>`
+- Worker or PR fork objection: `supervise · objection <reason>`
 - Supervisor replies:
   - finding ruling: `supervise · ruling <ID> · fix|drop|escalate · <reason>`
+  - objection ruling: `supervise · ruling objection · proceed|reshape|park · <reason>`
   - protected hold: `supervise · hold <PR URL> · waiting for ranokay`
   - merge confirmation: `supervise · merge <PR URL> · <head SHA>`
   - block: `supervise · block <PR URL> · <reason>`
 
 A finding keeps its ID (`F1`, `F2`, ...) across rounds.
+
+## Objection
+
+A Worker or PR fork sends this instead of building a spec it believes wrong or harmful:
+
+```
+supervise · objection <reason>
+```
+
+The Supervisor rules with `supervise · ruling objection · proceed|reshape|park · <reason>`: proceed keeps the spec, reshape sends the corrected issue back, and park stops for ranokay's decision. An objection is not a Blocker and does not count as an attempt.
 
 ## Notices
 

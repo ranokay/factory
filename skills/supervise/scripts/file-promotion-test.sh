@@ -62,16 +62,32 @@ case_both() {
 	printf 'ok: refuses both fields at once\n'
 }
 
+case_ready_for_agent() {
+	reset_gh_fixtures
+	if "$file_promotion" o/one --title 'Bypass' --correction 'The label is set directly.' --gate-check 'a check' --label ready-for-agent >/dev/null 2>"$test_root/err"; then
+		printf 'expected a refusal of ready-for-agent\n' >&2
+		return 1
+	fi
+	expect_contains "$(cat "$test_root/err")" 'pushback gate'
+	if [ -s "$GH_LOG" ]; then
+		printf 'expected no issue, got:\n%s\n' "$(cat "$GH_LOG")" >&2
+		return 1
+	fi
+	printf 'ok: refuses ready-for-agent and leaves it to the pushback gate\n'
+}
+
 case ${FILE_PROMOTION_CASE:-all} in
 gate_check) case_gate_check ;;
 no_check) case_no_check ;;
 neither) case_neither ;;
 both) case_both ;;
+ready_for_agent) case_ready_for_agent ;;
 all)
 	case_gate_check
 	case_no_check
 	case_neither
 	case_both
+	case_ready_for_agent
 	;;
 *)
 	printf 'unknown case: %s\n' "$FILE_PROMOTION_CASE" >&2

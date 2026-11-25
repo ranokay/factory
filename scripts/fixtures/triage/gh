@@ -25,11 +25,15 @@ if args[:2] == ["issue", "view"]:
             "body": state["body"],
             "updatedAt": state["updatedAt"],
             "labels": [{"name": name} for name in state["labels"]],
+            "comments": state.get("comments", []),
         }))
 elif args[:2] == ["issue", "comment"]:
     body = Path(value("--body-file")).read_text()
     Path(os.environ["FAKE_GH_COMMENT"]).write_text(body)
-    print("https://example.test/issue/%s#issuecomment-1" % state["number"])
+    comments = state.setdefault("comments", [])
+    comments.append({"body": body, "url": "https://example.test/issue/%s#issuecomment-1" % state["number"]})
+    state_path.write_text(json.dumps(state))
+    print(comments[-1]["url"])
 elif args[:2] == ["issue", "edit"]:
     if os.environ.get("FAKE_GH_FAIL_EDIT"):
         sys.exit(1)

@@ -74,6 +74,12 @@ def apply_labels(repo, issue, category, state):
         problem(f"category must be one of {', '.join(CATEGORIES)}")
     if state not in STATES:
         problem(f"state must be one of {', '.join(STATES)}")
+    if state == "ready-for-agent":
+        from pushback import allowed_for_issue
+
+        ok, detail = allowed_for_issue(repo, issue)
+        if not ok:
+            problem(f"ready-for-agent needs an allowing pushback verdict: {detail}")
     current = issue_labels(repo, issue)
     triage = {name for name in current if name in CATEGORIES or name in STATES}
     remove = sorted(triage - {category, state})
@@ -360,7 +366,7 @@ def reproduce(args):
             args.issue,
             comment_body(issue, rows, executions, cleanup),
         )
-        state = "ready-for-agent" if outcome == "reproduced" else "needs-info"
+        state = "needs-triage" if outcome == "reproduced" else "needs-info"
         apply_labels(args.repo, args.issue, "bug", state)
     except Exception:
         print(f"triage: evidence kept at {directory}", file=sys.stderr)
@@ -369,7 +375,17 @@ def reproduce(args):
         shutil.rmtree(directory)
     except OSError as error:
         print(f"triage: evidence kept at {directory}; deleting it failed: {error}", file=sys.stderr)
-    print(json.dumps({"ok": True, "outcome": outcome, "comment": url, "labels": ["bug", state]}))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "outcome": outcome,
+                "comment": url,
+                "labels": ["bug", state],
+                "pushback": "light" if outcome == "reproduced" else "none",
+            }
+        )
+    )
 
 
 def main(argv=None):

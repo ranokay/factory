@@ -323,7 +323,7 @@ grep -q 'unchanged ranokay/closed' "$tmp/closed-dry" || fail "a clean close at t
 run_maintenance --root "$tmp/repos" --no-fetch >"$tmp/run"
 [ "$(grep -c '^create ranokay/changed$' "$GH_LOG" || true)" -eq 1 ] || fail "changed repo did not file exactly one issue"
 [ "$(grep -c '^create ' "$GH_LOG" || true)" -eq 1 ] || fail "an unchanged, open-issue or third-party repo filed an issue"
-grep -q -- '--label ready-for-agent' "$GH_LOG" || fail "the issue is not ready-for-agent"
+grep -q -- '--label needs-triage' "$GH_LOG" || fail "the issue does not wait for the pushback review"
 grep -q '/maintain-verification-skill' "$GH_LOG" || fail "the issue does not name the maintenance skill"
 grep -q "<!-- factory:verify-maintenance head=$changed_head -->" "$GH_LOG" || fail "the issue did not record the filed head"
 grep -q "Last maintenance" "$GH_LOG" || fail "the issue does not name the last maintenance"

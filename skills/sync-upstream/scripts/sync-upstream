@@ -805,6 +805,9 @@ def merge_text(path, template_root, existing, template):
     if name == "hk.pkl":
         print("hk.pkl: upstream has its own; Factory Gates not amended")
         return existing, False
+    if name == "PRODUCT.md":
+        print("PRODUCT.md: repository has its own; kept")
+        return existing, False
     if name == "renovate.json":
         merged = merge_renovate(existing, template)
         return merged, merged != existing

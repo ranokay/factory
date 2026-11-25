@@ -281,7 +281,7 @@ def main(argv=None):
                 "--title",
                 title,
                 "--label",
-                "ready-for-agent",
+                "needs-triage",
                 "--body",
                 body,
             )
