@@ -311,9 +311,25 @@ steps = new Mapping<String, Step | Group> {
           ["rejects a known key continuing a comment block"] {
             run = "check"
             tmpdir = true
-            write { ["comment.sh"] = "# first line of the block\n# run: mise run check.\n" }
+            write { ["comment.sh"] = "# first line of the block\n# run: mise run check\n" }
             files = List("comment.sh")
             expect { code = 1 }
+          }
+          ["accepts prose continuing with workflow-key words"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["comment.sh"] = """
+                # first line of the block
+                # name: the panel is key and main,
+                # id: it is not known here.
+                # on: this branch the gate is skipped.
+                # env: these values apply to every job.
+                # group: the panel is key.
+                """
+            }
+            files = List("comment.sh")
+            expect { code = 0 }
           }
           ["rejects a two-word semicolon continuation"] {
             run = "check"
