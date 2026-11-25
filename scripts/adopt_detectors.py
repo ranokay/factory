@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Detectors and category definitions for the adopt inventory."""
 
+import importlib.util
 import json
 import os
 import re
 import sys
 import tomllib
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from adopt_common import (
     COMMENT_BAN,
@@ -75,8 +76,6 @@ def is_fixture_path(path):
 
 
 def is_test_path(path):
-    if is_fixture_path(path):
-        return False
     item = PurePosixPath(path)
     if any(part in TEST_DIRS for part in item.parts[:-1]):
         return True
@@ -85,38 +84,48 @@ def is_test_path(path):
     return bool(TEST_NAME_RE.search(item.name))
 
 
-def vendored_skill_names(project):
+def skills_lock_names(project):
     if not (project / "skills.lock").is_file():
         return set()
+    spec = importlib.util.spec_from_file_location(
+        "factory_skills_sync", Path(__file__).resolve().parent / "skills-sync.py"
+    )
+    sync = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sync)
     try:
-        lock = json.loads(read_file(project, "skills.lock"))
-    except (Problem, json.JSONDecodeError) as error:
+        lock = sync.load_lock(project)
+    except (sync.SyncError, OSError, json.JSONDecodeError) as error:
         print(
             f"adopt: warning: cannot read skills.lock ({error}); "
             "inventorying vendored skill files",
             file=sys.stderr,
         )
         return set()
-    skills = lock.get("skills") if isinstance(lock, dict) else None
-    if not isinstance(skills, list):
-        print(
-            "adopt: warning: skills.lock has no skills list; "
-            "inventorying vendored skill files",
-            file=sys.stderr,
-        )
-        return set()
-    return {
-        item["name"]
-        for item in skills
-        if isinstance(item, dict)
-        and isinstance(item.get("name"), str)
-        and item["name"].strip()
-    }
+    return {entry["name"] for entry in lock["skills"]}
 
 
 def is_vendored_skill(path, names):
     item = PurePosixPath(path)
     return len(item.parts) > 1 and item.parts[0] == "skills" and item.parts[1] in names
+
+
+def inventory_files(project, tracked):
+    vendored = skills_lock_names(project)
+    inventoried = []
+    fixtures = 0
+    vendored_files = 0
+    for path in tracked:
+        if is_fixture_path(path):
+            fixtures += 1
+        elif is_vendored_skill(path, vendored):
+            vendored_files += 1
+        else:
+            inventoried.append(path)
+    if vendored_files:
+        print(f"adopt: skip {vendored_files} vendored skill file(s)")
+    if fixtures:
+        print(f"adopt: skip {fixtures} test fixture file(s)")
+    return inventoried
 
 
 def comment_rule(message):
@@ -131,7 +140,7 @@ def comment_rule(message):
 def comment_sources(project, tracked):
     files = []
     for path in tracked:
-        if path.lower().endswith((".md", ".markdown")) or is_fixture_path(path):
+        if path.lower().endswith((".md", ".markdown")):
             continue
         if not inside_checkout(project, path):
             print(

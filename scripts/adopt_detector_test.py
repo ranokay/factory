@@ -1,3 +1,4 @@
+import json
 import os
 
 from adopt_test_support import AdoptCase
@@ -38,7 +39,21 @@ class AdoptDetectorTests(AdoptCase):
         own.parent.mkdir(parents=True)
         own.write_text("// TODO: ours\n")
         (self.project / "skills.lock").write_text(
-            '{"version": 1, "skills": [{"name": "vendor"}]}\n'
+            json.dumps(
+                {
+                    "version": 1,
+                    "skills": [
+                        {
+                            "name": "vendor",
+                            "source": "https://example.invalid/skills.git",
+                            "path": "skills/vendor",
+                            "commit": "0" * 40,
+                            "patches": [],
+                            "files": [],
+                        }
+                    ],
+                }
+            )
         )
         self.commit("add skills")
         result = self.run_adopt()
@@ -74,6 +89,20 @@ class AdoptDetectorTests(AdoptCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("skills.lock", result.stderr)
         self.assertEqual(len(self.issues()), 9)
+
+    def test_invalid_skills_lock_entry_warns_and_inventories(self):
+        vendored = self.project / "skills/vendor/note.sh"
+        vendored.parent.mkdir(parents=True)
+        vendored.write_text("#!/bin/sh\n# TODO: upstream follows\n")
+        (self.project / "skills.lock").write_text(
+            '{"version": 1, "skills": [{"name": "vendor"}]}\n'
+        )
+        self.commit("add an incomplete skills lock")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("skills.lock", result.stderr)
+        comments = self.issue_for(self.issues(), "comments")
+        self.assertIn("skills/vendor/note.sh", comments["body"])
 
     def test_comment_key_uses_the_banned_marker_not_the_prose(self):
         note = self.project / "src/note.ts"
