@@ -70,7 +70,7 @@ module.exports = {
       hint: "install the macOS Swift toolchain, or set SWIFTC",
     },
   },
-  managedRoots: ["assets/brand/AppIcon.icon", "assets/brand/Brand.xcassets"],
+  managedRoots: ["assets/brand/AppIcon.icon", "assets/brand/AppIcon.icns", "assets/brand/Brand.xcassets"],
   generate(context) {
     const ictool = context.requireTool("ictool");
     context.requireTool("swift");

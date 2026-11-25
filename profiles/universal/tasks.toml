@@ -6,6 +6,19 @@ flag "--check" help="Verify the lock and regenerate without writing"
 run = '''
 factory=${FACTORY_CHECKOUT:-$HOME/.agents}
 [ -f "$factory/profiles/universal/scripts/assets.js" ] || factory=$HOME/Developer/factory
+ref=$(grep -io 'factory\.git//profiles/universal/mise\.toml?ref=[^"]*' mise.toml 2>/dev/null | head -n 1 | sed 's/.*ref=//')
+if [ -n "$ref" ]; then
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-assets.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+  mkdir -p "$tmp/profiles/universal/scripts" "$tmp/profiles/apple/scripts" "$tmp/profiles/web/scripts"
+  for file in universal/scripts/assets.js universal/scripts/asset-masters.js apple/scripts/assets.js web/scripts/assets.js; do
+    git -C "$factory" show "$ref:profiles/$file" > "$tmp/profiles/$file" || {
+      printf 'assets: %s does not carry profiles/%s; fetch the pinned tag or re-pin the Factory to a release with the assets task\n' "$ref" "$file" >&2
+      exit 1
+    }
+  done
+  exec node "$tmp/profiles/universal/scripts/assets.js"{% if usage.check %} --check{% endif %}
+fi
 [ -f "$factory/profiles/universal/scripts/assets.js" ] || {
   printf '%s\n' 'assets: set FACTORY_CHECKOUT to the Factory checkout' >&2
   exit 1

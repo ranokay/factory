@@ -153,6 +153,9 @@ function walkFiles(directory) {
   if (!fs.existsSync(directory)) {
     return [];
   }
+  if (fs.statSync(directory).isFile()) {
+    return [directory];
+  }
   const found = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const full = path.join(directory, entry.name);
@@ -728,6 +731,17 @@ function check(options) {
     for (const module of generated) {
       const ctx = generateModule(module, { root: options.root, out, masters: state.masters, screenshots: state.screenshots });
       const produced = new Set(ctx.outputs.keys());
+      const locked = new Set(grouped[module.profile] ?? []);
+      for (const relative of produced) {
+        if (!locked.has(relative)) {
+          problems.push(`${relative} is not in ${LOCK_PATH}; run mise run assets`);
+        }
+      }
+      for (const relative of locked) {
+        if (!produced.has(relative)) {
+          problems.push(`${relative} is in ${LOCK_PATH} but mise run assets does not generate it`);
+        }
+      }
       for (const [relative, file] of ctx.outputs) {
         const committed = path.join(options.root, relative);
         if (!fs.existsSync(committed)) {

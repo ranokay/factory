@@ -65,6 +65,10 @@ function hash(file) {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
+function tree(root) {
+  return Object.fromEntries(walk(root).map((file) => [path.relative(root, file), hash(file)]).sort(([left], [right]) => left.localeCompare(right)));
+}
+
 function copyProfiles(root) {
   for (const profile of ["universal", "apple", "web"]) {
     const target = path.join(root, "profiles", profile, "scripts");
@@ -173,6 +177,11 @@ function universalWebTest() {
   assert(pngSize(path.join(root, "assets/store/framed/shot.png")).height === 1800, "the store frame is not 1800 tall");
   assert(fs.readFileSync(path.join(root, "public/favicon.ico")).readUInt16LE(2) === 1, "the favicon is not an ICO");
 
+  const before = tree(root);
+  const secondRun = runTask(root, []);
+  assert(secondRun.status === 0, secondRun.stderr);
+  assert(JSON.stringify(tree(root)) === JSON.stringify(before), "a second mise run assets changed the tree");
+
   const modules = path.join(root, "profiles");
   const out1 = tempDir("run-one");
   const out2 = tempDir("run-two");
@@ -212,6 +221,19 @@ function universalWebTest() {
   assert(editedGenerator.stderr.includes("profiles/web/scripts/assets.js changed"), editedGenerator.stderr);
   fs.writeFileSync(webModule, originalModule);
 
+  const lockFile = path.join(root, "assets", "exports.lock");
+  const originalLock = fs.readFileSync(lockFile);
+  const staleFile = path.join(root, "public", "icon-64.png");
+  fs.writeFileSync(staleFile, "stale\n");
+  const lock = JSON.parse(originalLock);
+  lock.exports["public/icon-64.png"] = hash(staleFile);
+  fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+  const stale = run(root, ["--check", "--modules", modules]);
+  assert(stale.status === 1, "a stale lock export passed the check");
+  assert(stale.stderr.includes("public/icon-64.png is in assets/exports.lock"), stale.stderr);
+  fs.writeFileSync(lockFile, originalLock);
+  fs.rmSync(staleFile, { force: true });
+
   const agents = path.join(root, "AGENTS.md");
   fs.renameSync(agents, `${agents}.bak`);
   const noProfiles = run(root, ["--check", "--modules", modules]);
@@ -234,7 +256,7 @@ function universalWebTest() {
 }
 
 function lockOnlyFixture() {
-  const root = fixture("lock-only", "universal, apple");
+  const root = fixture("lock-only", "universal, web, apple");
   const stub = `module.exports = {
   profile: "apple",
   tools: { ictool: { command: "/usr/bin/ictool", env: "ICTOOL", hint: "install Xcode 26 or later" } },
@@ -288,6 +310,12 @@ function appleTest() {
 
   const lockOnly = lockOnlyFixture();
   const lockOnlyModules = path.join(lockOnly.root, "profiles");
+  const appleOnlyMissing = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], { ICTOOL: "/nonexistent" });
+  assert(appleOnlyMissing.status === 0, appleOnlyMissing.stderr);
+  assert(appleOnlyMissing.stdout.includes("apple exports need ictool"), appleOnlyMissing.stdout);
+  assert(!appleOnlyMissing.stdout.includes("universal exports need resvg"), appleOnlyMissing.stdout);
+  assert(!appleOnlyMissing.stdout.includes("web exports need resvg"), appleOnlyMissing.stdout);
+
   const noTools = { ICTOOL: "/nonexistent", RESVG: "/nonexistent" };
   const clean = run(lockOnly.root, ["--check", "--modules", lockOnlyModules], noTools);
   assert(clean.status === 0, clean.stderr);
