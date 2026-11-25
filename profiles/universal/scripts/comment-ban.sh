@@ -34,7 +34,7 @@ A plain line comment (#, //, ; or --) that continues a multi-line
 comment block is prose when it has no code operators and carries
 sentence punctuation. A continuation ending in .:!? needs three or more
 words, one ending in ; needs four, and one with internal sentence
-punctuation needs four.
+punctuation needs four. A continuation containing a flag is code.
 
 A PEP 723 script block in a .py file (a comment line /// script through the
 next ///) is executable script metadata, not commented-out code, and is
@@ -112,7 +112,7 @@ for file in "$@"; do
 		function is_prose(s,    n, words) {
 			if (s ~ /[(){}=$"`]/) return 0
 			if (s ~ /\[/ || s ~ /\]/) return 0
-			if (s ~ /(^|[ \t])(--|-[A-Za-z]|\.\/|->|=>|&&|\|\|)/) return 0
+			if (s ~ /(^|[ \t])(--|\.\/|->|=>|&&|\|\|)/) return 0
 			n = split(s, words, /[ \t]+/)
 			if (s ~ /;[ \t]*$/) return n >= 4
 			if (s ~ /[.:!?][ \t]*$/) return n >= 3
@@ -120,11 +120,11 @@ for file in "$@"; do
 			return 0
 		}
 
-		function marker_at(line, i, boundary,    k, m, prev) {
+		function marker_at(line, i, word_boundary,    k, m, prev) {
 			for (k = 1; k <= count; k++) {
 				m = marker[k]
 				if (substr(line, i, length(m)) != m) continue
-				if (i == 1 || !boundary) return length(m)
+				if (i == 1 || !word_boundary) return length(m)
 				prev = substr(line, i - 1, 1)
 				if (prev ~ /[ \t;&|=,]/) return length(m)
 			}
@@ -151,7 +151,6 @@ for file in "$@"; do
 		function is_code(s,    v) {
 			if (s ~ /^(if|then|else|elif|fi|for|while|do|done|case|esac|function|def|class|import|from|return|export|local|const|let|var|set|echo|printf|cd|git|gh|npm|bun|pnpm|yarn|uv|pip|brew|mise|docker|kubectl|curl|wget|sudo|rm|cp|mv|mkdir|touch|source|exec|await|async|throw|raise|try|catch|finally|switch|package|type|interface|struct|enum|public|private|protected|static|final|void|int|string|bool|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)([ \t]|$)/) return 1
 			if (s ~ /^[A-Za-z_$][A-Za-z0-9_.$]*\(/) return 1
-			if (s ~ /(^|[ \t])-[A-Za-z]/) return 1
 			if (s ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=[^=]/) return 1
 			if (keyed_code(s)) return 1
 			if (s ~ /^-[ \t]+/) {
@@ -186,15 +185,16 @@ for file in "$@"; do
 			}
 			if (exempt(s)) return
 			if (docblock || doc_comment) return
+			if (!inblock && is_continuation && s ~ /(^|[ \t])-[A-Za-z]/) {
+				printf "%s:%d: commented-out code: %s\n", FILENAME, FNR, s
+				failed = 1
+				return
+			}
 			if (!inblock && is_continuation && !known_key(s) && is_prose(s)) return
 			if (is_code(s)) {
 				printf "%s:%d: commented-out code: %s\n", FILENAME, FNR, s
 				failed = 1
 			}
-		}
-
-		function marker_length(line, i) {
-			return marker_at(line, i, 1)
 		}
 
 		BEGIN {
@@ -251,7 +251,7 @@ for file in "$@"; do
 					i += length(block_start)
 					continue
 				}
-				mlen = marker_length(line, i)
+				mlen = marker_at(line, i, 1)
 				if (mlen > 0) {
 					doc_comment = markers == "//" && (substr(line, i + mlen, 1) == "/" || substr(line, i + mlen, 1) == "!")
 					inspect(substr(line, i + mlen))
