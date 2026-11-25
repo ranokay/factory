@@ -60,7 +60,7 @@ PRODUCT_INSTRUCTION = (
 CATEGORIES = (
     {
         "key": "product",
-        "title": "Add PRODUCT.md",
+        "title": "Adopt: add PRODUCT.md",
         "state": "ready-for-human",
         "findings": product_findings,
         "instruction": PRODUCT_INSTRUCTION,
