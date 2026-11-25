@@ -223,6 +223,13 @@ steps = new Mapping<String, Step | Group> {
             files = List("Docs.swift")
             expect { code = 1 }
           }
+          ["rejects an unterminated documentation block"] {
+            run = "check"
+            tmpdir = true
+            write { ["Docs.swift"] = "/**\n * A line;\n" }
+            files = List("Docs.swift")
+            expect { code = 1 }
+          }
           ["rejects commented-out code in a CSS doc block"] {
             run = "check"
             tmpdir = true
@@ -287,7 +294,7 @@ steps = new Mapping<String, Step | Group> {
             files = List("comment.swift")
             expect { code = 1 }
           }
-          ["rejects a sentence that starts a comment block"] {
+          ["rejects a sentence that is not a continuation"] {
             run = "check"
             tmpdir = true
             write { ["comment.sh"] = "# local gate runs.\n" }
@@ -301,21 +308,28 @@ steps = new Mapping<String, Step | Group> {
             files = List("comment.sh")
             expect { code = 1 }
           }
-          ["rejects a short continuation statement"] {
+          ["rejects a known key continuing a comment block"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: mise run check.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a two-word semicolon continuation"] {
             run = "check"
             tmpdir = true
             write { ["comment.swift"] = "// The block begins here\n// return cached;\n" }
             files = List("comment.swift")
             expect { code = 1 }
           }
-          ["rejects a short continuation without a keyword"] {
+          ["rejects a three-word semicolon continuation"] {
             run = "check"
             tmpdir = true
             write { ["comment.sh"] = "# first line of the block\n# widget cached now;\n" }
             files = List("comment.sh")
             expect { code = 1 }
           }
-          ["accepts a long continuation statement"] {
+          ["accepts a four-word semicolon continuation"] {
             run = "check"
             tmpdir = true
             write { ["comment.sh"] = "# first line of the block\n# widget cached for reuse;\n" }
@@ -336,21 +350,21 @@ steps = new Mapping<String, Step | Group> {
             files = List("comment.swift")
             expect { code = 1 }
           }
-          ["rejects a short sentence continuation"] {
+          ["rejects a two-word sentence continuation"] {
             run = "check"
             tmpdir = true
             write { ["comment.swift"] = "// The block begins here\n// return cached.\n" }
             files = List("comment.swift")
             expect { code = 1 }
           }
-          ["rejects a short continuation with internal punctuation"] {
+          ["rejects a three-word internal-punctuation continuation"] {
             run = "check"
             tmpdir = true
             write { ["comment.sh"] = "# first line of the block\n# if true; then\n" }
             files = List("comment.sh")
             expect { code = 1 }
           }
-          ["rejects a short continuation with a comma"] {
+          ["rejects a three-word comma continuation"] {
             run = "check"
             tmpdir = true
             write { ["comment.sh"] = "# first line of the block\n# echo one, two\n" }

@@ -26,15 +26,16 @@ git, mise, const, import, return, SELECT and the like), starts with a
 ./path or flag (./build.sh, --release), is [table], starts a call (name(
 or receiver.name(), or ends in ;, { or }.
 
-Documentation comments (///, //!, and /** ... */ lines in a language
-that uses //) are not inspected for code, though banned markers still
-fail.
+Documentation comments (///, //!, and /** ... */ lines in a file whose
+line-comment marker is //) are not inspected for code, though banned
+markers still fail.
 
 A plain line comment (#, //, ; or --) that continues a multi-line
 comment block is prose when it has no code operators and carries
 sentence punctuation. A continuation ending in .:!? needs three or more
-words, one ending in ; needs four, and one with internal sentence
-punctuation needs four. A continuation containing a flag is code.
+words, one ending in ; needs four, and one with internal . ; or , needs
+four. A continuation containing a flag is code. Known workflow keys
+stay code.
 
 A PEP 723 script block in a .py file (a comment line /// script through the
 next ///) is executable script metadata, not commented-out code, and is
@@ -112,7 +113,7 @@ for file in "$@"; do
 		function is_prose(s,    n, words) {
 			if (s ~ /[(){}=$"`]/) return 0
 			if (s ~ /\[/ || s ~ /\]/) return 0
-			if (s ~ /(^|[ \t])(--|\.\/|->|=>|&&|\|\|)/) return 0
+			if (s ~ /(^|[ \t])(\.\/|->|=>|&&|\|\|)/) return 0
 			n = split(s, words, /[ \t]+/)
 			if (s ~ /;[ \t]*$/) return n >= 4
 			if (s ~ /[.:!?][ \t]*$/) return n >= 3
@@ -132,8 +133,7 @@ for file in "$@"; do
 		}
 
 		function starts_comment_line(line,    s) {
-			s = line
-			sub(/^[ \t]+/, "", s)
+			s = trim(line)
 			return marker_at(s, 1, 0) > 0
 		}
 
@@ -199,6 +199,7 @@ for file in "$@"; do
 
 		BEGIN {
 			count = split(markers, marker, " ")
+			slashes = markers == "//"
 			inpep = 0
 			inblock = 0
 			docblock = 0
@@ -209,11 +210,6 @@ for file in "$@"; do
 
 		{
 			line = $0
-			if (FNR == 1) {
-				inblock = 0
-				docblock = 0
-				prev_comment = 0
-			}
 			doc_comment = 0
 			if (FNR == 1 && substr(line, 1, 2) == "#!") next
 			starts_comment = starts_comment_line(line)
@@ -247,13 +243,13 @@ for file in "$@"; do
 				}
 				if (block_start != "" && substr(line, i, length(block_start)) == block_start) {
 					inblock = 1
-					docblock = markers == "//" && substr(line, i, 3) == "/**"
+					docblock = slashes && substr(line, i, 3) == "/**"
 					i += length(block_start)
 					continue
 				}
 				mlen = marker_at(line, i, 1)
 				if (mlen > 0) {
-					doc_comment = markers == "//" && (substr(line, i + mlen, 1) == "/" || substr(line, i + mlen, 1) == "!")
+					doc_comment = slashes && (substr(line, i + mlen, 1) == "/" || substr(line, i + mlen, 1) == "!")
 					inspect(substr(line, i + mlen))
 					i = n + 1
 					continue
@@ -269,6 +265,10 @@ for file in "$@"; do
 		}
 
 		END {
+			if (docblock) {
+				printf "%s: unterminated documentation block\n", FILENAME
+				failed = 1
+			}
 			if (inpep) {
 				printf "%s: unterminated PEP 723 script block\n", FILENAME
 				failed = 1
