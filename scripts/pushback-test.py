@@ -227,6 +227,17 @@ class Pushback(PushbackCase):
         self.assertEqual(self.calls(), [])
         self.assertEqual(self.comments(1), [])
 
+    def test_malformed_override_in_the_search_fails_loudly(self):
+        self.add_comment(1, "<!-- factory:pushback-override verdict=go -->")
+        state = self.state()
+        state["search"] = [1]
+        self.write_state(state)
+        result = self.cli(
+            "context", "o/one", "2", "--project", str(self.project)
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("override on o/one#1 has no accepted verdict", result.stderr)
+
     def test_gate_refuses_ready_without_a_verdict(self):
         result = self.gate(1)
         self.assertNotEqual(result.returncode, 0)

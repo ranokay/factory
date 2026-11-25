@@ -25,5 +25,5 @@ ranokay, working alone across his own repositories and forks, and the agents tha
 
 - **Platforms:** macOS for the local tooling; GitHub Actions `ubuntu-latest` for CI.
 - **Runtime:** Python 3.13 and POSIX `sh` from `mise`; tests run without network access.
-- **Performance:** `mise run check` stays inside the 20-minute CI timeout for each Gate job; a fixture test stays under a minute.
+- **Performance:** `mise run check` stays inside the 20-minute CI timeout for each Gate job; the slowest fixture test (adopt) runs in under two minutes.
 - **Privacy:** the public repository holds no secrets or project knowledge; credentials live in 1Password and reach tools through `op` or launchd.
