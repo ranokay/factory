@@ -240,6 +240,11 @@ function checkSource(source) {
     if (local === "symbol") {
       problems.add("contains <symbol>; inline the mark's shapes");
     }
+    for (const forbidden of ["pattern", "mask", "filter", "clippath"]) {
+      if (local === forbidden) {
+        problems.add(`contains <${forbidden}>; draw the mark in place`);
+      }
+    }
     for (const [name, value] of Object.entries(tag.attributes)) {
       const localName = name.split(":").pop();
       if (localName === "href" || localName === "src") {

@@ -316,6 +316,16 @@ steps = new Mapping<String, Step | Group> {
               stderr = "contains <symbol>"
             }
           }
+          ["rejects pattern, mask, filter and clipPath paint"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-forbidden.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <pattern>"
+            }
+          }
           ["rejects an external url reference"] {
             run = "check"
             tmpdir = true
