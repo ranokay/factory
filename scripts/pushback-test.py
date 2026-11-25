@@ -395,6 +395,7 @@ class Pushback(PushbackCase):
             "override", "o/one", "2", "--reason", "ranokay answered the question."
         )
         self.assertEqual(overridden.returncode, 0, overridden.stderr)
+        self.add_comment(2, "The fields are pages and week.")
         retry = self.record(
             2,
             {"verdict": "go", "reason": "A fresh review after the override."},
