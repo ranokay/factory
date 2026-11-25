@@ -344,7 +344,7 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { checkFile, checkSource, main };
+module.exports = { checkFile, checkSource, main, tagAttributes, tags };
 
 if (require.main === module || process.argv[1] === "asset-masters") {
   process.exitCode = main(process.argv.slice(2));

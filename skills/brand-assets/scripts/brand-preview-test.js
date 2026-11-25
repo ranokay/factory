@@ -167,7 +167,24 @@ try {
   const accentOpacity = write("accent-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="#e4572e" fill-opacity=".5"/></svg>\n`);
   const accentOpacityOut = path.join(workspace, "out", "accent-opacity.html");
   run(["--title", "Accent", "--concept", `Accent=${accentOpacity}`, "--output", accentOpacityOut]);
-  assert.ok(!fs.readFileSync(accentOpacityOut, "utf8").includes("partial opacity"));
+  const accentOpacityHtml = fs.readFileSync(accentOpacityOut, "utf8");
+  assert.ok(!accentOpacityHtml.includes("partial opacity"));
+  assert.ok(accentOpacityHtml.includes("light icon accent #e4572e at 0.5"));
+
+  const groupOpacity = write("group-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><g opacity=".2"><rect width="64" height="64" fill="currentColor"/></g></svg>\n`);
+  const groupOpacityOut = path.join(workspace, "out", "group-opacity.html");
+  run(["--title", "Group", "--concept", `Group=${groupOpacity}`, "--output", groupOpacityOut]);
+  assert.ok(fs.readFileSync(groupOpacityOut, "utf8").includes("partial opacity makes the ink untestable"));
+
+  const styledInk = write("styled-ink.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" style="fill:currentColor"/></svg>\n`);
+  const styledInkOut = path.join(workspace, "out", "styled-ink.html");
+  run(["--title", "Styled ink", "--concept", `Styled=${styledInk}`, "--output", styledInkOut]);
+  assert.ok(!fs.readFileSync(styledInkOut, "utf8").includes("Contrast check"));
+
+  const wrongPaint = write("wrong-paint.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="#141821"><rect width="64" height="64" fill="#ffffff"/></svg>\n`);
+  const wrongPaintOut = path.join(workspace, "out", "wrong-paint.html");
+  run(["--title", "Wrong paint", "--concept", `Wrong=${wrongPaint}`, "--output", wrongPaintOut]);
+  assert.ok(fs.readFileSync(wrongPaintOut, "utf8").includes("declares #141821 but paints no #141821"));
 
   const alpha = write("alpha.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="rgba(128,128,128,0.2)"><rect width="64" height="64" fill="rgba(128,128,128,0.2)"/></svg>\n`);
   const alphaOut = path.join(workspace, "out", "alpha.html");

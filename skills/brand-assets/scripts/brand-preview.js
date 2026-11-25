@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 // The skill ships inside the Factory checkout, so it uses the profile's one master contract rather than a second copy.
-const { checkSource } = require(path.join(__dirname, "../../../profiles/universal/scripts/asset-masters.js"));
+const { checkSource, tagAttributes } = require(path.join(__dirname, "../../../profiles/universal/scripts/asset-masters.js"));
 
 const SIZES = [16, 32, 64, 128, 256, 512, 1024];
 const MIN_CONTRAST = 3;
@@ -174,6 +174,14 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function paints(source, value) {
+  const escaped = escapeRegExp(value);
+  return (
+    new RegExp(`(?:fill|stroke)\\s*=\\s*["']${escaped}["']`, "i").test(source) ||
+    new RegExp(`style\\s*=\\s*["'][^"']*(?:fill|stroke)\\s*:\\s*${escaped}`, "i").test(source)
+  );
+}
+
 function inkFor(source, textColor) {
   const root = source.match(/<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i);
   if (root === null) {
@@ -185,7 +193,7 @@ function inkFor(source, textColor) {
   }
   const raw = declared[1].trim();
   if (raw.toLowerCase() === "currentcolor") {
-    if (!/(?:fill|stroke)\s*=\s*["']currentColor["']/i.test(source)) {
+    if (!paints(source, "currentColor")) {
       return { color: null, raw, problem: "declares currentColor but paints no currentColor" };
     }
     return { color: parseColor(textColor), raw: textColor };
@@ -194,41 +202,68 @@ function inkFor(source, textColor) {
   if (color === null) {
     return { color: null, raw, problem: `cannot read data-brand-ink ${raw}` };
   }
-  const painted = new RegExp(`(?:fill|stroke)\\s*=\\s*["']${escapeRegExp(raw)}["']`, "i").test(source);
-  if (!painted) {
+  if (!paints(source, raw)) {
     return { color: null, raw, problem: `declares ${raw} but paints no ${raw}` };
   }
   return { color, raw };
 }
 
-const PARTIAL_OPACITY = /(?:opacity|fill-opacity|stroke-opacity)\s*=\s*["']\s*(?:0(?:\.\d+)?|\.\d+)\s*["']/i;
-const PAINT = /(?:^|\s)(fill|stroke)\s*=\s*["']([^"']+)["']/gi;
+const CONTAINERS = new Set([
+  "svg",
+  "g",
+  "defs",
+  "symbol",
+  "clippath",
+  "mask",
+  "marker",
+  "pattern",
+  "lineargradient",
+  "radialgradient",
+  "filter",
+  "switch",
+  "a",
+]);
 
-function tagAttributes(source) {
-  const attributes = {};
-  const pattern = /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+function paintedElements(source) {
+  const elements = [];
+  const stack = [{ name: "svg", opacity: 1 }];
+  const token = /<\/?([A-Za-z][\w:.-]*)((?:[^>"']|"[^"]*"|'[^']*')*)?>/g;
   let match;
-  while ((match = pattern.exec(source)) !== null) {
-    attributes[match[1].toLowerCase()] = match[2] ?? match[3] ?? "";
-  }
-  return attributes;
-}
-
-function partialOpacityOnInk(source, inkRaw) {
-  const tags = source.matchAll(/<([A-Za-z][\w:.-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g);
-  for (const match of tags) {
+  while ((match = token.exec(source)) !== null) {
+    const closing = match[0].startsWith("</");
     const name = match[1].toLowerCase().split(":").pop();
-    const attributes = tagAttributes(match[2]);
-    const opacity = [attributes.opacity, attributes["fill-opacity"], attributes["stroke-opacity"]]
+    if (closing) {
+      for (let index = stack.length - 1; index > 0; index -= 1) {
+        if (stack[index].name === name) {
+          stack.length = index;
+          break;
+        }
+      }
+      continue;
+    }
+    const attributes = tagAttributes(match[2] ?? "");
+    const own = [attributes.opacity, attributes["fill-opacity"], attributes["stroke-opacity"]]
       .filter((value) => value !== undefined)
       .map(Number.parseFloat)
       .filter(Number.isFinite);
-    if (opacity.length === 0 || Math.min(...opacity) >= 1) {
+    const ownOpacity = own.length === 0 ? 1 : Math.min(1, Math.max(0, Math.min(...own)));
+    const opacity = stack[stack.length - 1].opacity * ownOpacity;
+    elements.push({ name, attributes, opacity });
+    if (CONTAINERS.has(name) && !/\/\s*>$/.test(match[0])) {
+      stack.push({ name, opacity });
+    }
+  }
+  return elements;
+}
+
+function partialOpacityOnInk(source, inkRaw) {
+  for (const element of paintedElements(source)) {
+    if (element.opacity >= 1) {
       continue;
     }
-    const paints = [attributes.fill, attributes.stroke].filter((value) => value !== undefined);
-    const paintsInk = paints.some((value) => /^currentcolor$/i.test(value.trim()) || value.trim().toLowerCase() === inkRaw.toLowerCase());
-    if (name === "svg" || paintsInk) {
+    const paintValues = [element.attributes.fill, element.attributes.stroke].filter((value) => value !== undefined);
+    const paintsInk = paintValues.some((value) => /^currentcolor$/i.test(value.trim()) || value.trim().toLowerCase() === inkRaw.toLowerCase());
+    if (element.name === "svg" || paintsInk) {
       return true;
     }
   }
@@ -238,22 +273,40 @@ function partialOpacityOnInk(source, inkRaw) {
 function fixedPaintProblems(source, board, kind, theme, inkRaw) {
   const problems = [];
   const seen = new Set();
-  let match;
-  PAINT.lastIndex = 0;
-  while ((match = PAINT.exec(source)) !== null) {
-    const value = match[2].trim();
-    const lower = value.toLowerCase();
-    if (seen.has(lower) || lower === "" || lower === "none" || lower === "transparent" || lower === "inherit" || lower === "currentcolor" || lower.startsWith("url(") || lower === String(inkRaw).toLowerCase()) {
-      continue;
-    }
-    const color = parseColor(value);
-    if (color === null) {
-      continue;
-    }
-    seen.add(lower);
-    const ratio = contrastRatio(composite(color, parseColor(board.background)), parseColor(board.background));
-    if (ratio < MIN_CONTRAST) {
-      problems.push(`${theme} ${kind} accent ${value}: ${ratio.toFixed(1)}:1; minimum ${MIN_CONTRAST}:1`);
+  const background = parseColor(board.background);
+  for (const element of paintedElements(source)) {
+    const alpha = element.opacity;
+    for (const attribute of ["fill", "stroke"]) {
+      const value = element.attributes[attribute];
+      if (value === undefined) {
+        continue;
+      }
+      const lower = value.trim().toLowerCase();
+      if (
+        lower === "" ||
+        lower === "none" ||
+        lower === "transparent" ||
+        lower === "inherit" ||
+        lower === "currentcolor" ||
+        lower.startsWith("url(") ||
+        lower === String(inkRaw).toLowerCase()
+      ) {
+        continue;
+      }
+      const color = parseColor(value);
+      if (color === null) {
+        continue;
+      }
+      const key = `${lower}|${alpha}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const effective = composite({ ...color, a: (color.a === undefined ? 1 : color.a) * alpha }, background);
+      const ratio = contrastRatio(effective, background);
+      if (ratio < MIN_CONTRAST) {
+        problems.push(`${theme} ${kind} accent ${value}${alpha < 1 ? ` at ${alpha}` : ""}: ${ratio.toFixed(1)}:1; minimum ${MIN_CONTRAST}:1`);
+      }
     }
   }
   return problems;
