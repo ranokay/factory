@@ -579,6 +579,31 @@
       ]
     },
     {
+      "name": "periphery-scan-setup",
+      "source": "https://github.com/periphery-pro/skills.git",
+      "path": "skills/periphery-scan-setup",
+      "commit": "6b6314077288a4673f97a53133a0f1e95a4cb4fd",
+      "patches": [],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "bbe053d71c53418918f222526895887681edfcf3dc75391cd3a62d99e0254dc5"
+        },
+        {
+          "path": "references/bazel.md",
+          "sha256": "caebd7774fb2400bbe897c4f560a4e9ae61502e9ad4de5f975767d17a3fcab2b"
+        },
+        {
+          "path": "references/other-build-systems.md",
+          "sha256": "aee40fbc39ab1556abec8b6ed7d7188ee1ed99b47ffbeb8adcc75b7e96159d61"
+        },
+        {
+          "path": "references/upgrading-from-open-source.md",
+          "sha256": "554f991f92ee03e74895bf8643823225ee5710d5c2ea09512e595656e84fe2bd"
+        }
+      ]
+    },
+    {
       "name": "pick-ui-library",
       "source": "https://github.com/emilkowalski/skills.git",
       "path": "skills/pick-ui-library",
