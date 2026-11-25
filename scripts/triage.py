@@ -78,6 +78,10 @@ def apply_labels(repo, issue, category, state):
         from pushback import require_allowed
 
         require_allowed(repo, issue)
+    if state == "wontfix":
+        from pushback import require_confirmed
+
+        require_confirmed(repo, issue)
     current = issue_labels(repo, issue)
     managed = {name for name in current if name in CATEGORIES or name in STATES}
     keep = {state}

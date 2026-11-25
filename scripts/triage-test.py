@@ -35,6 +35,35 @@ class Triage(TriageCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.calls()), 5, self.calls())
 
+    def test_wontfix_needs_confirmation_of_a_dont(self):
+        self.set_comments(
+            [
+                {
+                    "body": "<!-- factory:pushback verdict=don't pass=full -->",
+                    "url": "https://example.test/issue/6#issuecomment-1",
+                }
+            ]
+        )
+        result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "wontfix")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("confirmation", result.stderr)
+        self.assertNotIn("issue edit", [call[:2] for call in self.calls()])
+        self.set_comments(
+            [
+                {
+                    "body": "<!-- factory:pushback verdict=don't pass=full -->",
+                    "url": "https://example.test/issue/6#issuecomment-1",
+                },
+                {
+                    "body": "<!-- factory:pushback-confirm verdict=wontfix -->",
+                    "url": "https://example.test/issue/6#issuecomment-2",
+                },
+            ]
+        )
+        result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "wontfix")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.labels()), ["blocked", "bug", "wontfix"])
+
     def test_ready_for_agent_requires_a_pushback_verdict(self):
         result = self.triage("labels", "o/one", "6", "--category", "bug", "--state", "ready-for-agent")
         self.assertNotEqual(result.returncode, 0)

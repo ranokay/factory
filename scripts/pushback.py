@@ -150,6 +150,14 @@ def require_allowed(repo, issue):
     return detail
 
 
+def require_confirmed(repo, issue):
+    items = records(issue_comments(repo, issue))
+    reviews = [item for item in items if item["kind"] == "review"]
+    if reviews and reviews[-1].get("verdict") == "don't":
+        if not any(item["kind"] == "confirm" for item in items):
+            problem("wontfix needs ranokay's confirmation of the don't: run pushback confirm-dont")
+
+
 def read_product(project):
     path = project / "PRODUCT.md"
     if not path.is_file():
@@ -399,8 +407,8 @@ def record_verdict(args):
         last = reviews[-1].get("verdict")
         if not args.again:
             problem(
-                "the issue already has a pushback verdict; use --again after a "
-                "needs-info answer, accept-reshape, override or confirm-dont"
+                "the issue already has a pushback verdict; after a needs-info "
+                "answer use --again, otherwise use accept-reshape, override or confirm-dont"
             )
         if last != "needs-info":
             problem(f"the last verdict is {last or 'unknown'}; --again only follows needs-info")
@@ -440,31 +448,33 @@ def accept_reshape(args):
     review = latest_review(args.repo, args.issue)
     if review.get("verdict") != "reshape":
         problem(f"the recorded verdict is {review.get('verdict') or 'unknown'}, not reshape")
-    if any(item["kind"] == "accept" for item in records(issue_comments(args.repo, args.issue))):
-        problem("the reshape is already accepted")
     smaller = review.get("smaller")
     if not smaller:
         problem("the reshape comment has no smaller version to accept")
     issue = issue_payload(args.repo, args.issue, "body")
     body_text = issue.get("body") or ""
-    if "factory:reshape" in body_text:
-        problem("the issue body already carries a Reshaped scope section")
+    comments = issue_comments(args.repo, args.issue)
+    accepted = [item for item in records(comments) if item["kind"] == "accept"]
     reason = one_line(args.reason, "reason")
-    comment = transition_comment(
-        "<!-- factory:pushback-accept verdict=reshape accepted=true -->",
-        "Reshaped scope",
-        smaller,
-        reason,
-        "Accepted",
-    )
-    url = post_comment(args.repo, args.issue, comment)
-    new_body = (
-        body_text.rstrip()
-        + "\n\n<!-- factory:reshape -->\n\n## Reshaped scope\n\n"
-        + smaller
-        + "\n"
-    )
-    edit_body(args.repo, args.issue, new_body)
+    if "factory:reshape" not in body_text:
+        new_body = (
+            body_text.rstrip()
+            + "\n\n<!-- factory:reshape -->\n\n## Reshaped scope\n\n"
+            + smaller
+            + "\n"
+        )
+        edit_body(args.repo, args.issue, new_body)
+    if accepted:
+        url = accepted[-1]["url"]
+    else:
+        comment = transition_comment(
+            "<!-- factory:pushback-accept verdict=reshape accepted=true -->",
+            "Reshaped scope",
+            smaller,
+            reason,
+            "Accepted",
+        )
+        url = post_comment(args.repo, args.issue, comment)
     category = category_for(args.repo, args.issue, args.category)
     apply_labels(args.repo, args.issue, category, "ready-for-agent")
     print(

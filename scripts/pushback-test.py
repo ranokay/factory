@@ -117,8 +117,9 @@ class Pushback(PushbackCase):
         again = self.cli(
             "accept-reshape", "o/one", "2", "--reason", "Accept it twice."
         )
-        self.assertNotEqual(again.returncode, 0)
-        self.assertIn("already accepted", again.stderr)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(len(self.comments(2)), 2)
+        self.assertEqual(self.issue(2)["body"].count("factory:reshape"), 1)
 
     def test_go_applies_ready_for_agent_and_a_second_review_is_refused(self):
         result = self.record(
