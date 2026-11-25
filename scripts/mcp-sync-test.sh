@@ -199,6 +199,9 @@ args = ["mcp"]
 case_absent() {
 	setup_case absent
 	make_stubs
+	[ ! -e "$home/.claude.json" ] || fail "the fixture home already has a Claude config"
+	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the fixture home already has an OpenCode config"
+	[ ! -e "$home/.codex/config.toml" ] || fail "the fixture home already has a Codex config"
 	rm -rf "$home/.config/opencode" "$home/.codex"
 	run_sync --check
 	[ "$code" -ne 0 ] || fail "the check passed without configs: $output"
@@ -210,6 +213,9 @@ case_absent() {
 	[ -f "$home/.claude.json" ] || fail "the render did not create the Claude config"
 	[ -f "$home/.config/opencode/opencode.json" ] || fail "the render did not create the OpenCode config"
 	[ -f "$home/.codex/config.toml" ] || fail "the render did not create the Codex config"
+	[ "$(file_mode "$home/.claude.json")" = 600 ] || fail "the created Claude config is not 600"
+	[ "$(file_mode "$home/.config/opencode/opencode.json")" = 600 ] || fail "the created OpenCode config is not 600"
+	[ "$(file_mode "$home/.codex/config.toml")" = 600 ] || fail "the created Codex config is not 600"
 	[ "$(json_value "$home/.claude.json" mcpServers.context7.headers.Authorization)" = "$(claude_expected)" ] || fail "the created Claude header is not its env reference"
 	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "the created OpenCode header is not its env reference"
 	grep -q '^\[mcp_servers.context7\]$' "$home/.codex/config.toml" || fail "the created Codex config has no context7 table"

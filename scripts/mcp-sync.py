@@ -302,14 +302,13 @@ def write(path: Path, text: str, check: bool, changed: list[str]) -> None:
     if check:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    mode = None
+    mode = 0o600
     if path.exists():
         mode = path.stat().st_mode & 0o777
         shutil.copy2(path, backup_path(path))
     temporary = path.with_name(path.name + ".mcp-sync.tmp")
     temporary.write_text(text)
-    if mode is not None:
-        os.chmod(temporary, mode)
+    os.chmod(temporary, mode)
     os.replace(temporary, path)
 
 

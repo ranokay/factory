@@ -488,6 +488,10 @@ case_env() {
 	[ -L "$xdg/opencode/AGENTS.md" ] || fail "XDG_CONFIG_HOME/opencode/AGENTS.md is not a symlink"
 	[ -L "$codex/AGENTS.md" ] || fail "CODEX_HOME/AGENTS.md is not a symlink"
 	[ "$(readlink "$codex/AGENTS.md")" = "$home/.agents/AGENTS.md" ] || fail "the Codex instructions link is wrong"
+	[ -f "$xdg/opencode/opencode.json" ] || fail "the relocated OpenCode config was not created"
+	[ -f "$codex/config.toml" ] || fail "the relocated Codex config was not created"
+	[ "$(json_value "$xdg/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "the relocated OpenCode config has no context7 env reference"
+	grep -q '^\[mcp_servers.context7\]$' "$codex/config.toml" || fail "the relocated Codex config has no context7 table"
 	run_command env XDG_CONFIG_HOME="$xdg" CODEX_HOME="$codex" mise --cd "$factory" run bootstrap:check -- --home "$home"
 	[ "$code" -eq 0 ] || fail "discovery with XDG_CONFIG_HOME and CODEX_HOME failed: $output"
 	printf 'ok: XDG_CONFIG_HOME and CODEX_HOME are honoured\n'
@@ -668,6 +672,8 @@ case_mcp_absent() {
 	[ "$(json_value "$home/.claude.json" mcpServers.context7.headers.Authorization)" = "$(claude_expected)" ] || fail "the created Claude config has no context7 env reference"
 	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "the created OpenCode config has no context7 env reference"
 	grep -q '^bearer_token_env_var = "CONTEXT7_API_KEY"$' "$home/.codex/config.toml" || fail "the created Codex config has no context7 env reference"
+	grep -q '^\[shell_environment_policy\]$' "$home/.codex/config.toml" || fail "the created Codex config has no shell environment policy"
+	grep -q '^ignore_default_excludes = true$' "$home/.codex/config.toml" || fail "the created Codex config does not pass registry secrets"
 	run_mcp_check
 	[ "$code" -eq 0 ] || fail "the MCP check reported drift after bootstrap created the configs: $output"
 	printf 'ok: bootstrap creates MCP configs for harnesses that have never run\n'
