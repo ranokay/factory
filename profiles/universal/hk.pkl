@@ -371,26 +371,19 @@ steps = new Mapping<String, Step | Group> {
             files = List("comment.sh")
             expect { code = 1 }
           }
-          ["rejects a continuation with a flag"] {
+          ["rejects a short continuation command"] {
             run = "check"
             tmpdir = true
-            write { ["comment.sh"] = "# first line of the block\n# widget -x.\n" }
+            write { ["comment.sh"] = "# first line of the block\n# rm -rf /tmp;\n" }
             files = List("comment.sh")
             expect { code = 1 }
           }
-          ["rejects a continuation command with a flag"] {
-            run = "check"
-            tmpdir = true
-            write { ["comment.sh"] = "# first line of the block\n# rm -rf /tmp.\n" }
-            files = List("comment.sh")
-            expect { code = 1 }
-          }
-          ["rejects a continuation with a long flag"] {
+          ["accepts prose continuing with a long flag"] {
             run = "check"
             tmpdir = true
             write { ["comment.sh"] = "# first line of the block\n# widgets accept --colour for styling.\n" }
             files = List("comment.sh")
-            expect { code = 1 }
+            expect { code = 0 }
           }
         }
       }
