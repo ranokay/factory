@@ -92,6 +92,20 @@ class AdoptInventoryTests(AdoptCase):
         pruning = self.issue_for(issues, "test-pruning")
         self.assertIn("src/fixtures/seed.test.ts", pruning["body"])
 
+    def test_upstream_fork_applies_settings_despite_a_bad_lock(self):
+        (self.project / "skills.lock").write_text("{not json\n")
+        self.commit("add a malformed skills lock")
+        state = self.state()
+        state["repo"].update({"fork": True, "private": True})
+        state["topics"]["names"] = ["factory-upstream-fork"]
+        self.write_state(state)
+        self.reset_log()
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.issues(), [])
+        self.assertIn("Upstream Fork", result.stdout)
+        self.assertTrue(self.settings_writes())
+
     def test_malformed_skills_lock_stops_the_inventory(self):
         (self.project / "skills.lock").write_text("{not json\n")
         self.commit("add a malformed skills lock")

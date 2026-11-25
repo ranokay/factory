@@ -4,6 +4,32 @@ from adopt_test_support import AdoptCase
 
 
 class AdoptDetectorTests(AdoptCase):
+    def test_brand_master_suppresses_the_brand_issue(self):
+        master = self.project / "assets/brand/icon.svg"
+        master.parent.mkdir(parents=True)
+        master.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"></svg>\n')
+        (master.parent / "logo.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 16"></svg>\n'
+        )
+        self.commit("add brand masters")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 8)
+        self.assertNotIn("brand", {category for issue in issues for category in self.categories(issue)})
+
+    def test_icon_only_still_requests_a_logo(self):
+        master = self.project / "assets/brand/icon.svg"
+        master.parent.mkdir(parents=True)
+        master.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"></svg>\n')
+        self.commit("add an icon")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        self.assertEqual(len(issues), 9)
+        brand = self.issue_for(issues, "brand")
+        self.assertIn("logo", brand["body"])
+
     def test_comment_key_uses_the_banned_marker_not_the_prose(self):
         note = self.project / "src/note.ts"
         note.write_text("// NOTE: TODO later\n")

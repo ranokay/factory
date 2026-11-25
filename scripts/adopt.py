@@ -116,7 +116,6 @@ def file_category(category, unseen, total, repo, head, dry_run):
 def adopt(args):
     repo = args.repo
     project = resolve_checkout(Path(args.project).expanduser().resolve(), repo)
-    tracked = inventory_files(project, tracked_files(project))
     topics_payload = parse_json(
         gh("api", f"repos/{repo}/topics"), f"topics for {repo}"
     )
@@ -125,6 +124,7 @@ def adopt(args):
     drift = apply_settings(repo, apply=not args.dry_run)
     if upstream:
         return upstream_result(drift)
+    tracked = inventory_files(project, tracked_files(project))
     seen = existing_markers(repo)
     head = git_out(project, "rev-parse", "--short", "HEAD").strip()
     filed = 0
