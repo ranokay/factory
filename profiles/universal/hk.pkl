@@ -371,6 +371,13 @@ steps = new Mapping<String, Step | Group> {
             files = List("comment.sh")
             expect { code = 1 }
           }
+          ["rejects a continuation with a long flag"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# widgets accept --colour for styling.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
         }
       }
       ["shellcheck"] = Builtins.shellcheck

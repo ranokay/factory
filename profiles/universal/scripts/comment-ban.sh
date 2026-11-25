@@ -185,7 +185,7 @@ for file in "$@"; do
 			}
 			if (exempt(s)) return
 			if (docblock || doc_comment) return
-			if (!inblock && is_continuation && s ~ /(^|[ \t])-[A-Za-z]/) {
+			if (!inblock && is_continuation && s ~ /(^|[ \t])-{1,2}[A-Za-z]/) {
 				printf "%s:%d: commented-out code: %s\n", FILENAME, FNR, s
 				failed = 1
 				return
