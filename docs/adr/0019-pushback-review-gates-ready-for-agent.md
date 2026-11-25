@@ -4,7 +4,7 @@ Every issue passes one review before it can carry `ready-for-agent`. A reviewer 
 
 Only a recorded go or an accepted reshape sets `ready-for-agent`. `triage.py labels` refuses the label without that record, `file-promotion` refuses it as an option, and adopt and verify-skill-maintenance file `needs-triage` so the review sees their issues too. A reshape stays `needs-triage` until ranokay accepts it with `accept-reshape`, which appends the smaller version to the issue body as `## Reshaped scope`; a don't adds `wontfix` only after `confirm-dont`. ranokay can override any verdict with one line, recorded as its own comment, and those comments are read back into every later review's context as precedent.
 
-A tenth label-writing workflow to police `gh issue edit --add-label ready-for-agent` would itself be a Protected Surface, so the direct-editing gap is a separate follow-up. The deterministic gate covers every scripted path the Factory uses; a human label click still bypasses it until that guard lands.
+A tenth label-writing workflow to police `gh issue edit --add-label ready-for-agent` would itself be a Protected Surface, so the direct-editing gap is a separate follow-up (#170). The deterministic gate covers every scripted path the Factory uses; a human label click still bypasses it until that guard lands.
 
 ## Considered Options
 

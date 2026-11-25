@@ -18,7 +18,7 @@ the feature. `scripts/pushback.py` posts the one comment and applies the label.
 
 ```sh
 uv run --offline --no-project --no-config --python "$(mise which python)" \
-  python <factory>/scripts/pushback.py context <owner>/<repo> <issue> --project <checkout>
+  python ~/Developer/factory/scripts/pushback.py context <owner>/<repo> <issue> --project <checkout>
 ```
 
 Read the JSON it prints:
@@ -90,7 +90,7 @@ Write strict JSON to a temporary file. Only these keys are allowed:
 
 ```sh
 uv run --offline --no-project --no-config --python "$(mise which python)" \
-  python <factory>/scripts/pushback.py record <owner>/<repo> <issue> \
+  python ~/Developer/factory/scripts/pushback.py record <owner>/<repo> <issue> \
   --from <verdict.json> --project <checkout>
 ```
 
