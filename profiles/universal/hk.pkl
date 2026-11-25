@@ -195,6 +195,270 @@ steps = new Mapping<String, Step | Group> {
             write { ["{{tmp}}/sub/.gitignore"] = "# TODO: nested\n" }
             expect { code = 1 }
           }
+          ["accepts documentation comments"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["Docs.swift"] = """
+                /// The failure text stored on a delivery row. It never includes a credential;
+                /**
+                 * A block documentation line;
+                 */
+                """
+            }
+            files = List("Docs.swift")
+            expect { code = 0 }
+          }
+          ["accepts inner documentation comments"] {
+            run = "check"
+            tmpdir = true
+            write { ["lib.rs"] = "//! return cached;\n" }
+            files = List("lib.rs")
+            expect { code = 0 }
+          }
+          ["rejects a TODO in a documentation comment"] {
+            run = "check"
+            tmpdir = true
+            write { ["Docs.swift"] = "/// TODO: fix\n" }
+            files = List("Docs.swift")
+            expect { code = 1 }
+          }
+          ["rejects an unterminated documentation block"] {
+            run = "check"
+            tmpdir = true
+            write { ["Docs.swift"] = "/**\n * A line;\n" }
+            files = List("Docs.swift")
+            expect { code = 1 }
+          }
+          ["rejects commented-out code in a CSS doc block"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.css"] = "/** store.flush() */\n" }
+            files = List("comment.css")
+            expect { code = 1 }
+          }
+          ["accepts tool directives"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["config.yaml"] = "# yaml-language-server: $schema=https://example.com/schema.json\n"
+              ["About.swift"] = "droplet.openURL(url) // NOSONAR: public licence link\n"
+            }
+            files = List("config.yaml", "About.swift")
+            expect { code = 0 }
+          }
+          ["accepts prose continuing a hash comment"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["prose.sh"] = """
+                # The panel's host contract: the panel is key and main,
+                # for this run; a panel that refuses main raises the same exception the host
+                # local gate runs.
+                """
+            }
+            files = List("prose.sh")
+            expect { code = 0 }
+          }
+          ["accepts prose continuing a slash comment"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["Prose.swift"] = """
+                // Measured: elapsedTime 174.6 reported at the resume, read 8.5 s later
+                // while Music said 183.3. The position must not stay at 174.6.
+                // follow-up: if it cannot run, the connection stays linked and its
+                """
+            }
+            files = List("Prose.swift")
+            expect { code = 0 }
+          }
+          ["rejects a commented-out method call"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// store.flush()\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a commented-out call with arguments"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// foo(bar, baz) more words\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a commented-out call with labels"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// await service.send(listen, to: target)\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a sentence that is not a continuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# local gate runs.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a continuation command without punctuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# git push origin main\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a known key continuing a comment block"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: mise run check\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a command-like key continuing a comment block"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: mise run check.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["accepts prose continuing with workflow-key words"] {
+            run = "check"
+            tmpdir = true
+            write {
+              ["comment.sh"] = """
+                # first line of the block
+                # name: the panel is key and main,
+                # id: it is not known here.
+                # on: this branch the gate is skipped.
+                # env: these values apply to every job.
+                # group: the panel is key.
+                # version: the legacy builder is gone.
+                # run: the gate is described below.
+                """
+            }
+            files = List("comment.sh")
+            expect { code = 0 }
+          }
+          ["rejects a uses key continuing a comment block"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# uses: actions/checkout@v4.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a two-word semicolon continuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// The block begins here\n// return cached;\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a three-word semicolon continuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# widget cached now;\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["accepts a four-word semicolon continuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# widget cached for reuse;\n" }
+            files = List("comment.sh")
+            expect { code = 0 }
+          }
+          ["accepts a first-line comment with a flag"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# Pass -v to show versions.\n" }
+            files = List("comment.sh")
+            expect { code = 0 }
+          }
+          ["rejects a continuation statement with an operator"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// The block begins here\n// count += 1;\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a two-word sentence continuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.swift"] = "// The block begins here\n// return cached.\n" }
+            files = List("comment.swift")
+            expect { code = 1 }
+          }
+          ["rejects a three-word internal-punctuation continuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# if true; then\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a three-word comma continuation"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# echo one, two\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a short continuation command"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# rm -rf /tmp;\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a continuation ending in a flag"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# widget -c\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a continuation with a shell operator"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# cat notes.txt | wc -l;\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a make run key"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: make lint check.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a cargo run key"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: cargo test.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a python run key"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: python3 -m pytest.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["rejects a just run key"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# run: just build.\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
+          ["accepts prose continuing with a long flag"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# widgets accept --colour for styling.\n" }
+            files = List("comment.sh")
+            expect { code = 0 }
+          }
         }
       }
       ["shellcheck"] = Builtins.shellcheck
