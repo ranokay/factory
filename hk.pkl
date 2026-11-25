@@ -870,6 +870,11 @@ steps {
             env { ["BOOTSTRAP_CASE"] = "mcp" }
             expect { code = 0 }
           }
+          ["bootstrap creates MCP configs for harnesses that have never run"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "mcp-absent" }
+            expect { code = 0 }
+          }
           ["the gc agent is installed and drift is detected"] {
             run = "check"
             env { ["BOOTSTRAP_CASE"] = "gc-agent" }
@@ -955,7 +960,7 @@ steps {
             env { ["MCP_SYNC_CASE"] = "retired" }
             expect { code = 0 }
           }
-          ["an absent harness config is left absent"] {
+          ["an absent harness config is created with the registry servers"] {
             run = "check"
             env { ["MCP_SYNC_CASE"] = "absent" }
             expect { code = 0 }

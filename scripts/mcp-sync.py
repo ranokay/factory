@@ -4,7 +4,9 @@
 Registry entries never hold secret values: a secret header names the
 environment variable that carries the value and the ``op://`` reference the
 LaunchAgent reads it from. Each harness config gets that harness's own
-env-var syntax, so a rendered config is safe to commit or share.
+env-var syntax, so a rendered config is safe to commit or share. A harness
+whose config does not exist yet (it has never run) gets a minimal valid
+config holding only the registry servers that target it.
 
 Usage: mcp-sync [--check] [--env [--check]] [--home PATH] [--registry PATH]
   --check          report drift without writing
@@ -313,12 +315,13 @@ def write(path: Path, text: str, check: bool, changed: list[str]) -> None:
 def render(home: Path, servers: dict, retired: list[str], check: bool) -> int:
     changed: list[str] = []
     for target, path in config_paths(home).items():
-        if not path.exists():
-            continue
-        try:
-            text = path.read_text()
-        except OSError as error:
-            raise SyncError(f"{path}: {error}") from None
+        if path.exists():
+            try:
+                text = path.read_text()
+            except OSError as error:
+                raise SyncError(f"{path}: {error}") from None
+        else:
+            text = "" if target == "codex" else "{}"
         if target == "codex":
             write(path, desired_codex(text, servers, retired, home), check, changed)
             continue

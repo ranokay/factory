@@ -199,14 +199,32 @@ args = ["mcp"]
 case_absent() {
 	setup_case absent
 	make_stubs
+	rm -rf "$home/.config/opencode" "$home/.codex"
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "the check passed without configs: $output"
+	expect_contains "$output" "$home/.claude.json"
+	expect_contains "$output" "$home/.config/opencode/opencode.json"
+	expect_contains "$output" "$home/.codex/config.toml"
 	run_sync
 	[ "$code" -eq 0 ] || fail "render failed without configs: $output"
-	[ ! -e "$home/.claude.json" ] || fail "the render created a missing Claude config"
-	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the render created a missing OpenCode config"
-	[ ! -e "$home/.codex/config.toml" ] || fail "the render created a missing Codex config"
+	[ -f "$home/.claude.json" ] || fail "the render did not create the Claude config"
+	[ -f "$home/.config/opencode/opencode.json" ] || fail "the render did not create the OpenCode config"
+	[ -f "$home/.codex/config.toml" ] || fail "the render did not create the Codex config"
+	[ "$(json_value "$home/.claude.json" mcpServers.context7.headers.Authorization)" = "$(claude_expected)" ] || fail "the created Claude header is not its env reference"
+	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "the created OpenCode header is not its env reference"
+	grep -q '^\[mcp_servers.context7\]$' "$home/.codex/config.toml" || fail "the created Codex config has no context7 table"
+	grep -q '^bearer_token_env_var = "CONTEXT7_API_KEY"$' "$home/.codex/config.toml" || fail "the created Codex config has no bearer token env var"
+	run_python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert list(d)==["mcpServers"] and sorted(d["mcpServers"])==["context7","cua-driver"], d' "$home/.claude.json"
+	[ "$code" -eq 0 ] || fail "the created Claude config is not minimal: $output"
+	run_python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert list(d)==["mcp"] and sorted(d["mcp"])==["context7","cua-driver"], d' "$home/.config/opencode/opencode.json"
+	[ "$code" -eq 0 ] || fail "the created OpenCode config is not minimal: $output"
+	run_python -c 'import sys,tomllib; c=tomllib.load(open(sys.argv[1],"rb")); assert sorted(c["mcp_servers"])==["context7","cua-driver"] and c["shell_environment_policy"]["ignore_default_excludes"] is True, c' "$home/.codex/config.toml"
+	[ "$code" -eq 0 ] || fail "the created Codex config does not parse or is not minimal: $output"
+	[ "$(backup_count)" = 0 ] || fail "the render backed up a config it created"
 	run_sync --check
-	[ "$code" -eq 0 ] || fail "the check failed without configs: $output"
-	printf 'ok: an absent harness config is left absent\n'
+	[ "$code" -eq 0 ] || fail "the check reported drift after creating the configs: $output"
+	expect_contains "$output" "in sync"
+	printf 'ok: an absent harness config is created with the registry servers\n'
 }
 
 case_preserve() {
