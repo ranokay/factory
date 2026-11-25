@@ -193,6 +193,48 @@ class Pushback(PushbackCase):
         self.assertIn("**Question:** Which fields must the JSON output contain?", self.comments(2)[0]["body"])
         self.assertNotEqual(self.gate(2).returncode, 0)
 
+    def test_promotion_only_issue_records_a_light_verdict_without_a_category(self):
+        state = self.state()
+        state["issues"]["1"]["labels"] = [{"name": "promotion"}]
+        self.write_state(state)
+        self.assertEqual(self.context(1)["pass"], "light")
+        result = self.record(
+            1, {"verdict": "go", "reason": "The correction is enforceable and adds no surface."}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.labels(1)), ["promotion", "ready-for-agent"])
+        self.assertEqual(self.gate(1).returncode, 0)
+
+    def test_needs_info_answer_permits_one_fresh_review(self):
+        first = self.record(
+            2,
+            {
+                "verdict": "needs-info",
+                "reason": "The format is unclear.",
+                "question": "Which fields must the JSON output contain?",
+            },
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.add_comment(2, "The fields are pages and week.")
+        refused = self.record(
+            2, {"verdict": "go", "reason": "The answer settles the format."}
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("--again", refused.stderr)
+        result = self.record(
+            2,
+            {"verdict": "go", "reason": "The answer settles the format."},
+            "--again",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.labels(2)), ["enhancement", "ready-for-agent"])
+        self.assertEqual(self.gate(2).returncode, 0)
+        self.assertEqual(len(self.comments(2)), 3)
+        self.assertEqual(
+            [comment["body"].count("factory:pushback verdict=") for comment in self.comments(2)],
+            [1, 0, 1],
+        )
+
     def test_malformed_verdict_is_refused_before_gh(self):
         cases = (
             "not json",

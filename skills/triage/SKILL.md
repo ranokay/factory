@@ -70,7 +70,7 @@ Show counts and a one-line summary per item. Let the maintainer pick.
 
 ## Triage a specific issue or PR
 
-1. **Gather context.** Read the full issue or PR (body, comments, labels, author, dates; for a PR, the diff too). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Run two checks against the codebase: (a) **redundancy**: search for an existing implementation of the requested behavior by domain concept (not just the request's wording), and report where you looked. If found, it's an already-implemented `wontfix` (step 5). (b) **prior rejection**: read `.out-of-scope/*.md` and surface any that resembles this request.
+1. **Gather context.** Read the full issue or PR (body, comments, labels, author, dates; for a PR, the diff too). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Run two checks against the codebase: (a) **redundancy**: search for an existing implementation of the requested behavior by domain concept (not just the request's wording), and report where you looked. If found, report where; the pushback review decides whether the existing implementation makes this a reshape or a don't, so do not apply `wontfix` before it. (b) **prior rejection**: read `.out-of-scope/*.md` and surface any that resembles this request.
 
 2. **Recommend.** Tell the maintainer your category and state recommendation with reasoning, plus a brief codebase summary relevant to the request (including whether it's already implemented). Wait for direction.
 
@@ -85,9 +85,9 @@ Show counts and a one-line summary per item. Let the maintainer pick.
 5. **Pushback review.** Every issue passes [../pushback/SKILL.md](../pushback/SKILL.md) before `ready-for-agent`, on the Worker model that skill names, never the model that wrote the issue. The review's context comes from `~/Developer/factory/scripts/pushback.py context <owner>/<repo> <issue>`; a promotion or a reproduced bug selects the light pass automatically. The reviewer records one verdict, and the script applies the matching state:
    - `go` applies `ready-for-agent`.
    - `reshape` stays `needs-triage`; when ranokay accepts the smaller version, `pushback.py accept-reshape` appends it to the issue as the `Reshaped scope` and applies `ready-for-agent`.
-   - `needs-info` applies `needs-info` with the exact question.
+   - `needs-info` applies `needs-info` with the exact question; when the reporter answers, run one fresh review with `record --again`.
    - `don't` stays `needs-triage` with the reason and any quoted non-goal; `wontfix` comes only after ranokay confirms, through `pushback.py confirm-dont`.
-   `triage.py labels` refuses `ready-for-agent` without that record, so never set it any other way.
+   `triage.py labels` refuses `ready-for-agent` without that record, so never set it any other way. The review does not choose a category: an issue may reach it without one, and step 6 applies the pair afterwards.
 
 6. **Apply the outcome.** Apply the category and state as one pair with `~/Developer/factory/scripts/triage.py labels <owner>/<repo> <issue> --category bug|enhancement --state <state>`; it removes conflicting category and state labels and verifies exactly one of each remains. A reproduced or not-reproduced bug already got its pair from `reproduce`, and the pushback review already applied an allowing verdict. Then:
    - `ready-for-agent`: post an agent brief comment ([AGENT-BRIEF.md](AGENT-BRIEF.md)) once the pushback review allowed it.

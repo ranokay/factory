@@ -311,13 +311,9 @@ def category_for(repo, issue, requested):
     if requested:
         return requested
     existing = [name for name in issue_labels(repo, issue) if name in CATEGORIES]
-    if len(existing) != 1:
-        problem(
-            "the issue needs exactly one category before the review; "
-            "apply it with `triage.py labels <repo> <issue> --category "
-            "bug|enhancement --state needs-triage` or pass --category"
-        )
-    return existing[0]
+    if len(existing) > 1:
+        problem(f"the issue has more than one category: {', '.join(existing)}")
+    return existing[0] if existing else None
 
 
 def verdict_values(args):
@@ -360,8 +356,16 @@ def record_verdict(args):
             problem(f"the non-goal {offered!r} is not in PRODUCT.md: {', '.join(non_goals)}")
         canonical = matches[0]
     comments = issue_comments(args.repo, args.issue)
-    if any(item["kind"] == "review" for item in records(comments)):
-        problem("the issue already has a pushback verdict; use accept-reshape, override or confirm-dont")
+    reviews = [item for item in records(comments) if item["kind"] == "review"]
+    if reviews:
+        last = reviews[-1].get("verdict")
+        if not args.again:
+            problem(
+                "the issue already has a pushback verdict; use --again after a "
+                "needs-info answer, accept-reshape, override or confirm-dont"
+            )
+        if last != "needs-info":
+            problem(f"the last verdict is {last or 'unknown'}; --again only follows needs-info")
     category = category_for(args.repo, args.issue, args.category)
     kind = pass_kind(issue_labels(args.repo, args.issue), comments)
     body = comment_body(values["verdict"], values, kind, canonical)
@@ -516,6 +520,9 @@ def main(argv=None):
         "--from", dest="from_json", required=True, help="verdict JSON file, or - for stdin"
     )
     review.add_argument("--category", choices=CATEGORIES)
+    review.add_argument(
+        "--again", action="store_true", help="record a fresh review after a needs-info answer"
+    )
     review.add_argument("--project", default=".", help="checkout holding PRODUCT.md")
     review.add_argument("--dry-run", action="store_true", help="print the comment without posting")
 

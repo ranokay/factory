@@ -33,8 +33,9 @@ Read the JSON it prints:
   issue and reason. Treat them as precedent; a different issue can still
   differ, so say why when you depart from one.
 
-If `prior` is not empty, stop: the issue already has a verdict, and only
-`accept-reshape`, `override` or `confirm-dont` may follow it.
+If `prior` ends in a review other than `needs-info`, stop: the issue already
+has a verdict, and only `accept-reshape`, `override` or `confirm-dont` may
+follow it. After a `needs-info` answer, one fresh review is allowed.
 
 ## 2. Check the codebase
 
@@ -91,7 +92,7 @@ Write strict JSON to a temporary file. Only these keys are allowed:
 ```sh
 uv run --offline --no-project --no-config --python "$(mise which python)" \
   python ~/Developer/factory/scripts/pushback.py record <owner>/<repo> <issue> \
-  --from <verdict.json> --project <checkout>
+  --from <verdict.json> --project <checkout> [--again]
 ```
 
 The script validates the verdict, posts exactly one short comment with the
@@ -99,13 +100,19 @@ marker, and applies the state: `go` → `ready-for-agent`, `reshape` and `don't`
 `needs-triage`, `needs-info` → `needs-info`. `wontfix` comes only after ranokay
 confirms a `don't`, through `confirm-dont`.
 
+Do not choose or apply a category: an issue may arrive without one. The script
+keeps a single existing category and applies the state; pass `--category bug`
+or `--category enhancement` only when the triage flow already made that choice.
+Use `--again` for the one fresh review after a `needs-info` answer.
+
 ## Outcomes
 
 - **go** readies the issue.
 - **reshape** stays `needs-triage`; ranokay may accept the smaller version with
   `pushback.py accept-reshape <owner>/<repo> <issue> --reason "<one line>"`,
   which appends `## Reshaped scope` to the issue and applies `ready-for-agent`.
-- **needs-info** waits on the reporter for the exact question.
+- **needs-info** waits on the reporter for the exact question. When the answer
+  arrives, run one fresh review and record it with `--again`.
 - **don't** stays `needs-triage`; ranokay can confirm it with
   `pushback.py confirm-dont`, or override it with a one-line reason through
   `pushback.py override`.

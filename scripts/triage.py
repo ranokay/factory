@@ -70,7 +70,7 @@ def issue_labels(repo, issue):
 
 
 def apply_labels(repo, issue, category, state):
-    if category not in CATEGORIES:
+    if category is not None and category not in CATEGORIES:
         problem(f"category must be one of {', '.join(CATEGORIES)}")
     if state not in STATES:
         problem(f"state must be one of {', '.join(STATES)}")
@@ -79,9 +79,14 @@ def apply_labels(repo, issue, category, state):
 
         require_allowed(repo, issue)
     current = issue_labels(repo, issue)
-    triage = {name for name in current if name in CATEGORIES or name in STATES}
-    remove = sorted(triage - {category, state})
-    add = sorted({category, state} - set(current))
+    managed = {name for name in current if name in CATEGORIES or name in STATES}
+    keep = {state}
+    if category is None:
+        keep.update(name for name in current if name in CATEGORIES)
+    else:
+        keep.add(category)
+    remove = sorted(managed - keep)
+    add = sorted(keep - set(current))
     if add or remove:
         command = ["issue", "edit", str(issue), "-R", repo]
         for name in add:
@@ -91,15 +96,16 @@ def apply_labels(repo, issue, category, state):
         result = run_gh(*command)
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
-            problem(f"applying {category} and {state} failed: {detail}")
+            problem(f"applying the labels failed: {detail}")
     after = issue_labels(repo, issue)
     categories = [name for name in after if name in CATEGORIES]
     states = [name for name in after if name in STATES]
-    if categories != [category] or states != [state]:
-        problem(
-            f"labels are {categories or 'none'} and {states or 'none'}; "
-            f"expected exactly {category} and {state}"
-        )
+    if states != [state]:
+        problem(f"state labels are {states or 'none'}; expected exactly {state}")
+    if category is not None and categories != [category]:
+        problem(f"category labels are {categories or 'none'}; expected exactly {category}")
+    if category is None and len(categories) > 1:
+        problem(f"category labels are {categories}; expected at most one")
 
 
 def fetch_issue(repo, issue):
