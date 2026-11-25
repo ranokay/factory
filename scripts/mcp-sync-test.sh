@@ -199,10 +199,10 @@ args = ["mcp"]
 case_absent() {
 	setup_case absent
 	make_stubs
+	rm -rf "$home/.config/opencode" "$home/.codex"
 	[ ! -e "$home/.claude.json" ] || fail "the fixture home already has a Claude config"
 	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the fixture home already has an OpenCode config"
 	[ ! -e "$home/.codex/config.toml" ] || fail "the fixture home already has a Codex config"
-	rm -rf "$home/.config/opencode" "$home/.codex"
 	run_sync --check
 	[ "$code" -ne 0 ] || fail "the check passed without configs: $output"
 	expect_contains "$output" "$home/.claude.json"
@@ -233,6 +233,44 @@ case_absent() {
 	[ "$code" -eq 0 ] || fail "the check reported drift after creating the configs: $output"
 	expect_contains "$output" "in sync"
 	printf 'ok: an absent harness config is created with the registry servers\n'
+}
+
+case_dangling() {
+	setup_case dangling
+	make_stubs
+	ln -s "$case_dir/missing-claude.json" "$home/.claude.json"
+	run_sync
+	[ "$code" -ne 0 ] || fail "the render replaced a dangling symlink"
+	expect_contains "$output" "$home/.claude.json"
+	expect_contains "$output" "does not resolve to a file"
+	[ -L "$home/.claude.json" ] || fail "the render replaced the dangling symlink with a file"
+	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the failed render wrote the OpenCode config"
+	[ ! -e "$home/.codex/config.toml" ] || fail "the failed render wrote the Codex config"
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "the check passed with a dangling config symlink"
+	printf 'ok: a dangling config symlink fails loudly and is left in place\n'
+}
+
+case_symlink() {
+	setup_case symlink
+	make_stubs
+	mkdir -p "$case_dir/dotfiles"
+	printf '{"numStartups":7}\n' >"$case_dir/dotfiles/claude.json"
+	chmod 640 "$case_dir/dotfiles/claude.json"
+	ln -s "$case_dir/dotfiles/claude.json" "$home/.claude.json"
+	run_sync
+	[ "$code" -eq 0 ] || fail "render failed through a config symlink: $output"
+	[ -L "$home/.claude.json" ] || fail "the render replaced the config symlink"
+	[ "$(json_value "$home/.claude.json" numStartups)" = 7 ] || fail "the render dropped the symlink target's key"
+	[ "$(json_value "$home/.claude.json" mcpServers.context7.headers.Authorization)" = "$(claude_expected)" ] || fail "the render did not update the symlink target"
+	[ "$(file_mode "$home/.claude.json")" = 640 ] || fail "the render changed the symlink target's mode"
+	backup=$(find "$home" -maxdepth 1 -name '.claude.json.backup-*' | head -n 1)
+	[ -n "$backup" ] || fail "the render did not back up the symlink target"
+	run_python -c 'import json,sys; assert json.load(open(sys.argv[1]))["numStartups"] == 7' "$backup"
+	[ "$code" -eq 0 ] || fail "the symlink backup has no target content: $output"
+	run_sync --check
+	[ "$code" -eq 0 ] || fail "the check reported drift after rendering through a symlink: $output"
+	printf 'ok: a config symlink is followed and kept\n'
 }
 
 case_preserve() {
@@ -433,6 +471,8 @@ case_all() {
 	case_drift
 	case_retired
 	case_absent
+	case_dangling
+	case_symlink
 	case_preserve
 	case_backup
 	case_env
@@ -450,6 +490,8 @@ fresh) case_fresh ;;
 drift) case_drift ;;
 retired) case_retired ;;
 absent) case_absent ;;
+dangling) case_dangling ;;
+symlink) case_symlink ;;
 preserve) case_preserve ;;
 backup) case_backup ;;
 env) case_env ;;
