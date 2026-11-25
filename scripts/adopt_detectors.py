@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Detectors and category definitions for the adopt inventory."""
 
+import importlib.util
 import os
 import re
 import sys
 import tomllib
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from adopt_common import (
     COMMENT_BAN,
@@ -17,6 +18,7 @@ from adopt_common import (
     read_file,
     read_reference,
     run,
+    tracked_files,
 )
 from profiles_reader import profiles_entries
 
@@ -52,6 +54,7 @@ SOURCE_SUFFIXES = {
 }
 ENTRY_STEMS = {"index", "main", "mod", "__init__", "cli", "setup"}
 TEST_DIRS = {"tests", "test", "__tests__", "Tests"}
+FIXTURE_DIRS = {"fixture", "fixtures"}
 STALE_DIRS = {"node_modules", "__pycache__", ".venv", "coverage", "dist", ".next"}
 STALE_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini", ".eslintcache"}
 STALE_SUFFIXES = (
@@ -67,6 +70,15 @@ STALE_SUFFIXES = (
     ".tsbuildinfo",
 )
 
+
+def is_test_fixture_path(path):
+    parts = PurePosixPath(path).parts[:-1]
+    return any(
+        part in FIXTURE_DIRS and index > 0 and parts[index - 1] in TEST_DIRS
+        for index, part in enumerate(parts)
+    )
+
+
 def is_test_path(path):
     item = PurePosixPath(path)
     if any(part in TEST_DIRS for part in item.parts[:-1]):
@@ -74,6 +86,50 @@ def is_test_path(path):
     if item.name.startswith("test_"):
         return True
     return bool(TEST_NAME_RE.search(item.name))
+
+
+def skills_lock_names(project):
+    if not (project / "skills.lock").is_file():
+        return set()
+    spec = importlib.util.spec_from_file_location(
+        "factory_skills_sync", Path(__file__).resolve().parent / "skills-sync.py"
+    )
+    if spec is None or spec.loader is None:
+        raise Problem("cannot read skills.lock: skills-sync.py is unavailable")
+    sync = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(sync)
+    except (OSError, ValueError, AttributeError, TypeError) as error:
+        raise Problem(f"cannot read skills.lock: {error}") from error
+    try:
+        lock = sync.load_lock(project)
+    except (sync.SyncError, OSError, ValueError, AttributeError, TypeError) as error:
+        raise Problem(f"cannot read skills.lock: {error}") from error
+    return {entry["name"] for entry in lock["skills"]}
+
+
+def is_vendored_skill(path, names):
+    item = PurePosixPath(path)
+    return len(item.parts) > 1 and item.parts[0] == "skills" and item.parts[1] in names
+
+
+def inventory_files(project, tracked):
+    vendored = skills_lock_names(project)
+    inventoried = []
+    fixtures = 0
+    vendored_files = 0
+    for path in tracked:
+        if is_test_fixture_path(path):
+            fixtures += 1
+        elif is_vendored_skill(path, vendored):
+            vendored_files += 1
+        else:
+            inventoried.append(path)
+    if vendored_files:
+        print(f"adopt: skip {vendored_files} vendored skill file(s)")
+    if fixtures:
+        print(f"adopt: skip {fixtures} test fixture file(s)")
+    return inventoried
 
 
 def comment_rule(message):
@@ -190,7 +246,7 @@ def dead_code_candidates(tracked, tokens, counts):
 
 
 def dead_code_findings(project, tracked, _repo):
-    tokens, counts, incomplete = reference_tokens(project, tracked)
+    tokens, counts, incomplete = reference_tokens(project, tracked_files(project))
     if incomplete:
         print(
             "adopt: warning: dead-code detection skipped because a reference "

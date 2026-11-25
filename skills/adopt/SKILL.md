@@ -51,13 +51,21 @@ output and rerun; the marker search prevents duplicates.
 | --- | --- | --- |
 | PRODUCT.md | No tracked `PRODUCT.md`. This issue is `ready-for-human`. | Write `PRODUCT.md` from `project/PRODUCT.md`: who it's for, goals, non-goals, quality bars. |
 | tooling baseline | `mise.toml` missing a Factory Profile include (local `./profiles/` in the Factory repo, or a `v*`-pinned Factory URL in a consuming repo), `hk.pkl` not amending a pinned Factory Profile, `renovate.json` not extending `github>ranokay/factory`, or a missing advisory bot config. | Add the Factory baseline from `project/`. |
-| comment purge | The universal Profile's `comment-ban.sh` over every tracked non-Markdown file: banned `TODO`, `FIXME`, `HACK`, `XXX` and commented-out code. | Use the `no-comments` skill; run `mise run check`. |
+| comment purge | The universal Profile's `comment-ban.sh` over every tracked non-Markdown file it owns: banned `TODO`, `FIXME`, `HACK`, `XXX` and commented-out code. | Use the `no-comments` skill; run `mise run check`. |
 | dead code | Source files under `src/`, `lib/`, `Sources/`, `cmd/`, `internal/` or `pkg/` whose stem no other tracked file references; files with a NUL byte in the first 1 KiB are treated as binary and skipped, tests are not candidates, and entry points are excluded. If a text reference file cannot be read, `adopt` warns and files no dead-code issue rather than guess. | Confirm each candidate, delete the provably dead code, keep tests green. |
 | AGENTS.md rewrite | Missing `AGENTS.md`, missing `Profiles:` line, no `mise run check`, `CLAUDE.md` not a relative symlink, or over 120 lines. | Rewrite from `project/AGENTS.md`; keep `CLAUDE.md -> AGENTS.md`. |
 | stale files | Tracked OS/editor/backup artifacts (`*.orig`, `*.bak`, `*~`, `.DS_Store`, ...), logs, and tracked cache/build directories. | Remove them, ignore generated ones. |
 | verification skill | No `.agents/skills/verify-<app>/SKILL.md`, or a skill missing its `.claude/skills` symlink, `references/features/` map, or a `verify:<app>` task when `mise.toml` exists. | Use `create-verification-skill`. |
-| test pruning | Any tracked test file (`*.test.*`, `*.spec.*`, `test_*`, `tests/`, ...). | Work it with `prune-tests`. |
+| test pruning | Any tracked test file it owns (`*.test.*`, `*.spec.*`, `test_*`, `tests/`, ...). | Work it with `prune-tests`. |
 | brand | No `icon` SVG master, or no separate `logo`/`wordmark` master, under `assets/brand/`. This issue is `ready-for-human`. | Run `brand-assets`; the choice of masters stays with ranokay. |
+
+Adopt inventories only the repository's own files. It skips tracked paths under a
+`fixture/` or `fixtures/` directory that sits directly in a test directory,
+because that is test input, and under a skill directory named in `skills.lock`,
+because `skills:sync` owns the vendored tree. The vendored exclusion matches the
+Factory's `hk.pkl` steps. A fixture finding would rewrite test input, so adopt
+leaves it alone even when the Gate still scans it. An unreadable `skills.lock`
+stops the run before anything is filed.
 
 ## Gardening and markers
 

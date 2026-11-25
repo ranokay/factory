@@ -6,9 +6,10 @@ import unittest
 from pathlib import Path
 
 from adopt_detector_test import AdoptDetectorTests
+from adopt_inventory_test import AdoptInventoryTests
 from adopt_test_support import AdoptCase
 
-__all__ = ["Adopt", "AdoptDetectorTests"]
+__all__ = ["Adopt", "AdoptDetectorTests", "AdoptInventoryTests"]
 
 
 class Adopt(AdoptCase):

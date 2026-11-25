@@ -25,9 +25,11 @@ from adopt_common import (
     problem,
     run,
     show,
+    tracked_files,
     valid_repo,
 )
 from adopt_categories import CATEGORIES
+from adopt_detectors import inventory_files
 from adopt_report import body_for, existing_markers
 
 
@@ -76,13 +78,6 @@ def resolve_checkout(project, repo):
     return project
 
 
-def tracked_files(project):
-    result = git(project, "ls-files", "-z")
-    if result.returncode != 0:
-        problem(f"cannot list tracked files: {(result.stderr or result.stdout).strip()}")
-    return [path for path in result.stdout.split("\0") if path]
-
-
 def file_category(category, unseen, total, repo, head, dry_run):
     if dry_run:
         print(f"adopt: would file {category['key']}: {len(unseen)} finding(s)")
@@ -121,7 +116,6 @@ def file_category(category, unseen, total, repo, head, dry_run):
 def adopt(args):
     repo = args.repo
     project = resolve_checkout(Path(args.project).expanduser().resolve(), repo)
-    tracked = tracked_files(project)
     topics_payload = parse_json(
         gh("api", f"repos/{repo}/topics"), f"topics for {repo}"
     )
@@ -130,6 +124,7 @@ def adopt(args):
     drift = apply_settings(repo, apply=not args.dry_run)
     if upstream:
         return upstream_result(drift)
+    tracked = inventory_files(project, tracked_files(project))
     seen = existing_markers(repo)
     head = git_out(project, "rev-parse", "--short", "HEAD").strip()
     filed = 0
