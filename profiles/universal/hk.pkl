@@ -308,6 +308,13 @@ steps = new Mapping<String, Step | Group> {
             files = List("comment.swift")
             expect { code = 1 }
           }
+          ["rejects a short continuation without a keyword"] {
+            run = "check"
+            tmpdir = true
+            write { ["comment.sh"] = "# first line of the block\n# widget cached;\n" }
+            files = List("comment.sh")
+            expect { code = 1 }
+          }
           ["rejects a continuation statement with an operator"] {
             run = "check"
             tmpdir = true

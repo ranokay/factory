@@ -32,7 +32,7 @@ fail.
 
 A plain line comment (#, //, ; or --) that continues a multi-line
 comment block is prose when it has no code operators and carries
-sentence punctuation. A continuation ending in .!? needs three or more
+sentence punctuation. A continuation ending in .:!? needs three or more
 words, one ending in ; needs four, and one with internal sentence
 punctuation needs four.
 
