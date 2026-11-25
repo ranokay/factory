@@ -456,6 +456,9 @@ function appleTest() {
     }
     assert(fs.readFileSync(path.join(root, "assets/brand/AppIcon.icns")).subarray(0, 4).toString() === "icns", "the compatibility icon is not an icns");
     assert(fs.readFileSync(path.join(root, "assets/brand/Brand.xcassets/Logo.imageset/Logo-Light.pdf")).subarray(0, 4).toString() === "%PDF", "the logo is not a PDF");
+    const mark = fs.readFileSync(path.join(root, "assets/brand/AppIcon.icon/Assets/mark.svg"), "utf8");
+    assert(mark.includes('data-brand-ink="currentColor"'), "the icon package lost the declared ink");
+    assert(!/(?:fill|stroke|stop-color|color)="currentColor"/.test(mark), "the icon package kept unresolved currentColor paint");
 
     const out1 = tempDir("apple-one");
     const out2 = tempDir("apple-two");
@@ -472,8 +475,12 @@ function appleTest() {
     const menuPng = path.join(tempDir("menu-template"), "template.png");
     const rendered = spawnSync("sips", ["-s", "format", "png", menuPdf, "--out", menuPng], { encoding: "utf8" });
     assert(rendered.status === 0, rendered.stderr);
+    const menuSize = pngSize(menuPng);
+    assert(menuSize.width === 18 && menuSize.height === 18, `the menu-bar template is ${menuSize.width}×${menuSize.height}, not 18×18`);
     const interior = pngPixel(fs.readFileSync(menuPng), 12, 9);
     assert(interior.a < 16, `the menu-bar template is not transparent between the ring and the dot (alpha ${interior.a})`);
+    const centre = pngPixel(fs.readFileSync(menuPng), 9, 9);
+    assert(centre.a > 200 && centre.r < 32 && centre.g < 32 && centre.b < 32, "the menu-bar template has no opaque dot at its centre");
   } else {
     const missing = runTask(root, []);
     assert(missing.status === 1, "the apple exports were generated without ictool");

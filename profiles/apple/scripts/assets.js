@@ -84,7 +84,10 @@ module.exports = {
     context.removeDir("assets/brand/Brand.xcassets");
     context.removeFile("assets/brand/AppIcon.icns");
 
-    context.write("assets/brand/AppIcon.icon/Assets/mark.svg", icon.replace(/currentColor/g, "#000000"));
+    context.write(
+      "assets/brand/AppIcon.icon/Assets/mark.svg",
+      icon.replace(/(\b(?:fill|stroke|stop-color|color)\s*=\s*["'])currentColor(["'])/gi, "$1#000000$2"),
+    );
     context.write("assets/brand/AppIcon.icon/icon.json", iconJson());
 
     const compiled = context.tempDir("icns");
