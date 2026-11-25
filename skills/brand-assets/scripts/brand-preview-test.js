@@ -196,6 +196,21 @@ try {
   run(["--title", "Style", "--concept", `Style=${styleInk}`, "--output", styleInkOut]);
   assert.ok(fs.readFileSync(styleInkOut, "utf8").includes("partial opacity makes the ink untestable"));
 
+  const inheritedFillOpacity = write("inherited-fill-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><g fill="currentColor" fill-opacity=".2"><rect width="64" height="64"/></g></svg>\n`);
+  const inheritedFillOpacityOut = path.join(workspace, "out", "inherited-fill-opacity.html");
+  run(["--title", "Inherited", "--concept", `Inherited=${inheritedFillOpacity}`, "--output", inheritedFillOpacityOut]);
+  assert.ok(fs.readFileSync(inheritedFillOpacityOut, "utf8").includes("partial opacity makes the ink untestable"));
+
+  const stylePercent = write("style-percent.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" style="fill:#888888;opacity:20% !important"/></svg>\n`);
+  const stylePercentOut = path.join(workspace, "out", "style-percent.html");
+  run(["--title", "Style", "--concept", `Style=${stylePercent}`, "--output", stylePercentOut]);
+  assert.ok(fs.readFileSync(stylePercentOut, "utf8").includes("accent #888888 at 0.2"));
+
+  const hiddenDefs = write("hidden-defs.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><rect width="8" height="8" fill="currentColor" opacity=".2"/></defs><rect width="64" height="64" fill="currentColor"/></svg>\n`);
+  const hiddenDefsOut = path.join(workspace, "out", "hidden-defs.html");
+  run(["--title", "Defs", "--concept", `Defs=${hiddenDefs}`, "--output", hiddenDefsOut]);
+  assert.ok(!fs.readFileSync(hiddenDefsOut, "utf8").includes("Contrast check"));
+
   const multiplied = write("multiplied.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="#e4572e" opacity=".5" fill-opacity=".5"/></svg>\n`);
   const multipliedOut = path.join(workspace, "out", "multiplied.html");
   run(["--title", "Multiplied", "--concept", `Multiplied=${multiplied}`, "--output", multipliedOut]);

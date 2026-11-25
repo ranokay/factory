@@ -223,6 +223,7 @@ const CONTAINERS = new Set([
   "switch",
   "a",
 ]);
+const NON_RENDERING = new Set(["defs", "clippath", "mask", "marker", "pattern", "lineargradient", "radialgradient", "filter", "symbol"]);
 
 function styleProperties(style) {
   const properties = {};
@@ -235,7 +236,7 @@ function styleProperties(style) {
       continue;
     }
     const name = declaration.slice(0, index).trim().toLowerCase();
-    const value = declaration.slice(index + 1).trim();
+    const value = declaration.slice(index + 1).replace(/!important/gi, "").trim();
     if (name !== "" && value !== "") {
       properties[name] = value;
     }
@@ -243,14 +244,18 @@ function styleProperties(style) {
   return properties;
 }
 
-function numeric(value, fallback) {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+function parseOpacity(value, fallback) {
+  if (value === undefined) {
+    return fallback;
+  }
+  const text = String(value).replace(/!important/gi, "").trim();
+  const ratio = text.endsWith("%") ? Number.parseFloat(text) / 100 : Number.parseFloat(text);
+  return Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : fallback;
 }
 
 function paintedElements(source) {
   const elements = [];
-  const stack = [{ name: "svg", groupOpacity: 1, fill: undefined, stroke: undefined }];
+  const stack = [{ name: "svg", groupOpacity: 1, fill: undefined, stroke: undefined, fillOpacity: 1, strokeOpacity: 1, rendered: true }];
   const token = /<\/?([A-Za-z][\w:.-]*)((?:[^>"']|"[^"]*"|'[^']*')*)?>/g;
   let match;
   while ((match = token.exec(source)) !== null) {
@@ -268,14 +273,15 @@ function paintedElements(source) {
     const attributes = tagAttributes(match[2] ?? "");
     const style = styleProperties(attributes.style);
     const parent = stack[stack.length - 1];
-    const groupOpacity = parent.groupOpacity * numeric(style.opacity ?? attributes.opacity, 1);
+    const groupOpacity = parent.groupOpacity * parseOpacity(style.opacity ?? attributes.opacity, 1);
     const fill = style.fill ?? attributes.fill ?? parent.fill;
     const stroke = style.stroke ?? attributes.stroke ?? parent.stroke;
-    const fillOpacity = numeric(style["fill-opacity"] ?? attributes["fill-opacity"], 1);
-    const strokeOpacity = numeric(style["stroke-opacity"] ?? attributes["stroke-opacity"], 1);
-    elements.push({ name, fill, stroke, groupOpacity, fillOpacity, strokeOpacity });
+    const fillOpacity = parseOpacity(style["fill-opacity"] ?? attributes["fill-opacity"], parent.fillOpacity);
+    const strokeOpacity = parseOpacity(style["stroke-opacity"] ?? attributes["stroke-opacity"], parent.strokeOpacity);
+    const rendered = parent.rendered && !NON_RENDERING.has(name);
+    elements.push({ name, fill, stroke, groupOpacity, fillOpacity, strokeOpacity, rendered });
     if (CONTAINERS.has(name) && !/\/\s*>$/.test(match[0])) {
-      stack.push({ name, groupOpacity, fill, stroke });
+      stack.push({ name, groupOpacity, fill, stroke, fillOpacity, strokeOpacity, rendered });
     }
   }
   return elements;
@@ -283,11 +289,14 @@ function paintedElements(source) {
 
 function partialOpacityOnInk(source, inkRaw) {
   for (const element of paintedElements(source)) {
-    const fillAlone = (value) =>
+    if (!element.rendered) {
+      continue;
+    }
+    const paintsInk = (value) =>
       value !== undefined && (/^currentcolor$/i.test(value.trim()) || value.trim().toLowerCase() === inkRaw.toLowerCase());
     const fillAlpha = element.groupOpacity * element.fillOpacity;
     const strokeAlpha = element.groupOpacity * element.strokeOpacity;
-    if ((fillAlone(element.fill) && fillAlpha < 1) || (fillAlone(element.stroke) && strokeAlpha < 1) || (element.name === "svg" && element.groupOpacity < 1)) {
+    if ((paintsInk(element.fill) && fillAlpha < 1) || (paintsInk(element.stroke) && strokeAlpha < 1) || (element.name === "svg" && element.groupOpacity < 1)) {
       return true;
     }
   }
@@ -299,11 +308,14 @@ function fixedPaintProblems(source, board, kind, theme, inkRaw) {
   const seen = new Set();
   const background = parseColor(board.background);
   for (const element of paintedElements(source)) {
-    for (const [attribute, value, opacity] of [
-      ["fill", element.fill, element.groupOpacity * element.fillOpacity],
-      ["stroke", element.stroke, element.groupOpacity * element.strokeOpacity],
+    if (!element.rendered) {
+      continue;
+    }
+    for (const [value, opacity] of [
+      [element.fill, element.groupOpacity * element.fillOpacity],
+      [element.stroke, element.groupOpacity * element.strokeOpacity],
     ]) {
-      if (value === undefined || attribute === undefined) {
+      if (value === undefined) {
         continue;
       }
       const lower = value.trim().toLowerCase();

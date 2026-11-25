@@ -94,8 +94,8 @@ icon-only mark, the lockup is a wide mark-only variant instead.
   `data-brand-ink="currentColor"`; the preview sets it to `#18181b` on light and
   `#f4f4f5` on dark. Accents may use explicit colours. Fixed ink declares
   `data-brand-ink="#rrggbb"` and ships a dark variant with
-  `--dark`/`--dark-lockup`. Keep the neutral ink opaque; partial opacity is
-  flagged.
+  `--dark`/`--dark-lockup`. Keep ink and accents opaque; a translucent tint is
+  flagged, so use a solid lighter colour.
 - Keep every path under 400 drawing commands and avoid long runs of tiny
   axis-aligned steps.
 - A concept must still read at 16 px on both boards.
