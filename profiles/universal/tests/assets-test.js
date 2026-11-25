@@ -5,7 +5,10 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const { spawnSync } = require("node:child_process");
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 const ROOT = path.resolve(__dirname, "..", "..", "..");
 const DRIVER = path.join(ROOT, "profiles", "universal", "scripts", "assets.js");
@@ -102,8 +105,74 @@ function run(root, args, environment = {}) {
 
 function pngSize(file) {
   const buffer = fs.readFileSync(file);
-  assert(buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), `${file} is not a PNG`);
+  assert(buffer.subarray(0, 8).equals(PNG_SIGNATURE), `${file} is not a PNG`);
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+function pngPixel(buffer, x, y) {
+  assert(buffer.subarray(0, 8).equals(PNG_SIGNATURE), "the rendered template is not a PNG");
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const idat = [];
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.subarray(offset + 4, offset + 8).toString("latin1");
+    const data = buffer.subarray(offset + 8, offset + 8 + length);
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+    } else if (type === "IDAT") {
+      idat.push(data);
+    }
+    offset += 12 + length;
+  }
+  assert(bitDepth === 8, `expected an 8-bit PNG, got ${bitDepth}`);
+  assert(colorType === 6 || colorType === 2, `expected RGB or RGBA, got colour type ${colorType}`);
+  const bytes = colorType === 6 ? 4 : 3;
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const stride = width * bytes;
+  let previous = Buffer.alloc(stride);
+  let cursor = 0;
+  const rows = [];
+  for (let row = 0; row < height; row += 1) {
+    const filter = raw[cursor];
+    cursor += 1;
+    const current = Buffer.from(raw.subarray(cursor, cursor + stride));
+    cursor += stride;
+    for (let index = 0; index < stride; index += 1) {
+      const left = index >= bytes ? current[index - bytes] : 0;
+      const up = previous[index];
+      const upLeft = index >= bytes ? previous[index - bytes] : 0;
+      const predictor = () => {
+        const estimate = left + up - upLeft;
+        const leftDistance = Math.abs(estimate - left);
+        const upDistance = Math.abs(estimate - up);
+        const upLeftDistance = Math.abs(estimate - upLeft);
+        return leftDistance <= upDistance && leftDistance <= upLeftDistance ? left : upDistance <= upLeftDistance ? up : upLeft;
+      };
+      if (filter === 1) {
+        current[index] = (current[index] + left) & 0xff;
+      } else if (filter === 2) {
+        current[index] = (current[index] + up) & 0xff;
+      } else if (filter === 3) {
+        current[index] = (current[index] + Math.floor((left + up) / 2)) & 0xff;
+      } else if (filter === 4) {
+        current[index] = (current[index] + predictor()) & 0xff;
+      } else {
+        assert(filter === 0, `unknown PNG filter ${filter}`);
+      }
+    }
+    rows.push(current);
+    previous = current;
+  }
+  const row = rows[y];
+  const index = x * bytes;
+  return { r: row[index], g: row[index + 1], b: row[index + 2], a: bytes === 4 ? row[index + 3] : 255 };
 }
 
 function compareTrees(left, right) {
@@ -398,6 +467,13 @@ function appleTest() {
 
     const clean = run(root, ["--check", "--modules", modules]);
     assert(clean.status === 0, clean.stderr);
+
+    const menuPdf = path.join(root, "assets/brand/Brand.xcassets/MenuBarTemplate.imageset/MenuBarTemplate.pdf");
+    const menuPng = path.join(tempDir("menu-template"), "template.png");
+    const rendered = spawnSync("sips", ["-s", "format", "png", menuPdf, "--out", menuPng], { encoding: "utf8" });
+    assert(rendered.status === 0, rendered.stderr);
+    const interior = pngPixel(fs.readFileSync(menuPng), 12, 9);
+    assert(interior.a < 16, `the menu-bar template is not transparent between the ring and the dot (alpha ${interior.a})`);
   } else {
     const missing = runTask(root, []);
     assert(missing.status === 1, "the apple exports were generated without ictool");
