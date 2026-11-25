@@ -110,7 +110,8 @@ def review_positions(comments):
     return [
         index
         for index, comment in enumerate(comments)
-        if MARKER.search(comment.get("body") or "")
+        if (comment.get("author") or {}).get("login") == TRUSTED_MARKER_AUTHOR
+        and MARKER.search(comment.get("body") or "")
     ]
 
 
@@ -187,6 +188,8 @@ def pass_kind(labels, comments):
     if "promotion" in labels:
         return "light"
     for comment in comments:
+        if (comment.get("author") or {}).get("login") != TRUSTED_MARKER_AUTHOR:
+            continue
         body = comment.get("body") or ""
         if TRIAGE_MARKER in body and REPRODUCED in body:
             return "light"

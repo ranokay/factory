@@ -15,6 +15,7 @@ from pathlib import Path
 from pushback_common import (
     PATTERNS,
     STATES,
+    TRUSTED_MARKER_AUTHOR,
     category_for,
     check_names,
     comment_body,
@@ -105,11 +106,20 @@ def record_verdict(args):
     if reviews:
         last = reviews[-1].get("verdict")
         if not args.again:
-            if last != values["verdict"]:
+            if any(item["kind"] != "review" for item in records(comments)):
+                problem(
+                    "the issue already has an acceptance, override or confirmation; "
+                    "its state is settled"
+                )
+            same = all(
+                (reviews[-1].get(key) or "") == (values.get(key) or "")
+                for key in ("reason", "smaller", "question", "non_goal")
+            )
+            if last != values["verdict"] or not same:
                 if last == "needs-info":
                     problem("the issue has a needs-info verdict; after the answer use --again")
                 problem(
-                    "the issue already has a different pushback verdict; "
+                    "the issue already has a different review; "
                     "use accept-reshape, override or confirm-dont"
                 )
             category = category_for(args.repo, args.issue, args.category)
@@ -131,7 +141,7 @@ def record_verdict(args):
             problem(f"the last verdict is {last or 'unknown'}; --again only follows needs-info")
         last_review = review_positions(comments)[-1]
         author = (issue_payload(args.repo, args.issue, "author").get("author") or {}).get("login")
-        trusted = {"ranokay"}
+        trusted = {TRUSTED_MARKER_AUTHOR}
         if author:
             trusted.add(author)
         answered = any(
@@ -178,17 +188,12 @@ def accept_reshape(args):
         if not args.reason:
             problem("accept-reshape needs --reason to record the acceptance")
         reason = one_line(args.reason, "reason")
-    saved = f"<!-- factory:reshape -->\n\n## Reshaped scope\n\n{smaller}" in body_text
+    block = f"<!-- factory:reshape -->\n\n## Reshaped scope\n\n{smaller}"
+    saved = block in body_text
     if "factory:reshape" in body_text and not saved:
         problem("the issue body already carries a different Reshaped scope; update it by hand")
     if not saved:
-        new_body = (
-            body_text.rstrip()
-            + "\n\n<!-- factory:reshape -->\n\n## Reshaped scope\n\n"
-            + smaller
-            + "\n"
-        )
-        edit_body(args.repo, args.issue, new_body)
+        edit_body(args.repo, args.issue, body_text.rstrip() + "\n\n" + block + "\n")
     if accepted:
         url = accepted[-1]["url"]
     else:

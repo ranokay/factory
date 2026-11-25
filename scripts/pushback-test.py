@@ -45,6 +45,13 @@ class Pushback(PushbackCase):
         payload = self.context(2)
         self.assertEqual(payload["pass"], "full")
         self.assertFalse(payload["reproduced"])
+        state = self.state()
+        state["issues"]["2"]["labels"] = [{"name": "bug"}, {"name": "needs-triage"}]
+        self.write_state(state)
+        self.add_comment(2, f"{TRIAGE_MARKER}\n\n**Outcome:** reproduced", author="outsider")
+        payload = self.context(2)
+        self.assertEqual(payload["pass"], "full")
+        self.assertFalse(payload["reproduced"])
 
     def test_non_goal_conflict_records_dont_quoting_it_and_waits_for_confirmation(self):
         result = self.record(
@@ -155,7 +162,7 @@ class Pushback(PushbackCase):
             3, {"verdict": "don't", "reason": "A different verdict must not post."}
         )
         self.assertNotEqual(again.returncode, 0)
-        self.assertIn("different pushback verdict", again.stderr)
+        self.assertIn("different review", again.stderr)
         self.assertEqual(len(self.comments(3)), 1)
 
     def test_override_is_recorded_and_appears_in_the_next_context(self):
@@ -359,13 +366,47 @@ class Pushback(PushbackCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no pushback verdict", result.stderr)
 
-    def test_matching_verdict_resumes_the_label_change(self):
-        self.add_comment(3, "<!-- factory:pushback verdict=go pass=full -->")
-        result = self.record(3, {"verdict": "go", "reason": "The same verdict retried."})
+    def test_matching_review_resumes_the_label_change(self):
+        self.add_comment(
+            3, "<!-- factory:pushback verdict=go pass=full -->\n\n**Verdict:** go — The same review retried."
+        )
+        result = self.record(3, {"verdict": "go", "reason": "The same review retried."})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["resumed"])
         self.assertEqual(sorted(self.labels(3)), ["enhancement", "ready-for-agent"])
         self.assertEqual(len(self.comments(3)), 1)
+        changed = self.record(3, {"verdict": "go", "reason": "A different reason."})
+        self.assertNotEqual(changed.returncode, 0)
+        self.assertIn("different review", changed.stderr)
+
+    def test_a_transition_record_blocks_the_matching_retry(self):
+        smaller = "Use the existing `reading report --json`."
+        self.assertEqual(
+            self.record(
+                2,
+                {
+                    "verdict": "reshape",
+                    "reason": "The report command already prints JSON.",
+                    "smaller": smaller,
+                },
+            ).returncode,
+            0,
+        )
+        accepted = self.cli(
+            "accept-reshape", "o/one", "2", "--reason", "Accepted for the smaller scope."
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        retry = self.record(
+            2,
+            {
+                "verdict": "reshape",
+                "reason": "The report command already prints JSON.",
+                "smaller": smaller,
+            },
+        )
+        self.assertNotEqual(retry.returncode, 0)
+        self.assertIn("state is settled", retry.stderr)
+        self.assertIn("ready-for-agent", self.labels(2))
 
     def test_accept_reshape_rejects_a_quoted_marker(self):
         smaller = "Use the existing `reading report --json`."
