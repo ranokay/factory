@@ -379,6 +379,31 @@ class Pushback(PushbackCase):
         self.assertNotEqual(changed.returncode, 0)
         self.assertIn("different review", changed.stderr)
 
+    def test_a_transition_record_blocks_a_fresh_review(self):
+        self.assertEqual(
+            self.record(
+                2,
+                {
+                    "verdict": "needs-info",
+                    "reason": "The format is unclear.",
+                    "question": "Which fields?",
+                },
+            ).returncode,
+            0,
+        )
+        overridden = self.cli(
+            "override", "o/one", "2", "--reason", "ranokay answered the question."
+        )
+        self.assertEqual(overridden.returncode, 0, overridden.stderr)
+        retry = self.record(
+            2,
+            {"verdict": "go", "reason": "A fresh review after the override."},
+            "--again",
+        )
+        self.assertNotEqual(retry.returncode, 0)
+        self.assertIn("state is settled", retry.stderr)
+        self.assertIn("ready-for-agent", self.labels(2))
+
     def test_a_transition_record_blocks_the_matching_retry(self):
         smaller = "Use the existing `reading report --json`."
         self.assertEqual(

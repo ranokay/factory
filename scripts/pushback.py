@@ -104,13 +104,13 @@ def record_verdict(args):
     comments = issue_comments(args.repo, args.issue)
     reviews = [item for item in records(comments) if item["kind"] == "review"]
     if reviews:
+        if any(item["kind"] != "review" for item in records(comments)):
+            problem(
+                "the issue already has an acceptance, override or confirmation; "
+                "its state is settled"
+            )
         last = reviews[-1].get("verdict")
         if not args.again:
-            if any(item["kind"] != "review" for item in records(comments)):
-                problem(
-                    "the issue already has an acceptance, override or confirmation; "
-                    "its state is settled"
-                )
             same = all(
                 (reviews[-1].get(key) or "") == (values.get(key) or "")
                 for key in ("reason", "smaller", "question", "non_goal")
