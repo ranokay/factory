@@ -30,6 +30,51 @@ class AdoptDetectorTests(AdoptCase):
         brand = self.issue_for(issues, "brand")
         self.assertIn("logo", brand["body"])
 
+    def test_vendored_skill_files_are_not_inventoried(self):
+        vendored = self.project / "skills/vendor/scripts/helper.test.ts"
+        vendored.parent.mkdir(parents=True)
+        vendored.write_text("// TODO: upstream follows\n")
+        own = self.project / "skills/own/scripts/helper.test.ts"
+        own.parent.mkdir(parents=True)
+        own.write_text("// TODO: ours\n")
+        (self.project / "skills.lock").write_text(
+            '{"version": 1, "skills": [{"name": "vendor"}]}\n'
+        )
+        self.commit("add skills")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        comments = self.issue_for(issues, "comments")
+        self.assertNotIn("skills/vendor/scripts/helper.test.ts", comments["body"])
+        self.assertIn("skills/own/scripts/helper.test.ts", comments["body"])
+        pruning = self.issue_for(issues, "test-pruning")
+        self.assertNotIn("skills/vendor/scripts/helper.test.ts", pruning["body"])
+        self.assertIn("skills/own/scripts/helper.test.ts", pruning["body"])
+
+    def test_test_fixtures_are_not_inventoried(self):
+        fixtures = self.project / "tests/fixtures"
+        fixtures.mkdir(parents=True)
+        (fixtures / "todo.sh").write_text("#!/bin/sh\n# TODO: fixture input\n")
+        (fixtures / "case.test.ts").write_text("export const x = 1;\n")
+        self.commit("add test fixtures")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        issues = self.issues()
+        comments = self.issue_for(issues, "comments")
+        self.assertNotIn("tests/fixtures/todo.sh", comments["body"])
+        self.assertEqual(len(self.markers(comments)), 1)
+        pruning = self.issue_for(issues, "test-pruning")
+        self.assertNotIn("tests/fixtures/case.test.ts", pruning["body"])
+        self.assertEqual(len(self.markers(pruning)), 1)
+
+    def test_malformed_skills_lock_warns_and_continues(self):
+        (self.project / "skills.lock").write_text("{not json\n")
+        self.commit("add a malformed skills lock")
+        result = self.run_adopt()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("skills.lock", result.stderr)
+        self.assertEqual(len(self.issues()), 9)
+
     def test_comment_key_uses_the_banned_marker_not_the_prose(self):
         note = self.project / "src/note.ts"
         note.write_text("// NOTE: TODO later\n")

@@ -28,6 +28,7 @@ from adopt_common import (
     valid_repo,
 )
 from adopt_categories import CATEGORIES
+from adopt_detectors import is_vendored_skill, vendored_skill_names
 from adopt_report import body_for, existing_markers
 
 
@@ -122,6 +123,12 @@ def adopt(args):
     repo = args.repo
     project = resolve_checkout(Path(args.project).expanduser().resolve(), repo)
     tracked = tracked_files(project)
+    vendored = vendored_skill_names(project)
+    if vendored:
+        owned = [path for path in tracked if not is_vendored_skill(path, vendored)]
+        if len(owned) != len(tracked):
+            print(f"adopt: skip {len(tracked) - len(owned)} vendored skill file(s)")
+        tracked = owned
     topics_payload = parse_json(
         gh("api", f"repos/{repo}/topics"), f"topics for {repo}"
     )

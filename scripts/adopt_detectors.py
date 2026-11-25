@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Detectors and category definitions for the adopt inventory."""
 
+import json
 import os
 import re
 import sys
@@ -52,6 +53,7 @@ SOURCE_SUFFIXES = {
 }
 ENTRY_STEMS = {"index", "main", "mod", "__init__", "cli", "setup"}
 TEST_DIRS = {"tests", "test", "__tests__", "Tests"}
+FIXTURE_DIRS = {"fixture", "fixtures"}
 STALE_DIRS = {"node_modules", "__pycache__", ".venv", "coverage", "dist", ".next"}
 STALE_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini", ".eslintcache"}
 STALE_SUFFIXES = (
@@ -67,13 +69,54 @@ STALE_SUFFIXES = (
     ".tsbuildinfo",
 )
 
+
+def is_fixture_path(path):
+    return any(part in FIXTURE_DIRS for part in PurePosixPath(path).parts[:-1])
+
+
 def is_test_path(path):
+    if is_fixture_path(path):
+        return False
     item = PurePosixPath(path)
     if any(part in TEST_DIRS for part in item.parts[:-1]):
         return True
     if item.name.startswith("test_"):
         return True
     return bool(TEST_NAME_RE.search(item.name))
+
+
+def vendored_skill_names(project):
+    if not (project / "skills.lock").is_file():
+        return set()
+    try:
+        lock = json.loads(read_file(project, "skills.lock"))
+    except (Problem, json.JSONDecodeError) as error:
+        print(
+            f"adopt: warning: cannot read skills.lock ({error}); "
+            "inventorying vendored skill files",
+            file=sys.stderr,
+        )
+        return set()
+    skills = lock.get("skills") if isinstance(lock, dict) else None
+    if not isinstance(skills, list):
+        print(
+            "adopt: warning: skills.lock has no skills list; "
+            "inventorying vendored skill files",
+            file=sys.stderr,
+        )
+        return set()
+    return {
+        item["name"]
+        for item in skills
+        if isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and item["name"].strip()
+    }
+
+
+def is_vendored_skill(path, names):
+    item = PurePosixPath(path)
+    return len(item.parts) > 1 and item.parts[0] == "skills" and item.parts[1] in names
 
 
 def comment_rule(message):
@@ -88,7 +131,7 @@ def comment_rule(message):
 def comment_sources(project, tracked):
     files = []
     for path in tracked:
-        if path.lower().endswith((".md", ".markdown")):
+        if path.lower().endswith((".md", ".markdown")) or is_fixture_path(path):
             continue
         if not inside_checkout(project, path):
             print(
