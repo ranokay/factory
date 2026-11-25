@@ -274,7 +274,8 @@ def desired_codex(text: str, servers: dict, retired: list[str], home: Path) -> s
     lines = body.splitlines()
     policy = next((i for i, line in enumerate(lines) if line.strip() == "[shell_environment_policy]"), None)
     if policy is None:
-        body = body.rstrip() + "\n\n[shell_environment_policy]\nignore_default_excludes = true\n"
+        separator = "\n\n" if body.strip() else ""
+        body = body.rstrip() + separator + "[shell_environment_policy]\nignore_default_excludes = true\n"
     else:
         end = next((i for i in range(policy + 1, len(lines)) if HEADER.match(lines[i].strip())), len(lines))
         lines[policy + 1:end] = [line for line in lines[policy + 1:end] if not re.match(r"\s*ignore_default_excludes\s*=", line)]

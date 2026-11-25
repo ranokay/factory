@@ -655,6 +655,10 @@ case_mcp_absent() {
 	[ ! -e "$home/.claude.json" ] || fail "the fixture home already has a Claude config"
 	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the fixture home already has an OpenCode config"
 	[ ! -e "$home/.codex/config.toml" ] || fail "the fixture home already has a Codex config"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "bootstrap:check passed without MCP configs: $output"
+	expect_contains "$output" "MCP configs are not in sync"
+	expect_contains "$output" "$home/.claude.json"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "bootstrap failed without MCP configs: $output"
 	expect_contains "$output" "MCP configs are in sync"

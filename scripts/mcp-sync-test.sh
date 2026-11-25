@@ -220,6 +220,8 @@ case_absent() {
 	[ "$code" -eq 0 ] || fail "the created OpenCode config is not minimal: $output"
 	run_python -c 'import sys,tomllib; c=tomllib.load(open(sys.argv[1],"rb")); assert sorted(c["mcp_servers"])==["context7","cua-driver"] and c["shell_environment_policy"]["ignore_default_excludes"] is True, c' "$home/.codex/config.toml"
 	[ "$code" -eq 0 ] || fail "the created Codex config does not parse or is not minimal: $output"
+	run_python -c 'import sys; assert open(sys.argv[1]).read().startswith("[shell_environment_policy]\n")' "$home/.codex/config.toml"
+	[ "$code" -eq 0 ] || fail "the created Codex config starts with a blank line: $output"
 	[ "$(backup_count)" = 0 ] || fail "the render backed up a config it created"
 	run_sync --check
 	[ "$code" -eq 0 ] || fail "the check reported drift after creating the configs: $output"
