@@ -317,8 +317,8 @@ function loadModuleSources(root, modulesDirectory, profiles) {
       sourceKey: SOURCE_PATH,
       source: driverSource,
       tools: { resvg: RESVG_TOOL },
-      managedRoots: [],
-      managedGlobs: ["assets/brand/*.png", "assets/store/framed/*.png"],
+      managedRoots: ["assets/store/framed"],
+      managedGlobs: ["assets/brand/*.png"],
       generate: universalGenerate,
     },
   ];
