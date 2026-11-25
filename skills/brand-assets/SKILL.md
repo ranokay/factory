@@ -152,10 +152,10 @@ Show it with T3:
 The page shows each concept's icon at 16, 32, 64, 128, 256, 512 and 1024 px,
 its logo lockup, a 16 px silhouette strip, the mark as a menu-bar template
 glyph, as a favicon in a mock tab bar, and in a mock Dock, on light and dark. A
-`Contrast check` banner names any ink below 3:1 on a board. The size ladder
-scrolls for 512 and 1024; “Show all sizes” expands one board to the full page
-width so the 1024 master is shown whole. If T3 preview tools are unavailable,
-open the file with `open` and give ranokay its path.
+`Contrast check` banner names any neutral ink or fixed accent below 3:1 on a
+board. The size ladder scrolls for 512 and 1024; “Show all sizes” expands one
+board to the full page width so the 1024 master is shown whole. If T3 preview
+tools are unavailable, open the file with `open` and give ranokay its path.
 
 ## 5. The pick
 

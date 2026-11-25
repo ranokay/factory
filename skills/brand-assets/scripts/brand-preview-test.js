@@ -106,7 +106,7 @@ try {
   assert.equal((markerHtml.match(/<section class="concept"/g) ?? []).length, 1);
 
   const gradient = (color) =>
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#111827"/></linearGradient><circle id="dot" cx="8" cy="8" r="4"/></defs><rect width="64" height="64" fill="url(#g)"/><circle id="abc" cx="16" cy="16" r="4" fill="#abc"/><use href="#dot"/></svg>\n`;
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#111827"/></linearGradient><circle id="dot" cx="8" cy="8" r="4"/></defs><rect width="64" height="64" fill="url(#g)"/><circle id="abc" cx="16" cy="16" r="4" fill="#abc"/><circle cx="32" cy="32" r="4" fill="currentColor"/><use href="#dot"/></svg>\n`;
   const gradientA = write("gradient-a.svg", gradient("#111827"));
   const gradientB = write("gradient-b.svg", gradient("#e4572e"));
   const namespaced = path.join(workspace, "out", "namespaced.html");
@@ -145,23 +145,34 @@ try {
   ]);
   const variantHtml = fs.readFileSync(variant, "utf8");
   assert.ok(!variantHtml.includes("Contrast check"));
-  assert.ok(variantHtml.includes('id="concept-1-dark-icon-darkonly"'));
-  assert.ok(variantHtml.includes('id="concept-1-dark-lockup-darklock"'));
+  const darkBoard = variantHtml.slice(variantHtml.indexOf('class="board board-dark"'));
+  assert.ok(darkBoard.includes('id="concept-1-dark-icon-darkonly"'));
+  assert.ok(darkBoard.includes('id="concept-1-dark-lockup-darklock"'));
 
   const undeclared = write("undeclared.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#141821"/></svg>\n`);
   const undeclaredOut = path.join(workspace, "out", "undeclared.html");
   run(["--title", "Undeclared", "--concept", `Undeclared=${undeclared}`, "--output", undeclaredOut]);
   assert.ok(fs.readFileSync(undeclaredOut, "utf8").includes("declare the neutral ink with data-brand-ink"));
 
+  const lying = write("lying.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="#18181b"/></svg>\n`);
+  const lyingOut = path.join(workspace, "out", "lying.html");
+  run(["--title", "Lying", "--concept", `Lying=${lying}`, "--output", lyingOut]);
+  assert.ok(fs.readFileSync(lyingOut, "utf8").includes("declares currentColor but paints no currentColor"));
+
   const faint = write("faint.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor" opacity=".04"/></svg>\n`);
   const faintOut = path.join(workspace, "out", "faint.html");
   run(["--title", "Faint", "--concept", `Faint=${faint}`, "--output", faintOut]);
   assert.ok(fs.readFileSync(faintOut, "utf8").includes("partial opacity makes the ink untestable"));
 
-  const alpha = write("alpha.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="rgba(20,24,33,0.1)"><rect width="64" height="64" fill="#141821"/></svg>\n`);
+  const accentOpacity = write("accent-opacity.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="currentColor"><rect width="64" height="64" fill="currentColor"/><circle cx="52" cy="12" r="6" fill="#e4572e" fill-opacity=".5"/></svg>\n`);
+  const accentOpacityOut = path.join(workspace, "out", "accent-opacity.html");
+  run(["--title", "Accent", "--concept", `Accent=${accentOpacity}`, "--output", accentOpacityOut]);
+  assert.ok(!fs.readFileSync(accentOpacityOut, "utf8").includes("partial opacity"));
+
+  const alpha = write("alpha.svg", `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-brand-ink="rgba(128,128,128,0.2)"><rect width="64" height="64" fill="rgba(128,128,128,0.2)"/></svg>\n`);
   const alphaOut = path.join(workspace, "out", "alpha.html");
   run(["--title", "Alpha", "--concept", `Alpha=${alpha}`, "--output", alphaOut]);
-  assert.ok(fs.readFileSync(alphaOut, "utf8").includes("minimum 3:1"));
+  assert.ok(fs.readFileSync(alphaOut, "utf8").includes("light icon: rgba(128,128,128,0.2)"));
 
   const noViewBox = write("no-viewbox.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n");
   expectFailure(fails(["--title", "Bad", "--concept", `No=${noViewBox}`, "--output", path.join(workspace, "bad.html")]), "has no viewBox");

@@ -170,38 +170,113 @@ function contrastRatio(foreground, background) {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function inkFor(source, textColor) {
   const root = source.match(/<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i);
   if (root === null) {
-    return { color: null, raw: null };
+    return { color: null, raw: null, problem: "is not an SVG document" };
   }
   const declared = /data-brand-ink\s*=\s*["']([^"']+)["']/i.exec(root[1]);
   if (declared === null) {
-    return { color: null, raw: null };
+    return { color: null, raw: null, problem: "declare the neutral ink with data-brand-ink" };
   }
   const raw = declared[1].trim();
-  return raw.toLowerCase() === "currentcolor" ? { color: parseColor(textColor), raw: textColor } : { color: parseColor(raw), raw };
+  if (raw.toLowerCase() === "currentcolor") {
+    if (!/(?:fill|stroke)\s*=\s*["']currentColor["']/i.test(source)) {
+      return { color: null, raw, problem: "declares currentColor but paints no currentColor" };
+    }
+    return { color: parseColor(textColor), raw: textColor };
+  }
+  const color = parseColor(raw);
+  if (color === null) {
+    return { color: null, raw, problem: `cannot read data-brand-ink ${raw}` };
+  }
+  const painted = new RegExp(`(?:fill|stroke)\\s*=\\s*["']${escapeRegExp(raw)}["']`, "i").test(source);
+  if (!painted) {
+    return { color: null, raw, problem: `declares ${raw} but paints no ${raw}` };
+  }
+  return { color, raw };
 }
 
 const PARTIAL_OPACITY = /(?:opacity|fill-opacity|stroke-opacity)\s*=\s*["']\s*(?:0(?:\.\d+)?|\.\d+)\s*["']/i;
+const PAINT = /(?:^|\s)(fill|stroke)\s*=\s*["']([^"']+)["']/gi;
+
+function tagAttributes(source) {
+  const attributes = {};
+  const pattern = /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    attributes[match[1].toLowerCase()] = match[2] ?? match[3] ?? "";
+  }
+  return attributes;
+}
+
+function partialOpacityOnInk(source, inkRaw) {
+  const tags = source.matchAll(/<([A-Za-z][\w:.-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g);
+  for (const match of tags) {
+    const name = match[1].toLowerCase().split(":").pop();
+    const attributes = tagAttributes(match[2]);
+    const opacity = [attributes.opacity, attributes["fill-opacity"], attributes["stroke-opacity"]]
+      .filter((value) => value !== undefined)
+      .map(Number.parseFloat)
+      .filter(Number.isFinite);
+    if (opacity.length === 0 || Math.min(...opacity) >= 1) {
+      continue;
+    }
+    const paints = [attributes.fill, attributes.stroke].filter((value) => value !== undefined);
+    const paintsInk = paints.some((value) => /^currentcolor$/i.test(value.trim()) || value.trim().toLowerCase() === inkRaw.toLowerCase());
+    if (name === "svg" || paintsInk) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function fixedPaintProblems(source, board, kind, theme, inkRaw) {
+  const problems = [];
+  const seen = new Set();
+  let match;
+  PAINT.lastIndex = 0;
+  while ((match = PAINT.exec(source)) !== null) {
+    const value = match[2].trim();
+    const lower = value.toLowerCase();
+    if (seen.has(lower) || lower === "" || lower === "none" || lower === "transparent" || lower === "inherit" || lower === "currentcolor" || lower.startsWith("url(") || lower === String(inkRaw).toLowerCase()) {
+      continue;
+    }
+    const color = parseColor(value);
+    if (color === null) {
+      continue;
+    }
+    seen.add(lower);
+    const ratio = contrastRatio(composite(color, parseColor(board.background)), parseColor(board.background));
+    if (ratio < MIN_CONTRAST) {
+      problems.push(`${theme} ${kind} accent ${value}: ${ratio.toFixed(1)}:1; minimum ${MIN_CONTRAST}:1`);
+    }
+  }
+  return problems;
+}
 
 function contrastProblems(concept) {
   const problems = [];
   const check = (theme, source, kind) => {
     const board = BOARDS[theme];
     const background = parseColor(board.background);
-    if (PARTIAL_OPACITY.test(source)) {
-      problems.push(`${theme} ${kind}: partial opacity makes the ink untestable; use solid paint`);
-    }
     const ink = inkFor(source, board.text);
     if (ink.color === null) {
-      problems.push(`${theme} ${kind}: declare the neutral ink with data-brand-ink`);
+      problems.push(`${theme} ${kind}: ${ink.problem}`);
       return;
+    }
+    if (partialOpacityOnInk(source, ink.raw)) {
+      problems.push(`${theme} ${kind}: partial opacity makes the ink untestable; use solid paint`);
     }
     const ratio = contrastRatio(composite(ink.color, background), background);
     if (ratio < MIN_CONTRAST) {
       problems.push(`${theme} ${kind}: ${ink.raw} is ${ratio.toFixed(1)}:1; minimum ${MIN_CONTRAST}:1`);
     }
+    problems.push(...fixedPaintProblems(source, board, kind, theme, ink.raw));
   };
   check("light", concept.svg, "icon");
   check("dark", concept.darkSvg === undefined ? concept.svg : concept.darkSvg, "icon");
