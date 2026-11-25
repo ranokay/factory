@@ -1,4 +1,8 @@
 ---
+# Vendored skills are byte-for-byte upstream copies pinned in skills.lock, so their
+# frontmatter cannot carry Factory attribution; Own Skills stay analyzed.
+exclude_paths:
+  - "skills/periphery-scan-setup/**"
 # The asset driver is one self-contained file so the hk Gate can inline it and
 # a repository that amends the Profile by URL needs no scripts checkout. It is
 # deliberately long and branchy. ESLint still scans it; the two engines below
