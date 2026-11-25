@@ -1,0 +1,5 @@
+interface:
+  display_name: "Brand Assets"
+  short_description: "Draw three icon concepts, preview them, and commit the chosen masters"
+policy:
+  allow_implicit_invocation: false

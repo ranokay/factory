@@ -1024,6 +1024,15 @@ steps {
           }
         }
       }
+      ["brand-assets"] = new Step {
+        check = "node {{root}}/skills/brand-assets/scripts/brand-preview-test.js"
+        tests {
+          ["renders three concepts deterministically and rejects bad input"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
       ["block-issue"] = new Step {
         check = "sh {{root}}/skills/supervise/scripts/block-issue-test.sh"
         tests {

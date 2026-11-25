@@ -4,6 +4,8 @@ import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.
 
 // comment-ban's help contains ${#array[@]}, which Tera reads as a comment tag; see https://keats.github.io/tera/docs/#raw-blocks.
 local const commentBan = "{% raw %}" + read("scripts/comment-ban.sh").text + "{% endraw %}"
+// Inline the checker for the same reason as comment-ban: a repository that amends this Profile by URL has no local scripts path.
+local const assetMasters = "{% raw %}" + read("scripts/asset-masters.js").text + "{% endraw %}"
 local const pinactScript = read("scripts/pinact.sh").text
 local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")
 
@@ -169,6 +171,270 @@ steps = new Mapping<String, Step | Group> {
       }
       ["shellcheck"] = Builtins.shellcheck
       ["shfmt"] = Builtins.shfmt
+      ["assets"] = new Step {
+        glob = List("assets/brand/**/*.svg")
+        env { ["ASSET_MASTERS"] = assetMasters }
+        check = new Command {
+          argv = List("sh", "-c", "node -e \"$ASSET_MASTERS\" asset-masters {{files}}")
+        }
+        tests {
+          ["accepts primitives and Bezier curves"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/pass-icon.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect { code = 0 }
+          }
+          ["accepts a hand-built wordmark under the path budget"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/logo.svg"] = read("tests/fixtures/brand/pass-wordmark.svg").text }
+            files = List("assets/brand/logo.svg")
+            expect { code = 0 }
+          }
+          ["accepts local fragment references"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/pass-fragments.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect { code = 0 }
+          }
+          ["rejects an image element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-image.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <image>"
+            }
+          }
+          ["rejects a data image"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-data-image.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains a data URI"
+            }
+          }
+          ["rejects a foreignObject"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-foreign-object.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <foreignObject>"
+            }
+          }
+          ["rejects a text element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-text.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <text>"
+            }
+          }
+          ["rejects an empty href"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><use href=\"\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has an empty href"
+            }
+          }
+          ["rejects a missing viewBox"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has no viewBox"
+            }
+          }
+          ["rejects a viewBox that is not on the root"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\"><svg viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\"/></svg></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has no viewBox"
+            }
+          }
+          ["rejects a viewBox in a comment"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<!-- <svg viewBox=\"0 0 8 8\"> --><svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"8\" height=\"8\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has no viewBox"
+            }
+          }
+          ["accepts a comment before the root"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<!-- mark --><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect { code = 0 }
+          }
+          ["rejects a style element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-style.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <style>"
+            }
+          }
+          ["rejects a use element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-use.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <use>"
+            }
+          }
+          ["rejects a symbol element"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><symbol id=\"s\"><rect width=\"8\" height=\"8\"/></symbol><rect width=\"8\" height=\"8\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <symbol>"
+            }
+          }
+          ["rejects pattern, mask, filter and clipPath paint"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-forbidden.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <pattern>"
+            }
+          }
+          ["rejects a mask"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><defs><mask id=\"m\"><rect width=\"8\" height=\"8\"/></mask></defs><rect width=\"8\" height=\"8\" mask=\"url(#m)\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <mask>"
+            }
+          }
+          ["rejects a filter"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><defs><filter id=\"f\"><feGaussianBlur stdDeviation=\"1\"/></filter></defs><rect width=\"8\" height=\"8\" filter=\"url(#f)\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <filter>"
+            }
+          }
+          ["rejects a clipPath"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><defs><clipPath id=\"c\"><rect width=\"4\" height=\"4\"/></clipPath></defs><rect width=\"8\" height=\"8\" clip-path=\"url(#c)\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <clipPath>"
+            }
+          }
+          ["rejects an event-handler attribute"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-event-handler.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains an event-handler attribute"
+            }
+          }
+          ["rejects an unquoted event-handler attribute"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\" onload=alert(1)></rect></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains an event-handler attribute"
+            }
+          }
+          ["accepts a data attribute ending in on"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\" data-onload=\"x\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect { code = 0 }
+          }
+          ["rejects a script URL"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><a href=\"javascript:alert(1)\"><rect width=\"8\" height=\"8\"/></a></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains a script URL"
+            }
+          }
+          ["rejects an unquoted script URL"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><a href=javascript:alert(1)><rect width=\"8\" height=\"8\"/></a></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains a script URL"
+            }
+          }
+          ["rejects an external url reference"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-url.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "references an external stylesheet or URL"
+            }
+          }
+          ["rejects a staircase"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-staircase.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "has a staircase"
+            }
+          }
+          ["rejects a path over the node budget"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = read("tests/fixtures/brand/fail-node-budget.svg").text }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "the budget is 400"
+            }
+          }
+        }
+      }
       ["jactionlint"] = Builtins.jactionlint
       ["tombi"] = Builtins.tombi
       ["yamlfmt"] = Builtins.yamlfmt
