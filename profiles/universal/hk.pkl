@@ -326,6 +326,36 @@ steps = new Mapping<String, Step | Group> {
               stderr = "contains <pattern>"
             }
           }
+          ["rejects a mask"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><defs><mask id=\"m\"><rect width=\"8\" height=\"8\"/></mask></defs><rect width=\"8\" height=\"8\" mask=\"url(#m)\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <mask>"
+            }
+          }
+          ["rejects a filter"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><defs><filter id=\"f\"><feGaussianBlur stdDeviation=\"1\"/></filter></defs><rect width=\"8\" height=\"8\" filter=\"url(#f)\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <filter>"
+            }
+          }
+          ["rejects a clipPath"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><defs><clipPath id=\"c\"><rect width=\"4\" height=\"4\"/></clipPath></defs><rect width=\"8\" height=\"8\" clip-path=\"url(#c)\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect {
+              code = 1
+              stderr = "contains <clipPath>"
+            }
+          }
           ["rejects an external url reference"] {
             run = "check"
             tmpdir = true
