@@ -219,7 +219,7 @@ function checkSource(source) {
   if (EXTERNAL_URL.test(source) || /@import\b/i.test(source)) {
     problems.add("references an external stylesheet or URL");
   }
-  if (/\bon[a-z]+\s*=/i.test(source)) {
+  if (/(?:^|[\s"'])on[a-z]+\s*=/i.test(source)) {
     problems.add("contains an event-handler attribute");
   }
   if (/(?:javascript|vbscript)\s*:/i.test(source)) {

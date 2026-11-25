@@ -376,6 +376,13 @@ steps = new Mapping<String, Step | Group> {
               stderr = "contains an event-handler attribute"
             }
           }
+          ["accepts a data attribute ending in on"] {
+            run = "check"
+            tmpdir = true
+            write { ["assets/brand/icon.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\" data-onload=\"x\"/></svg>\n" }
+            files = List("assets/brand/icon.svg")
+            expect { code = 0 }
+          }
           ["rejects a script URL"] {
             run = "check"
             tmpdir = true
