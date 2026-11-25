@@ -170,15 +170,12 @@ function contrastRatio(foreground, background) {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function paints(source, value) {
-  const escaped = escapeRegExp(value);
-  return (
-    new RegExp(`(?:fill|stroke)\\s*=\\s*["']${escaped}["']`, "i").test(source) ||
-    new RegExp(`style\\s*=\\s*["'][^"']*(?:fill|stroke)\\s*:\\s*${escaped}`, "i").test(source)
+function paintsRendered(source, value) {
+  const wanted = value.toLowerCase();
+  return paintedElements(source).some(
+    (element) =>
+      element.rendered &&
+      [element.fill, element.stroke].some((paint) => paint !== undefined && paint.trim().toLowerCase() === wanted),
   );
 }
 
@@ -193,7 +190,7 @@ function inkFor(source, textColor) {
   }
   const raw = declared[1].trim();
   if (raw.toLowerCase() === "currentcolor") {
-    if (!paints(source, "currentColor")) {
+    if (!paintsRendered(source, "currentColor")) {
       return { color: null, raw, problem: "declares currentColor but paints no currentColor" };
     }
     return { color: parseColor(textColor), raw: textColor };
@@ -202,7 +199,7 @@ function inkFor(source, textColor) {
   if (color === null) {
     return { color: null, raw, problem: `cannot read data-brand-ink ${raw}` };
   }
-  if (!paints(source, raw)) {
+  if (!paintsRendered(source, raw)) {
     return { color: null, raw, problem: `declares ${raw} but paints no ${raw}` };
   }
   return { color, raw };
