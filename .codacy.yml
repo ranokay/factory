@@ -10,7 +10,7 @@ engines:
       - "profiles/apple/scripts/assets.js"
       - "profiles/web/scripts/assets.js"
       - "profiles/universal/tests/assets-test.js"
-  metric:
+  lizard:
     exclude_paths:
       - "profiles/universal/scripts/assets.js"
       - "profiles/apple/scripts/assets.js"
