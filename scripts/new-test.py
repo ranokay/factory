@@ -189,8 +189,10 @@ class NewCase(unittest.TestCase):
         text = target.read_text()
         self.assertIn(old, text)
         target.write_text(text.replace(old, new))
-        self.git(name, "add", "-A")
-        self.git(name, "commit", "-qm", f"edit {path}")
+        added = self.git(name, "add", "-A")
+        self.assertEqual(added.returncode, 0, added.stderr)
+        committed = self.git(name, "commit", "-qm", f"edit {path}")
+        self.assertEqual(committed.returncode, 0, committed.stderr)
 
     def seed_idea(self, title="Rocket", body="Fly to Mars."):
         state = self.state()
@@ -375,6 +377,7 @@ class NewCase(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("without deleting a comment", result.stderr)
         self.assertIn("# keep this", (self.clone("one") / "mise.toml").read_text())
+        self.assertEqual(self.git("one", "status", "--porcelain").stdout, "")
 
     def test_an_alternate_hk_url_at_the_same_tag_is_kept(self):
         first = self.run_new("one")

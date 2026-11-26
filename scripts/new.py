@@ -342,6 +342,17 @@ def plan_hk_amends(path, profile, tag, may_rewrite):
     return text[: match.start(1)] + target + text[match.end(1) :]
 
 
+def check_includes(clone, chain, tag):
+    path = clone / "mise.toml"
+    if not path.is_file():
+        return
+    text = path.read_text()
+    for profile in chain:
+        mise_url, tasks_url = include_urls(profile, tag)
+        text, _ = ensure_include(text, "include", None, mise_url, profile)
+        text, _ = ensure_include(text, "includes", "task_config", tasks_url, profile)
+
+
 def apply_profiles(clone, chain, tag, agents_absent, hk_absent):
     agents_path = clone / "AGENTS.md"
     agents_text = plan_profiles_line(agents_path, chain, agents_absent)
@@ -497,6 +508,11 @@ def install_template(clone):
     show(result.stderr, sys.stderr)
     if result.returncode != 0:
         problem("installing the Project Template failed")
+
+
+def restore_clone(clone):
+    run(["git", "-C", str(clone), "checkout", "--", "."])
+    run(["git", "-C", str(clone), "clean", "-fdq"])
 
 
 def apply_repo_settings(slug):
@@ -713,11 +729,16 @@ def new(args):
     agents_absent = not (clone / "AGENTS.md").exists()
     hk_absent = not (clone / "hk.pkl").exists()
     tag = existing_tag(clone) or existing_hk_tag(clone) or current_tag
-    install_template(clone)
-    apply_profiles(clone, chain, tag, agents_absent, hk_absent)
-    symlink_claude(clone)
-    if created and idea and idea.draft:
-        seed_product(clone, idea)
+    check_includes(clone, chain, tag)
+    try:
+        install_template(clone)
+        apply_profiles(clone, chain, tag, agents_absent, hk_absent)
+        symlink_claude(clone)
+        if created and idea and idea.draft:
+            seed_product(clone, idea)
+    except Problem:
+        restore_clone(clone)
+        raise
     committed, _ = commit_and_push(clone, name)
     if not has_head(clone):
         problem("the new clone has no commit")
