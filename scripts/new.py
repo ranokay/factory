@@ -91,6 +91,23 @@ def array_values(text, key, section=None):
     return (data.get(section) or {}).get(key, [])
 
 
+def with_trailing_comma(inner):
+    lines = inner.splitlines(keepends=True)
+    for index in range(len(lines) - 1, -1, -1):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        ending = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+        body = line[: -len(ending)] if ending else line
+        match = re.match(r'^(\s*"[^"]*")\s*(,?)\s*(#.*)?$', body)
+        if match:
+            comma = match.group(2) or ","
+            comment = f" {match.group(3)}" if match.group(3) else ""
+            lines[index] = match.group(1) + comma + comment + ending
+        break
+    return "".join(lines)
+
+
 def same_profile(entry, profile, kind):
     if not FACTORY_INCLUDE.match(entry):
         return False
@@ -158,6 +175,7 @@ def ensure_include(text, key, section, url, profile):
                     break
             if not inner.endswith(("\n", "\r")):
                 inner += newline
+            inner = with_trailing_comma(inner)
             output = [inner, f'{indent}{json.dumps(url)},{newline}']
         updated = text[: start + 1] + "".join(output) + text[end:]
     else:
@@ -265,7 +283,7 @@ def profiles_line(text):
     return None
 
 
-def set_profiles_line(path, chain, may_rewrite):
+def plan_profiles_line(path, chain, may_rewrite):
     text = path.read_text()
     names = ", ".join(chain)
     index = profiles_line(text)
@@ -278,12 +296,15 @@ def set_profiles_line(path, chain, may_rewrite):
             problem("AGENTS.md does not start with a heading; add the Profiles line by hand")
         newline = "\r\n" if "\r\n" in text else "\n"
         lines[first + 1 : first + 1] = [newline, f"Profiles: {names}{newline}"]
-        path.write_text("".join(lines))
-        return True
+        return "".join(lines)
     lines = text.splitlines(keepends=True)
-    existing = [entry.strip() for entry in PROFILES_LINE.match(lines[index]).group(1).split(",") if entry.strip()]
+    existing = [
+        entry.strip()
+        for entry in PROFILES_LINE.match(lines[index]).group(1).split(",")
+        if entry.strip()
+    ]
     if existing == chain:
-        return False
+        return None
     if not may_rewrite:
         problem(
             f"AGENTS.md declares Profiles: {', '.join(existing)}; "
@@ -292,21 +313,19 @@ def set_profiles_line(path, chain, may_rewrite):
     newline = "\r\n" if lines[index].endswith("\r\n") else "\n"
     indent = lines[index][: len(lines[index]) - len(lines[index].lstrip())]
     lines[index] = f"{indent}Profiles: {names}{newline}"
-    path.write_text("".join(lines))
-    return True
+    return "".join(lines)
 
 
-def set_hk_amends(path, profile, tag, may_rewrite):
+def plan_hk_amends(path, profile, tag, may_rewrite):
     target = hk_url(profile, tag)
     if not path.exists():
-        path.write_text(f'amends "{target}"\n')
-        return True
+        return f'amends "{target}"\n'
     text = path.read_text()
     match = AMENDS.search(text)
     if match is None:
         problem("hk.pkl has no amends line; add the Profile amends by hand")
     if match.group(1) == target:
-        return False
+        return None
     existing = re.search(r"/profiles/([^/]+)/hk\.pkl", match.group(1))
     if not may_rewrite:
         if existing and existing.group(1) == profile:
@@ -316,14 +335,12 @@ def set_hk_amends(path, profile, tag, may_rewrite):
         problem(
             f"hk.pkl amends {match.group(1)!r}; new leaves an existing project's hk.pkl alone"
         )
-    path.write_text(text[: match.start(1)] + target + text[match.end(1) :])
-    return True
+    return text[: match.start(1)] + target + text[match.end(1) :]
 
 
 def apply_profiles(clone, chain, tag, agents_absent, hk_absent):
-    changed = []
-    if set_profiles_line(clone / "AGENTS.md", chain, agents_absent):
-        changed.append("AGENTS.md")
+    agents_path = clone / "AGENTS.md"
+    agents_text = plan_profiles_line(agents_path, chain, agents_absent)
     mise_path = clone / "mise.toml"
     if not mise_path.is_file():
         problem("the Project Template did not install mise.toml")
@@ -331,20 +348,24 @@ def apply_profiles(clone, chain, tag, agents_absent, hk_absent):
     text = original
     for profile in chain:
         mise_url, tasks_url = include_urls(profile, tag)
-        text, added = ensure_include(text, "include", None, mise_url, profile)
-        if added:
-            changed.append("mise.toml")
-        text, added = ensure_include(
+        text, _ = ensure_include(text, "include", None, mise_url, profile)
+        text, _ = ensure_include(
             text, "includes", "task_config", tasks_url, profile
         )
-        if added:
-            changed.append("mise.toml")
+    hk_path = clone / "hk.pkl"
+    hk_text = plan_hk_amends(hk_path, chain[-1], tag, hk_absent)
+    changed = []
+    if agents_text is not None:
+        agents_path.write_text(agents_text)
+        changed.append("AGENTS.md")
     if text != original:
         mise_path.write_text(text)
-    if set_hk_amends(clone / "hk.pkl", chain[-1], tag, hk_absent):
+        changed.append("mise.toml")
+    if hk_text is not None:
+        hk_path.write_text(hk_text)
         changed.append("hk.pkl")
     if changed:
-        print(f"new: wrote {', '.join(dict.fromkeys(changed))}")
+        print(f"new: wrote {', '.join(changed)}")
 
 
 def symlink_claude(clone):
@@ -631,6 +652,24 @@ def existing_tag(clone):
     return None
 
 
+def existing_hk_tag(clone):
+    path = clone / "hk.pkl"
+    if not path.is_file():
+        return None
+    match = AMENDS.search(path.read_text())
+    if match is None:
+        return None
+    ref = factory_ref(match.group(1))
+    return ref if ref and TAG.match(ref) else None
+
+
+def check_existing_pins(clone):
+    mise_tag = existing_tag(clone)
+    hk_tag = existing_hk_tag(clone)
+    if mise_tag and hk_tag and mise_tag != hk_tag:
+        problem(f"mise.toml pins {mise_tag} but hk.pkl pins {hk_tag}; align them")
+
+
 def handoff(slug, clone):
     print(f"new: {slug} is ready at {clone}")
     print("new: hand-off, in this order:")
@@ -666,9 +705,10 @@ def new(args):
     else:
         print(f"new: reusing {slug}")
     ensure_clone(clone, slug)
+    check_existing_pins(clone)
     agents_absent = not (clone / "AGENTS.md").exists()
     hk_absent = not (clone / "hk.pkl").exists()
-    tag = existing_tag(clone) or current_tag
+    tag = existing_tag(clone) or existing_hk_tag(clone) or current_tag
     install_template(clone)
     apply_profiles(clone, chain, tag, agents_absent, hk_absent)
     symlink_claude(clone)

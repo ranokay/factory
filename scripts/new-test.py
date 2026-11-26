@@ -244,11 +244,6 @@ class NewCase(unittest.TestCase):
         )
         self.assertEqual(len(self.git("one", "log", "--format=%H").stdout.split()), 1)
         self.assertTrue(any("push" in call for call in self.git_calls()))
-        tag_calls = [call for call in self.git_calls() if "tag" in call and "--list" in call]
-        self.assertTrue(tag_calls)
-        for call in tag_calls:
-            self.assertIn("--merged", call)
-            self.assertIn("HEAD", call)
         repo = state["repos"]["ranokay/one"]
         self.assertTrue(repo["repo"]["private"])
         self.assertEqual(repo["repo"]["description"], "one, a Personal Project")
@@ -293,6 +288,15 @@ class NewCase(unittest.TestCase):
         self.assertIn("repository settings failed", result.stderr)
         self.assertNotIn("is ready", result.stdout)
         self.assertNotIn("hand-off", result.stdout)
+
+    def test_an_unreachable_tag_is_not_pinned(self):
+        result = self.run_new(
+            "one", extra={"FAKE_UNREACHABLE_TAG": "v9.9.10"}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        mise = (self.clone("one") / "mise.toml").read_text()
+        self.assertIn(f"profiles/universal/mise.toml?ref={TEST_TAG}", mise)
+        self.assertNotIn("v9.9.10", mise)
 
     def test_a_tagless_checkout_falls_back_to_the_template_pin(self):
         result = self.run_new(
@@ -378,6 +382,31 @@ class NewCase(unittest.TestCase):
         result = self.run_new("one")
         self.assertEqual(result.returncode, 1)
         self.assertIn("align them", result.stderr)
+
+    def test_a_divergent_hk_pin_leaves_the_clone_clean(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        self.edit_clone(
+            "one",
+            "hk.pkl",
+            f"/{TEST_TAG}/profiles/universal/hk.pkl",
+            "/v9.9.10/profiles/universal/hk.pkl",
+        )
+        result = self.run_new("one")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("align them", result.stderr)
+        self.assertEqual(self.git("one", "status", "--porcelain").stdout, "")
+
+    def test_an_hk_pin_fills_a_missing_mise_pin(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        self.edit_clone("one", "mise.toml", f"?ref={TEST_TAG}", "")
+        result = self.run_new("one", extra={"FAKE_TAG": "v9.9.10"})
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        mise = (self.clone("one") / "mise.toml").read_text()
+        self.assertEqual(mise.count("profiles/universal/mise.toml"), 1)
+        self.assertIn(f"profiles/universal/mise.toml?ref={TEST_TAG}", mise)
+        self.assertNotIn("v9.9.10", mise)
 
     def test_profile_chain_writes_every_include(self):
         result = self.run_new("web-one", "--profile", "web")

@@ -11,8 +11,14 @@ with Path(os.environ["FAKE_GIT_LOG"]).open("a") as handle:
     handle.write(json.dumps(args) + "\n")
 
 if "tag" in args and "--list" in args:
-    if os.environ.get("FAKE_TAG"):
-        print(os.environ["FAKE_TAG"])
+    reachable = os.environ.get("FAKE_TAG")
+    unreachable = os.environ.get("FAKE_UNREACHABLE_TAG")
+    if "--merged" in args:
+        tags = [reachable] if reachable else []
+    else:
+        tags = [tag for tag in (unreachable, reachable) if tag]
+    if tags:
+        print("\n".join(tags))
         sys.exit(0)
     if os.environ.get("FAKE_NO_TAGS"):
         sys.exit(1)
