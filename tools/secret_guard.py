@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import re
+import string
 import subprocess
 import sys
 import tomllib
@@ -13,13 +16,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
 GITLEAKS_TIMEOUT = 2
-# Keep gitleaks' v8.30.1 segment thresholds; candidates force a scan so its recursive decoder stays authoritative.
-# https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/codec/encodings.go
-ENCODING_CANDIDATE_RE = re.compile(
-    r"%[0-9A-Fa-f]{2}(?:.*%[0-9A-Fa-f]{2})?"
-    r"|(?:(?:U\+[a-fA-F0-9]{4}(?:\s|$))+|(?i:(?:\\{1,2}u[a-fA-F0-9]{4})+))"
-    r"|[0-9A-Fa-f]{32,}"
-    r"|[\w/+-]{16,}={0,2}",
+MAX_DECODE_DEPTH = 5
+# Mirror gitleaks v8.30.1 candidate precedence and thresholds.
+# https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/codec/encodings.go#L22-L43
+ENCODING_RE = re.compile(
+    r"(?P<percent>%[0-9A-Fa-f]{2}(?:.*%[0-9A-Fa-f]{2})?)"
+    r"|(?P<unicode>(?:(?:U\+[a-fA-F0-9]{4}(?:\s|$))+|(?i:(?:\\{1,2}u[a-fA-F0-9]{4})+)))"
+    r"|(?P<hex>[0-9A-Fa-f]{32,})"
+    r"|(?P<base64>[\w/+-]{16,}={0,2})",
     re.ASCII,
 )
 FALLBACK_RULES = (
@@ -43,6 +47,83 @@ FALLBACK_RULES = (
 
 def fallback_rule_ids(text: str) -> list[str]:
     return sorted(rule_id for rule_id, pattern in FALLBACK_RULES if pattern.search(text))
+
+
+# Match gitleaks v8.30.1's kept-segment and printable-ASCII acceptance rules.
+# https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/codec/decoder.go#L51-L62
+# https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/codec/ascii.go#L5-L10
+def printable_ascii(value: bytes) -> bool:
+    return all(0x08 < byte < 0x7F for byte in value)
+
+
+def decode_base64(value: str) -> str | None:
+    if not any(char in "0123456789+/-_" for char in value):
+        return None
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        decoded = None
+    if decoded is not None and printable_ascii(decoded):
+        return decoded.decode("ascii")
+    if "=" not in value and "+" not in value and "/" not in value:
+        padded = value + "=" * (-len(value) % 4)
+        try:
+            decoded = base64.b64decode(padded, altchars=b"-_", validate=True)
+        except (binascii.Error, ValueError):
+            return None
+        if printable_ascii(decoded):
+            return decoded.decode("ascii")
+    return None
+
+
+def decode_hex(value: str) -> str | None:
+    if len(value) % 2 or not any(char in string.digits for char in value):
+        return None
+    decoded = bytes.fromhex(value)
+    return decoded.decode("ascii") if printable_ascii(decoded) else None
+
+
+def decode_percent(value: str) -> str | None:
+    decoded: list[str] = []
+    index = 0
+    while index < len(value):
+        if value[index] == "%" and index + 2 < len(value):
+            pair = value[index + 1 : index + 3]
+            if all(char in string.hexdigits for char in pair):
+                byte = int(pair, 16)
+                if not 0x08 < byte < 0x7F:
+                    return None
+                decoded.append(chr(byte))
+                index += 3
+                continue
+        decoded.append(value[index])
+        index += 1
+    return "".join(decoded)
+
+
+def decode_unicode(value: str) -> str | None:
+    if "U+" in value:
+        points = re.findall(r"U\+([a-fA-F0-9]{4})", value)
+    else:
+        points = re.findall(r"\\{1,2}u([a-fA-F0-9]{4})", value, re.IGNORECASE)
+    if not points:
+        return None
+    return "".join("\ufffd" if 0xD800 <= int(point, 16) <= 0xDFFF else chr(int(point, 16)) for point in points)
+
+
+def decode_pass(text: str) -> str:
+    parts: list[str] = []
+    cursor = 0
+    for match in ENCODING_RE.finditer(text):
+        parts.append(text[cursor : match.start()])
+        decoder = {"percent": decode_percent, "unicode": decode_unicode, "hex": decode_hex, "base64": decode_base64}[
+            match.lastgroup
+        ]
+        decoded = decoder(match.group())
+        parts.append(decoded if decoded else text[match.start() : match.end()])
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def pinned_gitleaks_version() -> str | None:
@@ -83,13 +164,21 @@ def prefilter_keywords() -> set[str] | None:
 
 
 def needs_gitleaks(text: str) -> bool:
-    if ENCODING_CANDIDATE_RE.search(text):
-        return True
     keywords = prefilter_keywords()
     if keywords is None:
         return True
-    lowered = text.lower()
-    return any(keyword in lowered for keyword in keywords)
+    current = text
+    for depth in range(MAX_DECODE_DEPTH + 1):
+        lowered = current.lower()
+        if any(keyword in lowered for keyword in keywords):
+            return True
+        if depth == MAX_DECODE_DEPTH:
+            break
+        decoded = decode_pass(current)
+        if decoded == current:
+            break
+        current = decoded
+    return False
 
 
 def rule_ids(text: str) -> tuple[list[str], str | None]:

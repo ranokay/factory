@@ -185,17 +185,67 @@ class SecretGuardTests(unittest.TestCase):
                 self.assertNotIn(token, result.stdout + result.stderr)
                 self.assertNotIn(encoded, result.stdout + result.stderr)
 
+    def test_representative_ordinary_inputs_skip_gitleaks(self):
+        cases = (
+            ("prompt", {"prompt": "Reply with exactly OK."}),
+            ("prompt", {"prompt": "Read /Users/ranokay/Developer/factory/AGENTS and follow it"}),
+            (
+                "prompt",
+                {"prompt": "Rename factory_command_guard_prefilter to FactoryCommandGuardPrefilter without changing behavior."},
+            ),
+            ("tool", {"tool_name": "Read", "tool_input": {"file_path": "/Users/ranokay/Developer/factory/scripts/bootstrap.py"}}),
+            (
+                "tool",
+                {
+                    "tool_name": "Edit",
+                    "tool_input": {
+                        "file_path": "/Users/ranokay/Developer/factory/tools/command_guard.py",
+                        "old_string": "return None",
+                        "new_string": "return []",
+                    },
+                },
+            ),
+            (
+                "tool",
+                {"tool_name": "Write", "tool_input": {"file_path": "/Users/ranokay/Developer/factory/notes", "content": "ordinary text"}},
+            ),
+            (
+                "tool",
+                {"tool_name": "Bash", "tool_input": {"command": "sed -n '1,20p' /Users/ranokay/Developer/factory/scripts/bootstrap.py"}},
+            ),
+        )
+        with tempfile.TemporaryDirectory() as bin_dir:
+            marker = Path(bin_dir) / "spawned"
+            env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\ncat >/dev/null\n: >"$GUARD_MARKER"\nexit 0\n', marker)
+            for mode, payload in cases:
+                with self.subTest(mode=mode, payload=payload):
+                    marker.unlink(missing_ok=True)
+                    result = self.invoke(mode, payload, env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertFalse(marker.exists())
+
     def test_prefilter_skip_agrees_with_real_gitleaks(self):
         corpus = [
             ("Summarise the current branch.", False),
             ("git status --short", False),
+            ("Read /Users/ranokay/Developer/factory/skills/supervise/SKILL.md and follow it", True),
+            ('{"file_path":"/Users/ranokay/Developer/factory/notes.txt","content":"ordinary text"}', True),
             ("A" * 15, False),
-            ("A" * 31, True),
-            ("41" * 16, True),
+            ("A" * 31, False),
+            ("41" * 16, False),
             ("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", True),
-            ("%41", True),
-            ("U+0041", True),
-            (base64.b64encode(b"ordinary text").decode(), True),
+            ("////////////////", False),
+            ("00" * 16, False),
+            (base64.b64encode(b"\x00" * 12).decode(), False),
+            ("%00", False),
+            ("%41", False),
+            ("U+0041", False),
+            (base64.b64encode(b"ordinary text").decode(), False),
+            ("%61%70%69", True),
+            ("\\u0061\\u0070\\u0069", True),
+            ("617069" + "41" * 13, True),
+            (base64.b64encode(b"api ordinary text").decode(), True),
             *((encoded, True) for _, _, encoded in encoded_fixtures()),
         ]
         with tempfile.TemporaryDirectory() as bin_dir:
