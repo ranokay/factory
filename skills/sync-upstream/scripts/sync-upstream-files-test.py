@@ -200,6 +200,41 @@ class SyncUpstreamFiles(SyncFixture):
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_installed_template_runs_its_own_check_groups(self):
+        target = self.target()
+        self.cli("install-files", "--target", str(target))
+        self.git(target, "init", "-q", "-b", "main")
+        self.git(target, "config", "user.name", "Fixture")
+        self.git(target, "config", "user.email", "fixture@example.com")
+        self.git(target, "add", "-A")
+        self.git(target, "commit", "-qm", "seed")
+        state = json.loads(self.repo_file.read_text())
+        state["view"] = "false"
+        self.repo_file.write_text(json.dumps(state))
+        token = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- reads the signed-in gh token without the fake on PATH
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        mise = shutil.which("mise", path=self.env["PATH"])
+        if mise is None:
+            self.skipTest("mise is not installed")
+        if not token:
+            self.skipTest("gh is not authenticated")
+        env = dict(self.env, MISE_TRUSTED_CONFIG_PATHS=str(target), GITHUB_TOKEN=token)
+        for task in ("check:lint", "check:security", "check:test"):
+            with self.subTest(task=task):
+                result = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the test runs the seeded repo's own pinned tasks
+                    [mise, "run", task],
+                    cwd=target,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_install_files_keeps_existing_callers_and_review_files(self):
         target = self.target()
         self.cli("install-files", "--target", str(target))
