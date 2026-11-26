@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import secrets
+import shutil
 import string
 import subprocess
 import sys
@@ -45,10 +46,15 @@ def fallback_fixtures() -> list[tuple[str, str]]:
 
 class SecretGuardTests(unittest.TestCase):
     def invoke(
-        self, mode: str, payload: dict | str, *, env: dict[str, str] | None = None
+        self,
+        mode: str,
+        payload: dict | str,
+        *,
+        env: dict[str, str] | None = None,
+        guard: Path = GUARD,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, str(GUARD), mode],
+            [sys.executable, str(guard), mode],
             input=payload if isinstance(payload, str) else json.dumps(payload),
             text=True,
             capture_output=True,
@@ -148,16 +154,77 @@ class SecretGuardTests(unittest.TestCase):
         self.assertIn("context7-key-token", json.loads(result.stdout)["reason"])
         self.assertNotIn(token, result.stdout + result.stderr)
 
-    def test_missing_gitleaks_warns_when_the_fallback_passes_ordinary_input(self):
+    def test_missing_gitleaks_warns_when_the_fallback_passes_a_keyword_input(self):
         with tempfile.TemporaryDirectory() as empty_path:
             env = os.environ.copy()
             env["PATH"] = empty_path
-            result = self.invoke("prompt", {"prompt": "List the open issues."}, env=env)
+            result = self.invoke("prompt", {"prompt": "Check the API configuration."}, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         warning = json.loads(result.stdout)["systemMessage"]
         self.assertIn("gitleaks not found", warning)
         self.assertIn("fallback scan passed", warning)
         self.assertEqual(result.stderr, "")
+
+    def test_input_without_keywords_skips_gitleaks(self):
+        cases = (
+            ("prompt", {"prompt": "Summarise the current branch."}),
+            ("tool", {"tool_name": "Bash", "tool_input": {"command": "git status --short"}}),
+        )
+        for mode, payload in cases:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as bin_dir:
+                marker = Path(bin_dir) / "spawned"
+                gitleaks = Path(bin_dir) / "gitleaks"
+                gitleaks.write_text('#!/bin/sh\n: >"$GUARD_MARKER"\nexit 2\n')
+                gitleaks.chmod(0o755)
+                env = os.environ.copy()
+                env["PATH"] = bin_dir
+                env["GUARD_MARKER"] = str(marker)
+                result = self.invoke(mode, payload, env=env)
+                spawned = marker.exists()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(result.stderr, "")
+                self.assertFalse(spawned)
+
+    def test_input_with_a_keyword_runs_gitleaks(self):
+        with tempfile.TemporaryDirectory() as bin_dir:
+            marker = Path(bin_dir) / "spawned"
+            gitleaks = Path(bin_dir) / "gitleaks"
+            gitleaks.write_text('#!/bin/sh\n: >"$GUARD_MARKER"\nexit 0\n')
+            gitleaks.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = bin_dir
+            env["GUARD_MARKER"] = str(marker)
+            result = self.invoke("prompt", {"prompt": "Check the API configuration."}, env=env)
+            spawned = marker.exists()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "")
+        self.assertTrue(spawned)
+
+    def test_missing_or_invalid_keyword_catalog_always_runs_gitleaks(self):
+        for catalog in (None, "not json"):
+            with self.subTest(catalog=catalog), tempfile.TemporaryDirectory() as case_dir:
+                root = Path(case_dir)
+                tools = root / "tools"
+                tools.mkdir()
+                guard = tools / "secret_guard.py"
+                shutil.copy2(GUARD, guard)
+                if catalog is not None:
+                    (tools / "gitleaks-keywords.json").write_text(catalog)
+                bin_dir = root / "bin"
+                bin_dir.mkdir()
+                marker = root / "spawned"
+                gitleaks = bin_dir / "gitleaks"
+                gitleaks.write_text('#!/bin/sh\n: >"$GUARD_MARKER"\nexit 0\n')
+                gitleaks.chmod(0o755)
+                env = os.environ.copy()
+                env["PATH"] = str(bin_dir)
+                env["GUARD_MARKER"] = str(marker)
+                result = self.invoke("prompt", {"prompt": "Summarise the current branch."}, env=env, guard=guard)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertTrue(marker.exists())
 
     def test_ordinary_input_passes_in_every_mode(self):
         cases = (

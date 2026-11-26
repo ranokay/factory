@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
 GITLEAKS_TIMEOUT = 2
 FALLBACK_RULES = (
     ("private-key", re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
@@ -34,7 +35,37 @@ def fallback_rule_ids(text: str) -> list[str]:
     return sorted(rule_id for rule_id, pattern in FALLBACK_RULES if pattern.search(text))
 
 
+def prefilter_keywords() -> set[str] | None:
+    try:
+        catalog = json.loads(KEYWORD_CATALOG.read_text())
+        keywords = catalog["keywords"]
+        if (
+            not isinstance(keywords, list)
+            or not keywords
+            or not all(isinstance(keyword, str) and keyword and keyword == keyword.lower() for keyword in keywords)
+        ):
+            return None
+        for rule in catalog["unkeyworded_rules"]:
+            if not isinstance(rule, dict) or set(rule) != {"id", "path"} or not isinstance(rule["path"], str):
+                return None
+            if re.search(rule["path"], "") is not None:
+                return None
+        return set(keywords)
+    except (OSError, ValueError, KeyError, TypeError, re.error):
+        return None
+
+
+def needs_gitleaks(text: str) -> bool:
+    keywords = prefilter_keywords()
+    if keywords is None:
+        return True
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in keywords)
+
+
 def rule_ids(text: str) -> tuple[list[str], str | None]:
+    if not needs_gitleaks(text):
+        return [], None
     try:
         result = subprocess.run(
             [
@@ -96,7 +127,7 @@ def main() -> int:
     findings, warning = rule_ids(text)
     if not findings:
         if args.mode == "opencode":
-            output = {"block": False}
+            output: dict[str, object] = {"block": False}
             if warning:
                 output["warning"] = f"Factory secret guard warning: {warning}; fallback scan passed"
             print(json.dumps(output))

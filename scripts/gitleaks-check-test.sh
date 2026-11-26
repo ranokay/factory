@@ -121,7 +121,31 @@ case_default_rules() {
 	printf 'ok: the default rules still fire\n'
 }
 
+case_keyword_catalog() {
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py"
+	[ "$code" -eq 0 ] || fail "the gitleaks keyword catalog is stale: $output"
+	fixture=$test_root/keyword-catalog
+	mkdir -p "$fixture/tools" "$fixture/profiles/universal"
+	cp "$root/mise.toml" "$fixture/mise.toml"
+	cp "$root/profiles/universal/mise.toml" "$fixture/profiles/universal/mise.toml"
+	cp "$root/.gitleaks.toml" "$fixture/.gitleaks.toml"
+	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	run_command python3 - "$fixture/profiles/universal/mise.toml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace('gitleaks = "8.30.1"', 'gitleaks = "8.30.2"'))
+PY
+	[ "$code" -eq 0 ] || fail "cannot bump the fixture gitleaks pin: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "a gitleaks pin bump did not invalidate the keyword catalog"
+	expect_contains "$output" "gitleaks version"
+	printf 'ok: the keyword catalog matches the pinned gitleaks version and Factory rules\n'
+}
+
 case_all() {
+	case_keyword_catalog
 	case_fabricated
 	case_env_reference
 	case_bare_key
@@ -131,6 +155,7 @@ case_all() {
 }
 
 case $case_name in
+keyword-catalog) case_keyword_catalog ;;
 fabricated) case_fabricated ;;
 env-reference) case_env_reference ;;
 bare-key) case_bare_key ;;
