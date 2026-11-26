@@ -729,7 +729,7 @@ def new(args):
         install_template(clone)
         apply_profiles(clone, chain, tag, agents_absent, hk_absent)
         symlink_claude(clone)
-        if created and idea and idea.draft:
+        if idea and idea.draft:
             seed_product(clone, idea)
     except Problem:
         restore_clone(clone)
