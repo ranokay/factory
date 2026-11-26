@@ -47,8 +47,12 @@ class Policy(NamedTuple):
 
 
 class Carried(NamedTuple):
-    head: str
     findings: list[dict[str, Any]]
+
+
+class Coordinates(NamedTuple):
+    diffs: dict[str, FileDiff]
+    unpatched: frozenset[str]
 
 
 class Hunk(NamedTuple):
@@ -77,8 +81,8 @@ CARRY_KEYS = (
 )
 
 
-def encode_routed(head: str, findings: list[dict[str, Any]]) -> str:
-    payload = {"head": head, "findings": findings}
+def encode_routed(findings: list[dict[str, Any]]) -> str:
+    payload = {"findings": findings}
     encoded = base64.b64encode(
         json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -90,11 +94,6 @@ def encode_routed(head: str, findings: list[dict[str, Any]]) -> str:
 def validate_carried(payload: Any) -> Carried:
     if not isinstance(payload, dict):
         raise RewriteError("routed-findings payload is not an object")
-    head = payload.get("head")
-    if head is None:
-        head = ""
-    if not isinstance(head, str):
-        raise RewriteError("routed-findings head is not a string")
     findings = payload.get("findings")
     if not isinstance(findings, list):
         raise RewriteError("routed-findings payload has no findings list")
@@ -107,16 +106,18 @@ def validate_carried(payload: Any) -> Carried:
             raise RewriteError(f"carried finding {index} has no line")
         if normalize(item.get("severity")) not in SEVERITY_RANK:
             raise RewriteError(f"carried finding {index} has an unknown severity")
+        if not isinstance(item.get("head"), str) or not item["head"]:
+            raise RewriteError(f"carried finding {index} has no coordinate head")
         origin = item.get("origin", {})
         if not isinstance(origin, dict):
             raise RewriteError(f"carried finding {index} origin is not an object")
-    return Carried(head, findings)
+    return Carried(findings)
 
 
 def decode_routed(body: str) -> Carried:
     found = ROUTED_MARKER.findall(body or "")
     if not found:
-        return Carried("", [])
+        return Carried([])
     if len(found) > 1:
         raise RewriteError("sticky summary has more than one routed-findings marker")
     try:
@@ -197,7 +198,9 @@ def remap_span(
     return (left, right) if left <= right else (right, left)
 
 
-def remap_finding(comment: dict[str, Any], diff: FileDiff) -> dict[str, Any] | None:
+def remap_finding(
+    comment: dict[str, Any], diff: FileDiff, head: str
+) -> dict[str, Any] | None:
     start = integer(comment.get("start_line")) or integer(comment.get("end_line"))
     end = integer(comment.get("end_line")) or start
     span = remap_span(diff.hunks, start, end)
@@ -208,7 +211,23 @@ def remap_finding(comment: dict[str, Any], diff: FileDiff) -> dict[str, Any] | N
         "path": diff.path,
         "start_line": span[0],
         "end_line": span[1],
+        "head": head,
     }
+
+
+def map_carried(
+    comment: dict[str, Any], coordinates: dict[str, Coordinates], head: str
+) -> dict[str, Any] | None:
+    mapping = coordinates.get(str(comment.get("head") or ""))
+    if mapping is None or not head or str(comment.get("head")) == head:
+        return comment
+    path = str(comment.get("path") or "")
+    diff = mapping.diffs.get(path)
+    if diff is not None:
+        return remap_finding(comment, diff, head)
+    if path in mapping.unpatched:
+        return comment
+    return {**comment, "head": head}
 
 
 def finding_key(comment: dict[str, Any]) -> tuple[str, int]:
@@ -239,32 +258,22 @@ def origin_label(origin: Any) -> str:
 def merge_routed(
     current: list[dict[str, Any]],
     carried: list[dict[str, Any]],
-    diffs: dict[str, FileDiff],
+    coordinates: dict[str, Coordinates],
     raised: list[dict[str, Any]],
+    head: str,
 ) -> list[dict[str, Any]]:
-    # Any finding this run raised at a path and line replaces a carried one,
-    # whether it is routed, posted inline or failed to post.
     covered = {finding_key(comment) for comment in raised}
-    entries: list[dict[str, Any]] = []
+    entries: list[dict[str, Any]] = list(current)
     listed: set[tuple[str, int]] = set()
-    for comment in current:
-        key = finding_key(comment)
-        if key in listed:
-            continue
-        listed.add(key)
-        entries.append(comment)
     for comment in carried:
-        diff = diffs.get(str(comment.get("path") or ""))
-        if diff is not None:
-            remapped = remap_finding(comment, diff)
-            if remapped is None:
-                continue
-            comment = remapped
-        key = finding_key(comment)
+        mapped = map_carried(comment, coordinates, head)
+        if mapped is None:
+            continue
+        key = finding_key(mapped)
         if key in covered or key in listed:
             continue
         listed.add(key)
-        entries.append(comment)
+        entries.append(mapped)
     entries.sort(key=ordering)
     return entries
 
@@ -277,6 +286,7 @@ def carried_findings(
     for comment in entries:
         item = {key: comment[key] for key in CARRY_KEYS if comment.get(key) not in (None, "")}
         item["origin"] = comment.get("origin") or origin
+        item["head"] = str(comment.get("head") or meta.get("to") or "")
         findings.append(item)
     return findings
 
@@ -719,7 +729,7 @@ def rewrite_summary(
     policy: Policy,
     expected: dict[str, int | None] | None = None,
     carried: list[dict[str, Any]] | None = None,
-    diffs: dict[str, FileDiff] | None = None,
+    coordinates: dict[str, Coordinates] | None = None,
 ) -> str:
     marks = [mark for mark in markers(body) if not ROUTED_ANY.match(mark)]
     raw_comments = list(result.get("comments") or [])
@@ -739,7 +749,13 @@ def rewrite_summary(
         for comment in raw_comments
         if not is_diagram_carrier(comment) and has_line(comment)
     ]
-    merged = merge_routed(routed, carried, diffs or {}, raised)
+    merged = merge_routed(
+        routed,
+        carried,
+        coordinates or {},
+        raised,
+        str(meta.get("to") or ""),
+    )
     check_counts(expected, inline, skipped)
     blocks = [f"## AI Review · {rating}/5 · {verdict(rating)}", text]
     table = findings_table(inline, failed)
@@ -758,7 +774,7 @@ def rewrite_summary(
     ):
         if section:
             blocks.append(section)
-    marks.append(encode_routed(str(meta.get("to") or ""), carried_findings(merged, meta)))
+    marks.append(encode_routed(carried_findings(merged, meta)))
     prefix = "\n".join(marks)
     body_text = "\n\n".join(block for block in blocks if block).strip()
     return (prefix + "\n\n" if prefix else "") + body_text + "\n"
