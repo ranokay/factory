@@ -291,6 +291,18 @@ class NewCase(unittest.TestCase):
         self.assertEqual(len(self.state()["projects"]), 1)
         self.assertFalse(any("create" in call for call in self.gh_calls()[-1:]))
 
+    def test_idea_promotes_into_an_existing_repo_without_rewriting_it(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        head = self.head("one")
+        self.seed_idea()
+        result = self.run_new("one", "--idea", "PVTI_1")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("promoted", result.stdout)
+        self.assertEqual(self.head("one"), head)
+        self.assertIn("# <repo>", (self.clone("one") / "PRODUCT.md").read_text())
+        self.assertEqual(len(self.state()["repos"]["ranokay/one"]["issues"]), 1)
+
     def test_idea_seeds_and_promotes(self):
         self.seed_idea()
         result = self.run_new("--idea", "PVTI_1")

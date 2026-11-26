@@ -541,17 +541,18 @@ def new(args):
         problem(f"{args.idea!r} is already an issue in {idea['url'] or 'another repository'}")
     description = idea["title"][:DESCRIPTION_LIMIT] if idea else f"{name}, a Personal Project"
     clone = args.developer_root.expanduser().resolve() / name
-    if repo_exists(slug):
-        print(f"new: reusing {slug}")
-    else:
+    created = not repo_exists(slug)
+    if created:
         create_repo(slug, not args.public, description)
+    else:
+        print(f"new: reusing {slug}")
     ensure_clone(clone, slug)
     owned_agents = not (clone / "AGENTS.md").exists()
     owned_hk = not (clone / "hk.pkl").exists()
     install_template(clone)
     apply_profiles(clone, chain, tag, owned_agents, owned_hk)
     symlink_claude(clone)
-    if idea and idea["draft"]:
+    if created and idea and idea["draft"]:
         seed_product(clone, idea)
     committed, _ = commit_and_push(clone, name)
     if not has_head(clone):
