@@ -158,16 +158,29 @@ case_scan_failure() {
 	cat >"$test_root/scan-failure/bin/trivy" <<'SH'
 #!/bin/sh
 printf '%s\n' '{"SchemaVersion":2}'
-printf '%s\n' 'FATAL TLS handshake timeout while fetching the vulnerability DB' >&2
+printf '%s\n' '2026-11-26T00:00:00Z FATAL TLS handshake timeout while fetching the vulnerability DB' >&2
 SH
 	chmod +x "$test_root/scan-failure/bin/trivy"
 	run_command env PATH="$test_root/scan-failure/bin:$PATH" "$checker" "$test_root/scan-failure/repo"
 	[ "$code" -ne 0 ] || fail "a fatal Trivy diagnostic passed with an empty report"
 	case $output in
-	*"scan reported a fatal or error diagnostic"*) ;;
+	*"scan reported a fatal diagnostic"*) ;;
 	*) fail "expected a fatal-scan diagnostic: $output" ;;
 	esac
 	printf 'ok: a fatal Trivy diagnostic fails even with a valid empty report\n'
+}
+
+case_nonfatal_error() {
+	mkdir -p "$test_root/nonfatal-error/repo" "$test_root/nonfatal-error/bin"
+	cat >"$test_root/nonfatal-error/bin/trivy" <<'SH'
+#!/bin/sh
+printf '%s\n' '{"SchemaVersion":2}'
+printf '%s\n' '2026-11-26T00:00:00Z ERROR [npm] npm error optional install output' >&2
+SH
+	chmod +x "$test_root/nonfatal-error/bin/trivy"
+	run_command env PATH="$test_root/nonfatal-error/bin:$PATH" "$checker" "$test_root/nonfatal-error/repo"
+	[ "$code" -eq 0 ] || fail "a nonfatal Trivy ERROR failed a clean scan: $output"
+	printf 'ok: a nonfatal Trivy ERROR does not fail a clean scan\n'
 }
 
 case_cache_outside_repo() {
@@ -204,6 +217,7 @@ case_all() {
 	case_db_failure
 	case_malformed_report
 	case_scan_failure
+	case_nonfatal_error
 	case_cache_outside_repo
 }
 
@@ -217,6 +231,7 @@ explained-ignore) case_explained_ignore ;;
 db-failure) case_db_failure ;;
 malformed-report) case_malformed_report ;;
 scan-failure) case_scan_failure ;;
+nonfatal-error) case_nonfatal_error ;;
 cache-outside-repo) case_cache_outside_repo ;;
 all) case_all ;;
 *)
