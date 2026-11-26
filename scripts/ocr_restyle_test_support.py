@@ -26,8 +26,7 @@ class FakeGitHub:
         self.compare = {"files": []}
         self.patches = []
         self.fail_compare = False
-        self.fail_path = ""
-        self.fail_once = False
+        self.faults = {}
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -36,6 +35,9 @@ class FakeGitHub:
 
             def do_GET(self):
                 path = urlparse(self.path).path
+                if outer.take_fault("GET", path):
+                    outer.reply(self, {"message": "forced failure"}, 500)
+                    return
                 if path == "/repos/o/r/issues/7/comments":
                     outer.reply(self, outer.issue_comments)
                 elif path == "/repos/o/r/pulls/7/comments":
@@ -52,8 +54,7 @@ class FakeGitHub:
                 path = urlparse(self.path).path
                 length = int(self.headers.get("Content-Length", 0))
                 payload = json.loads(self.rfile.read(length) or b"{}")
-                if outer.fail_once and path == outer.fail_path:
-                    outer.fail_once = False
+                if outer.take_fault("PATCH", path):
                     outer.reply(self, {"message": "forced failure"}, 500)
                     return
                 outer.patches.append((path, payload["body"]))
@@ -75,6 +76,17 @@ class FakeGitHub:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+
+    def fail(self, method, path, times=1):
+        self.faults[f"{method} {path}"] = times
+
+    def take_fault(self, method, path):
+        key = f"{method} {path}"
+        remaining = self.faults.get(key, 0)
+        if remaining <= 0:
+            return False
+        self.faults[key] = remaining - 1
+        return True
 
     @staticmethod
     def reply(handler, payload, status=200):
