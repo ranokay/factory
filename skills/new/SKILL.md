@@ -8,7 +8,7 @@ metadata:
 
 # New
 
-Start a project from the Factory's Project Template. Run the task from any cwd; it resolves the Factory checkout, the Template, and the Canonical Clone root itself.
+Start a project from the Factory's Project Template. Run the commands from the Factory checkout, or from any cwd as `mise -C ~/Developer/factory run new -- <arguments>`; the script resolves the Template and the Canonical Clone root itself.
 
 ## Ideas
 
@@ -49,7 +49,7 @@ The command:
 
 It is done when it prints `<owner>/<repo> is ready at <clone>` and the hand-off below.
 
-Re-running is safe: it reuses the repository, clone and commit, rewrites nothing that differs from the chosen Profiles, and never deletes or force-pushes. If repo settings report unresolved drift, fix it before the first PR; the first PR needs `Lint`, `Security`, `Tests` and `OCR` green.
+Re-running is safe: it reuses the repository, clone and commit, rewrites nothing that differs from the chosen Profiles, and never deletes or force-pushes. If repository settings still report drift, the command exits non-zero without the hand-off; fix the drift it names and rerun. A public repository's Codacy check can take a moment to report, so its first run may stop there and a rerun completes it. The first PR needs `Lint`, `Security`, `Tests` and `OCR` green.
 
 ## Hand-off
 

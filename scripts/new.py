@@ -15,9 +15,10 @@ import re
 import sys
 import tomllib
 from pathlib import Path
+from typing import NamedTuple
 
 from adopt_common import Problem, gh, git, git_out, parse_json, problem, run, show
-from profiles_reader import TAG
+from profiles_reader import AMENDS, PROFILES_LINE, TAG, factory_ref
 
 ROOT = Path(__file__).resolve().parent
 FACTORY = ROOT.parent
@@ -26,8 +27,6 @@ REPO_SETTINGS = ROOT / "repo-settings.py"
 OWNER = "ranokay"
 IDEAS = "Ideas"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-AMENDS = re.compile(r'^\s*amends\s+"([^"]+)"', re.MULTILINE)
-PROFILES_LINE = re.compile(r"^[ \t]*Profiles:[ \t]*(.*)$")
 DESCRIPTION_LIMIT = 350
 HANDOFF = (
     "grill-with-docs",
@@ -35,6 +34,14 @@ HANDOFF = (
     "to-spec",
     "to-tickets",
 )
+
+
+class Idea(NamedTuple):
+    id: str | None
+    title: str
+    body: str
+    url: str
+    draft: bool
 
 
 def config_array(text, key, section=None):
@@ -120,12 +127,12 @@ def release_tag(factory):
     except (OSError, tomllib.TOMLDecodeError) as error:
         problem(f"cannot read the Project Template's mise.toml: {error}")
     for entry in data.get("include", []):
-        match = re.search(r"//profiles/[^/]+/mise\.toml\?ref=([^&\"]+)", entry)
-        if match:
-            tag = match.group(1)
-            if not TAG.match(tag):
-                problem(f"the Project Template pins {tag!r}, not a Factory release tag")
-            return tag
+        tag = factory_ref(entry)
+        if tag is None:
+            continue
+        if not TAG.match(tag):
+            problem(f"the Project Template pins {tag!r}, not a Factory release tag")
+        return tag
     problem("the Project Template's mise.toml has no pinned Factory include")
 
 
@@ -134,8 +141,8 @@ def profile_parents(factory):
     for profile in sorted(path for path in (factory / "profiles").iterdir() if path.is_dir()):
         try:
             text = (profile / "hk.pkl").read_text()
-        except OSError:
-            continue
+        except OSError as error:
+            problem(f"cannot read {profile}/hk.pkl: {error}")
         match = AMENDS.search(text)
         if match and match.group(1).startswith("../"):
             parents[profile.name] = Path(match.group(1)).parts[1]
@@ -193,6 +200,8 @@ def set_profiles_line(path, chain, owned):
     names = ", ".join(chain)
     index = profiles_line(text)
     if index is None:
+        if not owned:
+            problem("AGENTS.md has no Profiles line; add it by hand")
         lines = text.splitlines(keepends=True)
         first = next((i for i, line in enumerate(lines) if line.strip()), None)
         if first is None or not lines[first].startswith("# "):
@@ -236,9 +245,9 @@ def set_hk_amends(path, profile, tag, owned):
     return True
 
 
-def apply_profiles(clone, chain, tag, owned_agents, owned_hk):
+def apply_profiles(clone, chain, tag, agents_absent, hk_absent):
     changed = []
-    if set_profiles_line(clone / "AGENTS.md", chain, owned_agents):
+    if set_profiles_line(clone / "AGENTS.md", chain, agents_absent):
         changed.append("AGENTS.md")
     mise_path = clone / "mise.toml"
     if not mise_path.is_file():
@@ -255,7 +264,7 @@ def apply_profiles(clone, chain, tag, owned_agents, owned_hk):
             changed.append("mise.toml")
     if text != original:
         mise_path.write_text(text)
-    if set_hk_amends(clone / "hk.pkl", chain[-1], tag, owned_hk):
+    if set_hk_amends(clone / "hk.pkl", chain[-1], tag, hk_absent):
         changed.append("hk.pkl")
     if changed:
         print(f"new: wrote {', '.join(dict.fromkeys(changed))}")
@@ -282,10 +291,10 @@ def seed_product(clone, idea):
     changed = False
     for index, line in enumerate(lines):
         if line.strip() == "# <repo>":
-            lines[index] = f"# {idea['title']}\n"
+            lines[index] = f"# {idea.title}\n"
             changed = True
         elif line.strip() == "<One sentence: what this is and who it is for.>":
-            body = idea["body"].strip() or idea["title"]
+            body = idea.body.strip() or idea.title
             lines[index] = body + "\n"
             changed = True
     if changed:
@@ -300,7 +309,12 @@ def slugify(title):
 
 def repo_exists(slug):
     result = run(["gh", "repo", "view", slug, "--json", "nameWithOwner"])
-    return result.returncode == 0
+    if result.returncode == 0:
+        return True
+    detail = (result.stderr or result.stdout).strip()
+    if "HTTP 404" in detail or "Not Found" in detail or "Could not resolve to a Repository" in detail:
+        return False
+    problem(f"cannot read {slug}: {detail}")
 
 
 def create_repo(slug, private, description):
@@ -390,9 +404,6 @@ def apply_repo_settings(slug):
     if result.returncode == 0:
         return
     detail = (result.stderr or result.stdout).strip()
-    if detail.endswith("repository has unresolved PR or manual drift"):
-        print("new: repository settings still report drift; fix it before the first PR")
-        return
     problem(f"repository settings failed: {detail}")
 
 
@@ -458,24 +469,24 @@ def find_idea(items, reference):
     drafts = [item for item in matches if (item.get("content") or {}).get("type") == "DraftIssue"]
     if not drafts:
         content = matches[0].get("content") or {}
-        return {
-            "id": None,
-            "title": item_title(matches[0]),
-            "body": content.get("body") or "",
-            "url": content.get("url") or "",
-            "draft": False,
-        }
+        return Idea(
+            id=None,
+            title=item_title(matches[0]),
+            body=content.get("body") or "",
+            url=content.get("url") or "",
+            draft=False,
+        )
     if len(drafts) > 1:
         problem(f"{reference!r} matches more than one draft item; pass the item ID")
     item = drafts[0]
     content = item.get("content") or {}
-    return {
-        "id": item["id"],
-        "title": item_title(item),
-        "body": content.get("body") or "",
-        "url": "",
-        "draft": True,
-    }
+    return Idea(
+        id=item["id"],
+        title=item_title(item),
+        body=content.get("body") or "",
+        url="",
+        draft=True,
+    )
 
 
 def item_title(item):
@@ -483,7 +494,7 @@ def item_title(item):
     return item.get("title") or content.get("title") or ""
 
 
-def promote(project, item, slug):
+def promote(project, idea, slug):
     node = gh("api", f"repos/{slug}", "--jq", ".node_id").strip()
     if not node:
         problem(f"cannot read the repository node ID for {slug}")
@@ -500,7 +511,7 @@ def promote(project, item, slug):
             "-f",
             f"query={query}",
             "-f",
-            f"itemId={item['id']}",
+            f"itemId={idea.id}",
             "-f",
             f"repositoryId={node}",
         ),
@@ -509,8 +520,8 @@ def promote(project, item, slug):
     converted = (payload.get("data") or {}).get("convertProjectV2DraftIssueItemToIssue")
     content = ((converted or {}).get("item") or {}).get("content") or {}
     if not content.get("url"):
-        problem(f"could not convert {item['title']!r} to an issue in {slug}")
-    print(f"new: promoted {item['title']!r} to {content['url']}")
+        problem(f"could not convert {idea.title!r} to an issue in {slug}")
+    print(f"new: promoted {idea.title!r} to {content['url']}")
 
 
 def handoff(slug, clone):
@@ -533,13 +544,13 @@ def new(args):
         return 0
     items = list_items(project)
     idea = find_idea(items, args.idea) if args.idea else None
-    name = args.name or slugify(idea["title"])
+    name = args.name or slugify(idea.title)
     if not NAME_RE.match(name):
-        problem(f"cannot derive a repository name from {idea['title']!r}; pass a name")
+        problem(f"cannot derive a repository name from {idea.title!r}; pass a name")
     slug = f"{OWNER}/{name}"
-    if idea and not idea["draft"] and f"/{slug}/issues/" not in idea["url"]:
-        problem(f"{args.idea!r} is already an issue in {idea['url'] or 'another repository'}")
-    description = idea["title"][:DESCRIPTION_LIMIT] if idea else f"{name}, a Personal Project"
+    if idea and not idea.draft and f"/{slug}/issues/" not in idea.url:
+        problem(f"{args.idea!r} is already an issue in {idea.url or 'another repository'}")
+    description = idea.title[:DESCRIPTION_LIMIT] if idea else f"{name}, a Personal Project"
     clone = args.developer_root.expanduser().resolve() / name
     created = not repo_exists(slug)
     if created:
@@ -547,21 +558,21 @@ def new(args):
     else:
         print(f"new: reusing {slug}")
     ensure_clone(clone, slug)
-    owned_agents = not (clone / "AGENTS.md").exists()
-    owned_hk = not (clone / "hk.pkl").exists()
+    agents_absent = not (clone / "AGENTS.md").exists()
+    hk_absent = not (clone / "hk.pkl").exists()
     install_template(clone)
-    apply_profiles(clone, chain, tag, owned_agents, owned_hk)
+    apply_profiles(clone, chain, tag, agents_absent, hk_absent)
     symlink_claude(clone)
-    if created and idea and idea["draft"]:
+    if created and idea and idea.draft:
         seed_product(clone, idea)
     committed, _ = commit_and_push(clone, name)
     if not has_head(clone):
         problem("the new clone has no commit")
     apply_repo_settings(slug)
-    if idea and idea["draft"]:
+    if idea and idea.draft:
         promote(project, idea, slug)
     elif idea:
-        print(f"new: {idea['title']!r} is already promoted; nothing to convert")
+        print(f"new: {idea.title!r} is already promoted; nothing to convert")
     if committed:
         print("new: the seed is on main; open the first PR when the project has a change")
     handoff(slug, clone)

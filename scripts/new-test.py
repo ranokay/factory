@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -8,6 +9,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+TEMPLATE_TAG = re.search(
+    r"profiles/[^/]+/mise\.toml\?ref=([^&\"]+)",
+    (ROOT / "project/mise.toml").read_text(),
+).group(1)
 NEW = ROOT / "scripts/new.py"
 GH = (ROOT / "scripts/fixtures/new/gh").read_text()
 GIT = (ROOT / "scripts/fixtures/new/git").read_text()
@@ -214,11 +219,11 @@ class NewCase(unittest.TestCase):
         agents = (clone / "AGENTS.md").read_text()
         self.assertIn("Profiles: universal", agents)
         mise = (clone / "mise.toml").read_text()
-        self.assertIn("profiles/universal/mise.toml?ref=v0.5.0", mise)
-        self.assertIn("profiles/universal/tasks.toml?ref=v0.5.0", mise)
+        self.assertIn(f"profiles/universal/mise.toml?ref={TEMPLATE_TAG}", mise)
+        self.assertIn(f"profiles/universal/tasks.toml?ref={TEMPLATE_TAG}", mise)
         hk = (clone / "hk.pkl").read_text()
         self.assertIn(
-            "https://raw.githubusercontent.com/ranokay/factory/v0.5.0/profiles/universal/hk.pkl",
+            f"https://raw.githubusercontent.com/ranokay/factory/{TEMPLATE_TAG}/profiles/universal/hk.pkl",
             hk,
         )
         self.assertEqual(len(self.git("one", "log", "--format=%H").stdout.split()), 1)
@@ -261,6 +266,13 @@ class NewCase(unittest.TestCase):
         self.assertEqual(self.state()["repos"]["ranokay/one"]["writes"], [])
         self.assertNotIn(SECRET, second.stdout + second.stderr)
 
+    def test_settings_failure_stops_before_the_handoff(self):
+        result = self.run_new("public-one", "--public")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("repository settings failed", result.stderr)
+        self.assertNotIn("is ready", result.stdout)
+        self.assertNotIn("hand-off", result.stdout)
+
     def test_profile_chain_writes_every_include(self):
         result = self.run_new("web-one", "--profile", "web")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -268,10 +280,10 @@ class NewCase(unittest.TestCase):
         self.assertIn("Profiles: universal, typescript, web", (clone / "AGENTS.md").read_text())
         mise = (clone / "mise.toml").read_text()
         for profile in ("universal", "typescript", "web"):
-            self.assertIn(f"profiles/{profile}/mise.toml?ref=v0.5.0", mise)
-            self.assertIn(f"profiles/{profile}/tasks.toml?ref=v0.5.0", mise)
+            self.assertIn(f"profiles/{profile}/mise.toml?ref={TEMPLATE_TAG}", mise)
+            self.assertIn(f"profiles/{profile}/tasks.toml?ref={TEMPLATE_TAG}", mise)
         self.assertIn(
-            "https://raw.githubusercontent.com/ranokay/factory/v0.5.0/profiles/web/hk.pkl",
+            f"https://raw.githubusercontent.com/ranokay/factory/{TEMPLATE_TAG}/profiles/web/hk.pkl",
             (clone / "hk.pkl").read_text(),
         )
 
@@ -285,11 +297,15 @@ class NewCase(unittest.TestCase):
         first = self.run_new("--ensure-ideas")
         self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
         self.assertIn("created the Ideas Project", first.stdout)
+        self.reset_logs()
         second = self.run_new("--ensure-ideas")
         self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
         self.assertIn("reusing the Ideas Project", second.stdout)
         self.assertEqual(len(self.state()["projects"]), 1)
-        self.assertFalse(any("create" in call for call in self.gh_calls()[-1:]))
+        self.assertFalse(
+            any(call[:2] == ["project", "create"] for call in self.gh_calls()),
+            self.gh_calls(),
+        )
 
     def test_idea_promotes_into_an_existing_repo_without_rewriting_it(self):
         first = self.run_new("one")

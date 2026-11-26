@@ -9,6 +9,7 @@ import tomllib
 from pathlib import Path
 
 from profiles_reader import (
+    AMENDS,
     FACTORY_REFERENCE,
     FACTORY_REPO,
     PROFILE_PATH,
@@ -20,7 +21,6 @@ from profiles_reader import (
 PRUNE = {'.git', 'node_modules', '.venv', 'venv', 'skills', 'patches'}
 PROFILE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
 GIT_INCLUDE = re.compile(r'^git::(?P<repo>.+)//(?P<path>[^?]+)(?:\?ref=(?P<ref>[^&]+))?$')
-AMENDS = re.compile(r'^\s*amends\s+"([^"]+)"', re.MULTILINE)
 
 
 def relative(root, path):
