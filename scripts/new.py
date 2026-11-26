@@ -18,7 +18,14 @@ from pathlib import Path
 from typing import NamedTuple
 
 from adopt_common import Problem, gh, git, git_out, parse_json, problem, run, show
-from profiles_reader import AMENDS, PROFILES_LINE, TAG, factory_ref
+from profiles_reader import (
+    AMENDS,
+    FACTORY_INCLUDE,
+    PROFILES_LINE,
+    PROFILE_PATH,
+    TAG,
+    factory_ref,
+)
 
 ROOT = Path(__file__).resolve().parent
 FACTORY = ROOT.parent
@@ -84,24 +91,80 @@ def array_values(text, key, section=None):
     return (data.get(section) or {}).get(key, [])
 
 
+def same_profile(entry, profile, kind):
+    if not FACTORY_INCLUDE.match(entry):
+        return False
+    match = PROFILE_PATH.search(entry)
+    return bool(match) and match.group(1) == profile and f"/{kind}.toml" in entry
+
+
 def ensure_include(text, key, section, url, profile):
     values = array_values(text, key, section)
     kind = "tasks" if "/tasks.toml?" in url else "mise"
-    same = re.compile(
-        rf"ranokay/factory.*/profiles/{re.escape(profile)}/{kind}\.toml\?",
-        re.IGNORECASE,
-    )
-    kept = [entry for entry in values if not same.search(entry)] + [url]
-    if kept == values:
+
+    def same(entry):
+        return same_profile(entry, profile, kind)
+
+    if [entry for entry in values if same(entry)] == [url]:
         return text, False
+    expected = []
+    placed = False
+    for entry in values:
+        if same(entry):
+            if not placed:
+                expected.append(url)
+                placed = True
+        else:
+            expected.append(entry)
+    if not placed:
+        expected.append(url)
     span = config_array(text, key, section)
     if span is None:
         problem(f"the Project Template's {key} array is missing")
     start, end = span
-    body = "".join(f"  {json.dumps(entry)},\n" for entry in kept)
-    updated = text[: start + 1] + "\n" + body + text[end:]
+    inner = text[start + 1 : end]
+    newline = "\r\n" if "\r\n" in text else "\n"
+    simple = re.compile(
+        r'^(?P<indent>\s*)"(?P<value>[^"]*)"\s*,?\s*(?P<comment>#.*)?$'
+    )
+    lines = inner.splitlines(keepends=True)
+    total = sum(1 for entry in values if same(entry))
+    handled = 0
+    replaced = False
+    output = []
+    for line in lines:
+        ending = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+        body = line[: -len(ending)] if ending else line
+        match = simple.match(body)
+        if match and same(match.group("value")):
+            handled += 1
+            if not replaced:
+                comment = f' {match.group("comment")}' if match.group("comment") else ""
+                output.append(
+                    f'{match.group("indent")}{json.dumps(url)},{comment}{ending}'
+                )
+                replaced = True
+            elif match.group("comment"):
+                output.append(f'{match.group("indent")}{match.group("comment")}{ending}')
+        else:
+            output.append(line)
+    if "\n" in inner and handled == total and (replaced or not total):
+        if not replaced:
+            indent = "  "
+            for line in lines:
+                match = re.match(r'^(\s*)"', line)
+                if match:
+                    indent = match.group(1)
+                    break
+            if not inner.endswith(("\n", "\r")):
+                inner += newline
+            output = [inner, f'{indent}{json.dumps(url)},{newline}']
+        updated = text[: start + 1] + "".join(output) + text[end:]
+    else:
+        body = "".join(f"  {json.dumps(entry)},\n" for entry in expected)
+        updated = text[: start + 1] + "\n" + body + text[end:]
     try:
-        if array_values(updated, key, section) != kept:
+        if array_values(updated, key, section) != expected:
             problem(f"the {key} pin did not survive the merge")
     except tomllib.TOMLDecodeError as error:
         problem(f"mise.toml could not be merged safely: {error}")
@@ -247,7 +310,9 @@ def set_hk_amends(path, profile, tag, may_rewrite):
     existing = re.search(r"/profiles/([^/]+)/hk\.pkl", match.group(1))
     if not may_rewrite:
         if existing and existing.group(1) == profile:
-            return False
+            problem(
+                f"hk.pkl pins {match.group(1)!r} but the Profiles pin {target!r}; align them"
+            )
         problem(
             f"hk.pkl amends {match.group(1)!r}; new leaves an existing project's hk.pkl alone"
         )

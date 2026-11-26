@@ -184,6 +184,14 @@ class NewCase(unittest.TestCase):
     def head(self, name):
         return self.git(name, "rev-parse", "HEAD").stdout.strip()
 
+    def edit_clone(self, name, path, old, new):
+        target = self.clone(name) / path
+        text = target.read_text()
+        self.assertIn(old, text)
+        target.write_text(text.replace(old, new))
+        self.git(name, "add", "-A")
+        self.git(name, "commit", "-qm", f"edit {path}")
+
     def seed_idea(self, title="Rocket", body="Fly to Mars."):
         state = self.state()
         state["projects"] = [{"number": 1, "title": "Ideas", "id": "PVT_1"}]
@@ -236,6 +244,11 @@ class NewCase(unittest.TestCase):
         )
         self.assertEqual(len(self.git("one", "log", "--format=%H").stdout.split()), 1)
         self.assertTrue(any("push" in call for call in self.git_calls()))
+        tag_calls = [call for call in self.git_calls() if "tag" in call and "--list" in call]
+        self.assertTrue(tag_calls)
+        for call in tag_calls:
+            self.assertIn("--merged", call)
+            self.assertIn("HEAD", call)
         repo = state["repos"]["ranokay/one"]
         self.assertTrue(repo["repo"]["private"])
         self.assertEqual(repo["repo"]["description"], "one, a Personal Project")
@@ -325,6 +338,46 @@ class NewCase(unittest.TestCase):
         self.assertIn(f"profiles/universal/mise.toml?ref={TEST_TAG}", mise)
         self.assertNotIn("v9.9.10", mise)
         self.assertIn(TEST_TAG, hk.read_text())
+
+    def test_include_comments_survive_a_rerun(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        entry = (
+            "git::https://github.com/ranokay/factory.git"
+            f"//profiles/universal/mise.toml?ref={TEST_TAG}"
+        )
+        self.edit_clone("one", "mise.toml", f'  "{entry}",', f'  "{entry}", # keep this')
+        result = self.run_new("one", extra={"FAKE_TAG": "v9.9.10"})
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        mise = (self.clone("one") / "mise.toml").read_text()
+        self.assertIn("# keep this", mise)
+        self.assertEqual(mise.count("profiles/universal/mise.toml"), 1)
+        self.assertNotIn("v9.9.10", mise)
+
+    def test_an_unpinned_include_is_replaced_once(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        self.edit_clone("one", "mise.toml", f"?ref={TEST_TAG}", "")
+        result = self.run_new("one")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        mise = (self.clone("one") / "mise.toml").read_text()
+        self.assertEqual(mise.count("profiles/universal/mise.toml"), 1)
+        self.assertEqual(mise.count("profiles/universal/tasks.toml"), 1)
+        self.assertNotIn('profiles/universal/mise.toml"', mise)
+        self.assertNotIn('profiles/universal/tasks.toml"', mise)
+
+    def test_divergent_hk_and_mise_pins_fail_loudly(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        self.edit_clone(
+            "one",
+            "hk.pkl",
+            f"/{TEST_TAG}/profiles/universal/hk.pkl",
+            "/v9.9.10/profiles/universal/hk.pkl",
+        )
+        result = self.run_new("one")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("align them", result.stderr)
 
     def test_profile_chain_writes_every_include(self):
         result = self.run_new("web-one", "--profile", "web")
