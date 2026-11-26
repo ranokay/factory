@@ -2,7 +2,7 @@
 set -eu
 
 root=${1:-.}
-root=$(CDPATH='' cd "$root" && pwd)
+root=$(CDPATH='' cd "$root" && pwd -P)
 ignore="$root/.trivyignore"
 
 if [ -f "$ignore" ]; then
@@ -46,6 +46,13 @@ case $cache_dir in
 *) cache_dir="$PWD/$cache_dir" ;;
 esac
 cache_dir=$(node -e 'process.stdout.write(require("node:path").resolve(process.argv[1]))' "$cache_dir")
+cache_tail=$(basename "$cache_dir")
+cache_parent=$(dirname "$cache_dir")
+while [ ! -d "$cache_parent" ]; do
+	cache_tail="$(basename "$cache_parent")/$cache_tail"
+	cache_parent=$(dirname "$cache_parent")
+done
+cache_dir="$(CDPATH='' cd "$cache_parent" && pwd -P)/$cache_tail"
 case $cache_dir in
 "$root" | "$root"/*)
 	printf 'trivy: cache directory must be outside the repository: %s\n' "$cache_dir" >&2
@@ -53,7 +60,7 @@ case $cache_dir in
 	;;
 esac
 mkdir -p "$cache_dir"
-cache_dir=$(CDPATH='' cd "$cache_dir" && pwd)
+cache_dir=$(CDPATH='' cd "$cache_dir" && pwd -P)
 case $cache_dir in
 "$root" | "$root"/*)
 	printf 'trivy: cache directory must be outside the repository: %s\n' "$cache_dir" >&2
@@ -63,11 +70,12 @@ esac
 
 report=$(mktemp "$cache_dir/factory-trivy-report.XXXXXX")
 log=$(mktemp "$cache_dir/factory-trivy-log.XXXXXX")
-prepared=$(mktemp "$cache_dir/factory-trivy-ignore.XXXXXX")
-trap 'rm -f "$report" "$log" "$prepared"' EXIT HUP INT TERM
+ignorefile=$(mktemp "$cache_dir/factory-trivy-ignore.XXXXXX")
+trap 'rm -f "$report" "$log" "$ignorefile"' EXIT HUP INT TERM
 
 set -- --cache-dir "$cache_dir" \
 	--scanners vuln,misconfig \
+	--severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
 	--format json \
 	--exit-code 0 \
 	--no-progress \
@@ -75,8 +83,8 @@ set -- --cache-dir "$cache_dir" \
 if [ -f "$ignore" ]; then
 	# Trivy treats extra legacy-ignore fields as expiration dates; reasons stay in the repository's file.
 	# https://github.com/aquasecurity/trivy/blob/main/pkg/result/ignore.go
-	sed 's/[[:space:]]*#.*$//' "$ignore" >"$prepared"
-	set -- "$@" --ignorefile "$prepared"
+	sed 's/[[:space:]]*#.*$//' "$ignore" >"$ignorefile"
+	set -- "$@" --ignorefile "$ignorefile"
 fi
 
 if trivy fs "$root" "$@" >"$report" 2>"$log"; then
@@ -100,6 +108,12 @@ const fs = require('node:fs')
 let report
 try {
 	report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+	if (report === null || typeof report !== 'object' || Array.isArray(report) || typeof report.SchemaVersion !== 'number') {
+		throw new Error('missing numeric SchemaVersion')
+	}
+	if (report.Results !== undefined && !Array.isArray(report.Results)) {
+		throw new Error('Results is not an array')
+	}
 } catch (error) {
 	console.error(`trivy: invalid JSON report: ${error.message}`)
 	process.exit(1)

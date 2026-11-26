@@ -1,1 +1,1 @@
-# Every Trivy ignore entry needs an inline reason: <ID> # <reason>.
+# Entry format: <ID> # <reason>; reasons stay here while the checker passes only IDs to Trivy's legacy parser: https://github.com/aquasecurity/trivy/blob/main/pkg/result/ignore.go

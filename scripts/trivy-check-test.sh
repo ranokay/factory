@@ -38,18 +38,18 @@ case_unexplained_ignore() {
 	printf 'ok: an unexplained .trivyignore entry fails with its line\n'
 }
 
-write_vulnerable_dependency() {
+write_dependency() {
 	mkdir -p "$1"
-	cat >"$1/package.json" <<'JSON'
-{"name":"trivy-vulnerable-fixture","version":"1.0.0","dependencies":{"lodash":"4.17.20"}}
+	cat >"$1/package.json" <<JSON
+{"name":"trivy-fixture","version":"1.0.0","dependencies":{"$2":"$3"}}
 JSON
-	cat >"$1/package-lock.json" <<'JSON'
-{"name":"trivy-vulnerable-fixture","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"trivy-vulnerable-fixture","version":"1.0.0","dependencies":{"lodash":"4.17.20"}},"node_modules/lodash":{"version":"4.17.20","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz"}}}
+	cat >"$1/package-lock.json" <<JSON
+{"name":"trivy-fixture","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"trivy-fixture","version":"1.0.0","dependencies":{"$2":"$3"}},"node_modules/$2":{"version":"$3","resolved":"https://registry.npmjs.org/$2/-/$2-$3.tgz"}}}
 JSON
 }
 
 case_vulnerable_dependency() {
-	write_vulnerable_dependency "$test_root/vulnerable-dependency"
+	write_dependency "$test_root/vulnerable-dependency" lodash 4.17.20
 	run_check "$test_root/vulnerable-dependency"
 	[ "$code" -ne 0 ] || fail "a known-vulnerable pinned dependency passed"
 	case $output in
@@ -59,14 +59,20 @@ case_vulnerable_dependency() {
 	printf 'ok: a known-vulnerable pinned dependency fails the Gate\n'
 }
 
+case_repository_config() {
+	write_dependency "$test_root/repository-config" lodash 4.17.20
+	printf '%s\n' 'severity:' '  - CRITICAL' >"$test_root/repository-config/trivy.yaml"
+	run_check "$test_root/repository-config"
+	[ "$code" -ne 0 ] || fail "trivy.yaml raised the Gate threshold above HIGH"
+	case $output in
+	*HIGH*CVE-2021-23337*) ;;
+	*) fail "trivy.yaml hid a HIGH finding: $output" ;;
+	esac
+	printf 'ok: repository config cannot raise the HIGH/CRITICAL threshold\n'
+}
+
 case_lower_severity() {
-	mkdir -p "$test_root/lower-severity"
-	cat >"$test_root/lower-severity/package.json" <<'JSON'
-{"name":"trivy-lower-severity-fixture","version":"1.0.0","dependencies":{"tough-cookie":"4.1.2"}}
-JSON
-	cat >"$test_root/lower-severity/package-lock.json" <<'JSON'
-{"name":"trivy-lower-severity-fixture","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"trivy-lower-severity-fixture","version":"1.0.0","dependencies":{"tough-cookie":"4.1.2"}},"node_modules/tough-cookie":{"version":"4.1.2","resolved":"https://registry.npmjs.org/tough-cookie/-/tough-cookie-4.1.2.tgz"}}}
-JSON
+	write_dependency "$test_root/lower-severity" tough-cookie 4.1.2
 	run_check "$test_root/lower-severity"
 	[ "$code" -eq 0 ] || fail "a MEDIUM finding failed the Gate: $output"
 	case $output in
@@ -102,13 +108,14 @@ case_secret() {
 }
 
 case_explained_ignore() {
-	write_vulnerable_dependency "$test_root/explained-ignore"
+	write_dependency "$test_root/explained-ignore" tough-cookie 4.1.2
 	cat >"$test_root/explained-ignore/.trivyignore" <<'IGNORE'
-CVE-2021-23337 # fixture dependency is never executed
+CVE-2023-26136 # fixture dependency is never executed
 IGNORE
 	run_check "$test_root/explained-ignore"
+	[ "$code" -eq 0 ] || fail "an explained .trivyignore entry did not produce a clean scan: $output"
 	case $output in
-	*CVE-2021-23337*) fail "an explained .trivyignore entry did not suppress its finding: $output" ;;
+	*CVE-2023-26136*) fail "an explained .trivyignore entry did not suppress its finding: $output" ;;
 	esac
 	printf 'ok: an explained .trivyignore entry suppresses its finding\n'
 }
@@ -130,6 +137,22 @@ case_db_failure() {
 	printf 'ok: a vulnerability DB download failure fails clearly\n'
 }
 
+case_malformed_report() {
+	mkdir -p "$test_root/malformed-report/repo" "$test_root/malformed-report/bin"
+	cat >"$test_root/malformed-report/bin/trivy" <<'SH'
+#!/bin/sh
+printf '%s\n' '{}'
+SH
+	chmod +x "$test_root/malformed-report/bin/trivy"
+	run_command env PATH="$test_root/malformed-report/bin:$PATH" "$checker" "$test_root/malformed-report/repo"
+	[ "$code" -ne 0 ] || fail "a malformed Trivy report passed as clean"
+	case $output in
+	*"invalid JSON report: missing numeric SchemaVersion"*) ;;
+	*) fail "expected a malformed-report diagnostic: $output" ;;
+	esac
+	printf 'ok: a malformed Trivy report fails clearly\n'
+}
+
 case_cache_outside_repo() {
 	mkdir -p "$test_root/cache-location/repo"
 	run_command env TRIVY_CACHE_DIR="$test_root/cache-location/cache" "$checker" "$test_root/cache-location/repo"
@@ -142,26 +165,39 @@ case_cache_outside_repo() {
 	*) fail "expected an external-cache diagnostic: $output" ;;
 	esac
 	[ ! -e "$test_root/cache-location/repo/cache" ] || fail "a rejected cache was created inside the fixture"
-	printf 'ok: Trivy caches outside the repository and refuses an in-repo cache\n'
+	mkdir -p "$test_root/cache-location/repo/symlink-target"
+	ln -s "$test_root/cache-location/repo/symlink-target" "$test_root/cache-location/cache-link"
+	run_command env TRIVY_CACHE_DIR="$test_root/cache-location/cache-link" "$checker" "$test_root/cache-location/repo"
+	[ "$code" -ne 0 ] || fail "a symlinked cache inside the repository was accepted"
+	case $output in
+	*"cache directory must be outside the repository"*) ;;
+	*) fail "expected a physical external-cache diagnostic: $output" ;;
+	esac
+	[ -z "$(ls -A "$test_root/cache-location/repo/symlink-target")" ] || fail "a rejected symlink cache landed in the fixture"
+	printf 'ok: Trivy caches outside the repository and refuses lexical or symlinked in-repo caches\n'
 }
 
 case_all() {
 	case_unexplained_ignore
 	case_vulnerable_dependency
+	case_repository_config
 	case_lower_severity
 	case_secret
 	case_explained_ignore
 	case_db_failure
+	case_malformed_report
 	case_cache_outside_repo
 }
 
 case $case_name in
 unexplained-ignore) case_unexplained_ignore ;;
 vulnerable-dependency) case_vulnerable_dependency ;;
+repository-config) case_repository_config ;;
 lower-severity) case_lower_severity ;;
 secret) case_secret ;;
 explained-ignore) case_explained_ignore ;;
 db-failure) case_db_failure ;;
+malformed-report) case_malformed_report ;;
 cache-outside-repo) case_cache_outside_repo ;;
 all) case_all ;;
 *)
