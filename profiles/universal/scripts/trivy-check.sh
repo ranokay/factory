@@ -79,6 +79,7 @@ set -- --cache-dir "$cache_dir" \
 	--format json \
 	--exit-code 0 \
 	--no-progress \
+	--debug \
 	--skip-version-check
 if [ -f "$ignore" ]; then
 	# Trivy treats extra legacy-ignore fields as expiration dates; reasons stay in the repository's file.
@@ -96,11 +97,18 @@ else
 	printf 'trivy: filesystem scan failed (exit %s); check the vulnerability DB and checks bundle download; cache: %s\n' "$code" "$cache_dir" >&2
 	exit "$code"
 fi
-cat "$log" >&2
-if grep -Ei '(failed|failure|error).*download.*(DB|database|checks bundle)|(DB|database|checks bundle).*download.*(failed|failure|error)|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+FATAL([[:space:]]|$)|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+ERROR[[:space:]].*(failed to parse|failed to analyze|parse error|analysis error)' "$log" >/dev/null; then
+if grep -Ei \
+	-e '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+(FATAL|ERROR|WARN)[[:space:]].*(failed|failure|error).*download.*(DB|database|checks bundle)' \
+	-e '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+(FATAL|ERROR|WARN)[[:space:]].*(DB|database|checks bundle).*download.*(failed|failure|error)' \
+	-e '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+FATAL([[:space:]]|$)' \
+	-e '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+ERROR[[:space:]].*(failed to parse|failed to analyze|parse error|analysis error)' \
+	-e '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+DEBUG[[:space:]].*(Walk error|parse error|failed to parse|failed to analyze)' \
+	"$log" >/dev/null; then
+	cat "$log" >&2
 	printf 'trivy: vulnerability DB/checks bundle download or scan reported a fatal or analysis diagnostic; cache: %s\n' "$cache_dir" >&2
 	exit 1
 fi
+grep -v '[[:space:]]DEBUG[[:space:]]' "$log" >&2 || true
 
 node - "$report" <<'NODE'
 const fs = require('node:fs')

@@ -200,6 +200,18 @@ SH
 	printf 'ok: a dependency parse or analysis failure fails closed\n'
 }
 
+case_unscannable_dependency() {
+	mkdir -p "$test_root/unscannable-dependency"
+	printf '%s\n' '{"name":"broken","lockfileVersion":3,"packages":' >"$test_root/unscannable-dependency/package-lock.json"
+	run_check "$test_root/unscannable-dependency"
+	[ "$code" -ne 0 ] || fail "an unscannable dependency file passed with no findings"
+	case $output in
+	*"scan reported a fatal or analysis diagnostic"*) ;;
+	*) fail "expected an unscannable-dependency diagnostic: $output" ;;
+	esac
+	printf 'ok: an unscannable dependency file fails closed\n'
+}
+
 case_cache_outside_repo() {
 	mkdir -p "$test_root/cache-location/repo"
 	run_command env TRIVY_CACHE_DIR="$test_root/cache-location/cache" "$checker" "$test_root/cache-location/repo"
@@ -236,6 +248,7 @@ case_all() {
 	case_scan_failure
 	case_nonfatal_error
 	case_parse_failure
+	case_unscannable_dependency
 	case_cache_outside_repo
 }
 
@@ -251,6 +264,7 @@ malformed-report) case_malformed_report ;;
 scan-failure) case_scan_failure ;;
 nonfatal-error) case_nonfatal_error ;;
 parse-failure) case_parse_failure ;;
+unscannable-dependency) case_unscannable_dependency ;;
 cache-outside-repo) case_cache_outside_repo ;;
 all) case_all ;;
 *)
