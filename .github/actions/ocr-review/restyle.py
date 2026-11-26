@@ -479,6 +479,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def load_carried(path: str) -> list[dict[str, Any]]:
+    try:
+        return read_carried(path).findings
+    except RewriteError as error:
+        warn(f"OCR restyle: {error}; continuing without carried findings")
+        return []
+
+
+def preserve_carried(
+    github: GitHub,
+    repo: str,
+    pr: Any,
+    run_id: str,
+    attempt: str,
+    carried: list[dict[str, Any]],
+) -> None:
+    try:
+        summary = find_summary(github, repo, pr, run_id, attempt)
+        body = restore_body(str(summary.get("body") or ""), encode_routed(carried))
+        github.write("issue", repo, summary.get("id"), body)
+        print(f"OCR restyle: kept {len(carried)} carried finding(s) on the summary")
+    except Exception as error:
+        warn(f"OCR restyle: cannot keep carried findings on the summary: {error}")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     environment = {
@@ -488,6 +513,11 @@ def main(argv: list[str] | None = None) -> int:
         "MODEL": args.model or os.environ.get("OCR_MODEL", ""),
         "VERSION": args.version or os.environ.get("OCR_VERSION", ""),
     }
+    github: GitHub | None = None
+    repo = pr = run_id = ""
+    attempt = "1"
+    carried: list[dict[str, Any]] = []
+    written = False
     try:
         repo = args.repo or os.environ.get("GITHUB_REPOSITORY", "")
         token = args.token or os.environ.get("GITHUB_TOKEN", "")
@@ -505,14 +535,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.snapshot:
             try:
-                carried = previous_carried(github, repo, pr)
+                snapshot = previous_carried(github, repo, pr)
             except RewriteError as error:
                 warn(f"OCR carry skipped: {error}")
-                carried = Carried([])
-            write_carried(args.snapshot, carried)
+                snapshot = Carried([])
+            write_carried(args.snapshot, snapshot)
             print(
                 "OCR restyle: carrying "
-                f"{len(carried.findings)} routed finding(s) from the previous summary"
+                f"{len(snapshot.findings)} routed finding(s) from the previous summary"
             )
             return 0
 
@@ -520,6 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         attempt = args.run_attempt or os.environ.get("GITHUB_RUN_ATTEMPT", "1")
         if not re.fullmatch(r"\d+", str(run_id)) or not re.fullmatch(r"\d+", str(attempt)):
             raise RewriteError("run id or attempt is not numeric")
+        carried = load_carried(args.carried or os.environ.get("OCR_CARRIED", ""))
 
         result = load_result(
             args.result or os.environ.get("OCR_RESULT", "/tmp/ocr-result.json")
@@ -531,7 +562,9 @@ def main(argv: list[str] | None = None) -> int:
             print("OCR restyle: same head as the checkpoint; nothing to rewrite")
             return 0
         if result.get("status") == "skipped":
-            print("OCR restyle: review skipped; nothing to rewrite")
+            print("OCR restyle: review skipped; keeping carried findings on the summary")
+            if carried:
+                preserve_carried(github, repo, pr, str(run_id), str(attempt), carried)
             return 0
 
         policy = build_policy(
@@ -541,17 +574,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         meta = meta_from(result, environment)
         meta["run"] = str(run_id)
-        try:
-            carried = read_carried(
-                args.carried or os.environ.get("OCR_CARRIED", "")
-            )
-        except RewriteError as error:
-            warn(f"OCR restyle: {error}; continuing without carried findings")
-            carried = Carried([])
         coordinates = (
-            coordinates_for(github, repo, carried.findings, meta["to"])
-            if carried.findings
-            else {}
+            coordinates_for(github, repo, carried, meta["to"]) if carried else {}
         )
         summary = find_summary(github, repo, pr, str(run_id), str(attempt))
         posted = find_inline(github, repo, pr, str(run_id), str(attempt))
@@ -569,7 +593,7 @@ def main(argv: list[str] | None = None) -> int:
             meta,
             policy,
             expected,
-            carried=carried.findings,
+            carried=carried,
             coordinates=coordinates,
         )
         inline_bodies = [
@@ -584,11 +608,14 @@ def main(argv: list[str] | None = None) -> int:
             ),
         }
         apply(github, repo, restore, summary_body, inline_bodies)
+        written = True
         print(
             f"OCR restyle: updated the summary and {len(inline_bodies)} inline comment(s)"
         )
     except Exception as error:
         warn(f"OCR restyle skipped: {error}")
+        if github is not None and carried and not written:
+            preserve_carried(github, repo, pr, run_id, attempt, carried)
     return 0
 
 

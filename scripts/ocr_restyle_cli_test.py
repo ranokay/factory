@@ -155,8 +155,7 @@ class CommandLineTests(unittest.TestCase):
 
     def test_forced_api_failure_restores_every_original(self):
         self.write(ocr_result([finding()]))
-        self.github.fail_path = "/repos/o/r/pulls/comments/2"
-        self.github.fail_once = True
+        self.github.fail("PATCH", "/repos/o/r/pulls/comments/2")
         result = self.run_cli()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning::", result.stdout)
@@ -644,8 +643,7 @@ class CommandLineTests(unittest.TestCase):
             )
         )
         self.write(ocr_result([finding()]))
-        self.github.fail_path = "/repos/o/r/pulls/comments/2"
-        self.github.fail_once = True
+        self.github.fail("PATCH", "/repos/o/r/pulls/comments/2")
         result = self.run_cli(environment={"OCR_CARRIED": str(carried)})
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("::warning::", result.stdout)
@@ -677,14 +675,95 @@ class CommandLineTests(unittest.TestCase):
         )
         self.github.issue_comments[0]["body"] = f"{stale}\n{SUMMARY_BODY}"
         self.write(ocr_result([finding()]))
-        self.github.fail_path = "/repos/o/r/pulls/comments/2"
-        self.github.fail_once = True
+        self.github.fail("PATCH", "/repos/o/r/pulls/comments/2")
         result = self.run_cli(environment={"OCR_CARRIED": str(carried)})
         self.assertEqual(result.returncode, 0, result.stdout)
         restored_body = self.github.issue_comments[0]["body"]
         self.assertEqual(restyle.decode_routed(restored_body).findings[0]["path"], "scripts/z.py")
         self.assertNotIn("scripts/old.py", restored_body)
         self.assertEqual(restored_body.count("ocr-routed:v1"), 1)
+
+    def reset_github(self):
+        self.github.issue_comments.clear()
+        self.github.review_comments.clear()
+        self.github.patches.clear()
+        self.github.faults.clear()
+        self.github.compare = {"files": []}
+        self.github.fail_compare = False
+        self.github.seed(SUMMARY_BODY, INLINE_BODY)
+
+    def prepare_later_run(self):
+        carried = self.raise_routed_finding()
+        self.github.review_comments.append(
+            {
+                "id": 3,
+                "body": INLINE_BODY.replace("ocr-1-1-", "ocr-2-1-"),
+                "html_url": "https://example.test/pull/7#discussion_r3",
+                "path": "scripts/b.py",
+                "line": 40,
+                "start_line": 40,
+            }
+        )
+        self.start_next_run(CLEAN_CHECKPOINT_2)
+        self.write(ocr_result([finding(path="scripts/b.py", severity="high", start=40, end=40)]))
+        return carried
+
+    def later_run_environment(self, carried):
+        return self.next_run_environment(carried, "2", RUN1_TO, RUN2_TO) | {
+            "OCR_INLINE": "1",
+            "OCR_SKIPPED": "0",
+        }
+
+    def carried_on_summary(self):
+        findings = restyle.decode_routed(self.github.issue_comments[0]["body"]).findings
+        return [(item["path"], item["head"]) for item in findings]
+
+    def test_a_later_failure_keeps_every_snapshotted_finding_on_the_summary(self):
+        injections = {
+            "summary lookup": lambda github: github.fail("GET", "/repos/o/r/issues/7/comments"),
+            "inline lookup": lambda github: github.fail("GET", "/repos/o/r/pulls/7/comments"),
+            "summary write": lambda github: github.fail("PATCH", "/repos/o/r/issues/comments/1"),
+            "inline write": lambda github: github.fail("PATCH", "/repos/o/r/pulls/comments/3"),
+            "compare": lambda github: setattr(github, "fail_compare", True),
+        }
+        for name, inject in injections.items():
+            with self.subTest(failure=name):
+                self.reset_github()
+                carried = self.prepare_later_run()
+                inject(self.github)
+                result = self.run_cli(environment=self.later_run_environment(carried))
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(self.carried_on_summary(), [("scripts/a.py", RUN1_TO)])
+
+        with self.subTest(failure="rewrite"):
+            self.reset_github()
+            carried = self.prepare_later_run()
+            with mock.patch.object(
+                restyle, "rewrite_summary", side_effect=restyle.RewriteError("forced rewrite failure")
+            ):
+                result = self.run_cli(environment=self.later_run_environment(carried))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("forced rewrite failure", result.stdout)
+            self.assertEqual(self.carried_on_summary(), [("scripts/a.py", RUN1_TO)])
+
+    def test_a_failed_fallback_write_only_warns(self):
+        self.reset_github()
+        carried = self.prepare_later_run()
+        self.github.fail("PATCH", "/repos/o/r/issues/comments/1", times=2)
+        result = self.run_cli(environment=self.later_run_environment(carried))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("cannot keep carried findings on the summary", result.stdout)
+        self.assertNotIn("ocr-routed:v1", self.github.issue_comments[0]["body"])
+
+    def test_a_skipped_review_keeps_the_carried_findings_on_the_summary(self):
+        self.reset_github()
+        carried = self.prepare_later_run()
+        skipped = ocr_result([], message="Review skipped.")
+        skipped["status"] = "skipped"
+        self.write(skipped)
+        result = self.run_cli(environment=self.later_run_environment(carried))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.carried_on_summary(), [("scripts/a.py", RUN1_TO)])
 
     def test_snapshot_reads_the_previous_routed_marker(self):
         carried = self.raise_routed_finding()
