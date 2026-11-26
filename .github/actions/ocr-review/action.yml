@@ -90,6 +90,25 @@ runs:
             cursor = pr.closingIssuesReferences.pageInfo.hasNextPage ? pr.closingIssuesReferences.pageInfo.endCursor : null;
           } while (cursor);
           core.setOutput('background', background);
+    - name: Carry routed findings
+      # OCR rewrites the sticky summary wholesale, so the previous run's
+      # routed-findings marker has to be read before the Review step replaces
+      # it. See the checkpoint carry in
+      # https://github.com/alibaba/open-code-review/blob/d29ca2044a42ea297a7fa93692d0f5ac8f38d84e/scripts/github-actions/post-review-comments.js
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        OCR_CARRIED: ${{ runner.temp }}/ocr-carried.json
+        OCR_SCRIPT: ${{ github.action_path }}/restyle.py
+      run: |
+        set +e
+        python3 "$OCR_SCRIPT" --snapshot "$OCR_CARRIED"
+        status=$?
+        if [ "$status" -ne 0 ]; then
+          echo "::warning::OCR carry exited $status; earlier routed findings may not be carried"
+        fi
+        exit 0
     - name: Review
       id: review
       uses: alibaba/open-code-review@d29ca2044a42ea297a7fa93692d0f5ac8f38d84e # v1.14.0
@@ -163,6 +182,7 @@ runs:
         OCR_ROUTE_SEVERITY_BELOW: ${{ inputs.route_severity_below }}
         OCR_ROUTE_CATEGORIES: ${{ inputs.route_categories }}
         OCR_EFFORT: ${{ inputs.effort }}
+        OCR_CARRIED: ${{ runner.temp }}/ocr-carried.json
         OCR_SCRIPT: ${{ github.action_path }}/restyle.py
       run: |
         set +e

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import unittest
 
 from hypothesis import HealthCheck, given, settings, strategies as st
@@ -264,6 +266,42 @@ class RestyleTests(unittest.TestCase):
         comment["existing_code"] = ""
         body = restyle.rewrite_inline(INLINE_BODY, comment)
         self.assertNotIn("<details><summary>Suggested change</summary>", body)
+
+    def test_routed_marker_round_trips(self):
+        carried = {
+            "path": "scripts/a.py",
+            "start_line": 10,
+            "end_line": 12,
+            "severity": "medium",
+            "content": "**A finding title**",
+            "head": "abc1234",
+            "origin": {"from": "def5678", "to": "abc1234"},
+        }
+        marker = restyle.encode_routed([carried])
+        decoded = restyle.decode_routed(f"<!-- ocr-summary -->\n{marker}")
+        self.assertEqual(decoded.findings, [carried])
+
+    def test_routed_marker_rejects_a_malformed_payload_and_drops_a_bad_entry(self):
+        def encoded(payload):
+            raw = json.dumps(payload).encode("utf-8")
+            return f"<!-- ocr-routed:v1 {base64.b64encode(raw).decode('ascii')} -->"
+
+        for payload in ([], {"findings": "nope"}):
+            with self.subTest(payload=payload):
+                with self.assertRaises(restyle.RewriteError):
+                    restyle.decode_routed(encoded(payload))
+        bad_entries = [
+            {"start_line": 3, "severity": "low", "head": "a"},
+            {"path": "a.py", "start_line": 3, "severity": "urgent", "head": "a"},
+            {"path": "a.py", "start_line": 3, "severity": "low"},
+        ]
+        for entry in bad_entries:
+            with self.subTest(entry=entry):
+                decoded = restyle.decode_routed(encoded({"findings": [entry]}))
+                self.assertEqual(decoded.findings, [])
+                self.assertEqual(len(decoded.problems), 1)
+        with self.assertRaises(restyle.RewriteError):
+            restyle.decode_routed("<!-- ocr-routed:v1 not-base64! -->")
 
 
 def comment_strategy():

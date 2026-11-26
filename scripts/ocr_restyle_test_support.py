@@ -23,9 +23,11 @@ class FakeGitHub:
     def __init__(self):
         self.issue_comments = []
         self.review_comments = []
+        self.compare = {"files": []}
         self.patches = []
-        self.fail_path = ""
-        self.fail_once = False
+        self.fail_compare = False
+        self.faults = {}
+        self.fault_lock = threading.Lock()
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -34,10 +36,18 @@ class FakeGitHub:
 
             def do_GET(self):
                 path = urlparse(self.path).path
+                if outer.take_fault("GET", path):
+                    outer.reply(self, {"message": "forced failure"}, 500)
+                    return
                 if path == "/repos/o/r/issues/7/comments":
                     outer.reply(self, outer.issue_comments)
                 elif path == "/repos/o/r/pulls/7/comments":
                     outer.reply(self, outer.review_comments)
+                elif path.startswith("/repos/o/r/compare/"):
+                    if outer.fail_compare:
+                        outer.reply(self, {"message": "forced failure"}, 500)
+                    else:
+                        outer.reply(self, outer.compare)
                 else:
                     outer.reply(self, {"message": "not found"}, 404)
 
@@ -45,8 +55,7 @@ class FakeGitHub:
                 path = urlparse(self.path).path
                 length = int(self.headers.get("Content-Length", 0))
                 payload = json.loads(self.rfile.read(length) or b"{}")
-                if outer.fail_once and path == outer.fail_path:
-                    outer.fail_once = False
+                if outer.take_fault("PATCH", path):
                     outer.reply(self, {"message": "forced failure"}, 500)
                     return
                 outer.patches.append((path, payload["body"]))
@@ -68,6 +77,18 @@ class FakeGitHub:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+
+    def fail(self, method, path, times=1):
+        self.faults[f"{method} {path}"] = times
+
+    def take_fault(self, method, path):
+        key = f"{method} {path}"
+        with self.fault_lock:
+            remaining = self.faults.get(key, 0)
+            if remaining <= 0:
+                return False
+            self.faults[key] = remaining - 1
+            return True
 
     @staticmethod
     def reply(handler, payload, status=200):
@@ -149,6 +170,8 @@ SUMMARY_MARKER = "<!-- ocr-summary -->"
 RUN_MARKER = "<!-- ocr-summary-run:1-1 -->"
 CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxfQ== -->"
 CLEAN_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIxIn0= -->"
+CLEAN_CHECKPOINT_2 = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIyIn0= -->"
+CLEAN_CHECKPOINT_3 = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIzIn0= -->"
 STALE_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiI5OSJ9 -->"
 FINGERPRINT = "<!-- ocr-1-1-abcdef0123456789 -->"
 
