@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+real = os.environ["REAL_GIT"]
+with Path(os.environ["FAKE_GIT_LOG"]).open("a") as handle:
+    handle.write(json.dumps(args) + "\n")
+
+if args and args[0] == "clone":
+    url, destination = args[1], args[2]
+    Path(destination).mkdir(parents=True)
+    subprocess.run(
+        [real, "-c", "init.defaultBranch=main", "init", "-q", destination],
+        check=True,
+    )
+    subprocess.run([real, "-C", destination, "remote", "add", "origin", url], check=True)
+    sys.exit(0)
+
+if "push" in args:
+    location = args[args.index("-C") + 1] if "-C" in args else os.getcwd()
+    subprocess.run(
+        [real, "-C", location, "update-ref", "refs/remotes/origin/main", "HEAD"],
+        check=False,
+    )
+    sys.exit(0)
+
+os.execv(real, [real, *args])

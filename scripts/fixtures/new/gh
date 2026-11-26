@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+import base64
+import json
+import os
+import sys
+import urllib.parse
+from pathlib import Path
+
+args = sys.argv[1:]
+state_path = Path(os.environ["FAKE_GH_STATE"])
+state = json.loads(state_path.read_text())
+with Path(os.environ["FAKE_GH_LOG"]).open("a") as handle:
+    handle.write(json.dumps(args) + "\n")
+
+
+def save():
+    state_path.write_text(json.dumps(state))
+
+
+def fail(message, code=1):
+    print(message, file=sys.stderr)
+    sys.exit(code)
+
+
+def value(flag, default=None):
+    return args[args.index(flag) + 1] if flag in args else default
+
+
+DEFAULT_LABELS = [
+    {"name": "bug", "color": "d73a4a", "description": "Something isn't working", "default": True},
+    {"name": "documentation", "color": "0075ca", "description": "Improvements or additions to documentation", "default": True},
+    {"name": "duplicate", "color": "cfd3d7", "description": "This issue or pull request already exists", "default": True},
+    {"name": "enhancement", "color": "a2eeef", "description": "New feature or request", "default": True},
+    {"name": "good first issue", "color": "7057ff", "description": "Good for newcomers", "default": True},
+    {"name": "help wanted", "color": "008672", "description": "Extra attention is needed", "default": True},
+    {"name": "invalid", "color": "e4e669", "description": "This doesn't seem right", "default": True},
+    {"name": "question", "color": "d876e3", "description": "Further information is requested", "default": True},
+    {"name": "wontfix", "color": "ffffff", "description": "This will not be worked on", "default": True},
+]
+
+
+def initial_repo(slug, private, description):
+    name = slug.split("/", 1)[1]
+    template = Path(os.environ["FAKE_TEMPLATE"])
+    files = {
+        path: (template / path).read_text()
+        for path in (".coderabbit.yaml", ".greptile/config.json")
+    }
+    return {
+        "name": slug,
+        "repo": {
+            "name": name,
+            "full_name": slug,
+            "description": description,
+            "private": private,
+            "fork": False,
+            "default_branch": "main",
+            "allow_squash_merge": True,
+            "allow_merge_commit": False,
+            "allow_rebase_merge": True,
+            "allow_auto_merge": False,
+            "node_id": "R_" + name,
+        },
+        "topics": {"names": []},
+        "labels": [dict(label) for label in DEFAULT_LABELS],
+        "rulesets": [],
+        "approval": {"approval_policy": "all_external_contributors"},
+        "private_settings": {
+            "run_workflows_from_fork_pull_requests": True,
+            "send_write_tokens_to_workflows": False,
+            "send_secrets_and_variables": False,
+            "require_approval_for_fork_pr_workflows": True,
+        },
+        "secrets": [],
+        "secret_values": {},
+        "files": files,
+        "issues": [],
+        "writes": [],
+    }
+
+
+def normalize_ruleset(ruleset):
+    ruleset["source"] = state["repos"][ruleset.pop("_slug")]["name"]
+    ruleset["source_type"] = "Repository"
+    for rule in ruleset.get("rules", []):
+        if rule.get("type") == "required_status_checks":
+            parameters = rule.setdefault("parameters", {})
+            parameters["do_not_enforce_on_create"] = False
+            for check in parameters.get("required_status_checks", []):
+                check.setdefault("integration_id", None)
+
+
+if args[:2] == ["repo", "view"]:
+    slug = args[2]
+    if slug not in state["repos"]:
+        fail("HTTP 404: Not Found")
+    repo = state["repos"][slug]["repo"]
+    print(
+        json.dumps(
+            {
+                "name": repo["name"],
+                "nameWithOwner": slug,
+                "url": f"https://github.com/{slug}",
+                "defaultBranchRef": {"name": repo["default_branch"]},
+                "node_id": repo["node_id"],
+            }
+        )
+    )
+    sys.exit(0)
+
+if args[:2] == ["repo", "create"]:
+    slug = args[2]
+    if slug in state["repos"]:
+        fail(f"HTTP 422: repository {slug} already exists")
+    state["repos"][slug] = initial_repo(
+        slug, "--private" in args, value("--description", "")
+    )
+    save()
+    print(f"https://github.com/{slug}")
+    sys.exit(0)
+
+if args[:2] == ["secret", "set"]:
+    name = args[2]
+    slug = value("--repo")
+    if slug not in state["repos"]:
+        fail(f"HTTP 404: {slug} not found")
+    secret = sys.stdin.read()
+    repo = state["repos"][slug]
+    repo["secrets"].append({"name": name})
+    repo["secret_values"][name] = secret
+    repo["writes"].append("secret")
+    save()
+    print(f"Set Actions secret {name}")
+    sys.exit(0)
+
+if args[:1] == ["project"]:
+    command = args[1]
+    if command == "list":
+        print(json.dumps({"projects": state["projects"], "totalCount": len(state["projects"])}))
+        sys.exit(0)
+    if command == "create":
+        title = value("--title")
+        existing = next((item for item in state["projects"] if item["title"] == title), None)
+        if existing:
+            print(json.dumps(existing))
+            sys.exit(0)
+        number = max((item["number"] for item in state["projects"]), default=0) + 1
+        project = {"number": number, "title": title, "id": f"PVT_{number}"}
+        state["projects"].append(project)
+        save()
+        print(json.dumps(project))
+        sys.exit(0)
+    if command == "item-list":
+        number = int(args[2])
+        items = [
+            {key: item[key] for key in item if key != "project"}
+            for item in state["items"]
+            if item["project"] == number
+        ]
+        print(json.dumps({"items": items, "totalCount": len(items)}))
+        sys.exit(0)
+    fail(f"gh stub: unexpected project command: {args}", 2)
+
+if not args or args[0] != "api":
+    fail(f"gh stub: unexpected call: {args}", 2)
+
+method = "GET"
+body = None
+paginate = False
+slurp = False
+jq = None
+positionals = []
+fields = {}
+index = 1
+while index < len(args):
+    argument = args[index]
+    if argument in ("--method", "-X"):
+        method = args[index + 1]
+        index += 2
+    elif argument == "--input":
+        body = json.load(sys.stdin)
+        index += 2
+    elif argument == "--paginate":
+        paginate = True
+        index += 1
+    elif argument == "--slurp":
+        slurp = True
+        index += 1
+    elif argument in ("-f", "--field"):
+        key, _, data = args[index + 1].partition("=")
+        fields[key] = data
+        index += 2
+    elif argument in ("-q", "--jq"):
+        jq = args[index + 1]
+        index += 2
+    elif argument.startswith("-"):
+        index += 1
+    else:
+        positionals.append(argument)
+        index += 1
+
+if positionals[:1] == ["graphql"]:
+    item_id = fields.get("itemId")
+    repository_id = fields.get("repositoryId")
+    slug = next(
+        (name for name, repo in state["repos"].items() if repo["repo"]["node_id"] == repository_id),
+        None,
+    )
+    if slug is None:
+        fail("GraphQL: Could not resolve to a node")
+    item = next((entry for entry in state["items"] if entry["id"] == item_id), None)
+    if item is None or item["content"].get("type") != "DraftIssue":
+        fail("GraphQL: the project item is not a draft issue")
+    issues = state["repos"][slug]["issues"]
+    number = max((issue["number"] for issue in issues), default=0) + 1
+    url = f"https://github.com/{slug}/issues/{number}"
+    issues.append(
+        {
+            "number": number,
+            "title": item["title"],
+            "body": item["content"].get("body", ""),
+            "labels": [],
+            "state": "open",
+            "url": url,
+        }
+    )
+    item["content"] = {
+        "type": "Issue",
+        "number": number,
+        "url": url,
+        "title": item["title"],
+        "body": item["content"].get("body", ""),
+    }
+    save()
+    print(
+        json.dumps(
+            {
+                "data": {
+                    "convertProjectV2DraftIssueItemToIssue": {
+                        "item": {"content": {"number": number, "url": url}}
+                    }
+                }
+            }
+        )
+    )
+    sys.exit(0)
+
+if not positionals:
+    fail(f"gh stub: no endpoint in {args}", 2)
+endpoint = positionals[0]
+path = endpoint.split("?", 1)[0]
+parts = path.split("/")
+if len(parts) < 3 or parts[0] != "repos":
+    fail(f"gh stub: unexpected endpoint {endpoint}", 2)
+slug = "/".join(parts[1:3])
+if slug not in state["repos"]:
+    fail("HTTP 404: Not Found")
+repo = state["repos"][slug]
+key = "/" + "/".join(parts[3:]) if len(parts) > 3 else ""
+
+if jq is not None:
+    if jq == ".node_id":
+        print(repo["repo"]["node_id"])
+        sys.exit(0)
+    fail(f"gh stub: unsupported jq {jq}", 2)
+
+if method == "GET":
+    if key == "":
+        payload = dict(repo["repo"], full_name=slug)
+    elif key == "/topics":
+        payload = repo["topics"]
+    elif key == "/labels":
+        payload = repo["labels"]
+    elif key == "/rulesets":
+        payload = repo["rulesets"]
+    elif key.startswith("/rulesets/"):
+        identifier = int(key.rsplit("/", 1)[1])
+        payload = next((item for item in repo["rulesets"] if item["id"] == identifier), None)
+        if payload is None:
+            fail("HTTP 404: Not Found")
+    elif key.startswith("/rules/branches/"):
+        payload = []
+    elif key.endswith("/protection"):
+        fail("HTTP 404: Not Found")
+    elif key.startswith("/contents/"):
+        file_path = urllib.parse.unquote(key.removeprefix("/contents/"))
+        content = repo["files"].get(file_path)
+        if content is None:
+            fail("HTTP 404: Not Found")
+        payload = {"content": base64.b64encode(content.encode()).decode()}
+    elif key == "/actions/permissions/fork-pr-contributor-approval":
+        payload = repo["approval"]
+    elif key == "/actions/permissions/fork-pr-workflows-private-repos":
+        payload = repo["private_settings"]
+    elif key == "/actions/secrets":
+        print(json.dumps([{"secrets": repo["secrets"]}]))
+        sys.exit(0)
+    else:
+        fail(f"gh stub: unexpected GET {endpoint}", 2)
+    if paginate and slurp:
+        print(json.dumps([payload]))
+    else:
+        print(json.dumps(payload))
+    sys.exit(0)
+
+if key == "" and method == "PATCH":
+    repo["repo"].update(body)
+    repo["writes"].append("PATCH ")
+elif key == "/topics" and method == "PUT":
+    repo["topics"] = body
+    repo["writes"].append("PUT /topics")
+elif key == "/labels" and method == "POST":
+    body["default"] = False
+    repo["labels"].append(body)
+    repo["writes"].append("POST /labels")
+elif key.startswith("/labels/"):
+    name = urllib.parse.unquote(key.removeprefix("/labels/"))
+    if method == "DELETE":
+        repo["labels"] = [item for item in repo["labels"] if item["name"] != name]
+        repo["writes"].append(method + " " + key)
+    else:
+        label = next((item for item in repo["labels"] if item["name"] == name), None)
+        if label is None:
+            fail(f"HTTP 404: label {name}")
+        label["color"] = body["color"]
+        label["description"] = body["description"]
+        repo["writes"].append(method + " " + key)
+elif key == "/rulesets" and method == "POST":
+    body["id"] = max((item["id"] for item in repo["rulesets"]), default=0) + 1
+    body["_slug"] = slug
+    normalize_ruleset(body)
+    repo["rulesets"].append(body)
+    repo["writes"].append("POST /rulesets")
+elif key.startswith("/rulesets/"):
+    identifier = int(key.rsplit("/", 1)[1])
+    if method == "DELETE":
+        repo["rulesets"] = [item for item in repo["rulesets"] if item["id"] != identifier]
+        repo["writes"].append("DELETE " + key)
+    elif method == "PUT":
+        body["id"] = identifier
+        body["_slug"] = slug
+        normalize_ruleset(body)
+        repo["rulesets"] = [item for item in repo["rulesets"] if item["id"] != identifier] + [body]
+        repo["writes"].append("PUT " + key)
+    else:
+        fail(f"gh stub: unexpected {method} {endpoint}", 2)
+elif key == "/actions/permissions/fork-pr-contributor-approval" and method == "PUT":
+    repo["approval"] = body
+    repo["writes"].append("PUT approval")
+elif key == "/actions/permissions/fork-pr-workflows-private-repos" and method == "PUT":
+    repo["private_settings"] = body
+    repo["writes"].append("PUT private settings")
+else:
+    fail(f"gh stub: unexpected {method} {endpoint}", 2)
+
+save()
+print(json.dumps({}))
