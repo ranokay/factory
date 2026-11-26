@@ -289,6 +289,8 @@ if method == "GET":
             fail("HTTP 404: Not Found")
         payload = {"content": base64.b64encode(content.encode()).decode()}
     elif key == "/actions/permissions/fork-pr-contributor-approval":
+        if repo["repo"]["private"]:
+            fail("HTTP 422: Fork PR approval is not allowed for private repositories.")
         payload = repo["approval"]
     elif key == "/actions/permissions/fork-pr-workflows-private-repos":
         payload = repo["private_settings"]
