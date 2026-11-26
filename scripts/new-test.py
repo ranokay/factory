@@ -312,6 +312,20 @@ class NewCase(unittest.TestCase):
         self.assertEqual(mise.count("profiles/universal/mise.toml"), 1)
         self.assertIn(TEST_TAG, (self.clone("one") / "hk.pkl").read_text())
 
+    def test_a_missing_hk_keeps_the_existing_pin(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        hk = self.clone("one") / "hk.pkl"
+        hk.unlink()
+        self.git("one", "add", "-A")
+        self.git("one", "commit", "-qm", "remove hk")
+        result = self.run_new("one", extra={"FAKE_TAG": "v9.9.10"})
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        mise = (self.clone("one") / "mise.toml").read_text()
+        self.assertIn(f"profiles/universal/mise.toml?ref={TEST_TAG}", mise)
+        self.assertNotIn("v9.9.10", mise)
+        self.assertIn(TEST_TAG, hk.read_text())
+
     def test_profile_chain_writes_every_include(self):
         result = self.run_new("web-one", "--profile", "web")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)

@@ -603,7 +603,7 @@ def new(args):
     ensure_clone(clone, slug)
     agents_absent = not (clone / "AGENTS.md").exists()
     hk_absent = not (clone / "hk.pkl").exists()
-    tag = current_tag if hk_absent else (existing_tag(clone) or current_tag)
+    tag = existing_tag(clone) or current_tag
     install_template(clone)
     apply_profiles(clone, chain, tag, agents_absent, hk_absent)
     symlink_claude(clone)
