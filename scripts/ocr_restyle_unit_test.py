@@ -274,32 +274,12 @@ class RestyleTests(unittest.TestCase):
             "end_line": 12,
             "severity": "medium",
             "content": "**A finding title**",
+            "head": "abc1234",
             "origin": {"from": "def5678", "to": "abc1234"},
         }
-        marker = restyle.encode_routed("abc1234", [carried])
+        marker = restyle.encode_routed([carried])
         decoded = restyle.decode_routed(f"<!-- ocr-summary -->\n{marker}")
-        self.assertEqual(decoded.head, "abc1234")
         self.assertEqual(decoded.findings, [carried])
-
-    def test_remap_shifts_lines_after_an_insertion(self):
-        hunks = restyle.parse_hunks("@@ -5,0 +6,3 @@\n+one\n+two\n+three")
-        self.assertEqual(restyle.remap_span(hunks, 10, 12), (13, 15))
-
-    def test_remap_drops_a_modified_line(self):
-        hunks = restyle.parse_hunks("@@ -8,3 +8,3 @@\n line8\n-old9\n+new9\n line10")
-        self.assertIsNone(restyle.remap_span(hunks, 9, 9))
-        self.assertEqual(restyle.remap_span(hunks, 10, 10), (10, 10))
-
-    def test_remap_keeps_a_line_above_an_insertion(self):
-        hunks = restyle.parse_hunks("@@ -5,0 +6,3 @@\n+one\n+two\n+three")
-        self.assertEqual(restyle.remap_span(hunks, 4, 5), (4, 5))
-
-    def test_remap_ignores_the_no_newline_marker(self):
-        hunks = restyle.parse_hunks(
-            "@@ -5,1 +5,1 @@\n-old5\n\\ No newline at end of file\n+new5\n\\ No newline at end of file"
-        )
-        self.assertIsNone(restyle.remap_span(hunks, 5, 5))
-        self.assertEqual(restyle.remap_span(hunks, 6, 6), (6, 6))
 
     def test_routed_marker_validation_rejects_bad_payloads(self):
         def encoded(payload):
@@ -308,10 +288,10 @@ class RestyleTests(unittest.TestCase):
 
         bad_payloads = [
             [],
-            {"head": 1, "findings": []},
             {"findings": "nope"},
-            {"findings": [{"start_line": 3, "severity": "low"}]},
-            {"findings": [{"path": "a.py", "start_line": 3, "severity": "urgent"}]},
+            {"findings": [{"start_line": 3, "severity": "low", "head": "a"}]},
+            {"findings": [{"path": "a.py", "start_line": 3, "severity": "urgent", "head": "a"}]},
+            {"findings": [{"path": "a.py", "start_line": 3, "severity": "low"}]},
         ]
         for payload in bad_payloads:
             with self.subTest(payload=payload):

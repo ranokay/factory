@@ -18,6 +18,7 @@ from restyle_summary import (
     SEVERITY_RANK,
     SUMMARY_MARKER,
     Carried,
+    Coordinates,
     FileDiff,
     RewriteError,
     badge_of,
@@ -318,8 +319,7 @@ def previous_carried(github: GitHub, repo: str, pr: Any) -> Carried:
     ]
     marked = [body for body in summaries if ROUTED_ANY.search(body)]
     if not marked:
-        # Older summaries have no marker. That is a clean start, not a fault.
-        return Carried("", [])
+        return Carried([])
     if len(marked) > 1:
         raise RewriteError("more than one sticky summary carries routed findings")
     return decode_routed(marked[0])
@@ -328,14 +328,14 @@ def previous_carried(github: GitHub, repo: str, pr: Any) -> Carried:
 def write_carried(path: str, carried: Carried) -> None:
     try:
         with open(path, "w", encoding="utf-8") as handle:
-            json.dump({"head": carried.head, "findings": carried.findings}, handle)
+            json.dump({"findings": carried.findings}, handle)
     except OSError as error:
         raise RewriteError(f"cannot write carried findings to {path}: {error}") from error
 
 
 def read_carried(path: str) -> Carried:
     if not path:
-        return Carried("", [])
+        return Carried([])
     try:
         with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
@@ -377,8 +377,42 @@ def compare_diffs(
     return diffs, unpatched
 
 
-def diff_base(carried: Carried, from_ref: str) -> str:
-    return carried.head if carried.head and carried.head != from_ref else from_ref
+def coordinates_for(
+    github: GitHub, repo: str, carried: list[dict[str, Any]], head: str
+) -> dict[str, Coordinates]:
+    coordinates: dict[str, Coordinates] = {}
+    warned: set[str] = set()
+    bases = sorted({str(item.get("head") or "") for item in carried} - {head, ""})
+    for base in bases:
+        try:
+            diffs, unpatched = compare_diffs(github, repo, base, head)
+        except RewriteError as error:
+            warn(
+                f"OCR restyle: cannot map carried findings from {base[:7]} "
+                f"through the reviewed range: {error}; keeping them unremapped"
+            )
+            continue
+        for item in carried:
+            path = str(item.get("path") or "")
+            if (
+                item.get("head") == base
+                and path in unpatched
+                and path not in diffs
+                and path not in warned
+            ):
+                warned.add(path)
+                warn(
+                    f"OCR restyle: no diff for {path}; "
+                    "keeping its carried finding unremapped"
+                )
+        coordinates[base] = Coordinates(diffs, frozenset(unpatched))
+    return coordinates
+
+
+def restore_body(body: str, carried: list[dict[str, Any]]) -> str:
+    if not carried or ROUTED_ANY.search(body):
+        return body
+    return f"{encode_routed(carried)}\n\n{body}"
 
 
 def apply(
@@ -471,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
                 carried = previous_carried(github, repo, pr)
             except RewriteError as error:
                 warn(f"OCR carry skipped: {error}")
-                carried = Carried("", [])
+                carried = Carried([])
             write_carried(args.snapshot, carried)
             print(
                 "OCR restyle: carrying "
@@ -510,26 +544,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         except RewriteError as error:
             warn(f"OCR restyle: {error}; continuing without carried findings")
-            carried = Carried("", [])
-        diffs: dict[str, FileDiff] = {}
-        if carried.findings:
-            try:
-                diffs, unpatched = compare_diffs(
-                    github, repo, diff_base(carried, meta["from"]), meta["to"]
-                )
-            except Exception as error:
-                warn(
-                    "OCR restyle: cannot map carried findings through the "
-                    f"reviewed range: {error}"
-                )
-                diffs, unpatched = {}, set()
-            for finding in carried.findings:
-                path = str(finding.get("path") or "")
-                if path in unpatched and path not in diffs:
-                    warn(
-                        f"OCR restyle: no diff for {path}; "
-                        "keeping its carried finding unremapped"
-                    )
+            carried = Carried([])
+        coordinates = (
+            coordinates_for(github, repo, carried.findings, meta["to"])
+            if carried.findings
+            else {}
+        )
         summary = find_summary(github, repo, pr, str(run_id), str(attempt))
         posted = find_inline(github, repo, pr, str(run_id), str(attempt))
         links, pairs = match_inline(result, posted)
@@ -547,13 +567,17 @@ def main(argv: list[str] | None = None) -> int:
             policy,
             expected,
             carried=carried.findings,
-            diffs=diffs,
+            coordinates=coordinates,
         )
         inline_bodies = [
             (item, rewrite_inline(str(item.get("body") or ""), comment))
             for item, comment in pairs
         ]
-        apply(github, repo, summary, summary_body, inline_bodies)
+        restore = {
+            **summary,
+            "body": restore_body(str(summary.get("body") or ""), carried.findings),
+        }
+        apply(github, repo, restore, summary_body, inline_bodies)
         print(
             f"OCR restyle: updated the summary and {len(inline_bodies)} inline comment(s)"
         )

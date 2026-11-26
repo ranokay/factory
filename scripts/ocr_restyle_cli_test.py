@@ -386,7 +386,7 @@ class CommandLineTests(unittest.TestCase):
     def test_a_routed_finding_survives_a_later_clean_checkpointed_run(self):
         carried = self.raise_routed_finding()
         payload = json.loads(carried.read_text())
-        self.assertEqual(payload["head"], RUN1_TO)
+        self.assertEqual(payload["findings"][0]["head"], RUN1_TO)
         self.assertEqual(len(payload["findings"]), 1)
 
         result = self.run_clean_second_run(carried)
@@ -479,7 +479,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("**🟡 P2 · A finding title** · `scripts/a.py:13-15`", summary)
         self.assertIn("Carried from `def5678..abc1234`", summary)
         decoded = restyle.decode_routed(summary)
-        self.assertEqual(decoded.head, RUN2_TO)
+        self.assertEqual(decoded.findings[0]["head"], RUN2_TO)
         self.assertEqual(decoded.findings[0]["start_line"], 13)
 
     def test_a_remapped_finding_survives_a_third_clean_run_at_the_same_line(self):
@@ -495,7 +495,7 @@ class CommandLineTests(unittest.TestCase):
         self.run_clean_second_run(carried)
         snapshot = self.run_snapshot()
         payload = json.loads(snapshot.path.read_text())
-        self.assertEqual(payload["head"], RUN2_TO)
+        self.assertEqual(payload["findings"][0]["head"], RUN2_TO)
         self.assertEqual(payload["findings"][0]["start_line"], 13)
         self.assertEqual(payload["findings"][0]["origin"]["to"], RUN1_TO)
 
@@ -583,10 +583,80 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(self.github.issue_comments[0]["body"], original)
         self.assertEqual(self.github.patches, [])
 
+    def test_distinct_routed_findings_on_one_line_are_both_listed(self):
+        self.github.review_comments.clear()
+        self.write(
+            ocr_result(
+                [
+                    finding(path="scripts/a.py", severity="medium", start=10, end=12, content="**First finding**"),
+                    finding(path="scripts/a.py", severity="medium", start=10, end=10, content="**Second finding**"),
+                ]
+            )
+        )
+        result = self.run_cli(environment={"OCR_INLINE": "0", "OCR_SKIPPED": "0"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertIn("2 lower-priority findings", summary)
+        self.assertIn("First finding", summary)
+        self.assertIn("Second finding", summary)
+
+    def test_a_failed_compare_keeps_the_old_head_for_a_later_remap(self):
+        carried = self.raise_routed_finding()
+        self.github.fail_compare = True
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        snapshot = self.run_snapshot()
+        kept = json.loads(snapshot.path.read_text())["findings"][0]
+        self.assertEqual(kept["head"], RUN1_TO)
+        self.assertEqual(kept["start_line"], 10)
+
+        self.github.fail_compare = False
+        self.github.compare = {
+            "files": [{"filename": "scripts/a.py", "patch": "@@ -5,0 +6,3 @@\n+one\n+two\n+three"}]
+        }
+        self.start_next_run(CLEAN_CHECKPOINT_3)
+        self.write(
+            ocr_result([], message="Review complete: 0 finding(s) across 5 selected item(s).")
+        )
+        result = self.run_cli(
+            environment=self.next_run_environment(snapshot.path, "3", RUN2_TO, RUN3_TO)
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("`scripts/a.py:13-15`", self.github.issue_comments[0]["body"])
+
+    def test_a_failed_write_restores_the_carried_marker(self):
+        carried = self.directory / "carried.json"
+        carried.write_text(
+            json.dumps(
+                {
+                    "findings": [
+                        {
+                            "path": "scripts/a.py",
+                            "start_line": 10,
+                            "end_line": 12,
+                            "severity": "medium",
+                            "content": "**A finding title**",
+                            "head": RUN1_TO,
+                            "origin": {"run": "0", "from": "def5678", "to": RUN1_TO},
+                        }
+                    ]
+                }
+            )
+        )
+        self.write(ocr_result([finding()]))
+        self.github.fail_path = "/repos/o/r/pulls/comments/2"
+        self.github.fail_once = True
+        result = self.run_cli(environment={"OCR_CARRIED": str(carried)})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("::warning::", result.stdout)
+        restored = restyle.decode_routed(self.github.issue_comments[0]["body"])
+        self.assertEqual(restored.findings[0]["path"], "scripts/a.py")
+        self.assertEqual(self.github.review_comments[0]["body"], INLINE_BODY)
+
     def test_snapshot_reads_the_previous_routed_marker(self):
         carried = self.raise_routed_finding()
         payload = json.loads(carried.read_text())
-        self.assertEqual(payload["head"], RUN1_TO)
+        self.assertEqual(payload["findings"][0]["head"], RUN1_TO)
         self.assertEqual(payload["findings"][0]["path"], "scripts/a.py")
         self.assertEqual(payload["findings"][0]["origin"]["from"], "def56789abcdef0123456789abcdef0123456789")
 
