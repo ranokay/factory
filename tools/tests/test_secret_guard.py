@@ -45,6 +45,7 @@ def encoded_fixtures() -> list[tuple[str, str, str]]:
                 base64.b64encode(token.encode()).decode(),
                 token.encode().hex(),
                 "".join(f"%{byte:02X}" for byte in token.encode()),
+                "".join(f"\\u{ord(char):04x}" for char in token),
             )
             if not any(has_keyword(value) for value in encodings):
                 fixtures.extend((rule_id, token, value) for value in encodings)
@@ -186,26 +187,27 @@ class SecretGuardTests(unittest.TestCase):
 
     def test_prefilter_skip_agrees_with_real_gitleaks(self):
         corpus = [
-            "Summarise the current branch.",
-            "git status --short",
-            "A" * 15,
-            "A" * 31,
-            "41" * 16,
-            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=",
-            "%41",
-            "U+0041",
-            base64.b64encode(b"ordinary text").decode(),
-            *(encoded for _, _, encoded in encoded_fixtures()),
+            ("Summarise the current branch.", False),
+            ("git status --short", False),
+            ("A" * 15, False),
+            ("A" * 31, True),
+            ("41" * 16, True),
+            ("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", True),
+            ("%41", True),
+            ("U+0041", True),
+            (base64.b64encode(b"ordinary text").decode(), True),
+            *((encoded, True) for _, _, encoded in encoded_fixtures()),
         ]
         with tempfile.TemporaryDirectory() as bin_dir:
             marker = Path(bin_dir) / "spawned"
             env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\ncat >/dev/null\n: >"$GUARD_MARKER"\nexit 0\n', marker)
-            for text in corpus:
-                with self.subTest(text=text[:24]):
+            for text, expected_scan in corpus:
+                with self.subTest(text=text[:24], expected_scan=expected_scan):
                     marker.unlink(missing_ok=True)
                     guarded = self.invoke("prompt", {"prompt": text}, env=env)
                     self.assertEqual(guarded.returncode, 0, guarded.stderr)
                     scanned = marker.exists()
+                    self.assertEqual(scanned, expected_scan)
                     real = subprocess.run(
                         [
                             "gitleaks",
