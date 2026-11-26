@@ -13,6 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PRESET = ROOT / "default.json"
 TAG = "v0.2.0"
+TEMPLATE_TAG = "v0.5.0"
+TEMPLATE_WORKFLOWS = ("check.yml", "ai-review.yml")
 FIXTURE_SHA = "91cc9539fd82101c0cc9062810d4cdb9cdaef55a"
 BLOCKED_PROXY = "http://127.0.0.1:9"
 
@@ -206,6 +208,10 @@ class FactoryPins(unittest.TestCase):
         workflows.mkdir(parents=True)
         (workflows / "check.yml").write_text(WORKFLOW)
         (workflows / "blocked.yml").write_text(BLOCKED)
+        for name in TEMPLATE_WORKFLOWS:
+            (workflows / f"template-{name}").write_text(
+                (ROOT / "project" / ".github" / "workflows" / name).read_text()
+            )
         (self.fixture / "script.py").write_text(PEP723)
         self.deps = extract(self.fixture)
 
@@ -218,9 +224,7 @@ class FactoryPins(unittest.TestCase):
                 replacements = [dep.get("replaceString") for dep in pins]
                 self.assertEqual(len(replacements), len(set(replacements)))
                 for dep in pins:
-                    self.assertEqual(
-                        dep.get("packageName") or dep.get("depName"), "ranokay/factory"
-                    )
+                    self.assertEqual(dep.get("packageName"), "ranokay/factory")
                     self.assertEqual(dep["currentValue"], TAG)
 
     def test_mise_includes_and_task_includes_both_extract(self):
@@ -246,6 +250,22 @@ class FactoryPins(unittest.TestCase):
         self.assertEqual(len(pins), 1)
         self.assertEqual(pins[0].get("packageName"), "ranokay/factory")
         self.assertEqual(pins[0].get("depType"), "workflow")
+
+    def test_template_callers_extract_the_factory_release_pin(self):
+        for name, expected in (("check.yml", 3), ("ai-review.yml", 1)):
+            with self.subTest(workflow=name):
+                path = f".github/workflows/template-{name}"
+                pins = [
+                    dep
+                    for dep in self.deps.get(path, [])
+                    if dep.get("currentValue") == TEMPLATE_TAG
+                ]
+                self.assertEqual(len(pins), expected, self.deps.get(path))
+                for dep in pins:
+                    self.assertEqual(dep.get("packageName"), "ranokay/factory")
+                    self.assertEqual(dep.get("datasource"), "github-tags")
+                    self.assertEqual(dep.get("versioning"), "github-actions")
+                    self.assertIn(f"@{TEMPLATE_TAG}", dep.get("replaceString", ""))
 
     def test_branches_and_shas_are_not_tag_pins(self):
         mise = self.deps.get("mise.toml", [])

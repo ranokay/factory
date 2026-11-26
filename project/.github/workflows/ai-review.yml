@@ -1,0 +1,27 @@
+name: AI Review
+run-name: AI Review PR ${{ github.event.pull_request.number }}
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions: {}
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  review:
+    name: OCR
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Review
+        uses: ranokay/factory/.github/actions/ocr-review@v0.5.0 # nosemgrep -- Factory release tags are bumped by Renovate
+        with:
+          opencode_zen_api_key: ${{ secrets.OPENCODE_ZEN_API_KEY }}

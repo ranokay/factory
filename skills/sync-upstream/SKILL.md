@@ -62,10 +62,19 @@ upstream already has one, it adds only what the matching `project/` file require
   missing or different;
 - `.github/workflows/blocked.yml`: an existing caller is untouched and reports
   `.github/workflows/blocked.yml: repository has its own; kept`;
+- `.github/workflows/check.yml` and `.github/workflows/ai-review.yml`: an existing
+  Gates or AI Review caller is untouched and reports `<path>: repository has its own; kept`;
+- `.pinact.yaml`, `zizmor.yml` and `.github/jactionlint.yaml`: existing pin
+  policies are untouched and report `<path>: repository has its own; kept`;
+- `ai-review-rule.json` and `REVIEW.md`: existing review rules are untouched and
+  report `<path>: repository has its own; kept`;
 - an existing `hk.pkl` is untouched and reports
   `hk.pkl: upstream has its own; Factory Gates not amended`;
 - an existing `PRODUCT.md` is untouched and reports
   `PRODUCT.md: repository has its own; kept`.
+
+The AI Review caller needs an `OPENCODE_ZEN_API_KEY` repository secret for the
+`OCR` check to run.
 
 ### 2. Prepare the branch and the merge
 

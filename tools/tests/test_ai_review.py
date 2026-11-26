@@ -4,6 +4,7 @@ import re
 import subprocess
 import tempfile
 import textwrap
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -36,6 +37,16 @@ def run_step(source, environment):
         ["bash", "-c", textwrap.dedent(source["run"])],
         env={**os.environ, **environment}, capture_output=True, text=True, check=False,
     )
+
+
+def assert_rule_shape(test, path):
+    test.assertEqual(json.loads(path.read_text()), {
+        "rules": [{
+            "path": "**/*",
+            "rule": "REVIEW.md",
+            "merge_system_rule": True,
+        }],
+    })
 
 
 def assert_review_permissions(test, source):
@@ -122,13 +133,7 @@ class AiReviewWorkflowTests(unittest.TestCase):
 
     def test_rule_path_resolves_and_rejects_missing_files(self):
         path = ROOT / "ai-review-rule.json"
-        self.assertEqual(json.loads(path.read_text()), {
-            "rules": [{
-                "path": "**/*",
-                "rule": "REVIEW.md",
-                "merge_system_rule": True,
-            }],
-        })
+        assert_rule_shape(self, path)
         self.assertTrue((ROOT / "REVIEW.md").is_file())
         rule_step = named_step(action_steps(action("ocr-review")), "Resolve rule path")
         self.assertEqual(rule_step["env"]["RULE"], "${{ inputs.rule }}")
@@ -293,6 +298,116 @@ class AiReviewWorkflowTests(unittest.TestCase):
             self.assertNotEqual(
                 run_step(check, {**env, "SUMMARY": "", "RANGE_REASON": "same_head_noop"}).returncode, 0
             )
+
+
+class TemplateReviewTests(unittest.TestCase):
+    def template(self, name):
+        return (ROOT / "project" / ".github" / "workflows" / name).read_text()
+
+    def triggers(self, source):
+        parsed = yaml.safe_load(source)
+        return parsed.get("on", parsed.get(True))
+
+    def test_gates_caller_names_the_required_contexts(self):
+        source = self.template("check.yml")
+        parsed = yaml.safe_load(source)
+        self.assertEqual(parsed["name"], "Gates")
+        self.assertEqual(parsed["permissions"], {"contents": "read"})
+        self.assertEqual(
+            self.triggers(source),
+            {"pull_request": None, "push": {"branches": ["main"]}},
+        )
+        self.assertEqual(
+            parsed["concurrency"],
+            {
+                "group": "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+                "cancel-in-progress": True,
+            },
+        )
+        jobs = parsed["jobs"]
+        self.assertEqual(set(jobs), {"lint", "security", "tests"})
+        self.assertEqual(
+            [jobs[name]["name"] for name in ("lint", "security", "tests")],
+            ["Lint", "Security", "Tests"],
+        )
+        for name, group in (("lint", "lint"), ("security", "security"), ("tests", "test")):
+            with self.subTest(job=name):
+                gate = jobs[name]["steps"][-1]
+                self.assertEqual(
+                    gate["uses"], "ranokay/factory/.github/actions/gates@v0.5.0"
+                )
+                self.assertEqual(gate["with"]["group"], group)
+        self.assertNotIn("@main", source)
+
+    def test_ai_review_caller_names_ocr(self):
+        source = self.template("ai-review.yml")
+        parsed = yaml.safe_load(source)
+        self.assertEqual(parsed["name"], "AI Review")
+        assert_review_permissions(self, source)
+        assert_draft_guard(self, source)
+        self.assertEqual(
+            self.triggers(source),
+            {
+                "pull_request": {
+                    "types": ["opened", "synchronize", "reopened", "ready_for_review"]
+                }
+            },
+        )
+        self.assertEqual(
+            parsed["concurrency"],
+            {
+                "group": "ai-review-${{ github.event.pull_request.number }}",
+                "cancel-in-progress": True,
+            },
+        )
+        job = parsed["jobs"]["review"]
+        self.assertEqual(job["name"], "OCR")
+        review = job["steps"][-1]
+        self.assertEqual(
+            review["uses"], "ranokay/factory/.github/actions/ocr-review@v0.5.0"
+        )
+        self.assertEqual(
+            review["with"]["opencode_zen_api_key"],
+            "${{ secrets.OPENCODE_ZEN_API_KEY }}",
+        )
+        self.assertNotIn("@main", source)
+
+    def test_review_files_are_generic(self):
+        assert_rule_shape(self, ROOT / "project" / "ai-review-rule.json")
+        text = (ROOT / "project" / "REVIEW.md").read_text()
+        self.assertNotIn("Factory", text)
+        self.assertNotIn("ranokay", text)
+        self.assertIn("## Score", text)
+        self.assertIn("## Diagram", text)
+
+    def test_template_profiles_carry_the_gate_tasks(self):
+        mise = tomllib.loads((ROOT / "project" / "mise.toml").read_text())
+        refs = [*mise["include"], *mise["task_config"]["includes"]]
+        self.assertTrue(refs)
+        tags = {ref.split("?ref=", 1)[1] for ref in refs}
+        self.assertEqual(tags, {"v0.5.0"})
+        tag = tags.pop()
+        hk = (ROOT / "project" / "hk.pkl").read_text()
+        self.assertIn(f"/{tag}/profiles/universal/hk.pkl", hk)
+        pinned = subprocess.run(  # nosec B603 B607 -- reads the pinned tag from this checkout
+            ["git", "-C", str(ROOT), "show", f"{tag}:profiles/universal/tasks.toml"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if pinned.returncode != 0:
+            self.skipTest(f"{tag} is not fetched in this checkout")
+        tasks = tomllib.loads(pinned.stdout)
+        for name in ("check:lint", "check:security", "check:test"):
+            self.assertIn(name, tasks)
+
+    def test_template_pin_policy_keeps_factory_tags_bumpable(self):
+        pinact = yaml.safe_load((ROOT / "project" / ".pinact.yaml").read_text())
+        self.assertEqual(pinact["version"], 3)
+        self.assertTrue(pinact["rules"][0]["ignore"])
+        expr = pinact["rules"][0]["conditions"][0]["expr"]
+        self.assertIn('ActionRepoFullName == "ranokay/factory"', expr)
+        self.assertIn(r'ActionVersion matches "v\\d+\\.\\d+\\.\\d+"', expr)
 
 
 if __name__ == "__main__":

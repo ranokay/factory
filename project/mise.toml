@@ -1,9 +1,9 @@
 min_version = "2026.11.10"
 
-include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.2.0"]
+include = ["git::https://github.com/ranokay/factory.git//profiles/universal/mise.toml?ref=v0.5.0"]
 
 [settings]
 experimental = true
 
 [task_config]
-includes = ["git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.2.0"]
+includes = ["git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.5.0"]

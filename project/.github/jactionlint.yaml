@@ -1,0 +1,4 @@
+ignores:
+  - rule: unpinned-uses
+    uses: ranokay/factory/*
+    reason: Factory release tags are bumped by Renovate.
