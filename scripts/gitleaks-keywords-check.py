@@ -19,6 +19,7 @@ PINNED_DIGESTS = {
     "8.30.1": {
         "default_rules_sha256": "3f143eac780c94c929261e83431997d27329cc53d16545bcd953e2550dcb7509",
         "samples_sha256": "df72c17b185798f098865e1708fdde6c365b4939b102c0f9f601ee1f2e98fa43",
+        "unkeyworded_rules_sha256": "9cc0a1ec60fca2d14bf39c0e3ba2f15adb36c5d0ac561322bd20aee02d105b2a",
     }
 }
 
@@ -145,6 +146,10 @@ def check(root: Path) -> tuple[int, int, int, int, int]:
             raise ValueError(f"the keyword catalog has an invalid path regex: {error}") from error
         if matched:
             raise ValueError(f"the unkeyworded rule {rule_id} can match stdin's empty path")
+    if catalog.get("unkeyworded_rules_sha256") != digest(unkeyworded):
+        raise ValueError("the unkeyworded-rule digest is stale")
+    if digest(unkeyworded) != pinned["unkeyworded_rules_sha256"]:
+        raise ValueError("the unkeyworded-rule digest does not match the independently pinned upstream data")
     expected_unkeyworded = {rule["id"] for rule in rules if not rule["keywords"]}
     if unkeyworded_ids != expected_unkeyworded:
         raise ValueError("the unkeyworded rule list does not match the merged rules")

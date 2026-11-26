@@ -192,7 +192,27 @@ PY
 	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
 	[ "$code" -ne 0 ] || fail "true-positive drift passed the independently pinned digest"
 	expect_contains "$output" "true-positive digest"
-	printf 'ok: the keyword catalog matches independently pinned upstream rules and samples\n'
+	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	cp "$root/tools/gitleaks-rule-samples.json.gz" "$fixture/tools/gitleaks-rule-samples.json.gz"
+	run_command python3 - "$fixture/tools/gitleaks-keywords.json" "$root/scripts" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[2])
+from gitleaks_catalog import digest
+
+path = Path(sys.argv[1])
+catalog = json.loads(path.read_text())
+catalog["unkeyworded_rules"][0]["path"] = "(?i)\\.pem$"
+catalog["unkeyworded_rules_sha256"] = digest(catalog["unkeyworded_rules"])
+path.write_text(json.dumps(catalog, indent=2) + "\n")
+PY
+	[ "$code" -eq 0 ] || fail "cannot drift the unkeyworded rule fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "unkeyworded-rule drift passed the independently pinned digest"
+	expect_contains "$output" "unkeyworded-rule digest"
+	printf 'ok: the keyword catalog matches independently pinned upstream rules, path rules and samples\n'
 }
 
 case_all() {
