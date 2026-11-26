@@ -263,7 +263,9 @@ def provision_op_token(home: Path, rotate: bool) -> bool:
     result = subprocess.run([security, "-i"], input=command, capture_output=True, text=True, check=False)
     verify = subprocess.run([*query, "-w"], capture_output=True, text=True, check=False)
     if result.returncode or verify.returncode or verify.stdout.rstrip("\n") != token:
-        print("bootstrap: cannot store service account token in login Keychain", file=sys.stderr)
+        detail = (result.stderr or verify.stderr).strip()
+        message = "bootstrap: cannot store service account token in login Keychain"
+        print(f"{message}: {detail}" if detail else message, file=sys.stderr)
         return False
     return True
 

@@ -1263,6 +1263,21 @@ STUB
 	printf 'ok: token provisioning is idempotent and rotation is explicit\n'
 }
 
+case_keychain_store_failure() {
+	setup_case keychain-store-failure
+	cat >"$bin/security" <<'STUB'
+#!/bin/sh
+if [ "$1" = -i ]; then cat >/dev/null; printf 'security: fixture interaction is not allowed\n' >&2; exit 36; fi
+exit 44
+STUB
+	chmod +x "$bin/security"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap stored the token despite a failing security command"
+	expect_contains "$output" "cannot store service account token in login Keychain"
+	expect_contains "$output" "fixture interaction is not allowed"
+	printf 'ok: a failing security store names its reason\n'
+}
+
 case_token_lookup() {
 	setup_case token-lookup
 	export KEYCHAIN_FIXTURE="$case_dir/keychain"
@@ -1429,6 +1444,7 @@ case_all() {
 	case_unreadable_references
 	case_push_history
 	case_service_token
+	case_keychain_store_failure
 	case_token_lookup
 	case_reference_syntax
 	case_fresh
@@ -1469,6 +1485,7 @@ case $case_name in
 unreadable-references) case_unreadable_references ;;
 push-history) case_push_history ;;
 service-token) case_service_token ;;
+keychain-store-failure) case_keychain_store_failure ;;
 token-lookup) case_token_lookup ;;
 reference-syntax) case_reference_syntax ;;
 fresh) case_fresh ;;
