@@ -1265,6 +1265,17 @@ STUB
 
 case_keychain_store_failure() {
 	setup_case keychain-store-failure
+	cat >"$bin/op" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'op %s\n' "$*" >>"$STUB_LOG"
+if [ "$1 $2" = "item list" ]; then
+	printf '[{"id":"fixture-token","title":"Service Account Auth Token: Factory"}]\n'
+else
+	printf '%s' 'dummy-"value'
+fi
+STUB
+	chmod +x "$bin/op"
 	cat >"$bin/security" <<'STUB'
 #!/bin/sh
 if [ "$1" = -i ]; then input=$(cat); printf 'security: fixture interaction is not allowed: %s\n' "$input" >&2; exit 36; fi
@@ -1276,7 +1287,8 @@ STUB
 	expect_contains "$output" "cannot store service account token in login Keychain"
 	expect_contains "$output" "fixture interaction is not allowed"
 	expect_contains "$output" "[redacted]"
-	expect_not_contains "$output" "dummy-value"
+	expect_not_contains "$output" 'dummy-"value'
+	expect_not_contains "$output" 'dummy-\"value'
 	printf 'ok: a failing security store names its reason and redacts the token\n'
 }
 

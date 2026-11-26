@@ -75,7 +75,6 @@ def ensure_clone(clone, slug):
     )
     if result.returncode != 0:
         problem(f"cannot clone {slug}: {(result.stderr or result.stdout).strip()}")
-    configure_github_credentials(clone)
     return True
 
 
