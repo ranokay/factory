@@ -350,13 +350,45 @@ class NewCase(unittest.TestCase):
             "git::https://github.com/ranokay/factory.git"
             f"//profiles/universal/mise.toml?ref={TEST_TAG}"
         )
-        self.edit_clone("one", "mise.toml", f'  "{entry}",', f'  "{entry}", # keep this')
+        self.edit_clone("one", "mise.toml", f'  "{entry}",', f"  '{entry}', # keep this")
         result = self.run_new("one", extra={"FAKE_TAG": "v9.9.10"})
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         mise = (self.clone("one") / "mise.toml").read_text()
         self.assertIn("# keep this", mise)
         self.assertEqual(mise.count("profiles/universal/mise.toml"), 1)
         self.assertNotIn("v9.9.10", mise)
+
+    def test_an_unsupported_pin_with_a_comment_is_not_rewritten(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        entry = (
+            "git::https://github.com/ranokay/factory.git"
+            f"//profiles/universal/mise.toml?ref={TEST_TAG}"
+        )
+        self.edit_clone(
+            "one",
+            "mise.toml",
+            f'  "{entry}",\n',
+            f'  "{entry}", "other", # keep this\n',
+        )
+        result = self.run_new("one")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("without deleting a comment", result.stderr)
+        self.assertIn("# keep this", (self.clone("one") / "mise.toml").read_text())
+
+    def test_an_alternate_hk_url_at_the_same_tag_is_kept(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        self.edit_clone(
+            "one",
+            "hk.pkl",
+            f"https://raw.githubusercontent.com/ranokay/factory/{TEST_TAG}",
+            f"https://github.com/ranokay/factory/raw/{TEST_TAG}",
+        )
+        result = self.run_new("one", extra={"FAKE_TAG": "v9.9.10"})
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        hk = (self.clone("one") / "hk.pkl").read_text()
+        self.assertIn(f"https://github.com/ranokay/factory/raw/{TEST_TAG}", hk)
 
     def test_an_unpinned_include_is_replaced_once(self):
         first = self.run_new("one")

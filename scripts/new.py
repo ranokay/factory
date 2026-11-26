@@ -142,7 +142,8 @@ def ensure_include(text, key, section, url, profile):
     inner = text[start + 1 : end]
     newline = "\r\n" if "\r\n" in text else "\n"
     simple = re.compile(
-        r'^(?P<indent>\s*)"(?P<value>[^"]*)"\s*,?\s*(?P<comment>#.*)?$'
+        r'^(?P<indent>\s*)(?P<quote>["\'])(?P<value>[^"\']*)(?P=quote)'
+        r"\s*,?\s*(?P<comment>#.*)?$"
     )
     lines = inner.splitlines(keepends=True)
     total = sum(1 for entry in values if same(entry))
@@ -179,6 +180,8 @@ def ensure_include(text, key, section, url, profile):
             output = [inner, f'{indent}{json.dumps(url)},{newline}']
         updated = text[: start + 1] + "".join(output) + text[end:]
     else:
+        if re.search(r"(?m)(^|\s)#", inner):
+            problem(f"cannot update the {key} pin without deleting a comment; add it by hand")
         body = "".join(f"  {json.dumps(entry)},\n" for entry in expected)
         updated = text[: start + 1] + "\n" + body + text[end:]
     try:
@@ -324,9 +327,10 @@ def plan_hk_amends(path, profile, tag, may_rewrite):
     match = AMENDS.search(text)
     if match is None:
         problem("hk.pkl has no amends line; add the Profile amends by hand")
-    if match.group(1) == target:
-        return None
     existing = re.search(r"/profiles/([^/]+)/hk\.pkl", match.group(1))
+    existing_ref = factory_ref(match.group(1))
+    if existing and existing.group(1) == profile and existing_ref == tag:
+        return None
     if not may_rewrite:
         if existing and existing.group(1) == profile:
             problem(
