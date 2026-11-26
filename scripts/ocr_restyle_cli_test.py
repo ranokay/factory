@@ -694,6 +694,21 @@ class CommandLineTests(unittest.TestCase):
 
     def prepare_later_run(self):
         carried = self.raise_routed_finding()
+        payload = json.loads(carried.read_text())
+        payload["findings"].append(
+            {
+                "path": "scripts/c.py",
+                "start_line": 60,
+                "end_line": 62,
+                "severity": "low",
+                "category": "style",
+                "content": "**Second carried finding**",
+                "head": RUN1_TO,
+                "origin": {"run": "1", "from": "def56789abcdef0123456789abcdef0123456789", "to": RUN1_TO},
+            }
+        )
+        carried.write_text(json.dumps(payload))
+        self.run1_marker = restyle.encode_routed(payload["findings"])
         self.github.review_comments.append(
             {
                 "id": 3,
@@ -716,7 +731,17 @@ class CommandLineTests(unittest.TestCase):
 
     def carried_on_summary(self):
         findings = restyle.decode_routed(self.github.issue_comments[0]["body"]).findings
-        return [(item["path"], item["head"]) for item in findings]
+        return [
+            (item["path"], item["start_line"], item["end_line"], item["head"])
+            for item in findings
+        ]
+
+    def assert_snapshot_kept(self):
+        self.assertEqual(
+            self.carried_on_summary(),
+            [("scripts/a.py", 10, 12, RUN1_TO), ("scripts/c.py", 60, 62, RUN1_TO)],
+        )
+        self.assertIn(self.run1_marker, self.github.issue_comments[0]["body"])
 
     def test_a_later_failure_keeps_every_snapshotted_finding_on_the_summary(self):
         injections = {
@@ -733,18 +758,17 @@ class CommandLineTests(unittest.TestCase):
                 inject(self.github)
                 result = self.run_cli(environment=self.later_run_environment(carried))
                 self.assertEqual(result.returncode, 0, result.stdout)
-                self.assertEqual(self.carried_on_summary(), [("scripts/a.py", RUN1_TO)])
+                self.assert_snapshot_kept()
 
         with self.subTest(failure="rewrite"):
             self.reset_github()
             carried = self.prepare_later_run()
-            with mock.patch.object(
-                restyle, "rewrite_summary", side_effect=restyle.RewriteError("forced rewrite failure")
-            ):
-                result = self.run_cli(environment=self.later_run_environment(carried))
+            result = self.run_cli(
+                environment=self.later_run_environment(carried) | {"OCR_INLINE": "3"}
+            )
             self.assertEqual(result.returncode, 0, result.stdout)
-            self.assertIn("forced rewrite failure", result.stdout)
-            self.assertEqual(self.carried_on_summary(), [("scripts/a.py", RUN1_TO)])
+            self.assertIn("OCR restyle skipped", result.stdout)
+            self.assert_snapshot_kept()
 
     def test_a_failed_fallback_write_only_warns(self):
         self.reset_github()
@@ -754,6 +778,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("cannot keep carried findings on the summary", result.stdout)
         self.assertNotIn("ocr-routed:v1", self.github.issue_comments[0]["body"])
+        self.assertEqual(self.github.issue_comments[0]["body"].count("<!-- ocr-summary -->"), 1)
 
     def test_a_skipped_review_keeps_the_carried_findings_on_the_summary(self):
         self.reset_github()
@@ -763,7 +788,7 @@ class CommandLineTests(unittest.TestCase):
         self.write(skipped)
         result = self.run_cli(environment=self.later_run_environment(carried))
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.carried_on_summary(), [("scripts/a.py", RUN1_TO)])
+        self.assert_snapshot_kept()
 
     def test_snapshot_reads_the_previous_routed_marker(self):
         carried = self.raise_routed_finding()
