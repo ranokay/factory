@@ -38,6 +38,7 @@ from restyle_summary import (
 )
 
 MAX_BODY = 65000
+ROUTED_FULL = re.compile(r"<!--\s*ocr-routed:v1\s+\S+\s*-->")
 CHECKPOINT = re.compile(r"<!--\s*ocr-checkpoint:v1\s+(\S+)\s*-->")
 
 __all__ = [
@@ -409,10 +410,10 @@ def coordinates_for(
     return coordinates
 
 
-def restore_body(body: str, carried: list[dict[str, Any]]) -> str:
-    if not carried or ROUTED_ANY.search(body):
+def restore_body(body: str, marker: str) -> str:
+    if not marker or ROUTED_ANY.search(body):
         return body
-    return f"{encode_routed(carried)}\n\n{body}"
+    return f"{marker}\n\n{body}"
 
 
 def apply(
@@ -573,9 +574,11 @@ def main(argv: list[str] | None = None) -> int:
             (item, rewrite_inline(str(item.get("body") or ""), comment))
             for item, comment in pairs
         ]
+        built = ROUTED_FULL.search(summary_body)
+        marker = built.group(0) if built and built.group(0) != encode_routed([]) else ""
         restore = {
             **summary,
-            "body": restore_body(str(summary.get("body") or ""), carried.findings),
+            "body": restore_body(str(summary.get("body") or ""), marker),
         }
         apply(github, repo, restore, summary_body, inline_bodies)
         print(

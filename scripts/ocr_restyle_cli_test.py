@@ -631,9 +631,9 @@ class CommandLineTests(unittest.TestCase):
                 {
                     "findings": [
                         {
-                            "path": "scripts/a.py",
-                            "start_line": 10,
-                            "end_line": 12,
+                            "path": "scripts/z.py",
+                            "start_line": 50,
+                            "end_line": 52,
                             "severity": "medium",
                             "content": "**A finding title**",
                             "head": RUN1_TO,
@@ -650,7 +650,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("::warning::", result.stdout)
         restored = restyle.decode_routed(self.github.issue_comments[0]["body"])
-        self.assertEqual(restored.findings[0]["path"], "scripts/a.py")
+        self.assertEqual(restored.findings[0]["path"], "scripts/z.py")
         self.assertEqual(self.github.review_comments[0]["body"], INLINE_BODY)
 
     def test_snapshot_reads_the_previous_routed_marker(self):
