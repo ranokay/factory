@@ -80,7 +80,7 @@ const plugin = {
   id: "factory-secret-guard",
   server: FactorySecretGuardPlugin,
   setup: async (context: PluginContext) => {
-    if (!context.tool?.hook) return
+    if (!context.tool?.hook) throw failedClosed()
     await context.tool.hook("execute.before", async (event) => {
       await beforeTool({ tool: event.tool }, { args: event.input })
     })

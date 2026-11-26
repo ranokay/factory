@@ -83,6 +83,10 @@ test("fails closed when the guard output is malformed", async () => {
   })
 })
 
+test("fails closed when the OpenCode 2 hook API is unavailable", async () => {
+  await assert.rejects(() => secretGuardPlugin.setup({}), /failed closed/)
+})
+
 test("fails closed when the guard runner is missing", async () => {
   await withGuard(null, async (hook) => {
     await assert.rejects(() => hook({ tool: "read" }, { args: { path: "file.txt" } }), /failed closed/)

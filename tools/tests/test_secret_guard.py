@@ -62,6 +62,16 @@ class SecretGuardTests(unittest.TestCase):
             env=env,
         )
 
+    def fake_gitleaks(self, directory: Path, script: str, marker: Path | None = None) -> dict[str, str]:
+        gitleaks = directory / "gitleaks"
+        gitleaks.write_text(script)
+        gitleaks.chmod(0o755)
+        env = os.environ.copy()
+        env["PATH"] = str(directory)
+        if marker is not None:
+            env["GUARD_MARKER"] = str(marker)
+        return env
+
     def test_malformed_input_fails_closed_without_echoing_it(self):
         token = context7_token()
         result = self.invoke("prompt", f'{{"prompt":"{token}"')
@@ -129,11 +139,10 @@ class SecretGuardTests(unittest.TestCase):
     def test_failing_gitleaks_uses_the_fallback_without_echoing_its_output(self):
         token = context7_token()
         with tempfile.TemporaryDirectory() as bin_dir:
-            gitleaks = Path(bin_dir) / "gitleaks"
-            gitleaks.write_text("#!/bin/sh\ninput=$(cat)\nprintf '%s\\n' \"$input\"\nprintf '%s\\n' \"$input\" >&2\nexit 2\n")
-            gitleaks.chmod(0o755)
-            env = os.environ.copy()
-            env["PATH"] = bin_dir
+            env = self.fake_gitleaks(
+                Path(bin_dir),
+                "#!/bin/sh\ninput=$(cat)\nprintf '%s\\n' \"$input\"\nprintf '%s\\n' \"$input\" >&2\nexit 2\n",
+            )
             result = self.invoke("tool", {"tool_name": "Bash", "tool_input": {"command": f"echo {token}"}}, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         output = json.loads(result.stdout)["hookSpecificOutput"]
@@ -144,11 +153,7 @@ class SecretGuardTests(unittest.TestCase):
     def test_timed_out_gitleaks_uses_the_fallback(self):
         token = context7_token()
         with tempfile.TemporaryDirectory() as bin_dir:
-            gitleaks = Path(bin_dir) / "gitleaks"
-            gitleaks.write_text("#!/bin/sh\n/bin/sleep 10\n")
-            gitleaks.chmod(0o755)
-            env = os.environ.copy()
-            env["PATH"] = bin_dir
+            env = self.fake_gitleaks(Path(bin_dir), "#!/bin/sh\n/bin/sleep 10\n")
             result = self.invoke("prompt", {"prompt": token}, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("context7-key-token", json.loads(result.stdout)["reason"])
@@ -173,12 +178,7 @@ class SecretGuardTests(unittest.TestCase):
         for mode, payload in cases:
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as bin_dir:
                 marker = Path(bin_dir) / "spawned"
-                gitleaks = Path(bin_dir) / "gitleaks"
-                gitleaks.write_text('#!/bin/sh\n: >"$GUARD_MARKER"\nexit 2\n')
-                gitleaks.chmod(0o755)
-                env = os.environ.copy()
-                env["PATH"] = bin_dir
-                env["GUARD_MARKER"] = str(marker)
+                env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\n: >"$GUARD_MARKER"\nexit 2\n', marker)
                 result = self.invoke(mode, payload, env=env)
                 spawned = marker.exists()
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -189,12 +189,7 @@ class SecretGuardTests(unittest.TestCase):
     def test_input_with_a_keyword_runs_gitleaks(self):
         with tempfile.TemporaryDirectory() as bin_dir:
             marker = Path(bin_dir) / "spawned"
-            gitleaks = Path(bin_dir) / "gitleaks"
-            gitleaks.write_text('#!/bin/sh\n: >"$GUARD_MARKER"\nexit 0\n')
-            gitleaks.chmod(0o755)
-            env = os.environ.copy()
-            env["PATH"] = bin_dir
-            env["GUARD_MARKER"] = str(marker)
+            env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\n: >"$GUARD_MARKER"\nexit 0\n', marker)
             result = self.invoke("prompt", {"prompt": "Check the API configuration."}, env=env)
             spawned = marker.exists()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -215,12 +210,7 @@ class SecretGuardTests(unittest.TestCase):
                 bin_dir = root / "bin"
                 bin_dir.mkdir()
                 marker = root / "spawned"
-                gitleaks = bin_dir / "gitleaks"
-                gitleaks.write_text('#!/bin/sh\n: >"$GUARD_MARKER"\nexit 0\n')
-                gitleaks.chmod(0o755)
-                env = os.environ.copy()
-                env["PATH"] = str(bin_dir)
-                env["GUARD_MARKER"] = str(marker)
+                env = self.fake_gitleaks(bin_dir, '#!/bin/sh\n: >"$GUARD_MARKER"\nexit 0\n', marker)
                 result = self.invoke("prompt", {"prompt": "Summarise the current branch."}, env=env, guard=guard)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, "")
