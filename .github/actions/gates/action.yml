@@ -11,6 +11,12 @@ runs:
       with:
         version: 2026.11.10
         cache: true
+    - name: Cache Trivy databases
+      if: inputs.group == 'security'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/trivy
+        key: ${{ runner.os }}-trivy-${{ hashFiles('mise.toml', 'profiles/universal/mise.toml') }}
     - name: Run ${{ inputs.group }} Gates
       shell: bash
       env:
