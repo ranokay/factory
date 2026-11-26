@@ -26,6 +26,22 @@ run_check() {
 	run_command "$checker" "$1"
 }
 
+case_misconfiguration() {
+	mkdir -p "$test_root/misconfiguration"
+	cat >"$test_root/misconfiguration/Dockerfile" <<'DOCKERFILE'
+FROM alpine:latest
+RUN apk add --no-cache curl
+CMD ["sh"]
+DOCKERFILE
+	run_check "$test_root/misconfiguration"
+	[ "$code" -ne 0 ] || fail "a HIGH Dockerfile misconfiguration passed"
+	case $output in
+	*misconfiguration*HIGH*DS-0002*) ;;
+	*) fail "expected the known HIGH Dockerfile misconfiguration: $output" ;;
+	esac
+	printf 'ok: a HIGH misconfiguration fails the Gate\n'
+}
+
 case_unexplained_ignore() {
 	mkdir -p "$test_root/unexplained-ignore"
 	printf '%s\n' 'CVE-2021-23337' >"$test_root/unexplained-ignore/.trivyignore"
@@ -237,6 +253,7 @@ case_cache_outside_repo() {
 }
 
 case_all() {
+	case_misconfiguration
 	case_unexplained_ignore
 	case_vulnerable_dependency
 	case_repository_config
@@ -253,6 +270,7 @@ case_all() {
 }
 
 case $case_name in
+misconfiguration) case_misconfiguration ;;
 unexplained-ignore) case_unexplained_ignore ;;
 vulnerable-dependency) case_vulnerable_dependency ;;
 repository-config) case_repository_config ;;
