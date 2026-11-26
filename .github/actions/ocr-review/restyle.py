@@ -328,9 +328,11 @@ def previous_carried(github: GitHub, repo: str, pr: Any) -> Carried:
 
 
 def write_carried(path: str, carried: Carried) -> None:
+    temporary = f"{path}.tmp"
     try:
-        with open(path, "w", encoding="utf-8") as handle:
+        with open(temporary, "w", encoding="utf-8") as handle:
             json.dump({"findings": carried.findings}, handle)
+        os.replace(temporary, path)
     except OSError as error:
         raise RewriteError(f"cannot write carried findings to {path}: {error}") from error
 

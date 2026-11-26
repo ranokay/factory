@@ -858,6 +858,14 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("routed finding at scripts/a.py:10-12 not carried: no coordinate head", result.stdout)
         self.assertEqual(restyle.decode_routed(self.github.issue_comments[0]["body"]).findings, [])
 
+    def test_a_failed_snapshot_write_leaves_the_previous_snapshot_intact(self):
+        target = self.directory / "carried.json"
+        target.write_text('{"findings": []}')
+        (self.directory / "carried.json.tmp").mkdir()
+        result = self.run_snapshot()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(target.read_text(), '{"findings": []}')
+
     def test_snapshot_reads_the_previous_routed_marker(self):
         carried = self.raise_routed_finding()
         payload = json.loads(carried.read_text())

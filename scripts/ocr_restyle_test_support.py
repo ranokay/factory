@@ -27,6 +27,7 @@ class FakeGitHub:
         self.patches = []
         self.fail_compare = False
         self.faults = {}
+        self.fault_lock = threading.Lock()
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -82,11 +83,12 @@ class FakeGitHub:
 
     def take_fault(self, method, path):
         key = f"{method} {path}"
-        remaining = self.faults.get(key, 0)
-        if remaining <= 0:
-            return False
-        self.faults[key] = remaining - 1
-        return True
+        with self.fault_lock:
+            remaining = self.faults.get(key, 0)
+            if remaining <= 0:
+                return False
+            self.faults[key] = remaining - 1
+            return True
 
     @staticmethod
     def reply(handler, payload, status=200):
