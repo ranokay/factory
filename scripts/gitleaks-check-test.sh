@@ -130,6 +130,7 @@ case_keyword_catalog() {
 	cp "$root/profiles/universal/mise.toml" "$fixture/profiles/universal/mise.toml"
 	cp "$root/.gitleaks.toml" "$fixture/.gitleaks.toml"
 	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	cp "$root/tools/gitleaks-rule-samples.json.gz" "$fixture/tools/gitleaks-rule-samples.json.gz"
 	run_command python3 - "$fixture/profiles/universal/mise.toml" <<'PY'
 import sys
 from pathlib import Path

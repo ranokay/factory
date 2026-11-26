@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import json
 import os
 import secrets
@@ -16,6 +17,8 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1]
 GUARD = TOOLS / "secret_guard.py"
+sys.path.insert(0, str(TOOLS))
+import secret_guard
 
 
 def context7_token() -> str:
@@ -206,6 +209,46 @@ class SecretGuardTests(unittest.TestCase):
         self.assertNotIn(token, result.stdout + result.stderr)
         self.assertNotIn(payload, result.stdout + result.stderr)
 
+    def test_every_upstream_true_positive_is_sent_to_gitleaks(self):
+        with gzip.open(TOOLS / "gitleaks-rule-samples.json.gz", "rt") as source:
+            fixture = json.load(source)
+        self.assertGreater(len(fixture["samples"]), 6000)
+        for sample in fixture["samples"]:
+            if "path" in sample:
+                continue
+            with self.subTest(rule=sample["id"]):
+                text = base64.b64decode(sample["text"]).decode()
+                self.assertTrue(secret_guard.needs_gitleaks(text))
+
+    def test_ordinary_keyword_false_positives_skip_gitleaks(self):
+        cases = (
+            ("prompt", {"prompt": "Add a new task to mise.toml"}),
+            ("prompt", {"prompt": "ask me before you push, they said so."}),
+            ("prompt", {"prompt": "What does the auth module do?"}),
+            ("prompt", {"prompt": "Read /Users/ranokay/Developer/factory/skills/supervise/SKILL.md and follow it"}),
+            (
+                "tool",
+                {
+                    "tool_name": "Edit",
+                    "tool_input": {
+                        "file_path": "/Users/ranokay/Developer/factory/tools/command_guard.py",
+                        "old_string": "return None",
+                        "new_string": "return key",
+                    },
+                },
+            ),
+        )
+        with tempfile.TemporaryDirectory() as bin_dir:
+            marker = Path(bin_dir) / "spawned"
+            env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\ncat >/dev/null\n: >"$GUARD_MARKER"\nexit 0\n', marker)
+            for mode, payload in cases:
+                with self.subTest(mode=mode, payload=payload):
+                    marker.unlink(missing_ok=True)
+                    result = self.invoke(mode, payload, env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertFalse(marker.exists())
+
     def test_representative_ordinary_inputs_skip_gitleaks(self):
         cases = (
             ("prompt", {"prompt": "Reply with exactly OK."}),
@@ -251,12 +294,14 @@ class SecretGuardTests(unittest.TestCase):
             ("Summarise the current branch.", False),
             ("git status --short", False),
             ("x" * 4097, True),
-            ("Read /Users/ranokay/Developer/factory/skills/supervise/SKILL.md and follow it", True),
-            ('{"file_path":"/Users/ranokay/Developer/factory/notes.txt","content":"ordinary text"}', True),
+            ("Read /Users/ranokay/Developer/factory/skills/supervise/SKILL.md and follow it", False),
+            ('{"file_path":"/Users/ranokay/Developer/factory/notes.txt","content":"ordinary text"}', False),
+            ("curl --version", True),
+            ("apiToken = " + random_alnum(32), True),
             ("A" * 15, False),
             ("A" * 31, False),
             ("41" * 16, False),
-            ("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", True),
+            ("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", False),
             ("////////////////", False),
             ("00" * 16, False),
             (base64.b64encode(b"\x00" * 12).decode(), False),
@@ -264,10 +309,10 @@ class SecretGuardTests(unittest.TestCase):
             ("%41", False),
             ("U+0041", False),
             (base64.b64encode(b"ordinary text").decode(), False),
-            ("%61%70%69", True),
-            ("\\u0061\\u0070\\u0069", True),
-            ("617069" + "41" * 13, True),
-            (base64.b64encode(b"api ordinary text").decode(), True),
+            ("%61%70%69", False),
+            ("\\u0061\\u0070\\u0069", False),
+            ("617069" + "41" * 13, False),
+            (base64.b64encode(b"api ordinary text").decode(), False),
             *((encoded, True) for _, _, encoded in encoded_fixtures()),
         ]
         with tempfile.TemporaryDirectory() as bin_dir:
@@ -328,7 +373,7 @@ class SecretGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty_path:
             env = os.environ.copy()
             env["PATH"] = empty_path
-            result = self.invoke("prompt", {"prompt": "Check the API configuration."}, env=env)
+            result = self.invoke("prompt", {"prompt": "curl --version"}, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         warning = json.loads(result.stdout)["systemMessage"]
         self.assertIn("gitleaks not found", warning)
@@ -351,11 +396,11 @@ class SecretGuardTests(unittest.TestCase):
                 self.assertEqual(result.stderr, "")
                 self.assertFalse(spawned)
 
-    def test_input_with_a_keyword_runs_gitleaks(self):
+    def test_matching_rule_regex_runs_gitleaks(self):
         with tempfile.TemporaryDirectory() as bin_dir:
             marker = Path(bin_dir) / "spawned"
             env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\n: >"$GUARD_MARKER"\nexit 0\n', marker)
-            result = self.invoke("prompt", {"prompt": "Check the API configuration."}, env=env)
+            result = self.invoke("prompt", {"prompt": "apiToken = " + random_alnum(32)}, env=env)
             spawned = marker.exists()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")

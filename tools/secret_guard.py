@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import functools
 import json
 import re
 import string
@@ -29,6 +30,9 @@ ENCODING_RE = re.compile(
     r"|(?P<hex>[0-9A-Fa-f]{32,})"
     r"|(?P<base64>[\w/+-]{16,}={0,2})",
     re.ASCII,
+)
+UNSAFE_REGEX = re.compile(
+    r"\[\[:|\\[zCQEpP]|\(\?U(?::|\))|\(\?<[A-Za-z]|\\[1-9]|\(\?(?:=|!|<=|<!)"
 )
 FALLBACK_RULES = (
     ("private-key", re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
@@ -139,7 +143,8 @@ def pinned_gitleaks_version() -> str | None:
         return None
 
 
-def prefilter_keywords() -> set[str] | None:
+@functools.lru_cache(maxsize=1)
+def prefilter_catalog() -> list[dict] | None:
     try:
         catalog = json.loads(KEYWORD_CATALOG.read_text())
         version = catalog["gitleaks_version"]
@@ -150,21 +155,65 @@ def prefilter_keywords() -> set[str] | None:
             or source != f"https://raw.githubusercontent.com/gitleaks/gitleaks/v{version}/config/gitleaks.toml"
         ):
             return None
-        keywords = catalog["keywords"]
-        if (
-            not isinstance(keywords, list)
-            or not keywords
-            or not all(isinstance(keyword, str) and keyword and keyword == keyword.lower() for keyword in keywords)
-        ):
+        rules = catalog["rules"]
+        if not isinstance(rules, list) or not rules:
             return None
+        ids: set[str] = set()
+        for rule in rules:
+            if not isinstance(rule, dict) or set(rule) != {
+                "id",
+                "keywords",
+                "regex",
+                "python_safe",
+                "python_unsafe_reason",
+            }:
+                return None
+            rule_id = rule["id"]
+            keywords = rule["keywords"]
+            regex = rule["regex"]
+            if (
+                not isinstance(rule_id, str)
+                or not rule_id
+                or rule_id in ids
+                or not isinstance(keywords, list)
+                or not all(isinstance(keyword, str) and keyword and keyword == keyword.lower() for keyword in keywords)
+                or (regex is not None and not isinstance(regex, str))
+                or not isinstance(rule["python_safe"], bool)
+                or (rule["python_unsafe_reason"] is not None and not isinstance(rule["python_unsafe_reason"], str))
+                or (regex is None and keywords)
+            ):
+                return None
+            ids.add(rule_id)
         for rule in catalog["unkeyworded_rules"]:
             if not isinstance(rule, dict) or set(rule) != {"id", "path"} or not isinstance(rule["path"], str):
                 return None
             if re.search(rule["path"], "") is not None:
                 return None
-        return set(keywords)
+        return rules
     except (OSError, ValueError, KeyError, TypeError, re.error):
         return None
+
+
+@functools.lru_cache(maxsize=None)
+def compile_rule_regex(rule_id: str, regex: str) -> re.Pattern[str] | None:
+    if UNSAFE_REGEX.search(regex):
+        return None
+    try:
+        return re.compile(regex, re.ASCII)
+    except re.error:
+        return None
+
+
+def decoded_texts(text: str) -> list[str]:
+    texts = [text]
+    current = text
+    for _ in range(MAX_DECODE_DEPTH):
+        decoded = decode_pass(current)
+        if decoded == current:
+            break
+        texts.append(decoded)
+        current = decoded
+    return texts
 
 
 def needs_gitleaks(text: str) -> bool:
@@ -173,20 +222,19 @@ def needs_gitleaks(text: str) -> bool:
             return True
     except UnicodeEncodeError:
         return True
-    keywords = prefilter_keywords()
-    if keywords is None:
+    rules = prefilter_catalog()
+    if rules is None:
         return True
-    current = text
-    for depth in range(MAX_DECODE_DEPTH + 1):
-        lowered = current.lower()
-        if any(keyword in lowered for keyword in keywords):
+    texts = decoded_texts(text)
+    lowered = [item.lower() for item in texts]
+    for rule in rules:
+        if not any(keyword in item for keyword in rule["keywords"] for item in lowered):
+            continue
+        if not rule["python_safe"] or rule["regex"] is None:
             return True
-        if depth == MAX_DECODE_DEPTH:
-            break
-        decoded = decode_pass(current)
-        if decoded == current:
-            break
-        current = decoded
+        pattern = compile_rule_regex(rule["id"], rule["regex"])
+        if pattern is None or any(pattern.search(item) for item in texts):
+            return True
     return False
 
 
