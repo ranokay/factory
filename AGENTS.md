@@ -48,7 +48,7 @@ Install tools declared in `mise.toml` without asking. For a new dev tool availab
 - Claude Code keeps its existing `command_guard` and `environment_check` entries; bootstrap adds `~/.agents/tools/run secret_guard` to `~/.claude/settings.json`.
 - `secret_guard prompt` checks `UserPromptSubmit`; `secret_guard tool` checks every `PreToolUse` tool input.
 - OpenCode loads `~/.config/opencode/plugins/factory-secret-guard.ts`, which calls the same guard before every tool execution.
-- `tools/secret_guard.py` uses a generated, version-checked keyword catalog to skip `gitleaks stdin` only when no merged rule can match. It decodes accepted percent, Unicode, hex and base64-shaped segments with gitleaks-compatible rules through depth 5, then checks each kept result for keywords. Keyword-bearing input is scanned with `.gitleaks.toml`; findings block with rule IDs only. If gitleaks is unavailable or fails, built-in credential patterns fail closed and a clean fallback scan warns visibly.
+- `tools/secret_guard.py` uses a generated, version-checked keyword catalog to skip `gitleaks stdin` only when no merged rule can match. It decodes accepted percent, Unicode, hex and base64-shaped segments with gitleaks-compatible rules through depth 5, then checks each kept result for keywords. Inputs above 4 KiB always run gitleaks because stdin fragment boundaries can change greedy decoding. Keyword-bearing input is scanned with `.gitleaks.toml`; findings block with rule IDs only. If gitleaks is unavailable or fails, built-in credential patterns fail closed and a clean fallback scan warns visibly.
 
 The old `sonar-secrets` entries remain until the separately approved cutover.
 

@@ -17,6 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
 GITLEAKS_TIMEOUT = 2
 MAX_DECODE_DEPTH = 5
+# Stdin pipe reads can split greedy decoding; keep whole-string prefiltering below bufio's default buffer.
+# https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/file.go#L166-L212
+# https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/common.go#L56-L124
+MAX_PREFILTER_BYTES = 4096
 # Mirror gitleaks v8.30.1 candidate precedence and thresholds.
 # https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/codec/encodings.go#L22-L43
 ENCODING_RE = re.compile(
@@ -164,6 +168,11 @@ def prefilter_keywords() -> set[str] | None:
 
 
 def needs_gitleaks(text: str) -> bool:
+    try:
+        if len(text.encode("utf-8")) > MAX_PREFILTER_BYTES:
+            return True
+    except UnicodeEncodeError:
+        return True
     keywords = prefilter_keywords()
     if keywords is None:
         return True

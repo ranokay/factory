@@ -65,6 +65,16 @@ def encoded_fixtures() -> list[tuple[str, str, str]]:
     return fixtures
 
 
+def long_mixed_fixture() -> tuple[str, str]:
+    token = context7_token()
+    value = "".join(f"\\\\u{ord(char):04x}" for char in token)
+    value = "".join(f"%{ord(char):02X}" for char in value)
+    value = value.encode().hex()
+    value = "".join(f"%{ord(char):02x}" for char in value)
+    value = " ".join(f"U+{ord(char):04X}" for char in value)
+    return token, f"payload {value} end"
+
+
 def fallback_fixtures() -> list[tuple[str, str]]:
     pem_body = base64.b64encode(secrets.token_bytes(64)).decode()
     fixtures = [
@@ -185,6 +195,17 @@ class SecretGuardTests(unittest.TestCase):
                 self.assertNotIn(token, result.stdout + result.stderr)
                 self.assertNotIn(encoded, result.stdout + result.stderr)
 
+    def test_long_mixed_encoding_forces_gitleaks_across_fragment_boundaries(self):
+        token, payload = long_mixed_fixture()
+        self.assertGreater(len(payload.encode()), 4096)
+        result = self.invoke("prompt", {"prompt": payload})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("context7-key-token", output["reason"])
+        self.assertNotIn(token, result.stdout + result.stderr)
+        self.assertNotIn(payload, result.stdout + result.stderr)
+
     def test_representative_ordinary_inputs_skip_gitleaks(self):
         cases = (
             ("prompt", {"prompt": "Reply with exactly OK."}),
@@ -229,6 +250,7 @@ class SecretGuardTests(unittest.TestCase):
         corpus = [
             ("Summarise the current branch.", False),
             ("git status --short", False),
+            ("x" * 4097, True),
             ("Read /Users/ranokay/Developer/factory/skills/supervise/SKILL.md and follow it", True),
             ('{"file_path":"/Users/ranokay/Developer/factory/notes.txt","content":"ordinary text"}', True),
             ("A" * 15, False),
