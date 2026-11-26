@@ -25,6 +25,7 @@ class TrivyGates(unittest.TestCase):
         profile = tomllib.loads((ROOT / "profiles/universal/mise.toml").read_text())
         self.assertNotIn("trivy", root["tools"])
         self.assertIn("./profiles/universal/mise.toml", root["include"])
+        self.assertEqual(profile["tools"]["trivy"], "0.76.2")
 
         result = run("mise", "ls", "--current", "--json", "trivy")
         self.assertEqual(result.returncode, 0, result.stderr)
