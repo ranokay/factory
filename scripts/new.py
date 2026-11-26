@@ -342,17 +342,6 @@ def plan_hk_amends(path, profile, tag, may_rewrite):
     return text[: match.start(1)] + target + text[match.end(1) :]
 
 
-def check_includes(clone, chain, tag):
-    path = clone / "mise.toml"
-    if not path.is_file():
-        return
-    text = path.read_text()
-    for profile in chain:
-        mise_url, tasks_url = include_urls(profile, tag)
-        text, _ = ensure_include(text, "include", None, mise_url, profile)
-        text, _ = ensure_include(text, "includes", "task_config", tasks_url, profile)
-
-
 def apply_profiles(clone, chain, tag, agents_absent, hk_absent):
     agents_path = clone / "AGENTS.md"
     agents_text = plan_profiles_line(agents_path, chain, agents_absent)
@@ -511,8 +500,15 @@ def install_template(clone):
 
 
 def restore_clone(clone):
-    run(["git", "-C", str(clone), "checkout", "--", "."])
-    run(["git", "-C", str(clone), "clean", "-fdq"])
+    if has_head(clone):
+        result = run(["git", "-C", str(clone), "checkout", "--", "."])
+        if result.returncode:
+            detail = (result.stderr or result.stdout).strip()
+            print(f"new: warning: could not restore {clone}: {detail}", file=sys.stderr)
+    result = run(["git", "-C", str(clone), "clean", "-fdq"])
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        print(f"new: warning: could not clean {clone}: {detail}", file=sys.stderr)
 
 
 def apply_repo_settings(slug):
@@ -729,7 +725,6 @@ def new(args):
     agents_absent = not (clone / "AGENTS.md").exists()
     hk_absent = not (clone / "hk.pkl").exists()
     tag = existing_tag(clone) or existing_hk_tag(clone) or current_tag
-    check_includes(clone, chain, tag)
     try:
         install_template(clone)
         apply_profiles(clone, chain, tag, agents_absent, hk_absent)
