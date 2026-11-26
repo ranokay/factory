@@ -43,7 +43,7 @@ run = "hk test --step gitleaks-test"
 
 [tasks."tools:test"]
 description = "Run the agent hook helper tests"
-run = "./tools/run tests"
+run = ["./tools/run tests", "node --test tools/opencode/secret-guard-test.ts"]
 
 [tasks.evidence]
 description = "Record Verification Evidence and post the single PR evidence comment"

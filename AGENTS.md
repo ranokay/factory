@@ -41,6 +41,17 @@ If your own access can't resolve something, first try remediation you are alread
 
 Install tools declared in `mise.toml` without asking. For a new dev tool available through mise, bun, uv or brew, say so, install it, and declare it in the same PR. Anything needing sudo, a GUI app, a system extension, money, or a new runtime dependency of the product: ask and wait.
 
+## Session guards
+
+`mise run bootstrap` installs the Factory's Claude Code hooks and OpenCode plugin while preserving unrelated entries:
+
+- Claude Code keeps its existing `command_guard` and `environment_check` entries; bootstrap adds `~/.agents/tools/run secret_guard` to `~/.claude/settings.json`.
+- `secret_guard prompt` checks `UserPromptSubmit`; `secret_guard tool` checks every `PreToolUse` tool input.
+- OpenCode loads `~/.config/opencode/plugins/factory-secret-guard.ts`, which calls the same guard before every tool execution.
+- `tools/secret_guard.py` scans with `gitleaks stdin` and `.gitleaks.toml`. Findings block with rule IDs only. If gitleaks is unavailable or fails, built-in credential patterns fail closed and a clean fallback scan warns visibly.
+
+The old `sonar-secrets` entries remain until the separately approved cutover.
+
 ## Merge
 
 - Personal Project or Personal Fork: squash-merge once Done, unless the PR is `protected` (CI workflows, auth, secrets handling, data migrations, major dependency bumps, releases). Sync PRs use a merge commit.

@@ -512,6 +512,129 @@ case_hooks() {
 	printf 'ok: the hook helpers still resolve and run\n'
 }
 
+case_secret_guard() {
+	setup_case secret-guard
+	mkdir -p "$home/.config/opencode/plugins"
+	printf 'keep rtk\n' >"$home/.config/opencode/plugins/rtk.ts"
+	run_python - "$home" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+home = Path(sys.argv[1])
+runner = f"{home}/.agents/tools/run"
+sonar = f"{home}/.claude/hooks/sonar-secrets/build-scripts"
+settings = {
+	"theme": "dark",
+	"hooks": {
+		"PreToolUse": [
+			{"matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook claude"}]},
+			{
+				"matcher": "Bash",
+				"hooks": [{"type": "command", "command": f"{runner} command_guard", "timeout": 5}],
+			},
+			{
+				"matcher": "Read",
+				"hooks": [{"type": "command", "command": f"'{sonar}/pretool-secrets.sh'", "timeout": 60}],
+			},
+		],
+		"SessionStart": [
+			{"hooks": [{"type": "command", "command": f"{runner} environment_check startup", "timeout": 10}]}
+		],
+		"UserPromptSubmit": [
+			{
+				"matcher": "*",
+				"hooks": [{"type": "command", "command": f"'{sonar}/prompt-secrets.sh'", "timeout": 60}],
+			}
+		],
+	},
+}
+path = home / ".claude" / "settings.json"
+path.parent.mkdir(parents=True)
+path.write_text(json.dumps(settings, indent=2) + "\n")
+PY
+	[ "$code" -eq 0 ] || fail "cannot seed Claude settings: $output"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	settings=$home/.claude/settings.json
+	plugin=$home/.config/opencode/plugins/factory-secret-guard.ts
+	[ -L "$plugin" ] || fail "bootstrap did not install the OpenCode secret guard plugin"
+	[ "$(readlink "$plugin")" = "$home/.agents/tools/opencode/secret-guard.ts" ] || fail "the plugin symlink points at the wrong guard"
+	[ "$(cat "$home/.config/opencode/plugins/rtk.ts")" = 'keep rtk' ] || fail "bootstrap changed the existing rtk plugin"
+	run_python - "$settings" "$home" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+home = Path(sys.argv[2])
+runner = f"{home}/.agents/tools/run"
+sonar = f"{home}/.claude/hooks/sonar-secrets/build-scripts"
+settings = json.loads(Path(sys.argv[1]).read_text())
+assert settings["theme"] == "dark"
+pre = settings["hooks"]["PreToolUse"]
+assert pre[0] == {"matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook claude"}]}
+assert pre[1]["hooks"] == [{"type": "command", "command": f"{runner} command_guard", "timeout": 5}]
+assert pre[2]["hooks"] == [
+	{"type": "command", "command": f"'{sonar}/pretool-secrets.sh'", "timeout": 60}
+]
+assert settings["hooks"]["SessionStart"][0]["hooks"] == [
+	{"type": "command", "command": f"{runner} environment_check startup", "timeout": 10}
+]
+assert settings["hooks"]["UserPromptSubmit"][0]["hooks"] == [
+	{"type": "command", "command": f"'{sonar}/prompt-secrets.sh'", "timeout": 60}
+]
+for event, mode in (("UserPromptSubmit", "prompt"), ("PreToolUse", "tool")):
+	groups = [
+		group
+		for group in settings["hooks"][event]
+		if any(hook.get("command") == f"{runner} secret_guard {mode}" for hook in group.get("hooks", []))
+	]
+	assert len(groups) == 1, (event, groups)
+	assert groups[0]["matcher"] == "*"
+	assert groups[0]["hooks"] == [
+		{
+			"type": "command",
+			"command": f"{runner} secret_guard {mode}",
+			"timeout": 3,
+			"onFailure": "block",
+		}
+	]
+PY
+	[ "$code" -eq 0 ] || fail "Claude hooks were not merged correctly: $output"
+	before=$(cksum "$settings")
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
+	expect_contains "$output" "Already bootstrapped: no changes."
+	[ "$(cksum "$settings")" = "$before" ] || fail "the second bootstrap rewrote Claude settings"
+	[ "$(readlink "$plugin")" = "$home/.agents/tools/opencode/secret-guard.ts" ] || fail "the second bootstrap changed the plugin link"
+	run_discovery
+	[ "$code" -eq 0 ] || fail "discovery rejected the installed secret guards: $output"
+	run_python - "$settings" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+settings = json.loads(path.read_text())
+settings["hooks"]["UserPromptSubmit"] = []
+path.write_text(json.dumps(settings, indent=2) + "\n")
+PY
+	[ "$code" -eq 0 ] || fail "cannot remove the prompt guard fixture: $output"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "discovery passed without the prompt guard"
+	expect_contains "$output" "Factory secret guard"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair the prompt guard: $output"
+	run_discovery
+	[ "$code" -eq 0 ] || fail "discovery failed after the guard repair: $output"
+	printf 'not json\n' >"$settings"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap overwrote malformed Claude settings"
+	expect_contains "$output" "cannot install the Factory secret guard"
+	[ "$(cat "$settings")" = 'not json' ] || fail "bootstrap changed malformed Claude settings"
+	printf 'ok: bootstrap installs both secret guards once and preserves unrelated hooks\n'
+}
+
 case_repair() {
 	setup_case repair
 	fixture_dir=$case_dir/fixture
@@ -1221,6 +1344,7 @@ case_all() {
 	case_codex
 	case_env
 	case_hooks
+	case_secret_guard
 	case_repair
 	case_tracked
 	case_synced_tracked
@@ -1257,6 +1381,7 @@ sync) case_sync ;;
 codex) case_codex ;;
 env) case_env ;;
 hooks) case_hooks ;;
+secret-guard) case_secret_guard ;;
 repair) case_repair ;;
 tracked) case_tracked ;;
 synced-tracked) case_synced_tracked ;;

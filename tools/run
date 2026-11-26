@@ -4,13 +4,13 @@
 set -eu
 tool_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 if [ "$#" -eq 0 ]; then
-  echo 'Usage: run {command_guard|environment_check|tests} [arguments...]' >&2
+  echo 'Usage: run {command_guard|environment_check|secret_guard|tests} [arguments...]' >&2
   exit 2
 fi
 tool=$1
 shift
 case "$tool" in
-command_guard | environment_check)
+command_guard | environment_check | secret_guard)
   exec uv run --offline --no-project --no-config --python 3.13.18 python "$tool_dir/$tool.py" "$@"
   ;;
 tests)

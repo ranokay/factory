@@ -840,6 +840,11 @@ steps {
             env { ["BOOTSTRAP_CASE"] = "hooks" }
             expect { code = 0 }
           }
+          ["bootstrap installs both secret guards once and preserves unrelated hooks"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secret-guard" }
+            expect { code = 0 }
+          }
           ["bootstrap refuses a drifted vendored skill"] {
             run = "check"
             env { ["BOOTSTRAP_CASE"] = "repair" }
