@@ -653,6 +653,39 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(restored.findings[0]["path"], "scripts/z.py")
         self.assertEqual(self.github.review_comments[0]["body"], INLINE_BODY)
 
+    def test_a_failed_write_replaces_a_stale_routed_marker_in_the_restored_body(self):
+        carried = self.directory / "carried.json"
+        carried.write_text(
+            json.dumps(
+                {
+                    "findings": [
+                        {
+                            "path": "scripts/z.py",
+                            "start_line": 50,
+                            "end_line": 52,
+                            "severity": "medium",
+                            "content": "**Carried finding**",
+                            "head": RUN1_TO,
+                            "origin": {"run": "0", "from": "def5678", "to": RUN1_TO},
+                        }
+                    ]
+                }
+            )
+        )
+        stale = restyle.encode_routed(
+            [{"path": "scripts/old.py", "start_line": 1, "end_line": 1, "severity": "low", "content": "**Stale**", "head": RUN1_TO}]
+        )
+        self.github.issue_comments[0]["body"] = f"{stale}\n{SUMMARY_BODY}"
+        self.write(ocr_result([finding()]))
+        self.github.fail_path = "/repos/o/r/pulls/comments/2"
+        self.github.fail_once = True
+        result = self.run_cli(environment={"OCR_CARRIED": str(carried)})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        restored_body = self.github.issue_comments[0]["body"]
+        self.assertEqual(restyle.decode_routed(restored_body).findings[0]["path"], "scripts/z.py")
+        self.assertNotIn("scripts/old.py", restored_body)
+        self.assertEqual(restored_body.count("ocr-routed:v1"), 1)
+
     def test_snapshot_reads_the_previous_routed_marker(self):
         carried = self.raise_routed_finding()
         payload = json.loads(carried.read_text())
