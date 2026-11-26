@@ -242,6 +242,62 @@ class AiReviewWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning::", result.stdout)
 
+    def test_carry_step_reads_the_previous_summary_before_review(self):
+        steps = action_steps(action("ocr-review"))
+        names = [item.get("name") for item in steps]
+        self.assertLess(names.index("Carry routed findings"), names.index("Review"))
+        self.assertLess(names.index("Review"), names.index("Restyle review comments"))
+        carry = named_step(steps, "Carry routed findings")
+        self.assertEqual(
+            carry["env"]["OCR_SCRIPT"], "${{ github.action_path }}/restyle.py"
+        )
+        self.assertEqual(
+            carry["env"]["OCR_CARRIED"], "${{ runner.temp }}/ocr-carried.json"
+        )
+        self.assertIn('--snapshot "$OCR_CARRIED"', carry["run"])
+        restyle = named_step(steps, "Restyle review comments")
+        self.assertEqual(restyle["env"]["OCR_CARRIED"], carry["env"]["OCR_CARRIED"])
+
+    def test_carry_step_never_fails_the_job(self):
+        carry = named_step(action_steps(action("ocr-review")), "Carry routed findings")
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "fail.py"
+            script.write_text("raise SystemExit(1)\n")
+            result = run_step(
+                carry,
+                {
+                    "OCR_SCRIPT": str(script),
+                    "OCR_CARRIED": str(Path(directory) / "carried.json"),
+                },
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning::", result.stdout)
+
+    def test_review_inputs_are_unchanged_for_the_checkpoint_fingerprint(self):
+        with_ = review_step(action("ocr-review"))["with"]
+        self.assertEqual(
+            set(with_),
+            {
+                "ocr_version",
+                "llm_url",
+                "llm_model",
+                "llm_use_anthropic",
+                "llm_protocol",
+                "llm_auth_token",
+                "llm_extra_headers",
+                "background",
+                "rule",
+                "sticky_summary",
+                "incremental",
+                "checkpoint_range",
+                "route_severity_below",
+                "route_categories",
+                "resolve_outdated",
+                "effort",
+                "upload_artifacts",
+            },
+        )
+
     def test_review_and_restyle_inputs_share_defaults(self):
         source = action("ocr-review")
         inputs = yaml.safe_load(source)["inputs"]
