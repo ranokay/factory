@@ -27,7 +27,7 @@ from pathlib import Path
 
 with Path(os.environ["FAKE_OP_LOG"]).open("a") as handle:
     handle.write(json.dumps(sys.argv[1:]) + "\\n")
-print("fixture-secret", end="")
+print("fixture-value", end="")
 """
 SITE = """import socket
 import urllib.request
@@ -40,7 +40,7 @@ def blocked(*args, **kwargs):
 socket.create_connection = blocked
 urllib.request.urlopen = blocked
 """
-SECRET = "fixture-" + "secret"
+OP_VALUE = "fixture-value"
 
 
 def base_state():
@@ -263,9 +263,9 @@ class NewCase(unittest.TestCase):
         }
         self.assertEqual(checks, {"Lint", "Security", "Tests", "OCR"})
         self.assertEqual(
-            repo["secret_values"]["OPENCODE_ZEN_API_KEY"], SECRET
+            repo["secret_values"]["OPENCODE_ZEN_API_KEY"], OP_VALUE
         )
-        self.assertNotIn(SECRET, result.stdout + result.stderr)
+        self.assertNotIn(OP_VALUE, result.stdout + result.stderr)
         self.assert_handoff(result.stdout)
 
     def test_second_run_is_idempotent(self):
@@ -282,7 +282,7 @@ class NewCase(unittest.TestCase):
         )
         self.assertFalse(any("push" in call for call in self.git_calls()), self.git_calls())
         self.assertEqual(self.state()["repos"]["ranokay/one"]["writes"], [])
-        self.assertNotIn(SECRET, second.stdout + second.stderr)
+        self.assertNotIn(OP_VALUE, second.stdout + second.stderr)
 
     def test_settings_failure_stops_before_the_handoff(self):
         result = self.run_new("drift-one", extra={"FAKE_MISSING_VENDOR": "1"})
