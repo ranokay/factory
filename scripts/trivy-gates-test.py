@@ -1,5 +1,5 @@
 import json
-import subprocess
+import subprocess  # nosec B404 -- the test runs local declared tools
 import tomllib
 import unittest
 from pathlib import Path

@@ -153,6 +153,23 @@ SH
 	printf 'ok: a malformed Trivy report fails clearly\n'
 }
 
+case_scan_failure() {
+	mkdir -p "$test_root/scan-failure/repo" "$test_root/scan-failure/bin"
+	cat >"$test_root/scan-failure/bin/trivy" <<'SH'
+#!/bin/sh
+printf '%s\n' '{"SchemaVersion":2}'
+printf '%s\n' 'FATAL TLS handshake timeout while fetching the vulnerability DB' >&2
+SH
+	chmod +x "$test_root/scan-failure/bin/trivy"
+	run_command env PATH="$test_root/scan-failure/bin:$PATH" "$checker" "$test_root/scan-failure/repo"
+	[ "$code" -ne 0 ] || fail "a fatal Trivy diagnostic passed with an empty report"
+	case $output in
+	*"scan reported a fatal or error diagnostic"*) ;;
+	*) fail "expected a fatal-scan diagnostic: $output" ;;
+	esac
+	printf 'ok: a fatal Trivy diagnostic fails even with a valid empty report\n'
+}
+
 case_cache_outside_repo() {
 	mkdir -p "$test_root/cache-location/repo"
 	run_command env TRIVY_CACHE_DIR="$test_root/cache-location/cache" "$checker" "$test_root/cache-location/repo"
@@ -186,6 +203,7 @@ case_all() {
 	case_explained_ignore
 	case_db_failure
 	case_malformed_report
+	case_scan_failure
 	case_cache_outside_repo
 }
 
@@ -198,6 +216,7 @@ secret) case_secret ;;
 explained-ignore) case_explained_ignore ;;
 db-failure) case_db_failure ;;
 malformed-report) case_malformed_report ;;
+scan-failure) case_scan_failure ;;
 cache-outside-repo) case_cache_outside_repo ;;
 all) case_all ;;
 *)
