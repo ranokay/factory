@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import base64
-import concurrent.futures
+import contextlib
 import gzip
+import io
 import json
 import os
+import runpy
 import secrets
 import shutil
 import string
@@ -225,14 +227,31 @@ class SecretGuardTests(unittest.TestCase):
             )
             env["GUARD_LOG"] = str(scan_log)
 
-            def check(text: str) -> None:
-                result = self.invoke("prompt", {"prompt": text}, env=env)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout, "")
-                self.assertEqual(result.stderr, "")
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                list(executor.map(check, texts))
+            previous_argv = sys.argv
+            previous_stdin = sys.stdin
+            previous_environ = os.environ.copy()
+            try:
+                os.environ.clear()
+                os.environ.update(env)
+                for text in texts:
+                    sys.argv = [str(GUARD), "prompt"]
+                    sys.stdin = io.StringIO(json.dumps({"prompt": text}))
+                    stdout = io.StringIO()
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        try:
+                            runpy.run_path(str(GUARD), run_name="__main__")
+                            code = 0
+                        except SystemExit as error:
+                            code = error.code
+                    self.assertEqual(code, 0, stderr.getvalue())
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertEqual(stderr.getvalue(), "")
+            finally:
+                sys.argv = previous_argv
+                sys.stdin = previous_stdin
+                os.environ.clear()
+                os.environ.update(previous_environ)
             self.assertEqual(len(scan_log.read_text().splitlines()), len(texts))
 
     def test_ordinary_keyword_false_positives_skip_gitleaks(self):
