@@ -1,5 +1,6 @@
 """Repository, clone and settings helpers for the new-repository command."""
 
+import json
 import re
 import sys
 
@@ -59,8 +60,20 @@ def has_head(clone):
     return git(clone, "rev-parse", "--verify", "HEAD").returncode == 0
 
 
-def has_remote_main(clone):
-    return git(clone, "rev-parse", "--verify", "origin/main").returncode == 0
+def main_requires_pr(slug):
+    result = run(["gh", "api", f"repos/{slug}/rules/branches/main"])
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        if "HTTP 404" in detail:
+            return False
+        problem(f"cannot read {slug}'s branch rules: {detail}")
+    try:
+        rules = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        problem(f"{slug}'s branch rules are not JSON: {error}")
+    if not isinstance(rules, list):
+        problem(f"{slug}'s branch rules are not a list")
+    return any(isinstance(rule, dict) and rule.get("type") == "pull_request" for rule in rules)
 
 
 def commit_and_push(clone, name):

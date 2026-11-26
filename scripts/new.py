@@ -31,8 +31,8 @@ from new_repo import (
     create_repo,
     ensure_clone,
     has_head,
-    has_remote_main,
     install_template,
+    main_requires_pr,
     repo_exists,
     restore_clone,
 )
@@ -110,7 +110,7 @@ def new(args):
         print(f"new: reusing {slug}")
     ensure_clone(clone, slug)
     check_existing_pins(clone)
-    seeded = has_remote_main(clone)
+    protected = main_requires_pr(slug)
     agents_absent = not (clone / "AGENTS.md").exists()
     hk_absent = not (clone / "hk.pkl").exists()
     tag = existing_tag(clone) or existing_hk_tag(clone) or current_tag
@@ -118,10 +118,13 @@ def new(args):
         install_template(clone, factory / "project")
         apply_profiles(clone, chain, tag, agents_absent, hk_absent)
         symlink_claude(clone)
-        if idea and idea.draft and (created or not seeded):
+        if idea and idea.draft and not protected:
             seed_product(clone, idea)
         elif idea and idea.draft:
-            print("new: the repository already has a seed; promoting without changing PRODUCT.md")
+            print(
+                "new: the repository requires a pull request; "
+                "promoting without changing PRODUCT.md"
+            )
     except Problem:
         restore_clone(clone)
         raise

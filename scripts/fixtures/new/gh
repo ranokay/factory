@@ -281,7 +281,12 @@ if method == "GET":
         if payload is None:
             fail("HTTP 404: Not Found")
     elif key.startswith("/rules/branches/"):
-        payload = []
+        payload = [
+            rule
+            for ruleset in repo["rulesets"]
+            if ruleset.get("enforcement") == "active"
+            for rule in ruleset.get("rules", [])
+        ]
     elif key.endswith("/protection"):
         fail("HTTP 404: Not Found")
     elif key.startswith("/contents/"):

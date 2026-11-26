@@ -26,7 +26,7 @@ Promote one draft into a new repository:
 mise run new -- --idea <item-id-or-exact-title> [name]
 ```
 
-The title and body become the repository description and seed `PRODUCT.md`. After the repository exists, the draft is converted to its first issue, so the board links the repository. With no name, the title becomes the slug.
+The title and body become the repository description and seed `PRODUCT.md`. After the repository exists, the draft is converted to its first issue, so the board links the repository. With no name, the title becomes the slug. On a repository that already requires pull requests, the draft is promoted without changing `PRODUCT.md`, because the seed would need a PR.
 
 ## A project from scratch
 

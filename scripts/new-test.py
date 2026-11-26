@@ -507,9 +507,12 @@ class NewCase(unittest.TestCase):
             self.gh_calls(),
         )
 
-    def test_idea_seeds_a_retry_with_no_remote_main(self):
+    def test_idea_seeds_a_retry_before_the_rules_exist(self):
         first = self.run_new("one")
         self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        state = self.state()
+        state["repos"]["ranokay/one"]["rulesets"] = []
+        self.write_state(state)
         shutil.rmtree(self.clone("one"))
         self.empty_clone("one")
         self.seed_idea()
@@ -522,7 +525,7 @@ class NewCase(unittest.TestCase):
         self.assertNotIn("# <repo>", product)
         self.assertEqual(len(self.state()["repos"]["ranokay/one"]["issues"]), 1)
 
-    def test_idea_does_not_seed_a_seeded_existing_repo(self):
+    def test_idea_promotes_without_seeding_a_protected_repo(self):
         first = self.run_new("one")
         self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
         head = self.head("one")
@@ -530,7 +533,7 @@ class NewCase(unittest.TestCase):
         self.seed_idea()
         result = self.run_new("one", "--idea", "PVTI_1")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertIn("already has a seed", result.stdout)
+        self.assertIn("requires a pull request", result.stdout)
         self.assertEqual(self.head("one"), head)
         self.assertIn("# <repo>", (self.clone("one") / "PRODUCT.md").read_text())
         self.assertFalse(any("push" in call for call in self.git_calls()))
