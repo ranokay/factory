@@ -57,6 +57,10 @@ run = "uv run --offline --no-project --no-config --python \"$(mise which python)
 description = "Inventory a repository and file unseen adoption findings"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/adopt.py"
 
+[tasks.new]
+description = "Create a repository from the Project Template, or ensure the Ideas board"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/new.py"
+
 [tasks.gc]
 description = "Prune stale Factory data and tool caches"
 run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/gc.py --notify"
@@ -99,6 +103,7 @@ depends = [
   "triage:test",
   "pushback:test",
   "adopt:test",
+  "new:test",
   "ocr-restyle:test",
   "merge:test",
   "file-promotion:test",
@@ -175,6 +180,10 @@ run = "hk test --step triage"
 [tasks."adopt:test"]
 description = "Run the adopt CLI fixture tests"
 run = "hk test --step adopt"
+
+[tasks."new:test"]
+description = "Run the new CLI fixture tests"
+run = "hk test --step new"
 
 [tasks."pushback:test"]
 description = "Run the pushback review tests"

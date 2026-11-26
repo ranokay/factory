@@ -1035,6 +1035,15 @@ steps {
           }
         }
       }
+      ["new"] = new Step {
+        check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/new-test.py"
+        tests {
+          ["creates, reuses and promotes with no secret leak"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
       ["pushback"] = new Step {
         check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/pushback-test.py"
         tests {

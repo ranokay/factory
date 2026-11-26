@@ -2,6 +2,7 @@ import re
 
 
 PROFILES_LINE = re.compile(r'^[ \t]*Profiles:[ \t]*(.*)$')
+AMENDS = re.compile(r'^\s*amends\s+"([^"]+)"', re.MULTILINE)
 TAG = re.compile(r'^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?$')
 BLOCKER_CALLER = ".github/workflows/blocked.yml"
 BLOCKER_WORKFLOW = "ranokay/factory/.github/workflows/blocker-notify.yml"

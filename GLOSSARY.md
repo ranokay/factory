@@ -19,7 +19,7 @@ The starting files under `project/` that seed a repository.
 _Avoid_: repo template, boilerplate
 
 **System of Record**:
-GitHub issues, labels, pull requests and their comments: the only durable home of work state.
+GitHub issues, labels, pull requests and their comments, plus draft items on the Ideas Project before they become a repository: the only durable home of work state.
 _Avoid_: plan file, todo list, progress file
 
 ### Projects

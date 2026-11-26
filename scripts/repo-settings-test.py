@@ -579,7 +579,7 @@ class RepoSettings(unittest.TestCase):
         self.assertIn("Upstream Fork: skipped", result.stdout)
         state = json.loads(self.path.read_text())
         self.assertEqual(state["topics"]["names"], ["factory-upstream-fork"])
-        self.assertEqual(set(state["writes"]), {"PUT /topics", "PUT /actions/permissions/fork-pr-contributor-approval", "PUT /actions/permissions/fork-pr-workflows-private-repos"})
+        self.assertEqual(set(state["writes"]), {"PUT /topics", "PUT /actions/permissions/fork-pr-workflows-private-repos"})
         self.assertFalse(any("/rulesets" in entry for entry in state["writes"]))
         self.assertFalse(state["private_settings"]["run_workflows_from_fork_pull_requests"])
         state["writes"] = []

@@ -270,9 +270,10 @@ def main():
     if desired_topics != topics:
         change(f"topics: {sorted(topics)} -> {sorted(desired_topics)}", "PUT", base + "/topics", {"names": sorted(desired_topics)})
     approval_path = base + "/actions/permissions/fork-pr-contributor-approval"
-    approval = gh(approval_path)
-    if approval["approval_policy"] != CONFIG["fork_approval"]:
-        change(f"fork workflow approval: {approval['approval_policy']} -> {CONFIG['fork_approval']}", "PUT", approval_path, {"approval_policy": CONFIG["fork_approval"]})
+    if not repo["private"]:
+        approval = gh(approval_path)
+        if approval["approval_policy"] != CONFIG["fork_approval"]:
+            change(f"fork workflow approval: {approval['approval_policy']} -> {CONFIG['fork_approval']}", "PUT", approval_path, {"approval_policy": CONFIG["fork_approval"]})
     if repo["private"]:
         private_path = base + "/actions/permissions/fork-pr-workflows-private-repos"
         private_settings = gh(private_path)
