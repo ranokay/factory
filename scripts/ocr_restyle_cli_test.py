@@ -739,6 +739,8 @@ class CommandLineTests(unittest.TestCase):
                 item["head"],
                 item["severity"],
                 item["content"],
+                item["origin"]["from"],
+                item["origin"]["run"],
             )
             for item in findings
         ]
@@ -747,8 +749,8 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(
             self.carried_on_summary(),
             [
-                ("scripts/a.py", 10, 12, RUN1_TO, "medium", "**A finding title**\n\nThe explanation names the failure and the line."),
-                ("scripts/c.py", 60, 62, RUN1_TO, "low", "**Second carried finding**"),
+                ("scripts/a.py", 10, 12, RUN1_TO, "medium", "**A finding title**\n\nThe explanation names the failure and the line.", "def56789abcdef0123456789abcdef0123456789", "1"),
+                ("scripts/c.py", 60, 62, RUN1_TO, "low", "**Second carried finding**", "def56789abcdef0123456789abcdef0123456789", "1"),
             ],
         )
         self.assertIn(self.run1_marker, self.github.issue_comments[0]["body"])
