@@ -55,7 +55,7 @@ test("throws the guard's rule-only message to block a tool", async () => {
 
 test("registers the same blocking hook with the OpenCode 2 plugin API", async () => {
   await withGuard("printf '%s\\n' '{\"block\":true,\"message\":\"Factory secret guard: fixture-rule\"}'\n", async () => {
-    let registered: ((event: { tool: string; input: Record<string, unknown> }) => Promise<void>) | undefined
+    let registered: ((event: { tool: string; input: Record<string, unknown>; sessionID?: string }) => Promise<void>) | undefined
     await secretGuardPlugin.setup({
       tool: {
         hook: async (name, callback) => {
@@ -80,6 +80,80 @@ test("fails closed when the guard process exits with an error", async () => {
 test("fails closed when the guard output is malformed", async () => {
   await withGuard("printf '%s\\n' 'not-json'\n", async (hook) => {
     await assert.rejects(() => hook({ tool: "read" }, { args: { path: "file.txt" } }), /failed closed/)
+  })
+})
+
+test("shows fallback warnings through the OpenCode 2 toast API", async () => {
+  await withGuard("printf '%s\\n' '{\"block\":false,\"warning\":\"fixture warning\"}'\n", async () => {
+    let registered: ((event: { tool: string; input: Record<string, unknown>; sessionID?: string }) => Promise<void>) | undefined
+    let toast: Record<string, unknown> | undefined
+    await secretGuardPlugin.setup({
+      tool: {
+        hook: async (name, callback) => {
+          assert.equal(name, "execute.before")
+          registered = callback
+        },
+      },
+      ui: {
+        toast: {
+          show: (options) => {
+            toast = options
+          },
+        },
+      },
+    })
+    assert.ok(registered)
+    await registered!({ tool: "read", input: { path: "ordinary.txt" } })
+    assert.deepEqual(toast, {
+      title: "Factory secret guard warning",
+      message: "fixture warning",
+      variant: "error",
+      duration: 10000,
+    })
+  })
+})
+
+test("surfaces server fallback warnings as session notifications", async () => {
+  await withGuard("printf '%s\\n' '{\"block\":false,\"warning\":\"fixture warning\"}'\n", async () => {
+    let registered: ((event: { tool: string; input: Record<string, unknown>; sessionID?: string }) => Promise<void>) | undefined
+    let notification: Record<string, unknown> | undefined
+    await secretGuardPlugin.setup({
+      tool: {
+        hook: async (_name, callback) => {
+          registered = callback
+        },
+      },
+      session: {
+        synthetic: async (input) => {
+          notification = input
+        },
+      },
+    })
+    assert.ok(registered)
+    await registered!({ tool: "read", input: { path: "ordinary.txt" }, sessionID: "ses_fixture" })
+    assert.deepEqual(notification, {
+      sessionID: "ses_fixture",
+      text: "fixture warning",
+      description: "Factory secret guard warning",
+    })
+  })
+})
+
+test("shows fallback warnings through the OpenCode 1 toast API", async () => {
+  await withGuard("printf '%s\\n' '{\"block\":false,\"warning\":\"fixture warning\"}'\n", async () => {
+    let request: Record<string, unknown> | undefined
+    const plugin = await FactorySecretGuardPlugin({
+      client: {
+        tui: {
+          showToast: async (options) => {
+            request = options
+            return true
+          },
+        },
+      },
+    })
+    await plugin["tool.execute.before"]({ tool: "read" }, { args: { path: "ordinary.txt" } })
+    assert.deepEqual(request, { body: { message: "fixture warning", variant: "error" } })
   })
 })
 

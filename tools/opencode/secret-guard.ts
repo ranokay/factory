@@ -2,15 +2,29 @@ import { spawn } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-type ToolInput = { tool: string; input: Record<string, unknown> }
+type ToolInput = { tool: string; sessionID?: string }
 type ToolOutput = { args: Record<string, unknown> }
 type GuardResult = { block: boolean; message?: string; warning?: string }
+type ToastOptions = { title: string; message: string; variant: "error"; duration: number }
 type PluginContext = {
   tool?: {
     hook: (
       name: string,
-      callback: (event: { tool: string; input: Record<string, unknown> }) => Promise<void>,
+      callback: (event: { tool: string; input: Record<string, unknown>; sessionID?: string }) => Promise<void>,
     ) => Promise<unknown>
+  }
+  ui?: {
+    toast?: {
+      show: (options: ToastOptions) => unknown
+    }
+  }
+  client?: {
+    tui?: {
+      showToast: (options: { body: { message: string; variant: "error" } }) => Promise<unknown>
+    }
+  }
+  session?: {
+    synthetic: (input: { sessionID: string; text: string; description: string }) => Promise<unknown>
   }
 }
 
@@ -66,14 +80,39 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
   })
 }
 
-async function beforeTool(input: ToolInput, output: ToolOutput): Promise<void> {
-  const result = await runGuard(input.tool, output.args)
-  if (result.block) throw new Error(result.message)
-  if (result.warning) console.warn(result.warning)
+async function showWarning(context: PluginContext, warning: string, sessionID?: string): Promise<void> {
+  if (context.ui?.toast?.show) {
+    context.ui.toast.show({
+      title: "Factory secret guard warning",
+      message: warning,
+      variant: "error",
+      duration: 10000,
+    })
+    return
+  }
+  if (context.client?.tui?.showToast) {
+    await context.client.tui.showToast({ body: { message: warning, variant: "error" } })
+    return
+  }
+  if (context.session?.synthetic && sessionID) {
+    await context.session.synthetic({
+      sessionID,
+      text: warning,
+      description: "Factory secret guard warning",
+    })
+    return
+  }
+  console.warn(warning)
 }
 
-export const FactorySecretGuardPlugin = async () => ({
-  "tool.execute.before": beforeTool,
+async function beforeTool(input: ToolInput, output: ToolOutput, context: PluginContext = {}): Promise<void> {
+  const result = await runGuard(input.tool, output.args)
+  if (result.block) throw new Error(result.message)
+  if (result.warning) await showWarning(context, result.warning, input.sessionID)
+}
+
+export const FactorySecretGuardPlugin = async (context: PluginContext = {}) => ({
+  "tool.execute.before": (input: ToolInput, output: ToolOutput) => beforeTool(input, output, context),
 })
 
 const plugin = {
@@ -82,7 +121,7 @@ const plugin = {
   setup: async (context: PluginContext) => {
     if (!context.tool?.hook) throw failedClosed()
     await context.tool.hook("execute.before", async (event) => {
-      await beforeTool({ tool: event.tool }, { args: event.input })
+      await beforeTool({ tool: event.tool, sessionID: event.sessionID }, { args: event.input }, context)
     })
   },
 }

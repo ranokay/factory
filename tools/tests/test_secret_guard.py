@@ -197,16 +197,24 @@ class SecretGuardTests(unittest.TestCase):
         self.assertEqual(result.stderr, "")
         self.assertTrue(spawned)
 
-    def test_missing_or_invalid_keyword_catalog_always_runs_gitleaks(self):
-        for catalog in (None, "not json"):
+    def test_missing_invalid_or_stale_keyword_catalog_always_runs_gitleaks(self):
+        for catalog in (None, "not json", "stale"):
             with self.subTest(catalog=catalog), tempfile.TemporaryDirectory() as case_dir:
                 root = Path(case_dir)
                 tools = root / "tools"
                 tools.mkdir()
                 guard = tools / "secret_guard.py"
                 shutil.copy2(GUARD, guard)
-                if catalog is not None:
+                if catalog == "stale":
+                    stale = json.loads((TOOLS / "gitleaks-keywords.json").read_text())
+                    stale["gitleaks_version"] = "8.30.2"
+                    stale["source"] = "https://raw.githubusercontent.com/gitleaks/gitleaks/v8.30.2/config/gitleaks.toml"
+                    (tools / "gitleaks-keywords.json").write_text(json.dumps(stale))
+                elif catalog is not None:
                     (tools / "gitleaks-keywords.json").write_text(catalog)
+                profile = root / "profiles" / "universal" / "mise.toml"
+                profile.parent.mkdir(parents=True)
+                profile.write_text('[tools]\ngitleaks = "8.30.1"\n')
                 bin_dir = root / "bin"
                 bin_dir.mkdir()
                 marker = root / "spawned"

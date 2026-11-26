@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,9 +36,26 @@ def fallback_rule_ids(text: str) -> list[str]:
     return sorted(rule_id for rule_id, pattern in FALLBACK_RULES if pattern.search(text))
 
 
+def pinned_gitleaks_version() -> str | None:
+    try:
+        config = tomllib.loads((ROOT / "profiles" / "universal" / "mise.toml").read_text())
+        version = config["tools"]["gitleaks"]
+        return version if isinstance(version, str) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def prefilter_keywords() -> set[str] | None:
     try:
         catalog = json.loads(KEYWORD_CATALOG.read_text())
+        version = catalog["gitleaks_version"]
+        source = catalog["source"]
+        if (
+            not isinstance(version, str)
+            or version != pinned_gitleaks_version()
+            or source != f"https://raw.githubusercontent.com/gitleaks/gitleaks/v{version}/config/gitleaks.toml"
+        ):
+            return None
         keywords = catalog["keywords"]
         if (
             not isinstance(keywords, list)
