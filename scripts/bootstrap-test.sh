@@ -488,6 +488,10 @@ case_env() {
 	[ -L "$xdg/opencode/AGENTS.md" ] || fail "XDG_CONFIG_HOME/opencode/AGENTS.md is not a symlink"
 	[ -L "$codex/AGENTS.md" ] || fail "CODEX_HOME/AGENTS.md is not a symlink"
 	[ "$(readlink "$codex/AGENTS.md")" = "$home/.agents/AGENTS.md" ] || fail "the Codex instructions link is wrong"
+	[ -f "$xdg/opencode/opencode.json" ] || fail "the relocated OpenCode config was not created"
+	[ -f "$codex/config.toml" ] || fail "the relocated Codex config was not created"
+	[ "$(json_value "$xdg/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "the relocated OpenCode config has no context7 env reference"
+	grep -q '^\[mcp_servers.context7\]$' "$codex/config.toml" || fail "the relocated Codex config has no context7 table"
 	run_command env XDG_CONFIG_HOME="$xdg" CODEX_HOME="$codex" mise --cd "$factory" run bootstrap:check -- --home "$home"
 	[ "$code" -eq 0 ] || fail "discovery with XDG_CONFIG_HOME and CODEX_HOME failed: $output"
 	printf 'ok: XDG_CONFIG_HOME and CODEX_HOME are honoured\n'
@@ -648,6 +652,31 @@ case_mcp() {
 	expect_contains "$output" "$home/.claude.json"
 	expect_not_contains "$output" "Traceback"
 	printf 'ok: bootstrap renders, checks, backs up and repairs the MCP configs\n'
+}
+
+case_mcp_absent() {
+	setup_case mcp-absent
+	[ ! -e "$home/.claude.json" ] || fail "the fixture home already has a Claude config"
+	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the fixture home already has an OpenCode config"
+	[ ! -e "$home/.codex/config.toml" ] || fail "the fixture home already has a Codex config"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "bootstrap:check passed without MCP configs: $output"
+	expect_contains "$output" "MCP configs are not in sync"
+	expect_contains "$output" "$home/.claude.json"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed without MCP configs: $output"
+	expect_contains "$output" "MCP configs are in sync"
+	[ -f "$home/.claude.json" ] || fail "bootstrap did not create the Claude config"
+	[ -f "$home/.config/opencode/opencode.json" ] || fail "bootstrap did not create the OpenCode config"
+	[ -f "$home/.codex/config.toml" ] || fail "bootstrap did not create the Codex config"
+	[ "$(json_value "$home/.claude.json" mcpServers.context7.headers.Authorization)" = "$(claude_expected)" ] || fail "the created Claude config has no context7 env reference"
+	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "the created OpenCode config has no context7 env reference"
+	grep -q '^bearer_token_env_var = "CONTEXT7_API_KEY"$' "$home/.codex/config.toml" || fail "the created Codex config has no context7 env reference"
+	grep -q '^\[shell_environment_policy\]$' "$home/.codex/config.toml" || fail "the created Codex config has no shell environment policy"
+	grep -q '^ignore_default_excludes = true$' "$home/.codex/config.toml" || fail "the created Codex config does not pass registry secrets"
+	run_mcp_check
+	[ "$code" -eq 0 ] || fail "the MCP check reported drift after bootstrap created the configs: $output"
+	printf 'ok: bootstrap creates MCP configs for harnesses that have never run\n'
 }
 
 case_secrets_agent() {
@@ -1198,6 +1227,7 @@ case_all() {
 	case_synced_ignored
 	case_synced_discovery
 	case_mcp
+	case_mcp_absent
 	case_secrets_agent
 	case_gc_agent
 	case_verify_agent
@@ -1233,6 +1263,7 @@ synced-tracked) case_synced_tracked ;;
 synced-ignored) case_synced_ignored ;;
 synced-discovery) case_synced_discovery ;;
 mcp) case_mcp ;;
+mcp-absent) case_mcp_absent ;;
 secrets-agent) case_secrets_agent ;;
 gc-agent) case_gc_agent ;;
 verify-agent) case_verify_agent ;;

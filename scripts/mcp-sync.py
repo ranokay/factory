@@ -4,7 +4,10 @@
 Registry entries never hold secret values: a secret header names the
 environment variable that carries the value and the ``op://`` reference the
 LaunchAgent reads it from. Each harness config gets that harness's own
-env-var syntax, so a rendered config is safe to commit or share.
+env-var syntax, so a rendered config is safe to commit or share. A harness
+whose config does not exist yet (it has never run) gets a minimal valid
+config holding the registry servers that target it, plus Codex's shell
+environment policy.
 
 Usage: mcp-sync [--check] [--env [--check]] [--home PATH] [--registry PATH]
   --check          report drift without writing
@@ -272,7 +275,8 @@ def desired_codex(text: str, servers: dict, retired: list[str], home: Path) -> s
     lines = body.splitlines()
     policy = next((i for i, line in enumerate(lines) if line.strip() == "[shell_environment_policy]"), None)
     if policy is None:
-        body = body.rstrip() + "\n\n[shell_environment_policy]\nignore_default_excludes = true\n"
+        separator = "\n\n" if body.strip() else ""
+        body = body.rstrip() + separator + "[shell_environment_policy]\nignore_default_excludes = true\n"
     else:
         end = next((i for i in range(policy + 1, len(lines)) if HEADER.match(lines[i].strip())), len(lines))
         lines[policy + 1:end] = [line for line in lines[policy + 1:end] if not re.match(r"\s*ignore_default_excludes\s*=", line)]
@@ -292,33 +296,47 @@ def config_paths(home: Path) -> dict[str, Path]:
     }
 
 
+def config_target(path: Path) -> Path:
+    if not path.is_symlink():
+        return path
+    if not path.exists():
+        raise SyncError(f"{path}: config symlink does not resolve to a file")
+    return path.resolve(strict=True)
+
+
 def write(path: Path, text: str, check: bool, changed: list[str]) -> None:
-    if path.exists() and path.read_text() == text:
-        return
+    resolved = config_target(path)
+    if resolved.exists():
+        try:
+            current = resolved.read_text()
+        except OSError as error:
+            raise SyncError(f"{path}: {error}") from None
+        if current == text:
+            return
     changed.append(str(path))
     if check:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    mode = None
-    if path.exists():
-        mode = path.stat().st_mode & 0o777
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    mode = 0o600
+    if resolved.exists():
+        mode = resolved.stat().st_mode & 0o777
         shutil.copy2(path, backup_path(path))
-    temporary = path.with_name(path.name + ".mcp-sync.tmp")
+    temporary = resolved.with_name(resolved.name + ".mcp-sync.tmp")
     temporary.write_text(text)
-    if mode is not None:
-        os.chmod(temporary, mode)
-    os.replace(temporary, path)
+    os.chmod(temporary, mode)
+    os.replace(temporary, resolved)
 
 
 def render(home: Path, servers: dict, retired: list[str], check: bool) -> int:
     changed: list[str] = []
     for target, path in config_paths(home).items():
-        if not path.exists():
-            continue
-        try:
-            text = path.read_text()
-        except OSError as error:
-            raise SyncError(f"{path}: {error}") from None
+        if path.exists():
+            try:
+                text = path.read_text()
+            except OSError as error:
+                raise SyncError(f"{path}: {error}") from None
+        else:
+            text = "" if target == "codex" else "{}"
         if target == "codex":
             write(path, desired_codex(text, servers, retired, home), check, changed)
             continue

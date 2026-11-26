@@ -199,14 +199,78 @@ args = ["mcp"]
 case_absent() {
 	setup_case absent
 	make_stubs
+	rm -rf "$home/.config/opencode" "$home/.codex"
+	[ ! -e "$home/.claude.json" ] || fail "the fixture home already has a Claude config"
+	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the fixture home already has an OpenCode config"
+	[ ! -e "$home/.codex/config.toml" ] || fail "the fixture home already has a Codex config"
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "the check passed without configs: $output"
+	expect_contains "$output" "$home/.claude.json"
+	expect_contains "$output" "$home/.config/opencode/opencode.json"
+	expect_contains "$output" "$home/.codex/config.toml"
 	run_sync
 	[ "$code" -eq 0 ] || fail "render failed without configs: $output"
-	[ ! -e "$home/.claude.json" ] || fail "the render created a missing Claude config"
-	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the render created a missing OpenCode config"
-	[ ! -e "$home/.codex/config.toml" ] || fail "the render created a missing Codex config"
+	[ -f "$home/.claude.json" ] || fail "the render did not create the Claude config"
+	[ -f "$home/.config/opencode/opencode.json" ] || fail "the render did not create the OpenCode config"
+	[ -f "$home/.codex/config.toml" ] || fail "the render did not create the Codex config"
+	[ "$(file_mode "$home/.claude.json")" = 600 ] || fail "the created Claude config is not 600"
+	[ "$(file_mode "$home/.config/opencode/opencode.json")" = 600 ] || fail "the created OpenCode config is not 600"
+	[ "$(file_mode "$home/.codex/config.toml")" = 600 ] || fail "the created Codex config is not 600"
+	[ "$(json_value "$home/.claude.json" mcpServers.context7.headers.Authorization)" = "$(claude_expected)" ] || fail "the created Claude header is not its env reference"
+	[ "$(json_value "$home/.config/opencode/opencode.json" 'mcp.context7.headers.Authorization')" = 'Bearer {env:CONTEXT7_API_KEY}' ] || fail "the created OpenCode header is not its env reference"
+	grep -q '^\[mcp_servers.context7\]$' "$home/.codex/config.toml" || fail "the created Codex config has no context7 table"
+	grep -q '^bearer_token_env_var = "CONTEXT7_API_KEY"$' "$home/.codex/config.toml" || fail "the created Codex config has no bearer token env var"
+	run_python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert list(d)==["mcpServers"] and sorted(d["mcpServers"])==["context7","cua-driver"], d' "$home/.claude.json"
+	[ "$code" -eq 0 ] || fail "the created Claude config is not minimal: $output"
+	run_python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert list(d)==["mcp"] and sorted(d["mcp"])==["context7","cua-driver"], d' "$home/.config/opencode/opencode.json"
+	[ "$code" -eq 0 ] || fail "the created OpenCode config is not minimal: $output"
+	run_python -c 'import sys,tomllib; c=tomllib.load(open(sys.argv[1],"rb")); assert sorted(c["mcp_servers"])==["context7","cua-driver"] and c["shell_environment_policy"]["ignore_default_excludes"] is True, c' "$home/.codex/config.toml"
+	[ "$code" -eq 0 ] || fail "the created Codex config does not parse or is not minimal: $output"
+	run_python -c 'import sys; assert open(sys.argv[1]).read().startswith("[shell_environment_policy]\n")' "$home/.codex/config.toml"
+	[ "$code" -eq 0 ] || fail "the created Codex config starts with a blank line: $output"
+	[ "$(backup_count)" = 0 ] || fail "the render backed up a config it created"
 	run_sync --check
-	[ "$code" -eq 0 ] || fail "the check failed without configs: $output"
-	printf 'ok: an absent harness config is left absent\n'
+	[ "$code" -eq 0 ] || fail "the check reported drift after creating the configs: $output"
+	expect_contains "$output" "in sync"
+	printf 'ok: an absent harness config is created with the registry servers\n'
+}
+
+case_dangling() {
+	setup_case dangling
+	make_stubs
+	ln -s "$case_dir/missing-claude.json" "$home/.claude.json"
+	run_sync
+	[ "$code" -ne 0 ] || fail "the render replaced a dangling symlink"
+	expect_contains "$output" "$home/.claude.json"
+	expect_contains "$output" "does not resolve to a file"
+	[ -L "$home/.claude.json" ] || fail "the render replaced the dangling symlink with a file"
+	[ ! -e "$home/.config/opencode/opencode.json" ] || fail "the failed render wrote the OpenCode config"
+	[ ! -e "$home/.codex/config.toml" ] || fail "the failed render wrote the Codex config"
+	run_sync --check
+	[ "$code" -ne 0 ] || fail "the check passed with a dangling config symlink"
+	printf 'ok: a dangling config symlink fails loudly and is left in place\n'
+}
+
+case_symlink() {
+	setup_case symlink
+	make_stubs
+	mkdir -p "$case_dir/dotfiles"
+	printf '{"numStartups":7}\n' >"$case_dir/dotfiles/claude.json"
+	chmod 640 "$case_dir/dotfiles/claude.json"
+	ln -s "$case_dir/dotfiles/claude.json" "$home/.claude.json"
+	run_sync
+	[ "$code" -eq 0 ] || fail "render failed through a config symlink: $output"
+	[ -L "$home/.claude.json" ] || fail "the render replaced the config symlink"
+	[ "$(json_value "$home/.claude.json" numStartups)" = 7 ] || fail "the render dropped the symlink target's key"
+	[ "$(json_value "$home/.claude.json" mcpServers.context7.headers.Authorization)" = "$(claude_expected)" ] || fail "the render did not update the symlink target"
+	[ "$(file_mode "$home/.claude.json")" = 640 ] || fail "the render changed the symlink target's mode"
+	backup=$(find "$home" -maxdepth 1 -name '.claude.json.backup-*' | head -n 1)
+	[ -n "$backup" ] || fail "the render did not back up the symlink target"
+	run_python -c 'import json,sys; assert json.load(open(sys.argv[1]))["numStartups"] == 7' "$backup"
+	[ "$code" -eq 0 ] || fail "the symlink backup has no target content: $output"
+	run_sync --check
+	[ "$code" -eq 0 ] || fail "the check reported drift after rendering through a symlink: $output"
+	printf 'ok: a config symlink is followed and kept\n'
 }
 
 case_preserve() {
@@ -407,6 +471,8 @@ case_all() {
 	case_drift
 	case_retired
 	case_absent
+	case_dangling
+	case_symlink
 	case_preserve
 	case_backup
 	case_env
@@ -424,6 +490,8 @@ fresh) case_fresh ;;
 drift) case_drift ;;
 retired) case_retired ;;
 absent) case_absent ;;
+dangling) case_dangling ;;
+symlink) case_symlink ;;
 preserve) case_preserve ;;
 backup) case_backup ;;
 env) case_env ;;
