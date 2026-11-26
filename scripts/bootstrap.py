@@ -262,19 +262,20 @@ def provision_op_token(home: Path, rotate: bool) -> bool:
     command = f'add-generic-password -U -a Factory -s {OP_TOKEN_SERVICE} -T /usr/bin/security -w "{escaped}" "{home}/Library/Keychains/login.keychain-db"\n'
     result = subprocess.run([security, "-i"], input=command, capture_output=True, text=True, check=False)
     verify = subprocess.run([*query, "-w"], capture_output=True, text=True, check=False)
-    if result.returncode or verify.returncode or verify.stdout.rstrip("\n") != token:
-        reasons = []
-        if result.returncode:
-            reasons.append("store: " + (result.stderr.strip() or "security exited non-zero"))
-        if verify.returncode:
-            reasons.append("verify: " + (verify.stderr.strip() or "the stored token could not be read back"))
-        if not result.returncode and not verify.returncode:
-            reasons.append("the stored token did not match")
-        detail = " ".join(reasons).replace(token, "[redacted]").replace(escaped, "[redacted]")
+    if result.returncode:
         message = "bootstrap: cannot store service account token in login Keychain"
-        print(f"{message}: {detail}" if detail else message, file=sys.stderr)
-        return False
-    return True
+        detail = result.stderr.strip() or "security exited non-zero"
+    elif verify.returncode:
+        message = "bootstrap: stored the service account token but cannot read it back from the login Keychain"
+        detail = verify.stderr.strip() or "security exited non-zero"
+    elif verify.stdout.rstrip("\n") != token:
+        message = "bootstrap: stored the service account token but it does not match the 1Password value"
+        detail = "the readback differs"
+    else:
+        return True
+    detail = detail.replace(token, "[redacted]").replace(escaped, "[redacted]")
+    print(f"{message}: {detail}", file=sys.stderr)
+    return False
 
 
 def launchctl_binary() -> str | None:

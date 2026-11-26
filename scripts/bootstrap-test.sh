@@ -1280,6 +1280,39 @@ STUB
 	printf 'ok: a failing security store names its reason and redacts the token\n'
 }
 
+case_keychain_verify_failure() {
+	setup_case keychain-verify-failure
+	cat >"$bin/security" <<'STUB'
+#!/bin/sh
+if [ "$1" = -i ]; then cat >/dev/null; exit 0; fi
+printf 'security: fixture item could not be read\n' >&2
+exit 44
+STUB
+	chmod +x "$bin/security"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap passed despite an unreadable keychain item"
+	expect_contains "$output" "cannot read it back from the login Keychain"
+	expect_contains "$output" "fixture item could not be read"
+	printf 'ok: an unreadable keychain item names the readback failure\n'
+}
+
+case_keychain_mismatch() {
+	setup_case keychain-mismatch
+	marker=$case_dir/stored
+	cat >"$bin/security" <<STUB
+#!/bin/sh
+if [ "\$1" = -i ]; then cat >/dev/null; : >"$marker"; exit 0; fi
+[ -f "$marker" ] || exit 44
+printf 'wrong-value'
+STUB
+	chmod +x "$bin/security"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap passed despite a mismatched keychain readback"
+	expect_contains "$output" "does not match the 1Password value"
+	expect_not_contains "$output" "wrong-value"
+	printf 'ok: a mismatched keychain readback fails loudly\n'
+}
+
 case_token_lookup() {
 	setup_case token-lookup
 	export KEYCHAIN_FIXTURE="$case_dir/keychain"
@@ -1447,6 +1480,8 @@ case_all() {
 	case_push_history
 	case_service_token
 	case_keychain_store_failure
+	case_keychain_verify_failure
+	case_keychain_mismatch
 	case_token_lookup
 	case_reference_syntax
 	case_fresh
@@ -1488,6 +1523,8 @@ unreadable-references) case_unreadable_references ;;
 push-history) case_push_history ;;
 service-token) case_service_token ;;
 keychain-store-failure) case_keychain_store_failure ;;
+keychain-verify-failure) case_keychain_verify_failure ;;
+keychain-mismatch) case_keychain_mismatch ;;
 token-lookup) case_token_lookup ;;
 reference-syntax) case_reference_syntax ;;
 fresh) case_fresh ;;
