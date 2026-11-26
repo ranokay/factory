@@ -26,7 +26,7 @@ MAX_PREFILTER_BYTES = 4096
 # https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/codec/encodings.go#L22-L43
 ENCODING_RE = re.compile(
     r"(?P<percent>%[0-9A-Fa-f]{2}(?:.*%[0-9A-Fa-f]{2})?)"
-    r"|(?P<unicode>(?:(?:U\+[a-fA-F0-9]{4}(?:\s|$))+|(?i:(?:\\{1,2}u[a-fA-F0-9]{4})+)))"
+    r"|(?P<unicode>U\+[a-fA-F0-9]{4}(?:\s+U\+[a-fA-F0-9]{4})*(?=\s|$)|(?i:(?:\\{1,2}u[a-fA-F0-9]{4})+))"
     r"|(?P<hex>[0-9A-Fa-f]{32,})"
     r"|(?P<base64>[\w/+-]{16,}={0,2})",
     re.ASCII,
@@ -54,7 +54,14 @@ FALLBACK_RULES = (
 
 
 def fallback_rule_ids(text: str) -> list[str]:
-    return sorted(rule_id for rule_id, pattern in FALLBACK_RULES if pattern.search(text))
+    return sorted(
+        {
+            rule_id
+            for decoded in decoded_texts(text)
+            for rule_id, pattern in FALLBACK_RULES
+            if pattern.search(decoded)
+        }
+    )
 
 
 # Match gitleaks v8.30.1's kept-segment and printable-ASCII acceptance rules.

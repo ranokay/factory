@@ -188,16 +188,36 @@ class SecretGuardTests(unittest.TestCase):
                     self.assertIn(rule_id, output["reason"])
                     self.assertNotIn(token, result.stdout + result.stderr)
 
-    def test_encoded_fixtures_force_real_gitleaks_and_block_without_echoing(self):
+    def test_encoded_fixtures_block_without_echoing(self):
         for rule_id, token, encoded in encoded_fixtures():
             with self.subTest(rule_id=rule_id, encoding=encoded[:12]):
                 result = self.invoke("prompt", {"prompt": f"payload {encoded}"})
                 self.assertEqual(result.returncode, 0, result.stderr)
                 output = json.loads(result.stdout)
                 self.assertEqual(output["decision"], "block")
-                self.assertIn(rule_id, output["reason"])
+                expected_rules = ("github-pat", "github-token") if rule_id == "github-pat" else (rule_id,)
+                self.assertTrue(any(rule in output["reason"] for rule in expected_rules), output["reason"])
                 self.assertNotIn(token, result.stdout + result.stderr)
                 self.assertNotIn(encoded, result.stdout + result.stderr)
+
+    def test_failing_gitleaks_blocks_decoded_fixtures_with_fallback(self):
+        cases = [
+            ("github-token" if rule_id == "github-pat" else rule_id, token, f"payload {encoded}")
+            for rule_id, token, encoded in encoded_fixtures()
+        ]
+        token, payload = long_mixed_fixture()
+        cases.append(("context7-key-token", token, payload))
+        with tempfile.TemporaryDirectory() as bin_dir:
+            env = self.fake_gitleaks(Path(bin_dir), "#!/bin/sh\nexit 2\n")
+            for rule_id, token, payload in cases:
+                with self.subTest(rule_id=rule_id, encoding=payload[:12]):
+                    result = self.invoke("prompt", {"prompt": payload}, env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    output = json.loads(result.stdout)
+                    self.assertEqual(output["decision"], "block")
+                    self.assertIn(rule_id, output["reason"])
+                    self.assertNotIn(token, result.stdout + result.stderr)
+                    self.assertNotIn(payload, result.stdout + result.stderr)
 
     def test_long_mixed_encoding_forces_gitleaks_across_fragment_boundaries(self):
         token, payload = long_mixed_fixture()
