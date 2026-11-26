@@ -732,14 +732,24 @@ class CommandLineTests(unittest.TestCase):
     def carried_on_summary(self):
         findings = restyle.decode_routed(self.github.issue_comments[0]["body"]).findings
         return [
-            (item["path"], item["start_line"], item["end_line"], item["head"])
+            (
+                item["path"],
+                item["start_line"],
+                item["end_line"],
+                item["head"],
+                item["severity"],
+                item["content"],
+            )
             for item in findings
         ]
 
     def assert_snapshot_kept(self):
         self.assertEqual(
             self.carried_on_summary(),
-            [("scripts/a.py", 10, 12, RUN1_TO), ("scripts/c.py", 60, 62, RUN1_TO)],
+            [
+                ("scripts/a.py", 10, 12, RUN1_TO, "medium", "**A finding title**\n\nThe explanation names the failure and the line."),
+                ("scripts/c.py", 60, 62, RUN1_TO, "low", "**Second carried finding**"),
+            ],
         )
         self.assertIn(self.run1_marker, self.github.issue_comments[0]["body"])
 
@@ -767,7 +777,7 @@ class CommandLineTests(unittest.TestCase):
                 environment=self.later_run_environment(carried) | {"OCR_INLINE": "3"}
             )
             self.assertEqual(result.returncode, 0, result.stdout)
-            self.assertIn("OCR restyle skipped", result.stdout)
+            self.assertIn("OCR restyle skipped: OCR reported 3 inline", result.stdout)
             self.assert_snapshot_kept()
 
     def test_a_failed_fallback_write_only_warns(self):
