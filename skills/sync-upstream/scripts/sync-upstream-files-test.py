@@ -211,8 +211,11 @@ class SyncUpstreamFiles(SyncFixture):
         state = json.loads(self.repo_file.read_text())
         state["view"] = "false"
         self.repo_file.write_text(json.dumps(state))
+        gh = shutil.which("gh")
+        if gh is None:
+            self.skipTest("gh is not installed")
         token = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- reads the signed-in gh token without the fake on PATH
-            ["gh", "auth", "token"],
+            [gh, "auth", "token"],
             capture_output=True,
             text=True,
             check=False,
