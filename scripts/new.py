@@ -5,8 +5,8 @@ new creates ranokay/<name>, makes its Canonical Clone under ~/Developer, seeds
 the Project Template through `sync-upstream install-files`, writes the chosen
 Profiles and their pinned includes, symlinks CLAUDE.md, and applies repository
 settings through `repo-settings.py --apply`. An idea on the Ideas Project seeds
-the repository and is converted to an issue in it. Every step is idempotent and
-never deletes or force-pushes.
+a new or still-unprotected repository and is converted to an issue in it. Every
+step is idempotent and never deletes or force-pushes.
 """
 
 import argparse

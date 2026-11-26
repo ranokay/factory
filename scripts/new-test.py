@@ -173,28 +173,6 @@ class NewCase(unittest.TestCase):
     def clone(self, name):
         return self.developer / name
 
-    def empty_clone(self, name):
-        path = self.clone(name)
-        path.mkdir()
-        subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture seeds an empty checkout
-            [self.real_git, "-c", "init.defaultBranch=main", "init", "-q", str(path)],
-            env=self.env,
-            check=True,
-        )
-        subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture seeds an empty checkout
-            [
-                self.real_git,
-                "-C",
-                str(path),
-                "remote",
-                "add",
-                "origin",
-                f"https://github.com/ranokay/{name}.git",
-            ],
-            env=self.env,
-            check=True,
-        )
-
     def git(self, name, *arguments):
         return subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- real git in the fixture clone
             [self.real_git, "-C", str(self.clone(name)), *arguments],
@@ -513,8 +491,6 @@ class NewCase(unittest.TestCase):
         state = self.state()
         state["repos"]["ranokay/one"]["rulesets"] = []
         self.write_state(state)
-        shutil.rmtree(self.clone("one"))
-        self.empty_clone("one")
         self.seed_idea()
         result = self.run_new("one", "--idea", "PVTI_1")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -524,6 +500,14 @@ class NewCase(unittest.TestCase):
         self.assertIn("Fly to Mars.", product)
         self.assertNotIn("# <repo>", product)
         self.assertEqual(len(self.state()["repos"]["ranokay/one"]["issues"]), 1)
+
+    def test_a_missing_rule_list_still_seeds(self):
+        self.seed_idea()
+        result = self.run_new(
+            "ruleless-one", "--idea", "PVTI_1", extra={"FAKE_RULES_404": "1"}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("# Rocket", (self.clone("ruleless-one") / "PRODUCT.md").read_text())
 
     def test_idea_promotes_without_seeding_a_protected_repo(self):
         first = self.run_new("one")

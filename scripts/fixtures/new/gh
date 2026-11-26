@@ -281,6 +281,10 @@ if method == "GET":
         if payload is None:
             fail("HTTP 404: Not Found")
     elif key.startswith("/rules/branches/"):
+        if os.environ.get("FAKE_RULES_404") and not state.get("rules_404_used"):
+            state["rules_404_used"] = True
+            save()
+            fail("HTTP 404: Not Found")
         payload = [
             rule
             for ruleset in repo["rulesets"]
