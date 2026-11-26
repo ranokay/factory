@@ -612,7 +612,7 @@ steps {
         }
       }
       ["trivy-test"] = new Step {
-        check = "sh {{root}}/scripts/trivy-check-test.sh"
+        check = "sh {{root}}/scripts/trivy-check-test.sh && python3 {{root}}/scripts/trivy-gates-test.py"
         tests {
           ["the Trivy Gate fixtures pass"] {
             run = "check"
