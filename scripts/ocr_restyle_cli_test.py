@@ -531,7 +531,7 @@ class CommandLineTests(unittest.TestCase):
         }
         result = self.run_clean_second_run(carried)
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertIn("no diff for scripts/a.py", result.stdout)
+        self.assertIn("no usable diff for scripts/a.py", result.stdout)
         self.assertIn("`scripts/a.py:10-12`", self.github.issue_comments[0]["body"])
 
     def test_a_failed_compare_keeps_the_carried_finding_unremapped(self):
@@ -801,6 +801,47 @@ class CommandLineTests(unittest.TestCase):
         result = self.run_cli(environment=self.later_run_environment(carried))
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assert_snapshot_kept()
+
+    def test_a_truncated_diff_keeps_the_carried_finding_unremapped_with_a_warning(self):
+        carried = self.raise_routed_finding()
+        self.github.compare = {
+            "files": [{"filename": "scripts/a.py", "patch": "@@ -5,0 +6,3 @@\n+one\n\n+two"}]
+        }
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("no usable diff for scripts/a.py", result.stdout)
+        self.assertIn("`scripts/a.py:10-12`", self.github.issue_comments[0]["body"])
+
+    def test_an_entry_without_a_head_is_dropped_with_a_warning(self):
+        carried = self.raise_routed_finding()
+        payload = json.loads(carried.read_text())
+        payload["findings"].append(
+            {
+                "path": "scripts/x.py",
+                "start_line": 5,
+                "end_line": 5,
+                "severity": "low",
+                "content": "**Headless entry**",
+                "head": "",
+                "origin": {"run": "0", "from": "def5678", "to": RUN1_TO},
+            }
+        )
+        carried.write_text(json.dumps(payload))
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("carried finding 1 dropped: no coordinate head", result.stdout)
+        kept = restyle.decode_routed(self.github.issue_comments[0]["body"]).findings
+        self.assertEqual([item["path"] for item in kept], ["scripts/a.py"])
+
+    def test_a_routed_finding_without_any_head_is_not_written_with_an_empty_head(self):
+        self.github.review_comments.clear()
+        headless = ocr_result([finding(path="scripts/a.py", severity="medium", start=10, end=12)])
+        headless["manifest"]["input"]["resolved_head"] = ""
+        self.write(headless)
+        result = self.run_cli(environment={"OCR_INLINE": "0", "OCR_SKIPPED": "0"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("routed finding at scripts/a.py:10-12 not carried: no coordinate head", result.stdout)
+        self.assertEqual(restyle.decode_routed(self.github.issue_comments[0]["body"]).findings, [])
 
     def test_snapshot_reads_the_previous_routed_marker(self):
         carried = self.raise_routed_finding()

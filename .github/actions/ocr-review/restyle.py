@@ -372,7 +372,13 @@ def compare_diffs(
             if previous:
                 unpatched.add(previous)
             continue
-        diff = FileDiff(path, parse_hunks(patch))
+        hunks, usable = parse_hunks(patch)
+        if not usable:
+            unpatched.add(path)
+            if previous:
+                unpatched.add(previous)
+            continue
+        diff = FileDiff(path, hunks)
         diffs[path] = diff
         if previous:
             diffs[previous] = diff
@@ -404,7 +410,7 @@ def coordinates_for(
             ):
                 warned.add(path)
                 warn(
-                    f"OCR restyle: no diff for {path}; "
+                    f"OCR restyle: no usable diff for {path}; "
                     "keeping its carried finding unremapped"
                 )
         coordinates[base] = Coordinates(diffs, frozenset(unpatched))
@@ -481,10 +487,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def load_carried(path: str) -> list[dict[str, Any]]:
     try:
-        return read_carried(path).findings
+        carried = read_carried(path)
     except RewriteError as error:
         warn(f"OCR restyle: {error}; continuing without carried findings")
         return []
+    for problem in carried.problems:
+        warn(f"OCR restyle: {problem}")
+    return carried.findings
 
 
 def preserve_carried(
@@ -539,6 +548,8 @@ def main(argv: list[str] | None = None) -> int:
             except RewriteError as error:
                 warn(f"OCR carry skipped: {error}")
                 snapshot = Carried([])
+            for problem in snapshot.problems:
+                warn(f"OCR carry: {problem}")
             write_carried(args.snapshot, snapshot)
             print(
                 "OCR restyle: carrying "
@@ -586,6 +597,7 @@ def main(argv: list[str] | None = None) -> int:
             if not value.isdigit():
                 raise RewriteError(f"{name} is missing or not numeric: {value!r}")
             expected[name.removeprefix("OCR_").lower()] = int(value)
+        problems: list[str] = []
         summary_body = rewrite_summary(
             str(summary.get("body") or ""),
             result,
@@ -595,7 +607,10 @@ def main(argv: list[str] | None = None) -> int:
             expected,
             carried=carried,
             coordinates=coordinates,
+            problems=problems,
         )
+        for problem in problems:
+            warn(f"OCR restyle: {problem}")
         inline_bodies = [
             (item, rewrite_inline(str(item.get("body") or ""), comment))
             for item, comment in pairs

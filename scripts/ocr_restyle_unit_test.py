@@ -281,22 +281,25 @@ class RestyleTests(unittest.TestCase):
         decoded = restyle.decode_routed(f"<!-- ocr-summary -->\n{marker}")
         self.assertEqual(decoded.findings, [carried])
 
-    def test_routed_marker_validation_rejects_bad_payloads(self):
+    def test_routed_marker_rejects_a_malformed_payload_and_drops_a_bad_entry(self):
         def encoded(payload):
             raw = json.dumps(payload).encode("utf-8")
             return f"<!-- ocr-routed:v1 {base64.b64encode(raw).decode('ascii')} -->"
 
-        bad_payloads = [
-            [],
-            {"findings": "nope"},
-            {"findings": [{"start_line": 3, "severity": "low", "head": "a"}]},
-            {"findings": [{"path": "a.py", "start_line": 3, "severity": "urgent", "head": "a"}]},
-            {"findings": [{"path": "a.py", "start_line": 3, "severity": "low"}]},
-        ]
-        for payload in bad_payloads:
+        for payload in ([], {"findings": "nope"}):
             with self.subTest(payload=payload):
                 with self.assertRaises(restyle.RewriteError):
                     restyle.decode_routed(encoded(payload))
+        bad_entries = [
+            {"start_line": 3, "severity": "low", "head": "a"},
+            {"path": "a.py", "start_line": 3, "severity": "urgent", "head": "a"},
+            {"path": "a.py", "start_line": 3, "severity": "low"},
+        ]
+        for entry in bad_entries:
+            with self.subTest(entry=entry):
+                decoded = restyle.decode_routed(encoded({"findings": [entry]}))
+                self.assertEqual(decoded.findings, [])
+                self.assertEqual(len(decoded.problems), 1)
         with self.assertRaises(restyle.RewriteError):
             restyle.decode_routed("<!-- ocr-routed:v1 not-base64! -->")
 

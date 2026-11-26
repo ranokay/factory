@@ -48,6 +48,7 @@ class Policy(NamedTuple):
 
 class Carried(NamedTuple):
     findings: list[dict[str, Any]]
+    problems: tuple[str, ...] = ()
 
 
 class Coordinates(NamedTuple):
@@ -91,27 +92,37 @@ def encode_routed(findings: list[dict[str, Any]]) -> str:
     return f"<!-- ocr-routed:v1 {encoded} -->"
 
 
+def entry_problem(item: Any) -> str:
+    if not isinstance(item, dict):
+        return "not an object"
+    if not isinstance(item.get("path"), str) or not item["path"].strip():
+        return "no path"
+    if not has_line(item):
+        return "no line"
+    if normalize(item.get("severity")) not in SEVERITY_RANK:
+        return "unknown severity"
+    if not isinstance(item.get("head"), str) or not item["head"]:
+        return "no coordinate head"
+    if not isinstance(item.get("origin", {}), dict):
+        return "origin is not an object"
+    return ""
+
+
 def validate_carried(payload: Any) -> Carried:
     if not isinstance(payload, dict):
         raise RewriteError("routed-findings payload is not an object")
     findings = payload.get("findings")
     if not isinstance(findings, list):
         raise RewriteError("routed-findings payload has no findings list")
+    kept: list[dict[str, Any]] = []
+    problems: list[str] = []
     for index, item in enumerate(findings):
-        if not isinstance(item, dict):
-            raise RewriteError(f"carried finding {index} is not an object")
-        if not isinstance(item.get("path"), str) or not item["path"].strip():
-            raise RewriteError(f"carried finding {index} has no path")
-        if not has_line(item):
-            raise RewriteError(f"carried finding {index} has no line")
-        if normalize(item.get("severity")) not in SEVERITY_RANK:
-            raise RewriteError(f"carried finding {index} has an unknown severity")
-        if not isinstance(item.get("head"), str) or not item["head"]:
-            raise RewriteError(f"carried finding {index} has no coordinate head")
-        origin = item.get("origin", {})
-        if not isinstance(origin, dict):
-            raise RewriteError(f"carried finding {index} origin is not an object")
-    return Carried(findings)
+        problem = entry_problem(item)
+        if problem:
+            problems.append(f"carried finding {index} dropped: {problem}")
+        else:
+            kept.append(item)
+    return Carried(kept, tuple(problems))
 
 
 def decode_routed(body: str) -> Carried:
@@ -127,17 +138,27 @@ def decode_routed(body: str) -> Carried:
     return validate_carried(payload)
 
 
-def parse_hunks(patch: str) -> tuple[Hunk, ...]:
+def parse_hunks(patch: str) -> tuple[tuple[Hunk, ...], bool]:
     hunks: list[Hunk] = []
     header: tuple[int, int, int, int] | None = None
     context: dict[int, int] = {}
     deleted: set[int] = set()
     old = new = 0
+    usable = True
+
+    def close() -> None:
+        nonlocal usable, header
+        if header is None:
+            return
+        hunks.append(Hunk(*header, context, frozenset(deleted)))
+        if old - header[0] != header[1] or new - header[2] != header[3]:
+            usable = False
+        header = None
+
     for line in (patch or "").splitlines():
         match = HUNK_HEADER.match(line)
         if match:
-            if header is not None:
-                hunks.append(Hunk(*header, context, frozenset(deleted)))
+            close()
             header = (
                 int(match.group(1)),
                 int(match.group(2) or 1),
@@ -157,16 +178,15 @@ def parse_hunks(patch: str) -> tuple[Hunk, ...]:
         elif line.startswith("-"):
             deleted.add(old)
             old += 1
-        elif line.startswith(" ") or not line:
+        elif line.startswith(" "):
             context[old] = new
             old += 1
             new += 1
         else:
-            hunks.append(Hunk(*header, context, frozenset(deleted)))
-            header = None
-    if header is not None:
-        hunks.append(Hunk(*header, context, frozenset(deleted)))
-    return tuple(hunks)
+            close()
+            usable = False
+    close()
+    return tuple(hunks), usable
 
 
 def remap_line(hunks: tuple[Hunk, ...], line: int) -> int:
@@ -279,14 +299,20 @@ def merge_routed(
 
 
 def carried_findings(
-    entries: list[dict[str, Any]], meta: dict[str, str]
+    entries: list[dict[str, Any]], meta: dict[str, str], problems: list[str]
 ) -> list[dict[str, Any]]:
     origin = origin_of(meta)
     findings: list[dict[str, Any]] = []
     for comment in entries:
+        head = str(comment.get("head") or meta.get("to") or meta.get("head") or "")
+        if not head:
+            problems.append(
+                f"routed finding at {where_of(comment)} not carried: no coordinate head"
+            )
+            continue
         item = {key: comment[key] for key in CARRY_KEYS if comment.get(key) not in (None, "")}
         item["origin"] = comment.get("origin") or origin
-        item["head"] = str(comment.get("head") or meta.get("to") or "")
+        item["head"] = head
         findings.append(item)
     return findings
 
@@ -730,6 +756,7 @@ def rewrite_summary(
     expected: dict[str, int | None] | None = None,
     carried: list[dict[str, Any]] | None = None,
     coordinates: dict[str, Coordinates] | None = None,
+    problems: list[str] | None = None,
 ) -> str:
     marks = [mark for mark in markers(body) if not ROUTED_ANY.match(mark)]
     raw_comments = list(result.get("comments") or [])
@@ -774,7 +801,11 @@ def rewrite_summary(
     ):
         if section:
             blocks.append(section)
-    marks.append(encode_routed(carried_findings(merged, meta)))
+    marks.append(
+        encode_routed(
+            carried_findings(merged, meta, problems if problems is not None else [])
+        )
+    )
     prefix = "\n".join(marks)
     body_text = "\n\n".join(block for block in blocks if block).strip()
     return (prefix + "\n\n" if prefix else "") + body_text + "\n"
