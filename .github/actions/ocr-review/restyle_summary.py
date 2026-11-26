@@ -103,8 +103,8 @@ def entry_problem(item: Any) -> str:
         return "unknown severity"
     if not isinstance(item.get("head"), str) or not item["head"]:
         return "no coordinate head"
-    if not isinstance(item.get("origin", {}), dict):
-        return "origin is not an object"
+    if not isinstance(item.get("origin"), dict):
+        return "no origin"
     return ""
 
 
@@ -311,7 +311,7 @@ def carried_findings(
             )
             continue
         item = {key: comment[key] for key in CARRY_KEYS if comment.get(key) not in (None, "")}
-        item["origin"] = comment.get("origin") or origin
+        item["origin"] = comment["origin"] if "origin" in comment else origin
         item["head"] = head
         findings.append(item)
     return findings

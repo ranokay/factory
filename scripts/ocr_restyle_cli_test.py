@@ -827,6 +827,26 @@ class CommandLineTests(unittest.TestCase):
         self.assertNotIn("no usable diff", result.stdout)
         self.assertIn("`scripts/a.py:13-15`", self.github.issue_comments[0]["body"])
 
+    def test_an_entry_without_an_origin_is_dropped_with_a_warning(self):
+        carried = self.raise_routed_finding()
+        payload = json.loads(carried.read_text())
+        payload["findings"].append(
+            {
+                "path": "scripts/x.py",
+                "start_line": 5,
+                "end_line": 5,
+                "severity": "low",
+                "content": "**Originless entry**",
+                "head": RUN1_TO,
+            }
+        )
+        carried.write_text(json.dumps(payload))
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("carried finding 1 dropped: no origin", result.stdout)
+        kept = restyle.decode_routed(self.github.issue_comments[0]["body"]).findings
+        self.assertEqual([item["path"] for item in kept], ["scripts/a.py"])
+
     def test_an_entry_without_a_head_is_dropped_with_a_warning(self):
         carried = self.raise_routed_finding()
         payload = json.loads(carried.read_text())
