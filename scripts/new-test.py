@@ -173,6 +173,28 @@ class NewCase(unittest.TestCase):
     def clone(self, name):
         return self.developer / name
 
+    def empty_clone(self, name):
+        path = self.clone(name)
+        path.mkdir()
+        subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture seeds an empty checkout
+            [self.real_git, "-c", "init.defaultBranch=main", "init", "-q", str(path)],
+            env=self.env,
+            check=True,
+        )
+        subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture seeds an empty checkout
+            [
+                self.real_git,
+                "-C",
+                str(path),
+                "remote",
+                "add",
+                "origin",
+                f"https://github.com/ranokay/{name}.git",
+            ],
+            env=self.env,
+            check=True,
+        )
+
     def git(self, name, *arguments):
         return subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- real git in the fixture clone
             [self.real_git, "-C", str(self.clone(name)), *arguments],
@@ -485,9 +507,11 @@ class NewCase(unittest.TestCase):
             self.gh_calls(),
         )
 
-    def test_idea_seeds_an_unseeded_existing_repo(self):
+    def test_idea_seeds_a_retry_with_no_remote_main(self):
         first = self.run_new("one")
         self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        shutil.rmtree(self.clone("one"))
+        self.empty_clone("one")
         self.seed_idea()
         result = self.run_new("one", "--idea", "PVTI_1")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -497,6 +521,69 @@ class NewCase(unittest.TestCase):
         self.assertIn("Fly to Mars.", product)
         self.assertNotIn("# <repo>", product)
         self.assertEqual(len(self.state()["repos"]["ranokay/one"]["issues"]), 1)
+
+    def test_idea_does_not_seed_a_seeded_existing_repo(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        head = self.head("one")
+        self.reset_logs()
+        self.seed_idea()
+        result = self.run_new("one", "--idea", "PVTI_1")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("already has a seed", result.stdout)
+        self.assertEqual(self.head("one"), head)
+        self.assertIn("# <repo>", (self.clone("one") / "PRODUCT.md").read_text())
+        self.assertFalse(any("push" in call for call in self.git_calls()))
+        self.assertEqual(len(self.state()["repos"]["ranokay/one"]["issues"]), 1)
+
+    def test_a_reused_clone_is_checked_out_to_main(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        swapped = self.git("one", "checkout", "-b", "feature")
+        self.assertEqual(swapped.returncode, 0, swapped.stderr)
+        result = self.run_new("one")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        branch = self.git("one", "branch", "--show-current").stdout.strip()
+        self.assertEqual(branch, "main")
+
+    def test_a_retry_pushes_a_local_commit_ahead_of_origin(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        (self.clone("one") / "local.txt").write_text("unpublished\n")
+        self.git("one", "add", "local.txt")
+        self.git("one", "commit", "-qm", "local unpublished seed")
+        self.reset_logs()
+        result = self.run_new("one")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertTrue(any("push" in call for call in self.git_calls()))
+
+    def test_a_retry_publishes_a_seed_whose_push_failed(self):
+        self.seed_idea()
+        failed = self.run_new(
+            "retry-one", "--idea", "PVTI_1", extra={"FAKE_FAIL_PUSH": "1"}
+        )
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("push", failed.stderr)
+        self.reset_logs()
+        retry = self.run_new("retry-one", "--idea", "PVTI_1")
+        self.assertEqual(retry.returncode, 0, retry.stderr + retry.stdout)
+        self.assertTrue(any("push" in call for call in self.git_calls()))
+        self.assertEqual(
+            len(self.state()["repos"]["ranokay/retry-one"]["issues"]), 1
+        )
+        self.assertNotIn("# <repo>", (self.clone("retry-one") / "PRODUCT.md").read_text())
+
+    def test_factory_root_selects_the_template(self):
+        factory = self.root / "factory"
+        shutil.copytree(ROOT / "project", factory / "project")
+        (factory / "profiles").symlink_to(ROOT / "profiles", target_is_directory=True)
+        agents = factory / "project/AGENTS.md"
+        agents.write_text(
+            agents.read_text().replace("# <repo>", "# <repo>\n\nTemplate marker.")
+        )
+        result = self.run_new("one", "--factory-root", str(factory))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Template marker.", (self.clone("one") / "AGENTS.md").read_text())
 
     def test_idea_seeds_and_promotes(self):
         self.seed_idea()

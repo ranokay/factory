@@ -41,6 +41,11 @@ def ensure_clone(clone, slug):
             problem(f"cannot read the status of {clone}")
         if status.stdout.strip():
             problem(f"{clone} has uncommitted changes; commit or stash them first")
+        branch = git(clone, "symbolic-ref", "--short", "HEAD")
+        if branch.returncode != 0 or branch.stdout.strip() != "main":
+            checkout = git(clone, "checkout", "main")
+            if checkout.returncode != 0:
+                problem(f"{clone} is not on main; switch it to main before running new")
         return False
     clone.parent.mkdir(parents=True, exist_ok=True)
     print(f"new: cloning into {clone}")
@@ -52,6 +57,10 @@ def ensure_clone(clone, slug):
 
 def has_head(clone):
     return git(clone, "rev-parse", "--verify", "HEAD").returncode == 0
+
+
+def has_remote_main(clone):
+    return git(clone, "rev-parse", "--verify", "origin/main").returncode == 0
 
 
 def commit_and_push(clone, name):
@@ -78,7 +87,9 @@ def commit_and_push(clone, name):
             signed = False
         committed = True
     pushed = False
-    if committed or git(clone, "rev-parse", "--verify", "origin/main").returncode != 0:
+    ahead = git(clone, "rev-list", "--count", "origin/main..HEAD")
+    ahead_count = int(ahead.stdout.strip()) if ahead.returncode == 0 else None
+    if committed or ahead_count is None or ahead_count > 0:
         git_out(clone, "push", "-u", "origin", "main")
         pushed = True
     if committed:
@@ -87,9 +98,17 @@ def commit_and_push(clone, name):
     return committed, pushed
 
 
-def install_template(clone):
+def install_template(clone, template):
     result = run(
-        [sys.executable, str(SYNC_UPSTREAM), "install-files", "--target", str(clone)]
+        [
+            sys.executable,
+            str(SYNC_UPSTREAM),
+            "install-files",
+            "--template",
+            str(template),
+            "--target",
+            str(clone),
+        ]
     )
     show(result.stdout, sys.stdout)
     show(result.stderr, sys.stderr)

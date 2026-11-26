@@ -34,6 +34,8 @@ if args and args[0] == "clone":
     sys.exit(0)
 
 if "push" in args:
+    if os.environ.get("FAKE_FAIL_PUSH"):
+        sys.exit(1)
     location = args[args.index("-C") + 1] if "-C" in args else os.getcwd()
     subprocess.run(
         [real, "-C", location, "update-ref", "refs/remotes/origin/main", "HEAD"],

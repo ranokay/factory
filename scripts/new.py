@@ -31,6 +31,7 @@ from new_repo import (
     create_repo,
     ensure_clone,
     has_head,
+    has_remote_main,
     install_template,
     repo_exists,
     restore_clone,
@@ -109,15 +110,18 @@ def new(args):
         print(f"new: reusing {slug}")
     ensure_clone(clone, slug)
     check_existing_pins(clone)
+    seeded = has_remote_main(clone)
     agents_absent = not (clone / "AGENTS.md").exists()
     hk_absent = not (clone / "hk.pkl").exists()
     tag = existing_tag(clone) or existing_hk_tag(clone) or current_tag
     try:
-        install_template(clone)
+        install_template(clone, factory / "project")
         apply_profiles(clone, chain, tag, agents_absent, hk_absent)
         symlink_claude(clone)
-        if idea and idea.draft:
+        if idea and idea.draft and (created or not seeded):
             seed_product(clone, idea)
+        elif idea and idea.draft:
+            print("new: the repository already has a seed; promoting without changing PRODUCT.md")
     except Problem:
         restore_clone(clone)
         raise
