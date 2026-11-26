@@ -228,6 +228,28 @@ case_unscannable_dependency() {
 	printf 'ok: an unscannable dependency file fails closed\n'
 }
 
+case_log_read_failure() {
+	mkdir -p "$test_root/log-read-failure/repo" "$test_root/log-read-failure/bin" "$test_root/log-read-failure/cache"
+	cat >"$test_root/log-read-failure/bin/trivy" <<'SH'
+#!/bin/sh
+printf '%s\n' '{"SchemaVersion":2}'
+for log in "$TRIVY_CACHE_DIR"/factory-trivy-log.*; do
+	[ -e "$log" ] && chmod 000 "$log"
+done
+SH
+	chmod +x "$test_root/log-read-failure/bin/trivy"
+	run_command env \
+		PATH="$test_root/log-read-failure/bin:$PATH" \
+		TRIVY_CACHE_DIR="$test_root/log-read-failure/cache" \
+		"$checker" "$test_root/log-read-failure/repo"
+	[ "$code" -ne 0 ] || fail "an unreadable Trivy log passed"
+	case $output in
+	*"failed to read scan log"*) ;;
+	*) fail "expected a log-read diagnostic: $output" ;;
+	esac
+	printf 'ok: an unreadable Trivy log fails clearly\n'
+}
+
 case_cache_outside_repo() {
 	mkdir -p "$test_root/cache-location/repo"
 	run_command env TRIVY_CACHE_DIR="$test_root/cache-location/cache" "$checker" "$test_root/cache-location/repo"
@@ -266,6 +288,7 @@ case_all() {
 	case_nonfatal_error
 	case_parse_failure
 	case_unscannable_dependency
+	case_log_read_failure
 	case_cache_outside_repo
 }
 
@@ -283,6 +306,7 @@ scan-failure) case_scan_failure ;;
 nonfatal-error) case_nonfatal_error ;;
 parse-failure) case_parse_failure ;;
 unscannable-dependency) case_unscannable_dependency ;;
+log-read-failure) case_log_read_failure ;;
 cache-outside-repo) case_cache_outside_repo ;;
 all) case_all ;;
 *)

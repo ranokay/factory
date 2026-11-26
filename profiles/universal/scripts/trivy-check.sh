@@ -73,6 +73,11 @@ log=$(mktemp "$cache_dir/factory-trivy-log.XXXXXX")
 ignorefile=$(mktemp "$cache_dir/factory-trivy-ignore.XXXXXX")
 trap 'rm -f "$report" "$log" "$ignorefile"' EXIT HUP INT TERM
 
+log_read_error() {
+	printf 'trivy: failed to read scan log (exit %s); cache: %s\n' "$1" "$cache_dir" >&2
+	exit "$1"
+}
+
 set -- --cache-dir "$cache_dir" \
 	--scanners vuln,misconfig \
 	--severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
@@ -93,7 +98,7 @@ if trivy fs "$root" "$@" >"$report" 2>"$log"; then
 else
 	code=$?
 	[ "$code" -ne 0 ] || code=1
-	cat "$log" >&2
+	cat "$log" >&2 || log_read_error "$?"
 	printf 'trivy: filesystem scan failed (exit %s); check the vulnerability DB and checks bundle download; cache: %s\n' "$code" "$cache_dir" >&2
 	exit "$code"
 fi
@@ -104,11 +109,19 @@ if grep -Ei \
 	-e '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+ERROR[[:space:]].*(failed to parse|failed to analyze|parse error|analysis error)' \
 	-e '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+DEBUG[[:space:]].*(Walk error|parse error|failed to parse|failed to analyze)' \
 	"$log" >/dev/null; then
-	cat "$log" >&2
+	cat "$log" >&2 || log_read_error "$?"
 	printf 'trivy: vulnerability DB/checks bundle download or scan reported a fatal or analysis diagnostic; cache: %s\n' "$cache_dir" >&2
 	exit 1
+else
+	code=$?
+	[ "$code" -eq 1 ] || log_read_error "$code"
 fi
-grep -v '[[:space:]]DEBUG[[:space:]]' "$log" >&2 || true
+if grep -v '[[:space:]]DEBUG[[:space:]]' "$log" >&2; then
+	:
+else
+	code=$?
+	[ "$code" -eq 1 ] || log_read_error "$code"
+fi
 
 node - "$report" <<'NODE'
 const fs = require('node:fs')
