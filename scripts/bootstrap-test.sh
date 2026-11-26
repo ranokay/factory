@@ -1267,7 +1267,7 @@ case_keychain_store_failure() {
 	setup_case keychain-store-failure
 	cat >"$bin/security" <<'STUB'
 #!/bin/sh
-if [ "$1" = -i ]; then cat >/dev/null; printf 'security: fixture interaction is not allowed\n' >&2; exit 36; fi
+if [ "$1" = -i ]; then input=$(cat); printf 'security: fixture interaction is not allowed: %s\n' "$input" >&2; exit 36; fi
 exit 44
 STUB
 	chmod +x "$bin/security"
@@ -1275,7 +1275,9 @@ STUB
 	[ "$code" -ne 0 ] || fail "bootstrap stored the token despite a failing security command"
 	expect_contains "$output" "cannot store service account token in login Keychain"
 	expect_contains "$output" "fixture interaction is not allowed"
-	printf 'ok: a failing security store names its reason\n'
+	expect_contains "$output" "[redacted]"
+	expect_not_contains "$output" "dummy-value"
+	printf 'ok: a failing security store names its reason and redacts the token\n'
 }
 
 case_token_lookup() {
