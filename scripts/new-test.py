@@ -9,10 +9,25 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def current_tag():
+    git = shutil.which("git")
+    if not git:
+        return None
+    result = subprocess.run(  # nosec B603 B607 -- git from PATH
+        [git, "-C", str(ROOT), "tag", "--list", "v*", "--sort=-v:refname"],  # noqa: S607
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.split()[0] if result.returncode == 0 and result.stdout.split() else None
+
+
 TEMPLATE_TAG = re.search(
     r"profiles/[^/]+/mise\.toml\?ref=([^&\"]+)",
     (ROOT / "project/mise.toml").read_text(),
 ).group(1)
+CURRENT_TAG = current_tag() or TEMPLATE_TAG
 NEW = ROOT / "scripts/new.py"
 GH = (ROOT / "scripts/fixtures/new/gh").read_text()
 GIT = (ROOT / "scripts/fixtures/new/git").read_text()
@@ -219,11 +234,11 @@ class NewCase(unittest.TestCase):
         agents = (clone / "AGENTS.md").read_text()
         self.assertIn("Profiles: universal", agents)
         mise = (clone / "mise.toml").read_text()
-        self.assertIn(f"profiles/universal/mise.toml?ref={TEMPLATE_TAG}", mise)
-        self.assertIn(f"profiles/universal/tasks.toml?ref={TEMPLATE_TAG}", mise)
+        self.assertIn(f"profiles/universal/mise.toml?ref={CURRENT_TAG}", mise)
+        self.assertIn(f"profiles/universal/tasks.toml?ref={CURRENT_TAG}", mise)
         hk = (clone / "hk.pkl").read_text()
         self.assertIn(
-            f"https://raw.githubusercontent.com/ranokay/factory/{TEMPLATE_TAG}/profiles/universal/hk.pkl",
+            f"https://raw.githubusercontent.com/ranokay/factory/{CURRENT_TAG}/profiles/universal/hk.pkl",
             hk,
         )
         self.assertEqual(len(self.git("one", "log", "--format=%H").stdout.split()), 1)
@@ -280,10 +295,10 @@ class NewCase(unittest.TestCase):
         self.assertIn("Profiles: universal, typescript, web", (clone / "AGENTS.md").read_text())
         mise = (clone / "mise.toml").read_text()
         for profile in ("universal", "typescript", "web"):
-            self.assertIn(f"profiles/{profile}/mise.toml?ref={TEMPLATE_TAG}", mise)
-            self.assertIn(f"profiles/{profile}/tasks.toml?ref={TEMPLATE_TAG}", mise)
+            self.assertIn(f"profiles/{profile}/mise.toml?ref={CURRENT_TAG}", mise)
+            self.assertIn(f"profiles/{profile}/tasks.toml?ref={CURRENT_TAG}", mise)
         self.assertIn(
-            f"https://raw.githubusercontent.com/ranokay/factory/{TEMPLATE_TAG}/profiles/web/hk.pkl",
+            f"https://raw.githubusercontent.com/ranokay/factory/{CURRENT_TAG}/profiles/web/hk.pkl",
             (clone / "hk.pkl").read_text(),
         )
 
@@ -292,6 +307,11 @@ class NewCase(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("one Profile chain", result.stderr)
         self.assertEqual(self.state()["repos"], {})
+
+    def test_ensure_ideas_ignores_unused_repository_arguments(self):
+        result = self.run_new("--ensure-ideas", "--profile", "bogus")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(self.state()["projects"]), 1)
 
     def test_ensure_ideas_is_idempotent(self):
         first = self.run_new("--ensure-ideas")

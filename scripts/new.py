@@ -28,6 +28,7 @@ OWNER = "ranokay"
 IDEAS = "Ideas"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 DESCRIPTION_LIMIT = 350
+FETCH_LIMIT = 1000
 HANDOFF = (
     "grill-with-docs",
     "brand-assets (offer it; ranokay may decline)",
@@ -122,6 +123,11 @@ def hk_url(profile, tag):
 
 
 def release_tag(factory):
+    tags = git(factory, "tag", "--list", "v*", "--sort=-v:refname")
+    if tags.returncode == 0:
+        for line in tags.stdout.splitlines():
+            if TAG.match(line.strip()):
+                return line.strip()
     try:
         data = tomllib.loads((factory / "project/mise.toml").read_text())
     except (OSError, tomllib.TOMLDecodeError) as error:
@@ -133,7 +139,7 @@ def release_tag(factory):
         if not TAG.match(tag):
             problem(f"the Project Template pins {tag!r}, not a Factory release tag")
         return tag
-    problem("the Project Template's mise.toml has no pinned Factory include")
+    problem("neither the Factory tags nor the Project Template name a release")
 
 
 def profile_parents(factory):
@@ -416,10 +422,22 @@ def project_for(projects, title):
 
 def list_projects():
     payload = parse_json(
-        gh("project", "list", "--owner", OWNER, "--format", "json", "--limit", "100"),
+        gh(
+            "project",
+            "list",
+            "--owner",
+            OWNER,
+            "--format",
+            "json",
+            "--limit",
+            str(FETCH_LIMIT),
+        ),
         "gh project list",
     )
-    return payload.get("projects", [])
+    projects = payload.get("projects", [])
+    if payload.get("totalCount", len(projects)) > len(projects):
+        problem(f"the owner has more than {FETCH_LIMIT} Projects; narrow the Ideas lookup")
+    return projects
 
 
 def ensure_ideas():
@@ -446,11 +464,14 @@ def list_items(project):
             "--format",
             "json",
             "--limit",
-            "100",
+            str(FETCH_LIMIT),
         ),
         "gh project item-list",
     )
-    return payload.get("items", [])
+    items = payload.get("items", [])
+    if payload.get("totalCount", len(items)) > len(items):
+        problem(f"the {IDEAS} Project has more than {FETCH_LIMIT} items; narrow the lookup")
+    return items
 
 
 def find_idea(items, reference):
@@ -537,11 +558,12 @@ def new(args):
         problem("give a repository name, --ensure-ideas, or --idea")
     if args.name and not NAME_RE.match(args.name):
         problem(f"repository name must match {NAME_RE.pattern}")
+    if not args.name and not args.idea:
+        ensure_ideas()
+        return 0
     tag = release_tag(factory)
     chain = profile_chain(args.profile or ["universal"], factory)
     project = ensure_ideas()
-    if not args.name and not args.idea:
-        return 0
     items = list_items(project)
     idea = find_idea(items, args.idea) if args.idea else None
     name = args.name or slugify(idea.title)
