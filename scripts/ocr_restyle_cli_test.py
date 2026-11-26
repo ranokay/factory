@@ -812,6 +812,21 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("no usable diff for scripts/a.py", result.stdout)
         self.assertIn("`scripts/a.py:10-12`", self.github.issue_comments[0]["body"])
 
+    def test_a_no_newline_marker_does_not_make_the_diff_unusable(self):
+        carried = self.raise_routed_finding()
+        self.github.compare = {
+            "files": [
+                {
+                    "filename": "scripts/a.py",
+                    "patch": "@@ -5,0 +6,3 @@\n+one\n+two\n+three\n\\ No newline at end of file",
+                }
+            ]
+        }
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("no usable diff", result.stdout)
+        self.assertIn("`scripts/a.py:13-15`", self.github.issue_comments[0]["body"])
+
     def test_an_entry_without_a_head_is_dropped_with_a_warning(self):
         carried = self.raise_routed_finding()
         payload = json.loads(carried.read_text())
