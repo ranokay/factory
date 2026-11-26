@@ -41,7 +41,7 @@ The command:
 - creates `ranokay/<name>` only when absent;
 - makes its Canonical Clone at `~/Developer/<name>`;
 - seeds the Project Template through `sync-upstream install-files`;
-- writes the `Profiles:` line and each Profile's mise and task includes, pinned to the checkout's current Factory release tag, and amends the leaf `hk.pkl`;
+- writes the `Profiles:` line and each Profile's mise and task includes, pinned to the checkout's current Factory release tag (the Template's pin is the fallback when the checkout has no tags), and amends the leaf `hk.pkl`;
 - makes `CLAUDE.md` a relative symlink to `AGENTS.md`;
 - commits the seed (signed when signing works) and pushes `main`;
 - runs `scripts/repo-settings.py ranokay/<name> --apply` for canonical labels, default-label removal, merge settings, the ruleset, and the `OPENCODE_ZEN_API_KEY` secret;
@@ -49,7 +49,7 @@ The command:
 
 It is done when it prints `<owner>/<repo> is ready at <clone>` and the hand-off below.
 
-Re-running is safe: it reuses the repository, clone and commit, rewrites nothing that differs from the chosen Profiles, and never deletes or force-pushes. If repository settings still report drift, the command exits non-zero without the hand-off; fix the drift it names and rerun. A public repository's Codacy check can take a moment to report, so its first run may stop there and a rerun completes it. The first PR needs `Lint`, `Security`, `Tests` and `OCR` green.
+Re-running is safe: it reuses the repository, clone and commit, keeps the repository's existing release pins, rewrites nothing that differs from the chosen Profiles, and never deletes or force-pushes. If repository settings still report drift, the command exits non-zero without the hand-off; fix the drift it names and rerun. A public repository's Codacy check can take a moment to report, so its first run may stop there and a rerun completes it. The first PR needs `Lint`, `Security`, `Tests` and `OCR` green.
 
 ## Hand-off
 

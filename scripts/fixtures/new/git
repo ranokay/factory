@@ -10,6 +10,13 @@ real = os.environ["REAL_GIT"]
 with Path(os.environ["FAKE_GIT_LOG"]).open("a") as handle:
     handle.write(json.dumps(args) + "\n")
 
+if "tag" in args and "--list" in args:
+    if os.environ.get("FAKE_TAG"):
+        print(os.environ["FAKE_TAG"])
+        sys.exit(0)
+    if os.environ.get("FAKE_NO_TAGS"):
+        sys.exit(1)
+
 if args and args[0] == "clone":
     url, destination = args[1], args[2]
     Path(destination).mkdir(parents=True)

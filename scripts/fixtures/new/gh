@@ -42,10 +42,10 @@ DEFAULT_LABELS = [
 def initial_repo(slug, private, description):
     name = slug.split("/", 1)[1]
     template = Path(os.environ["FAKE_TEMPLATE"])
-    files = {
-        path: (template / path).read_text()
-        for path in (".coderabbit.yaml", ".greptile/config.json")
-    }
+    names = [".greptile/config.json"]
+    if not os.environ.get("FAKE_MISSING_VENDOR"):
+        names.insert(0, ".coderabbit.yaml")
+    files = {path: (template / path).read_text() for path in names}
     return {
         "name": slug,
         "repo": {
@@ -92,6 +92,8 @@ def normalize_ruleset(ruleset):
 
 if args[:2] == ["repo", "view"]:
     slug = args[2]
+    if os.environ.get("FAKE_VIEW_ERROR"):
+        fail("HTTP 401: Bad credentials")
     if slug not in state["repos"]:
         fail("HTTP 404: Not Found")
     repo = state["repos"][slug]["repo"]

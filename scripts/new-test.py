@@ -1,33 +1,21 @@
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
+from profiles_reader import factory_ref
+
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def current_tag():
-    git = shutil.which("git")
-    if not git:
-        return None
-    result = subprocess.run(  # nosec B603 B607 -- git from PATH
-        [git, "-C", str(ROOT), "tag", "--list", "v*", "--sort=-v:refname"],  # noqa: S607
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.split()[0] if result.returncode == 0 and result.stdout.split() else None
-
-
-TEMPLATE_TAG = re.search(
-    r"profiles/[^/]+/mise\.toml\?ref=([^&\"]+)",
-    (ROOT / "project/mise.toml").read_text(),
-).group(1)
-CURRENT_TAG = current_tag() or TEMPLATE_TAG
+TEMPLATE = tomllib.loads((ROOT / "project/mise.toml").read_text())
+TEMPLATE_TAG = next(
+    ref for ref in (factory_ref(entry) for entry in TEMPLATE["include"]) if ref
+)
+TEST_TAG = "v9.9.9"
 NEW = ROOT / "scripts/new.py"
 GH = (ROOT / "scripts/fixtures/new/gh").read_text()
 GIT = (ROOT / "scripts/fixtures/new/git").read_text()
@@ -131,6 +119,7 @@ class NewCase(unittest.TestCase):
                 "FAKE_GIT_LOG": str(self.git_log),
                 "FAKE_OP_LOG": str(self.op_log),
                 "FAKE_TEMPLATE": str(ROOT / "project"),
+                "FAKE_TAG": TEST_TAG,
                 "REAL_GIT": self.real_git,
                 "OP_SERVICE_ACCOUNT_TOKEN": "fixture-token",
                 "GIT_CONFIG_NOSYSTEM": "1",
@@ -166,7 +155,8 @@ class NewCase(unittest.TestCase):
     def git_calls(self):
         return [json.loads(line) for line in self.git_log.read_text().splitlines() if line]
 
-    def run_new(self, *arguments):
+    def run_new(self, *arguments, extra=None):
+        environment = dict(self.env, **(extra or {}))
         return subprocess.run(  # nosec B603 -- the fixture runs a local script
             [
                 sys.executable,
@@ -175,7 +165,7 @@ class NewCase(unittest.TestCase):
                 "--developer-root",
                 str(self.developer),
             ],
-            env=self.env,
+            env=environment,
             capture_output=True,
             text=True,
         )
@@ -234,11 +224,14 @@ class NewCase(unittest.TestCase):
         agents = (clone / "AGENTS.md").read_text()
         self.assertIn("Profiles: universal", agents)
         mise = (clone / "mise.toml").read_text()
-        self.assertIn(f"profiles/universal/mise.toml?ref={CURRENT_TAG}", mise)
-        self.assertIn(f"profiles/universal/tasks.toml?ref={CURRENT_TAG}", mise)
+        self.assertIn(f"profiles/universal/mise.toml?ref={TEST_TAG}", mise)
+        self.assertIn(f"profiles/universal/tasks.toml?ref={TEST_TAG}", mise)
+        self.assertEqual(mise.count("profiles/universal/mise.toml"), 1)
+        self.assertEqual(mise.count("profiles/universal/tasks.toml"), 1)
+        self.assertNotIn(TEMPLATE_TAG, mise)
         hk = (clone / "hk.pkl").read_text()
         self.assertIn(
-            f"https://raw.githubusercontent.com/ranokay/factory/{CURRENT_TAG}/profiles/universal/hk.pkl",
+            f"https://raw.githubusercontent.com/ranokay/factory/{TEST_TAG}/profiles/universal/hk.pkl",
             hk,
         )
         self.assertEqual(len(self.git("one", "log", "--format=%H").stdout.split()), 1)
@@ -282,11 +275,42 @@ class NewCase(unittest.TestCase):
         self.assertNotIn(SECRET, second.stdout + second.stderr)
 
     def test_settings_failure_stops_before_the_handoff(self):
-        result = self.run_new("public-one", "--public")
+        result = self.run_new("drift-one", extra={"FAKE_MISSING_VENDOR": "1"})
         self.assertEqual(result.returncode, 1)
         self.assertIn("repository settings failed", result.stderr)
         self.assertNotIn("is ready", result.stdout)
         self.assertNotIn("hand-off", result.stdout)
+
+    def test_a_tagless_checkout_falls_back_to_the_template_pin(self):
+        result = self.run_new(
+            "fallback-one", extra={"FAKE_TAG": "", "FAKE_NO_TAGS": "1"}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        mise = (self.clone("fallback-one") / "mise.toml").read_text()
+        self.assertIn(f"profiles/universal/mise.toml?ref={TEMPLATE_TAG}", mise)
+        self.assertNotIn(TEST_TAG, mise)
+
+    def test_an_unreadable_repository_is_not_mistaken_for_absent(self):
+        result = self.run_new("one", extra={"FAKE_VIEW_ERROR": "1"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot read ranokay/one", result.stderr)
+        self.assertFalse(
+            any(call[:2] == ["repo", "create"] for call in self.gh_calls()),
+            self.gh_calls(),
+        )
+
+    def test_second_run_keeps_existing_pins_when_the_release_moves(self):
+        first = self.run_new("one")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        head = self.head("one")
+        second = self.run_new("one", extra={"FAKE_TAG": "v9.9.10"})
+        self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
+        self.assertEqual(self.head("one"), head)
+        mise = (self.clone("one") / "mise.toml").read_text()
+        self.assertIn(f"profiles/universal/mise.toml?ref={TEST_TAG}", mise)
+        self.assertNotIn("v9.9.10", mise)
+        self.assertEqual(mise.count("profiles/universal/mise.toml"), 1)
+        self.assertIn(TEST_TAG, (self.clone("one") / "hk.pkl").read_text())
 
     def test_profile_chain_writes_every_include(self):
         result = self.run_new("web-one", "--profile", "web")
@@ -295,10 +319,13 @@ class NewCase(unittest.TestCase):
         self.assertIn("Profiles: universal, typescript, web", (clone / "AGENTS.md").read_text())
         mise = (clone / "mise.toml").read_text()
         for profile in ("universal", "typescript", "web"):
-            self.assertIn(f"profiles/{profile}/mise.toml?ref={CURRENT_TAG}", mise)
-            self.assertIn(f"profiles/{profile}/tasks.toml?ref={CURRENT_TAG}", mise)
+            self.assertIn(f"profiles/{profile}/mise.toml?ref={TEST_TAG}", mise)
+            self.assertIn(f"profiles/{profile}/tasks.toml?ref={TEST_TAG}", mise)
+            self.assertEqual(mise.count(f"profiles/{profile}/mise.toml"), 1)
+            self.assertEqual(mise.count(f"profiles/{profile}/tasks.toml"), 1)
+        self.assertNotIn(TEMPLATE_TAG, mise)
         self.assertIn(
-            f"https://raw.githubusercontent.com/ranokay/factory/{CURRENT_TAG}/profiles/web/hk.pkl",
+            f"https://raw.githubusercontent.com/ranokay/factory/{TEST_TAG}/profiles/web/hk.pkl",
             (clone / "hk.pkl").read_text(),
         )
 

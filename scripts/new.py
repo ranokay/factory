@@ -84,24 +84,25 @@ def array_values(text, key, section=None):
     return (data.get(section) or {}).get(key, [])
 
 
-def ensure_include(text, key, section, url):
-    if url in array_values(text, key, section):
+def ensure_include(text, key, section, url, profile):
+    values = array_values(text, key, section)
+    kind = "tasks" if "/tasks.toml?" in url else "mise"
+    same = re.compile(
+        rf"ranokay/factory.*/profiles/{re.escape(profile)}/{kind}\.toml\?",
+        re.IGNORECASE,
+    )
+    kept = [entry for entry in values if not same.search(entry)] + [url]
+    if kept == values:
         return text, False
     span = config_array(text, key, section)
     if span is None:
         problem(f"the Project Template's {key} array is missing")
     start, end = span
-    inner = text[start + 1 : end]
-    entry = json.dumps(url)
-    if not inner.strip():
-        replacement = f"\n  {entry},\n"
-    else:
-        separator = "" if inner.rstrip().endswith(",") else ","
-        replacement = inner.rstrip() + separator + f"\n  {entry},\n"
-    updated = text[: start + 1] + replacement + text[end:]
+    body = "".join(f"  {json.dumps(entry)},\n" for entry in kept)
+    updated = text[: start + 1] + "\n" + body + text[end:]
     try:
-        if url not in array_values(updated, key, section):
-            problem(f"the {key} entry did not survive the merge")
+        if array_values(updated, key, section) != kept:
+            problem(f"the {key} pin did not survive the merge")
     except tomllib.TOMLDecodeError as error:
         problem(f"mise.toml could not be merged safely: {error}")
     return updated, True
@@ -123,7 +124,7 @@ def hk_url(profile, tag):
 
 
 def release_tag(factory):
-    tags = git(factory, "tag", "--list", "v*", "--sort=-v:refname")
+    tags = git(factory, "tag", "--list", "v*", "--sort=-v:refname", "--merged", "HEAD")
     if tags.returncode == 0:
         for line in tags.stdout.splitlines():
             if TAG.match(line.strip()):
@@ -201,12 +202,12 @@ def profiles_line(text):
     return None
 
 
-def set_profiles_line(path, chain, owned):
+def set_profiles_line(path, chain, may_rewrite):
     text = path.read_text()
     names = ", ".join(chain)
     index = profiles_line(text)
     if index is None:
-        if not owned:
+        if not may_rewrite:
             problem("AGENTS.md has no Profiles line; add it by hand")
         lines = text.splitlines(keepends=True)
         first = next((i for i, line in enumerate(lines) if line.strip()), None)
@@ -220,7 +221,7 @@ def set_profiles_line(path, chain, owned):
     existing = [entry.strip() for entry in PROFILES_LINE.match(lines[index]).group(1).split(",") if entry.strip()]
     if existing == chain:
         return False
-    if not owned:
+    if not may_rewrite:
         problem(
             f"AGENTS.md declares Profiles: {', '.join(existing)}; "
             "new leaves an existing project's Profiles line alone"
@@ -232,7 +233,7 @@ def set_profiles_line(path, chain, owned):
     return True
 
 
-def set_hk_amends(path, profile, tag, owned):
+def set_hk_amends(path, profile, tag, may_rewrite):
     target = hk_url(profile, tag)
     if not path.exists():
         path.write_text(f'amends "{target}"\n')
@@ -243,7 +244,10 @@ def set_hk_amends(path, profile, tag, owned):
         problem("hk.pkl has no amends line; add the Profile amends by hand")
     if match.group(1) == target:
         return False
-    if not owned:
+    existing = re.search(r"/profiles/([^/]+)/hk\.pkl", match.group(1))
+    if not may_rewrite:
+        if existing and existing.group(1) == profile:
+            return False
         problem(
             f"hk.pkl amends {match.group(1)!r}; new leaves an existing project's hk.pkl alone"
         )
@@ -262,10 +266,12 @@ def apply_profiles(clone, chain, tag, agents_absent, hk_absent):
     text = original
     for profile in chain:
         mise_url, tasks_url = include_urls(profile, tag)
-        text, added = ensure_include(text, "include", None, mise_url)
+        text, added = ensure_include(text, "include", None, mise_url, profile)
         if added:
             changed.append("mise.toml")
-        text, added = ensure_include(text, "includes", "task_config", tasks_url)
+        text, added = ensure_include(
+            text, "includes", "task_config", tasks_url, profile
+        )
         if added:
             changed.append("mise.toml")
     if text != original:
@@ -545,6 +551,21 @@ def promote(project, idea, slug):
     print(f"new: promoted {idea.title!r} to {content['url']}")
 
 
+def existing_tag(clone):
+    path = clone / "mise.toml"
+    if not path.is_file():
+        return None
+    try:
+        data = tomllib.loads(path.read_text())
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        problem(f"cannot read the existing mise.toml: {error}")
+    for entry in data.get("include", []):
+        ref = factory_ref(entry)
+        if ref and "/profiles/" in entry and TAG.match(ref):
+            return ref
+    return None
+
+
 def handoff(slug, clone):
     print(f"new: {slug} is ready at {clone}")
     print("new: hand-off, in this order:")
@@ -561,7 +582,7 @@ def new(args):
     if not args.name and not args.idea:
         ensure_ideas()
         return 0
-    tag = release_tag(factory)
+    current_tag = release_tag(factory)
     chain = profile_chain(args.profile or ["universal"], factory)
     project = ensure_ideas()
     items = list_items(project)
@@ -582,6 +603,7 @@ def new(args):
     ensure_clone(clone, slug)
     agents_absent = not (clone / "AGENTS.md").exists()
     hk_absent = not (clone / "hk.pkl").exists()
+    tag = current_tag if hk_absent else (existing_tag(clone) or current_tag)
     install_template(clone)
     apply_profiles(clone, chain, tag, agents_absent, hk_absent)
     symlink_claude(clone)
