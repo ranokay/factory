@@ -2,7 +2,7 @@
   "gitleaks_version": "8.30.1",
   "source": "https://raw.githubusercontent.com/gitleaks/gitleaks/v8.30.1/config/gitleaks.toml",
   "default_rule_count": 222,
-  "default_rules_sha256": "a3d6373959bedd19d5cefc79c0135485dd4d09cd4d0d213e454e14f0adee7a6e",
+  "default_rules_sha256": "3f143eac780c94c929261e83431997d27329cc53d16545bcd953e2550dcb7509",
   "rules_sha256": "c3810aeac26a07c52b04034f91760d0d8b83b6bf8f88ee30617ec4231de52e73",
   "keywords": [
     "-----begin",

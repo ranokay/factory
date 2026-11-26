@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import gzip
 import json
 import os
@@ -17,8 +18,6 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1]
 GUARD = TOOLS / "secret_guard.py"
-sys.path.insert(0, str(TOOLS))
-import secret_guard
 
 
 def context7_token() -> str:
@@ -209,16 +208,32 @@ class SecretGuardTests(unittest.TestCase):
         self.assertNotIn(token, result.stdout + result.stderr)
         self.assertNotIn(payload, result.stdout + result.stderr)
 
-    def test_every_upstream_true_positive_is_sent_to_gitleaks(self):
+    def test_every_upstream_content_positive_is_sent_to_gitleaks(self):
         with gzip.open(TOOLS / "gitleaks-rule-samples.json.gz", "rt") as source:
             fixture = json.load(source)
-        self.assertGreater(len(fixture["samples"]), 6000)
-        for sample in fixture["samples"]:
-            if "path" in sample:
-                continue
-            with self.subTest(rule=sample["id"]):
-                text = base64.b64decode(sample["text"]).decode()
-                self.assertTrue(secret_guard.needs_gitleaks(text))
+        texts = [
+            base64.b64decode(sample["text"]).decode()
+            for sample in fixture["samples"]
+            if "path" not in sample
+        ]
+        self.assertGreater(len(texts), 6000)
+        with tempfile.TemporaryDirectory() as bin_dir:
+            scan_log = Path(bin_dir) / "scans"
+            env = self.fake_gitleaks(
+                Path(bin_dir),
+                '#!/bin/sh\ncat >/dev/null\nprintf \'scan\\n\' >>"$GUARD_LOG"\nexit 0\n',
+            )
+            env["GUARD_LOG"] = str(scan_log)
+
+            def check(text: str) -> None:
+                result = self.invoke("prompt", {"prompt": text}, env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(result.stderr, "")
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                list(executor.map(check, texts))
+            self.assertEqual(len(scan_log.read_text().splitlines()), len(texts))
 
     def test_ordinary_keyword_false_positives_skip_gitleaks(self):
         cases = (

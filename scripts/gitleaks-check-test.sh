@@ -142,7 +142,57 @@ PY
 	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
 	[ "$code" -ne 0 ] || fail "a gitleaks pin bump did not invalidate the keyword catalog"
 	expect_contains "$output" "gitleaks version"
-	printf 'ok: the keyword catalog matches the pinned gitleaks version and Factory rules\n'
+	run_command python3 - "$fixture/profiles/universal/mise.toml" "$fixture/tools/gitleaks-keywords.json" "$root/scripts" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[3])
+from gitleaks_catalog import digest
+
+pin = Path(sys.argv[1])
+pin.write_text(pin.read_text().replace('gitleaks = "8.30.2"', 'gitleaks = "8.30.1"'))
+path = Path(sys.argv[2])
+catalog = json.loads(path.read_text())
+rule = next(rule for rule in catalog["rules"] if rule["id"] == "1password-secret-key")
+rule["regex"] += "x"
+catalog["rules_sha256"] = digest(catalog["rules"])
+path.write_text(json.dumps(catalog, indent=2) + "\n")
+PY
+	[ "$code" -eq 0 ] || fail "cannot drift the default rule fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "default-rule drift passed the independently pinned digest"
+	expect_contains "$output" "default-rule digest"
+	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	run_command python3 - "$fixture/tools/gitleaks-rule-samples.json.gz" "$root/scripts" <<'PY'
+import base64
+import gzip
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[2])
+from gitleaks_catalog import digest
+
+path = Path(sys.argv[1])
+with gzip.open(path, "rt") as source:
+	fixture = json.load(source)
+fixture["samples"][0]["text"] = base64.b64encode(b"tampered").decode()
+samples = []
+for sample in fixture["samples"]:
+	decoded = {"id": sample["id"], "text": base64.b64decode(sample["text"]).decode()}
+	if "path" in sample:
+		decoded["path"] = sample["path"]
+	samples.append(decoded)
+fixture["samples_sha256"] = digest(samples)
+with gzip.GzipFile(filename=path, mode="wb", mtime=0) as output:
+	output.write(json.dumps(fixture, separators=(",", ":")).encode())
+PY
+	[ "$code" -eq 0 ] || fail "cannot drift the true-positive fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "true-positive drift passed the independently pinned digest"
+	expect_contains "$output" "true-positive digest"
+	printf 'ok: the keyword catalog matches independently pinned upstream rules and samples\n'
 }
 
 case_all() {

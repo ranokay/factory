@@ -78,7 +78,7 @@ def generate(source_root: Path, samples_path: Path, version: str) -> tuple[dict,
         if not rule.get("keywords") and "path" in rule
     ]
     default_identity = [
-        {"id": rule["id"], "regex": rule.get("regex"), "keywords": rule.get("keywords", []), "path": rule.get("path")}
+        {"id": rule["id"], "regex": rule.get("regex"), "keywords": rule.get("keywords", [])}
         for rule in sorted(default_rules, key=lambda item: item["id"])
     ]
     source = f"https://raw.githubusercontent.com/gitleaks/gitleaks/v{version}/config/gitleaks.toml"

@@ -15,6 +15,12 @@ from gitleaks_catalog import classify_rule, digest
 
 ROOT = Path(__file__).resolve().parents[1]
 RULE_KEYS = {"id", "keywords", "regex", "python_safe", "python_unsafe_reason"}
+PINNED_DIGESTS = {
+    "8.30.1": {
+        "default_rules_sha256": "3f143eac780c94c929261e83431997d27329cc53d16545bcd953e2550dcb7509",
+        "samples_sha256": "df72c17b185798f098865e1708fdde6c365b4939b102c0f9f601ee1f2e98fa43",
+    }
+}
 
 
 def pinned_gitleaks(root: Path) -> str:
@@ -55,10 +61,15 @@ def check(root: Path) -> tuple[int, int, int, int, int]:
         )
     if catalog.get("source") != source:
         raise ValueError("the keyword catalog source does not match the gitleaks version pin")
+    pinned = PINNED_DIGESTS.get(version)
+    if pinned is None:
+        raise ValueError(f"no independently pinned gitleaks digests exist for {version}")
     if not isinstance(catalog.get("default_rules_sha256"), str) or not re.fullmatch(
         r"[0-9a-f]{64}", catalog["default_rules_sha256"]
     ):
         raise ValueError("the keyword catalog has no default-rule digest")
+    if catalog["default_rules_sha256"] != pinned["default_rules_sha256"]:
+        raise ValueError("the default-rule digest does not match the independently pinned upstream data")
     rules = catalog.get("rules")
     if not isinstance(rules, list) or not rules:
         raise ValueError("the keyword catalog must list merged rules")
@@ -96,6 +107,15 @@ def check(root: Path) -> tuple[int, int, int, int, int]:
             raise ValueError(f"the keyword catalog has an invalid rule: {rule_id}")
         by_id[rule_id] = rule
     own_ids = {rule["id"] for rule in own_rules}
+    default_identity = []
+    for rule_id in sorted(set(by_id) - own_ids):
+        rule = by_id[rule_id]
+        regex = rule["regex"]
+        if isinstance(regex, str):
+            regex = regex.replace(r"bedrock\x2dapi\x2dkey\x2d", "bedrock-api-key-")
+        default_identity.append({"id": rule_id, "regex": regex, "keywords": rule["keywords"]})
+    if digest(default_identity) != pinned["default_rules_sha256"]:
+        raise ValueError("the default-rule digest does not match the independently pinned upstream data")
     for own in own_rules:
         stored = by_id.get(own["id"])
         if stored is None:
@@ -136,6 +156,8 @@ def check(root: Path) -> tuple[int, int, int, int, int]:
         raise ValueError("the true-positive fixture source does not match the gitleaks version pin")
     if fixture.get("encoding") != "base64" or not isinstance(fixture.get("samples"), list):
         raise ValueError("the true-positive fixture must be a base64 sample list")
+    if fixture.get("samples_sha256") != pinned["samples_sha256"]:
+        raise ValueError("the true-positive digest does not match the independently pinned upstream data")
     samples = []
     for encoded in fixture["samples"]:
         if not isinstance(encoded, dict) or not {"id", "text"} <= set(encoded) or set(encoded) - {"id", "text", "path"}:
