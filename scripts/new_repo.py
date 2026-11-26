@@ -30,6 +30,16 @@ def parse_remote(url):
     return match.group(1).lower() if match else None
 
 
+def configure_github_credentials(clone):
+    for arguments in (
+        ("config", "--local", "--replace-all", "credential.https://github.com.helper", ""),
+        ("config", "--local", "--add", "credential.https://github.com.helper", "!gh auth git-credential"),
+    ):
+        result = git(clone, *arguments)
+        if result.returncode:
+            problem(f"cannot configure GitHub credentials in {clone}: {(result.stderr or result.stdout).strip()}")
+
+
 def ensure_clone(clone, slug):
     if clone.exists():
         if not (clone / ".git").exists():
@@ -47,12 +57,25 @@ def ensure_clone(clone, slug):
             checkout = git(clone, "checkout", "main")
             if checkout.returncode != 0:
                 problem(f"{clone} is not on main; switch it to main before running new")
+        configure_github_credentials(clone)
         return False
     clone.parent.mkdir(parents=True, exist_ok=True)
     print(f"new: cloning into {clone}")
-    result = run(["git", "clone", f"https://github.com/{slug}.git", str(clone)])
+    result = run(
+        [
+            "git",
+            "clone",
+            "-c",
+            "credential.https://github.com.helper=",
+            "-c",
+            "credential.https://github.com.helper=!gh auth git-credential",
+            f"https://github.com/{slug}.git",
+            str(clone),
+        ]
+    )
     if result.returncode != 0:
         problem(f"cannot clone {slug}: {(result.stderr or result.stdout).strip()}")
+    configure_github_credentials(clone)
     return True
 
 

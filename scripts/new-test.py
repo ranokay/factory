@@ -56,6 +56,23 @@ class NewCaseTests(NewCase):
         self.assertNotIn(OP_VALUE, result.stdout + result.stderr)
         self.assert_handoff(result.stdout)
 
+    def test_clone_and_push_use_gh_credentials_without_global_setup(self):
+        result = self.run_new(
+            "one", extra={"FAKE_REQUIRE_GH_CREDENTIALS": "1"}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        helpers = self.git(
+            "one",
+            "config",
+            "--local",
+            "--get-all",
+            "credential.https://github.com.helper",
+        )
+        self.assertEqual(helpers.returncode, 0, helpers.stderr)
+        self.assertEqual(
+            helpers.stdout.splitlines(), ["", "!gh auth git-credential"]
+        )
+
     def test_second_run_is_idempotent(self):
         first = self.run_new("one")
         self.assertEqual(first.returncode, 0, first.stderr + first.stdout)

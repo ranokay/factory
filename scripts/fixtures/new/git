@@ -24,7 +24,19 @@ if "tag" in args and "--list" in args:
         sys.exit(1)
 
 if args and args[0] == "clone":
-    url, destination = args[1], args[2]
+    options = args[1:]
+    configs = []
+    while options and options[0] == "-c":
+        configs.append(options[1])
+        options = options[2:]
+    url, destination = options
+    if os.environ.get("FAKE_REQUIRE_GH_CREDENTIALS") and configs != [
+        "credential.https://github.com.helper=",
+        "credential.https://github.com.helper=!gh auth git-credential",
+    ]:
+        message = "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+        print(message, file=sys.stderr)
+        sys.exit(128)
     Path(destination).mkdir(parents=True)
     subprocess.run(
         [real, "-c", "init.defaultBranch=main", "init", "-q", destination],
