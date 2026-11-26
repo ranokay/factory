@@ -13,6 +13,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
 GITLEAKS_TIMEOUT = 2
+# Keep gitleaks' v8.30.1 segment thresholds; candidates force a scan so its recursive decoder stays authoritative.
+# https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/codec/encodings.go
+ENCODING_CANDIDATE_RE = re.compile(
+    r"%[0-9A-Fa-f]{2}(?:.*%[0-9A-Fa-f]{2})?"
+    r"|(?:(?:U\+[a-fA-F0-9]{4}(?:\s|$))+|(?i:(?:\\{1,2}u[a-fA-F0-9]{4})+))"
+    r"|[0-9A-Fa-f]{32,}"
+    r"|[\w/+-]{16,}={0,2}",
+    re.ASCII,
+)
 FALLBACK_RULES = (
     ("private-key", re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
     ("aws-access-key-id", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
@@ -74,6 +83,8 @@ def prefilter_keywords() -> set[str] | None:
 
 
 def needs_gitleaks(text: str) -> bool:
+    if ENCODING_CANDIDATE_RE.search(text):
+        return True
     keywords = prefilter_keywords()
     if keywords is None:
         return True

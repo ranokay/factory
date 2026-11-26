@@ -27,6 +27,43 @@ def random_alnum(length: int) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def encoded_fixtures() -> list[tuple[str, str, str]]:
+    keywords = json.loads((TOOLS / "gitleaks-keywords.json").read_text())["keywords"]
+
+    def has_keyword(value: str) -> bool:
+        return any(keyword in value.lower() for keyword in keywords)
+
+    fixtures = []
+    factories = (
+        ("github-pat", lambda: "ghp_" + random_alnum(36)),
+        ("context7-key-token", context7_token),
+    )
+    for rule_id, factory in factories:
+        for _ in range(100):
+            token = factory()
+            encodings = (
+                base64.b64encode(token.encode()).decode(),
+                token.encode().hex(),
+                "".join(f"%{byte:02X}" for byte in token.encode()),
+            )
+            if not any(has_keyword(value) for value in encodings):
+                fixtures.extend((rule_id, token, value) for value in encodings)
+                break
+        else:
+            raise AssertionError("cannot generate an encoded fixture without plaintext keywords")
+    for _ in range(100):
+        nested_token = context7_token()
+        nested = base64.b64encode(nested_token.encode()).decode()
+        for _ in range(4):
+            nested = base64.b64encode(nested.encode()).decode()
+        if not has_keyword(nested):
+            fixtures.append(("context7-key-token", nested_token, nested))
+            break
+    else:
+        raise AssertionError("cannot generate a nested fixture without plaintext keywords")
+    return fixtures
+
+
 def fallback_fixtures() -> list[tuple[str, str]]:
     pem_body = base64.b64encode(secrets.token_bytes(64)).decode()
     fixtures = [
@@ -135,6 +172,60 @@ class SecretGuardTests(unittest.TestCase):
                     self.assertEqual(output["decision"], "block")
                     self.assertIn(rule_id, output["reason"])
                     self.assertNotIn(token, result.stdout + result.stderr)
+
+    def test_encoded_fixtures_force_real_gitleaks_and_block_without_echoing(self):
+        for rule_id, token, encoded in encoded_fixtures():
+            with self.subTest(rule_id=rule_id, encoding=encoded[:12]):
+                result = self.invoke("prompt", {"prompt": f"payload {encoded}"})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                output = json.loads(result.stdout)
+                self.assertEqual(output["decision"], "block")
+                self.assertIn(rule_id, output["reason"])
+                self.assertNotIn(token, result.stdout + result.stderr)
+                self.assertNotIn(encoded, result.stdout + result.stderr)
+
+    def test_prefilter_skip_agrees_with_real_gitleaks(self):
+        corpus = [
+            "Summarise the current branch.",
+            "git status --short",
+            "A" * 15,
+            "A" * 31,
+            "41" * 16,
+            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=",
+            "%41",
+            "U+0041",
+            base64.b64encode(b"ordinary text").decode(),
+            *(encoded for _, _, encoded in encoded_fixtures()),
+        ]
+        with tempfile.TemporaryDirectory() as bin_dir:
+            marker = Path(bin_dir) / "spawned"
+            env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\ncat >/dev/null\n: >"$GUARD_MARKER"\nexit 0\n', marker)
+            for text in corpus:
+                with self.subTest(text=text[:24]):
+                    marker.unlink(missing_ok=True)
+                    guarded = self.invoke("prompt", {"prompt": text}, env=env)
+                    self.assertEqual(guarded.returncode, 0, guarded.stderr)
+                    scanned = marker.exists()
+                    real = subprocess.run(
+                        [
+                            "gitleaks",
+                            "stdin",
+                            "--config",
+                            str(TOOLS.parent / ".gitleaks.toml"),
+                            "--redact",
+                            "--report-format",
+                            "json",
+                            "--report-path",
+                            "-",
+                            "--no-banner",
+                        ],
+                        input=text,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    if not scanned:
+                        self.assertEqual(real.returncode, 0, real.stdout + real.stderr)
 
     def test_failing_gitleaks_uses_the_fallback_without_echoing_its_output(self):
         token = context7_token()
