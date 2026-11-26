@@ -97,8 +97,8 @@ else
 	exit "$code"
 fi
 cat "$log" >&2
-if grep -Ei '(failed|failure|error).*download.*(DB|database|checks bundle)|(DB|database|checks bundle).*download.*(failed|failure|error)|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+FATAL([[:space:]]|$)' "$log" >/dev/null; then
-	printf 'trivy: vulnerability DB/checks bundle download or scan reported a fatal diagnostic; cache: %s\n' "$cache_dir" >&2
+if grep -Ei '(failed|failure|error).*download.*(DB|database|checks bundle)|(DB|database|checks bundle).*download.*(failed|failure|error)|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+FATAL([[:space:]]|$)|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+ERROR[[:space:]].*(failed to parse|failed to analyze|parse error|analysis error)' "$log" >/dev/null; then
+	printf 'trivy: vulnerability DB/checks bundle download or scan reported a fatal or analysis diagnostic; cache: %s\n' "$cache_dir" >&2
 	exit 1
 fi
 

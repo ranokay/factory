@@ -164,7 +164,7 @@ SH
 	run_command env PATH="$test_root/scan-failure/bin:$PATH" "$checker" "$test_root/scan-failure/repo"
 	[ "$code" -ne 0 ] || fail "a fatal Trivy diagnostic passed with an empty report"
 	case $output in
-	*"scan reported a fatal diagnostic"*) ;;
+	*"scan reported a fatal or analysis diagnostic"*) ;;
 	*) fail "expected a fatal-scan diagnostic: $output" ;;
 	esac
 	printf 'ok: a fatal Trivy diagnostic fails even with a valid empty report\n'
@@ -181,6 +181,23 @@ SH
 	run_command env PATH="$test_root/nonfatal-error/bin:$PATH" "$checker" "$test_root/nonfatal-error/repo"
 	[ "$code" -eq 0 ] || fail "a nonfatal Trivy ERROR failed a clean scan: $output"
 	printf 'ok: a nonfatal Trivy ERROR does not fail a clean scan\n'
+}
+
+case_parse_failure() {
+	mkdir -p "$test_root/parse-failure/repo" "$test_root/parse-failure/bin"
+	cat >"$test_root/parse-failure/bin/trivy" <<'SH'
+#!/bin/sh
+printf '%s\n' '{"SchemaVersion":2}'
+printf '%s\n' '2026-11-26T00:00:00Z ERROR [npm] failed to analyze package-lock.json' >&2
+SH
+	chmod +x "$test_root/parse-failure/bin/trivy"
+	run_command env PATH="$test_root/parse-failure/bin:$PATH" "$checker" "$test_root/parse-failure/repo"
+	[ "$code" -ne 0 ] || fail "a dependency parse failure passed with an empty report"
+	case $output in
+	*"scan reported a fatal or analysis diagnostic"*) ;;
+	*) fail "expected an analysis-failure diagnostic: $output" ;;
+	esac
+	printf 'ok: a dependency parse or analysis failure fails closed\n'
 }
 
 case_cache_outside_repo() {
@@ -218,6 +235,7 @@ case_all() {
 	case_malformed_report
 	case_scan_failure
 	case_nonfatal_error
+	case_parse_failure
 	case_cache_outside_repo
 }
 
@@ -232,6 +250,7 @@ db-failure) case_db_failure ;;
 malformed-report) case_malformed_report ;;
 scan-failure) case_scan_failure ;;
 nonfatal-error) case_nonfatal_error ;;
+parse-failure) case_parse_failure ;;
 cache-outside-repo) case_cache_outside_repo ;;
 all) case_all ;;
 *)
