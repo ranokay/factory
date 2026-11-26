@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
 GITLEAKS_TIMEOUT = 2
 MAX_DECODE_DEPTH = 5
-# Stdin pipe reads can split greedy decoding; keep whole-string prefiltering below bufio's default buffer.
+# Stdin pipe reads can split greedy decoding; use a conservative 4 KiB ceiling for whole-string prefiltering.
 # https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/file.go#L166-L212
 # https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/common.go#L56-L124
 MAX_PREFILTER_BYTES = 4096
