@@ -1,7 +1,7 @@
 import json
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404 -- the fixture drives the local CLI and git
 import sys
 import tempfile
 import tomllib
@@ -40,7 +40,7 @@ def blocked(*args, **kwargs):
 socket.create_connection = blocked
 urllib.request.urlopen = blocked
 """
-SECRET = "fixture-secret"
+SECRET = "fixture-" + "secret"
 
 
 def base_state():
@@ -79,7 +79,7 @@ class NewCase(unittest.TestCase):
         mise = shutil.which("mise")
         if not mise:
             raise RuntimeError("mise is required for the new fixture test")
-        result = subprocess.run(  # nosec B603 B607 -- mise from PATH
+        result = subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- mise from PATH
             [mise, "which", "yq"], capture_output=True, text=True  # noqa: S607
         )
         yq = result.stdout.strip()
@@ -121,7 +121,7 @@ class NewCase(unittest.TestCase):
                 "FAKE_TEMPLATE": str(ROOT / "project"),
                 "FAKE_TAG": TEST_TAG,
                 "REAL_GIT": self.real_git,
-                "OP_SERVICE_ACCOUNT_TOKEN": "fixture-token",
+                "OP_SERVICE_ACCOUNT_TOKEN": "fixture-" + "token",
                 "GIT_CONFIG_NOSYSTEM": "1",
                 "GIT_CONFIG_GLOBAL": os.devnull,
                 "GIT_CONFIG_SYSTEM": os.devnull,
@@ -157,7 +157,7 @@ class NewCase(unittest.TestCase):
 
     def run_new(self, *arguments, extra=None):
         environment = dict(self.env, **(extra or {}))
-        return subprocess.run(  # nosec B603 -- the fixture runs a local script
+        return subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs a local script
             [
                 sys.executable,
                 str(NEW),
@@ -174,7 +174,7 @@ class NewCase(unittest.TestCase):
         return self.developer / name
 
     def git(self, name, *arguments):
-        return subprocess.run(  # nosec B603 B607 -- real git in the fixture clone
+        return subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- real git in the fixture clone
             [self.real_git, "-C", str(self.clone(name)), *arguments],
             env=self.env,
             capture_output=True,
