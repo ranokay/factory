@@ -184,11 +184,15 @@ def prefilter_catalog() -> list[dict] | None:
             ):
                 return None
             ids.add(rule_id)
+        unkeyworded_ids: set[str] = set()
         for rule in catalog["unkeyworded_rules"]:
             if not isinstance(rule, dict) or set(rule) != {"id", "path"} or not isinstance(rule["path"], str):
                 return None
             if re.search(rule["path"], "") is not None:
                 return None
+            unkeyworded_ids.add(rule["id"])
+        if unkeyworded_ids != {rule["id"] for rule in rules if not rule["keywords"]}:
+            return None
         return rules
     except (OSError, ValueError, KeyError, TypeError, re.error):
         return None
