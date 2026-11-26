@@ -23,7 +23,9 @@ class FakeGitHub:
     def __init__(self):
         self.issue_comments = []
         self.review_comments = []
+        self.compare = {"files": []}
         self.patches = []
+        self.fail_compare = False
         self.fail_path = ""
         self.fail_once = False
         outer = self
@@ -38,6 +40,11 @@ class FakeGitHub:
                     outer.reply(self, outer.issue_comments)
                 elif path == "/repos/o/r/pulls/7/comments":
                     outer.reply(self, outer.review_comments)
+                elif path.startswith("/repos/o/r/compare/"):
+                    if outer.fail_compare:
+                        outer.reply(self, {"message": "forced failure"}, 500)
+                    else:
+                        outer.reply(self, outer.compare)
                 else:
                     outer.reply(self, {"message": "not found"}, 404)
 
@@ -149,6 +156,8 @@ SUMMARY_MARKER = "<!-- ocr-summary -->"
 RUN_MARKER = "<!-- ocr-summary-run:1-1 -->"
 CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxfQ== -->"
 CLEAN_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIxIn0= -->"
+CLEAN_CHECKPOINT_2 = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIyIn0= -->"
+CLEAN_CHECKPOINT_3 = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiIzIn0= -->"
 STALE_CHECKPOINT = "<!-- ocr-checkpoint:v1 eyJ2IjoxLCJydW4iOiI5OSJ9 -->"
 FINGERPRINT = "<!-- ocr-1-1-abcdef0123456789 -->"
 

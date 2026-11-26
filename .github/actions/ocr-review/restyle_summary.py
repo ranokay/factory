@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import re
 from typing import Any, Iterable, NamedTuple
 
 SUMMARY_MARKER = "<!-- ocr-summary -->"
+ROUTED_MARKER = re.compile(r"<!--\s*ocr-routed:v1\s+(\S+)\s*-->")
+ROUTED_ANY = re.compile(r"<!--\s*ocr-routed:")
+HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 TITLE_LIMIT = 110
 
 # OCR's marker formats must survive verbatim; see buildRunTags and
@@ -38,6 +44,241 @@ class RewriteError(Exception):
 class Policy(NamedTuple):
     severity_rank: int
     categories: frozenset[str]
+
+
+class Carried(NamedTuple):
+    head: str
+    findings: list[dict[str, Any]]
+
+
+class Hunk(NamedTuple):
+    old_start: int
+    old_count: int
+    new_start: int
+    new_count: int
+    context: dict[int, int]
+    deleted: frozenset[int]
+
+
+class FileDiff(NamedTuple):
+    path: str
+    hunks: tuple[Hunk, ...]
+
+
+CARRY_KEYS = (
+    "path",
+    "start_line",
+    "end_line",
+    "severity",
+    "category",
+    "content",
+    "suggestion_code",
+    "existing_code",
+)
+
+
+def encode_routed(head: str, findings: list[dict[str, Any]]) -> str:
+    payload = {"head": head, "findings": findings}
+    encoded = base64.b64encode(
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).decode("ascii")
+    return f"<!-- ocr-routed:v1 {encoded} -->"
+
+
+def validate_carried(payload: Any) -> Carried:
+    if not isinstance(payload, dict):
+        raise RewriteError("routed-findings payload is not an object")
+    head = payload.get("head")
+    if head is None:
+        head = ""
+    if not isinstance(head, str):
+        raise RewriteError("routed-findings head is not a string")
+    findings = payload.get("findings")
+    if not isinstance(findings, list):
+        raise RewriteError("routed-findings payload has no findings list")
+    for index, item in enumerate(findings):
+        if not isinstance(item, dict):
+            raise RewriteError(f"carried finding {index} is not an object")
+        if not isinstance(item.get("path"), str) or not item["path"].strip():
+            raise RewriteError(f"carried finding {index} has no path")
+        if not has_line(item):
+            raise RewriteError(f"carried finding {index} has no line")
+        if normalize(item.get("severity")) not in SEVERITY_RANK:
+            raise RewriteError(f"carried finding {index} has an unknown severity")
+        origin = item.get("origin", {})
+        if not isinstance(origin, dict):
+            raise RewriteError(f"carried finding {index} origin is not an object")
+    return Carried(head, findings)
+
+
+def decode_routed(body: str) -> Carried:
+    found = ROUTED_MARKER.findall(body or "")
+    if not found:
+        return Carried("", [])
+    if len(found) > 1:
+        raise RewriteError("sticky summary has more than one routed-findings marker")
+    try:
+        payload = json.loads(base64.b64decode(found[0], validate=True).decode("utf-8"))
+    except (binascii.Error, ValueError, UnicodeDecodeError) as error:
+        raise RewriteError(f"cannot decode the routed-findings marker: {error}") from error
+    return validate_carried(payload)
+
+
+def parse_hunks(patch: str) -> tuple[Hunk, ...]:
+    hunks: list[Hunk] = []
+    header: tuple[int, int, int, int] | None = None
+    context: dict[int, int] = {}
+    deleted: set[int] = set()
+    old = new = 0
+    for line in (patch or "").splitlines():
+        match = HUNK_HEADER.match(line)
+        if match:
+            if header is not None:
+                hunks.append(Hunk(*header, context, frozenset(deleted)))
+            header = (
+                int(match.group(1)),
+                int(match.group(2) or 1),
+                int(match.group(3)),
+                int(match.group(4) or 1),
+            )
+            context = {}
+            deleted = set()
+            old, new = header[0], header[2]
+            continue
+        if header is None:
+            continue
+        if line.startswith("\\"):
+            continue
+        if line.startswith("+"):
+            new += 1
+        elif line.startswith("-"):
+            deleted.add(old)
+            old += 1
+        elif line.startswith(" ") or not line:
+            context[old] = new
+            old += 1
+            new += 1
+        else:
+            hunks.append(Hunk(*header, context, frozenset(deleted)))
+            header = None
+    if header is not None:
+        hunks.append(Hunk(*header, context, frozenset(deleted)))
+    return tuple(hunks)
+
+
+def remap_line(hunks: tuple[Hunk, ...], line: int) -> int:
+    for hunk in hunks:
+        if not hunk.old_count:
+            continue
+        if hunk.old_start <= line < hunk.old_start + hunk.old_count:
+            return hunk.context.get(line, line)
+    shift = 0
+    for hunk in hunks:
+        end = hunk.old_start + hunk.old_count
+        after = line > hunk.old_start if not hunk.old_count else line >= end
+        if after:
+            shift += hunk.new_count - hunk.old_count
+    return line + shift
+
+
+def remap_span(
+    hunks: tuple[Hunk, ...], start: int, end: int
+) -> tuple[int, int] | None:
+    low, high = (start, end) if start <= end else (end, start)
+    low = max(1, low)
+    high = max(1, high)
+    for hunk in hunks:
+        if any(low <= line <= high for line in hunk.deleted):
+            return None
+    left = remap_line(hunks, low)
+    right = remap_line(hunks, high)
+    return (left, right) if left <= right else (right, left)
+
+
+def remap_finding(comment: dict[str, Any], diff: FileDiff) -> dict[str, Any] | None:
+    start = integer(comment.get("start_line")) or integer(comment.get("end_line"))
+    end = integer(comment.get("end_line")) or start
+    span = remap_span(diff.hunks, start, end)
+    if span is None:
+        return None
+    return {
+        **comment,
+        "path": diff.path,
+        "start_line": span[0],
+        "end_line": span[1],
+    }
+
+
+def finding_key(comment: dict[str, Any]) -> tuple[str, int]:
+    line = integer(comment.get("start_line")) or integer(comment.get("end_line"))
+    return str(comment.get("path") or ""), line
+
+
+def origin_of(meta: dict[str, str]) -> dict[str, str]:
+    origin: dict[str, str] = {}
+    for key in ("run", "from", "to"):
+        value = str(meta.get(key) or "")
+        if value:
+            origin[key] = value
+    return origin
+
+
+def origin_label(origin: Any) -> str:
+    if not isinstance(origin, dict):
+        return "an earlier run"
+    start = str(origin.get("from") or "")[:7]
+    end = str(origin.get("to") or "")[:7]
+    if start and end:
+        return f"`{start}..{end}`"
+    run = str(origin.get("run") or "")
+    return f"run `{run}`" if run else "an earlier run"
+
+
+def merge_routed(
+    current: list[dict[str, Any]],
+    carried: list[dict[str, Any]],
+    diffs: dict[str, FileDiff],
+    raised: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    # Any finding this run raised at a path and line replaces a carried one,
+    # whether it is routed, posted inline or failed to post.
+    covered = {finding_key(comment) for comment in raised}
+    entries: list[dict[str, Any]] = []
+    listed: set[tuple[str, int]] = set()
+    for comment in current:
+        key = finding_key(comment)
+        if key in listed:
+            continue
+        listed.add(key)
+        entries.append(comment)
+    for comment in carried:
+        diff = diffs.get(str(comment.get("path") or ""))
+        if diff is not None:
+            remapped = remap_finding(comment, diff)
+            if remapped is None:
+                continue
+            comment = remapped
+        key = finding_key(comment)
+        if key in covered or key in listed:
+            continue
+        listed.add(key)
+        entries.append(comment)
+    entries.sort(key=ordering)
+    return entries
+
+
+def carried_findings(
+    entries: list[dict[str, Any]], meta: dict[str, str]
+) -> list[dict[str, Any]]:
+    origin = origin_of(meta)
+    findings: list[dict[str, Any]] = []
+    for comment in entries:
+        item = {key: comment[key] for key in CARRY_KEYS if comment.get(key) not in (None, "")}
+        item["origin"] = comment.get("origin") or origin
+        findings.append(item)
+    return findings
 
 
 def normalize(value: Any) -> str:
@@ -427,7 +668,15 @@ def findings_table(
 def lower_priority(routed: list[dict[str, Any]]) -> str:
     if not routed:
         return ""
-    details = "\n\n".join(finding_block(comment) for comment in routed)
+    details = "\n\n".join(
+        finding_block(
+            comment,
+            f"Carried from {origin_label(comment['origin'])}"
+            if comment.get("origin")
+            else "",
+        )
+        for comment in routed
+    )
     return (
         f"<details><summary>{len(routed)} lower-priority findings "
         f"(in summary only)</summary>\n\n{details}\n\n</details>"
@@ -469,8 +718,10 @@ def rewrite_summary(
     meta: dict[str, str],
     policy: Policy,
     expected: dict[str, int | None] | None = None,
+    carried: list[dict[str, Any]] | None = None,
+    diffs: dict[str, FileDiff] | None = None,
 ) -> str:
-    marks = markers(body)
+    marks = [mark for mark in markers(body) if not ROUTED_ANY.match(mark)]
     raw_comments = list(result.get("comments") or [])
     carriers = [comment for comment in raw_comments if is_diagram_carrier(comment)]
     rating = score(raw_comments)
@@ -478,6 +729,17 @@ def rewrite_summary(
     inline, routed, failed, skipped = partition_comments(
         body, raw_comments, links, policy
     )
+    if carried is None:
+        try:
+            carried = decode_routed(body).findings
+        except RewriteError:
+            carried = []
+    raised = [
+        comment
+        for comment in raw_comments
+        if not is_diagram_carrier(comment) and has_line(comment)
+    ]
+    merged = merge_routed(routed, carried, diffs or {}, raised)
     check_counts(expected, inline, skipped)
     blocks = [f"## AI Review · {rating}/5 · {verdict(rating)}", text]
     table = findings_table(inline, failed)
@@ -488,7 +750,7 @@ def rewrite_summary(
             f"> {len(skipped)} finding(s) were already covered by another review thread."
         )
     for section in (
-        lower_priority(routed),
+        lower_priority(merged),
         failed_details(failed),
         diagram_section(carriers),
         warnings_section(result),
@@ -496,6 +758,7 @@ def rewrite_summary(
     ):
         if section:
             blocks.append(section)
+    marks.append(encode_routed(str(meta.get("to") or ""), carried_findings(merged, meta)))
     prefix = "\n".join(marks)
     body_text = "\n\n".join(block for block in blocks if block).strip()
     return (prefix + "\n\n" if prefix else "") + body_text + "\n"

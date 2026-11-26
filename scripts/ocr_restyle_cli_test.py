@@ -13,6 +13,8 @@ from unittest import mock
 from ocr_restyle_test_support import (
     CHECKPOINT,
     CLEAN_CHECKPOINT,
+    CLEAN_CHECKPOINT_2,
+    CLEAN_CHECKPOINT_3,
     FINGERPRINT,
     INLINE_BODY,
     STALE_CHECKPOINT,
@@ -25,6 +27,10 @@ from ocr_restyle_test_support import (
     restyle,
 )
 
+RUN1_TO = "abc1234def567890123456789abcdef0123456789"
+RUN2_TO = "2222222222222222222222222222222222222222"
+RUN3_TO = "3333333333333333333333333333333333333333"
+
 
 class CommandLineTests(unittest.TestCase):
     def setUp(self):
@@ -32,7 +38,8 @@ class CommandLineTests(unittest.TestCase):
         self.addCleanup(self.github.close)
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.result_path = Path(directory.name) / "result.json"
+        self.directory = Path(directory.name)
+        self.result_path = self.directory / "result.json"
         self.github.seed(SUMMARY_BODY, INLINE_BODY)
 
     def run_cli(self, environment=None):
@@ -61,8 +68,64 @@ class CommandLineTests(unittest.TestCase):
             returncode=code, stdout=output.getvalue(), stderr=""
         )
 
+    def run_snapshot(self):
+        path = self.directory / "carried.json"
+        env = {
+            "GITHUB_API_URL": self.github.url,
+            "GITHUB_REPOSITORY": "o/r",
+            "PR_NUMBER": "7",
+            "GITHUB_TOKEN": "unused",  # nosec B105 -- dummy credential for the local fake server
+        }
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(output):
+            code = restyle.main(["--snapshot", str(path)])
+        return types.SimpleNamespace(returncode=code, stdout=output.getvalue(), path=path)
+
     def write(self, result):
         self.result_path.write_text(json.dumps(result))
+
+    def start_next_run(self, checkpoint):
+        self.github.issue_comments[0]["body"] = (
+            f"{SUMMARY_MARKER}\n"
+            "✅ **OpenCodeReview**: Review complete: 0 finding(s) across 5 selected item(s).\n\n"
+            f"{checkpoint}"
+        )
+
+    def next_run_environment(self, carried, run_id, from_sha, to_sha):
+        return {
+            "GITHUB_RUN_ID": run_id,
+            "OCR_RANGE_FROM": from_sha,
+            "OCR_RANGE_TO": to_sha,
+            "OCR_CARRIED": str(carried),
+            "OCR_INLINE": "0",
+            "OCR_SKIPPED": "0",
+        }
+
+    def raise_routed_finding(self):
+        self.github.review_comments.clear()
+        self.write(
+            ocr_result(
+                [finding(path="scripts/a.py", severity="medium", start=10, end=12)]
+            )
+        )
+        result = self.run_cli(environment={"OCR_INLINE": "0", "OCR_SKIPPED": "0"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("1 lower-priority findings", self.github.issue_comments[0]["body"])
+        snapshot = self.run_snapshot()
+        self.assertEqual(snapshot.returncode, 0, snapshot.stdout)
+        return snapshot.path
+
+    def run_clean_second_run(self, carried, result=None):
+        self.start_next_run(CLEAN_CHECKPOINT_2)
+        self.write(
+            result
+            or ocr_result(
+                [], message="Review complete: 0 finding(s) across 5 selected item(s)."
+            )
+        )
+        return self.run_cli(
+            environment=self.next_run_environment(carried, "2", RUN1_TO, RUN2_TO)
+        )
 
     def test_end_to_end_rewrites_summary_and_inline(self):
         comments = [
@@ -319,3 +382,236 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("review comment has no id", result.stdout)
         self.assertEqual(self.github.patches, [])
+
+    def test_a_routed_finding_survives_a_later_clean_checkpointed_run(self):
+        carried = self.raise_routed_finding()
+        payload = json.loads(carried.read_text())
+        self.assertEqual(payload["head"], RUN1_TO)
+        self.assertEqual(len(payload["findings"]), 1)
+
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertIn("**🟡 P2 · A finding title** · `scripts/a.py:10-12`", summary)
+        self.assertIn("Carried from `def5678..abc1234`", summary)
+        self.assertIn(CLEAN_CHECKPOINT_2, summary)
+        self.assertIn(SUMMARY_MARKER, summary)
+
+    def test_a_same_line_finding_replaces_a_carried_one_after_remapping(self):
+        carried = self.raise_routed_finding()
+        self.github.compare = {
+            "files": [
+                {
+                    "filename": "scripts/a.py",
+                    "patch": "@@ -5,0 +6,3 @@\n+one\n+two\n+three",
+                }
+            ]
+        }
+        fresh = finding(
+            path="scripts/a.py",
+            severity="medium",
+            start=13,
+            end=15,
+            content="**A fresh finding**\n\nThe fresh explanation.",
+        )
+        result = self.run_clean_second_run(carried, ocr_result([fresh]))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertIn("**🟡 P2 · A fresh finding** · `scripts/a.py:13-15`", summary)
+        self.assertNotIn("A finding title", summary)
+        self.assertNotIn("Carried from", summary)
+        self.assertIn("1 lower-priority findings", summary)
+
+    def test_an_unrouted_finding_on_the_same_line_replaces_a_carried_one(self):
+        carried = self.raise_routed_finding()
+        self.github.compare = {"files": []}
+        raised = {**finding(path="scripts/a.py", start=10, end=12), "severity": "high"}
+        self.start_next_run(CLEAN_CHECKPOINT_2)
+        self.write(
+            ocr_result(
+                [raised],
+                message="Review complete: 1 finding(s) across 5 selected item(s).",
+            )
+        )
+        result = self.run_cli(
+            environment=self.next_run_environment(carried, "2", RUN1_TO, RUN2_TO)
+            | {"OCR_INLINE": "0", "OCR_SKIPPED": "1"}
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertNotIn("A finding title", summary)
+        self.assertNotIn("lower-priority findings", summary)
+        self.assertEqual(restyle.decode_routed(summary).findings, [])
+
+    def test_a_finding_whose_line_is_modified_is_dropped(self):
+        carried = self.raise_routed_finding()
+        self.github.compare = {
+            "files": [
+                {
+                    "filename": "scripts/a.py",
+                    "patch": (
+                        "@@ -8,5 +8,5 @@\n line8\n line9\n"
+                        "-old10\n+new10\n line11\n line12"
+                    ),
+                }
+            ]
+        }
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertNotIn("A finding title", summary)
+        self.assertNotIn("lower-priority findings", summary)
+        self.assertEqual(restyle.decode_routed(summary).findings, [])
+
+    def test_a_finding_below_an_insertion_survives_with_a_shifted_line(self):
+        carried = self.raise_routed_finding()
+        self.github.compare = {
+            "files": [
+                {
+                    "filename": "scripts/a.py",
+                    "patch": "@@ -5,0 +6,3 @@\n+one\n+two\n+three",
+                }
+            ]
+        }
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertIn("**🟡 P2 · A finding title** · `scripts/a.py:13-15`", summary)
+        self.assertIn("Carried from `def5678..abc1234`", summary)
+        decoded = restyle.decode_routed(summary)
+        self.assertEqual(decoded.head, RUN2_TO)
+        self.assertEqual(decoded.findings[0]["start_line"], 13)
+
+    def test_a_remapped_finding_survives_a_third_clean_run_at_the_same_line(self):
+        carried = self.raise_routed_finding()
+        self.github.compare = {
+            "files": [
+                {
+                    "filename": "scripts/a.py",
+                    "patch": "@@ -5,0 +6,3 @@\n+one\n+two\n+three",
+                }
+            ]
+        }
+        self.run_clean_second_run(carried)
+        snapshot = self.run_snapshot()
+        payload = json.loads(snapshot.path.read_text())
+        self.assertEqual(payload["head"], RUN2_TO)
+        self.assertEqual(payload["findings"][0]["start_line"], 13)
+        self.assertEqual(payload["findings"][0]["origin"]["to"], RUN1_TO)
+
+        self.github.compare = {"files": []}
+        self.start_next_run(CLEAN_CHECKPOINT_3)
+        self.write(
+            ocr_result(
+                [], message="Review complete: 0 finding(s) across 5 selected item(s)."
+            )
+        )
+        result = self.run_cli(
+            environment=self.next_run_environment(snapshot.path, "3", RUN2_TO, RUN3_TO)
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertIn("**🟡 P2 · A finding title** · `scripts/a.py:13-15`", summary)
+        self.assertIn("Carried from `def5678..abc1234`", summary)
+
+    def test_duplicate_carried_findings_are_listed_once(self):
+        carried = self.raise_routed_finding()
+        payload = json.loads(carried.read_text())
+        payload["findings"] = payload["findings"] * 2
+        carried.write_text(json.dumps(payload))
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        summary = self.github.issue_comments[0]["body"]
+        self.assertIn("1 lower-priority findings", summary)
+        self.assertEqual(summary.count("A finding title"), 1)
+
+    def test_a_carried_finding_without_a_diff_is_kept_and_names_the_file(self):
+        carried = self.raise_routed_finding()
+        self.github.compare = {
+            "files": [{"filename": "scripts/a.py", "status": "binary"}]
+        }
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("no diff for scripts/a.py", result.stdout)
+        self.assertIn("`scripts/a.py:10-12`", self.github.issue_comments[0]["body"])
+
+    def test_a_failed_compare_keeps_the_carried_finding_unremapped(self):
+        carried = self.raise_routed_finding()
+        self.github.fail_compare = True
+        result = self.run_clean_second_run(carried)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("cannot map carried findings", result.stdout)
+        self.assertIn("`scripts/a.py:10-12`", self.github.issue_comments[0]["body"])
+
+    def test_malformed_or_missing_carried_state_warns_and_still_rewrites(self):
+        self.start_next_run(CLEAN_CHECKPOINT_2)
+        self.write(ocr_result([finding(path="scripts/b.py", severity="medium")]))
+        for name, value in (("malformed", "{not json"), ("missing", None)):
+            with self.subTest(state=name):
+                path = self.directory / f"{name}.json"
+                if value is not None:
+                    path.write_text(value)
+                result = self.run_cli(
+                    environment={
+                        "GITHUB_RUN_ID": "2",
+                        "OCR_RANGE_FROM": RUN1_TO,
+                        "OCR_RANGE_TO": RUN2_TO,
+                        "OCR_CARRIED": str(path),
+                        "OCR_INLINE": "0",
+                        "OCR_SKIPPED": "0",
+                    }
+                )
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertIn("cannot read carried findings", result.stdout)
+                self.assertIn(
+                    "A finding title", self.github.issue_comments[0]["body"]
+                )
+
+    def test_same_head_noop_keeps_the_carried_findings(self):
+        carried = self.raise_routed_finding()
+        original = self.github.issue_comments[0]["body"]
+        self.github.patches.clear()
+        result = self.run_cli(
+            environment={
+                "OCR_RANGE_REASON": "same_head_noop",
+                "OCR_CARRIED": str(carried),
+                "OCR_INLINE": "0",
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("::warning::", result.stdout)
+        self.assertEqual(self.github.issue_comments[0]["body"], original)
+        self.assertEqual(self.github.patches, [])
+
+    def test_snapshot_reads_the_previous_routed_marker(self):
+        carried = self.raise_routed_finding()
+        payload = json.loads(carried.read_text())
+        self.assertEqual(payload["head"], RUN1_TO)
+        self.assertEqual(payload["findings"][0]["path"], "scripts/a.py")
+        self.assertEqual(payload["findings"][0]["origin"]["from"], "def56789abcdef0123456789abcdef0123456789")
+
+    def test_snapshot_without_a_routed_marker_carries_nothing(self):
+        result = self.run_snapshot()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("::warning::", result.stdout)
+        self.assertEqual(json.loads(result.path.read_text())["findings"], [])
+
+    def test_snapshot_degrades_to_no_findings_when_the_marker_is_malformed(self):
+        self.github.issue_comments[:] = [
+            {
+                "id": 1,
+                "body": f"{SUMMARY_MARKER}\n<!-- ocr-routed:v1 not-base64! -->",
+                "html_url": "https://example.test/issues/1",
+            }
+        ]
+        result = self.run_snapshot()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("cannot decode the routed-findings marker", result.stdout)
+        self.assertEqual(json.loads(result.path.read_text())["findings"], [])
+
+    def test_snapshot_without_a_previous_summary_carries_nothing(self):
+        self.github.issue_comments.clear()
+        result = self.run_snapshot()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("::warning::", result.stdout)
+        self.assertEqual(json.loads(result.path.read_text())["findings"], [])
