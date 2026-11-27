@@ -164,6 +164,27 @@ PY
 	[ "$code" -ne 0 ] || fail "default-rule drift passed the independently pinned digest"
 	expect_contains "$output" "default-rule digest"
 	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	run_command python3 - "$fixture/tools/gitleaks-keywords.json" "$root/scripts" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[2])
+from gitleaks_catalog import digest
+
+path = Path(sys.argv[1])
+catalog = json.loads(path.read_text())
+rule = next(rule for rule in catalog["rules"] if rule["python_safe"])
+rule["python_safe"] = False
+rule["python_unsafe_reason"] = "forged classification"
+catalog["rules_sha256"] = digest(catalog["rules"])
+path.write_text(json.dumps(catalog, indent=2) + "\n")
+PY
+	[ "$code" -eq 0 ] || fail "cannot drift the merged rule fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "merged-rule drift passed the independently pinned digest"
+	expect_contains "$output" "merged-rule digest"
+	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
 	run_command python3 - "$fixture/tools/gitleaks-rule-samples.json.gz" "$root/scripts" <<'PY'
 import base64
 import gzip

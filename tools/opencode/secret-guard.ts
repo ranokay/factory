@@ -44,7 +44,10 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
       clearTimeout(timer)
       reject(failedClosed())
     }
-    const timer = setTimeout(() => child.kill("SIGKILL"), 4000)
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL")
+      fail()
+    }, 4000)
     child.stdout.setEncoding("utf8")
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk

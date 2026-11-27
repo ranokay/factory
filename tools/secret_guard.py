@@ -8,6 +8,7 @@ import binascii
 import functools
 import json
 import re
+import shutil
 import string
 import subprocess
 import sys
@@ -27,6 +28,13 @@ MAX_PREFILTER_BYTES = 4096
 ENCODING_RE = re.compile(
     r"(?P<percent>%[0-9A-Fa-f]{2}(?:.*%[0-9A-Fa-f]{2})?)"
     r"|(?P<unicode>U\+[a-fA-F0-9]{4}(?:\s+U\+[a-fA-F0-9]{4})*(?=\s|$)|(?i:(?:\\{1,2}u[a-fA-F0-9]{4})+))"
+    r"|(?P<hex>[0-9A-Fa-f]{32,})"
+    r"|(?P<base64>[\w/+-]{16,}={0,2})",
+    re.ASCII,
+)
+ENCODING_RE_JOINED = re.compile(
+    r"(?P<percent>%[0-9A-Fa-f]{2}(?:.*%[0-9A-Fa-f]{2})?)"
+    r"|(?P<unicode>(?:(?:U\+[a-fA-F0-9]{4}(?:\s|$))+|(?i:(?:\\{1,2}u[a-fA-F0-9]{4})+)))"
     r"|(?P<hex>[0-9A-Fa-f]{32,})"
     r"|(?P<base64>[\w/+-]{16,}={0,2})",
     re.ASCII,
@@ -126,10 +134,10 @@ def decode_unicode(value: str) -> str | None:
     return "".join("\ufffd" if 0xD800 <= int(point, 16) <= 0xDFFF else chr(int(point, 16)) for point in points)
 
 
-def decode_pass(text: str) -> str:
+def decode_pass(text: str, encoding_re: re.Pattern[str] = ENCODING_RE) -> str:
     parts: list[str] = []
     cursor = 0
-    for match in ENCODING_RE.finditer(text):
+    for match in encoding_re.finditer(text):
         parts.append(text[cursor : match.start()])
         decoder = {"percent": decode_percent, "unicode": decode_unicode, "hex": decode_hex, "base64": decode_base64}[
             match.lastgroup
@@ -217,14 +225,15 @@ def compile_rule_regex(rule_id: str, regex: str) -> re.Pattern[str] | None:
 
 def decoded_texts(text: str) -> list[str]:
     texts = [text]
-    current = text
-    for _ in range(MAX_DECODE_DEPTH):
-        decoded = decode_pass(current)
-        if decoded == current:
-            break
-        texts.append(decoded)
-        current = decoded
-    return texts
+    for encoding_re in (ENCODING_RE, ENCODING_RE_JOINED):
+        current = text
+        for _ in range(MAX_DECODE_DEPTH):
+            decoded = decode_pass(current, encoding_re)
+            if decoded == current:
+                break
+            texts.append(decoded)
+            current = decoded
+    return list(dict.fromkeys(texts))
 
 
 def needs_gitleaks(text: str) -> bool:
@@ -252,10 +261,14 @@ def needs_gitleaks(text: str) -> bool:
 def rule_ids(text: str) -> tuple[list[str], str | None]:
     if not needs_gitleaks(text):
         return [], None
+    executable = shutil.which("gitleaks")
+    if executable is None:
+        return fallback_rule_ids(text), "gitleaks not found"
+    gitleaks = str(Path(executable).resolve())
     try:
         result = subprocess.run(
             [
-                "gitleaks",
+                gitleaks,
                 "stdin",
                 "--config",
                 str(ROOT / ".gitleaks.toml"),

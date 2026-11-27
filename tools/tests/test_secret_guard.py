@@ -66,6 +66,9 @@ def encoded_fixtures() -> list[tuple[str, str, str]]:
             break
     else:
         raise AssertionError("cannot generate a nested fixture without plaintext keywords")
+    partial_token = context7_token()
+    partial = " ".join(f"U+{ord(char):04X}" for char in partial_token[:8]) + " " + partial_token[8:]
+    fixtures.append(("context7-key-token", partial_token, partial))
     return fixtures
 
 
@@ -369,6 +372,10 @@ class SecretGuardTests(unittest.TestCase):
             (base64.b64encode(b"api ordinary text").decode(), False),
             *((encoded, True) for _, _, encoded in encoded_fixtures()),
         ]
+        executable = shutil.which("gitleaks")
+        if executable is None:
+            self.fail("gitleaks is required for the equivalence check")
+        gitleaks = str(Path(executable).resolve())
         with tempfile.TemporaryDirectory() as bin_dir:
             marker = Path(bin_dir) / "spawned"
             env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\ncat >/dev/null\n: >"$GUARD_MARKER"\nexit 0\n', marker)
@@ -381,7 +388,7 @@ class SecretGuardTests(unittest.TestCase):
                     self.assertEqual(scanned, expected_scan)
                     real = subprocess.run(
                         [
-                            "gitleaks",
+                            gitleaks,
                             "stdin",
                             "--config",
                             str(TOOLS.parent / ".gitleaks.toml"),

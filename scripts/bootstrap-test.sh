@@ -537,6 +537,10 @@ settings = {
 				"matcher": "Read",
 				"hooks": [{"type": "command", "command": f"'{sonar}/pretool-secrets.sh'", "timeout": 60}],
 			},
+			{
+				"matcher": "Bash",
+				"hooks": [{"type": "command", "command": f"{runner} secret_guard tool", "timeout": 1}],
+			},
 		],
 		"SessionStart": [
 			{"hooks": [{"type": "command", "command": f"{runner} environment_check startup", "timeout": 10}]}
@@ -545,7 +549,8 @@ settings = {
 			{
 				"matcher": "*",
 				"hooks": [{"type": "command", "command": f"'{sonar}/prompt-secrets.sh'", "timeout": 60}],
-			}
+			},
+			{"hooks": [{"type": "command", "command": f"{runner} secret_guard prompt", "timeout": 1}]},
 		],
 	},
 }
@@ -633,6 +638,19 @@ PY
 	expect_contains "$output" "cannot install the Factory secret guard"
 	[ "$(cat "$settings")" = 'not json' ] || fail "bootstrap changed malformed Claude settings"
 	printf 'ok: bootstrap installs both secret guards once and preserves unrelated hooks\n'
+}
+
+case_secret_guard_refusal() {
+	setup_case secret-guard-refusal
+	mkdir -p "$home/.claude"
+	printf 'not json\n' >"$home/.claude/settings.json"
+	run_bootstrap
+	[ "$code" -ne 0 ] || fail "bootstrap overwrote malformed Claude settings"
+	expect_contains "$output" "cannot install the Factory secret guard"
+	[ "$(cat "$home/.claude/settings.json")" = 'not json' ] || fail "bootstrap changed malformed Claude settings"
+	[ ! -e "$home/.agents" ] || fail "bootstrap wrote links before installing the Claude hooks"
+	[ ! -e "$home/.config/opencode/plugins/factory-secret-guard.ts" ] || fail "bootstrap linked the plugin without Claude hooks"
+	printf 'ok: bootstrap refuses malformed Claude settings before writing links\n'
 }
 
 case_repair() {
@@ -1345,6 +1363,7 @@ case_all() {
 	case_env
 	case_hooks
 	case_secret_guard
+	case_secret_guard_refusal
 	case_repair
 	case_tracked
 	case_synced_tracked
@@ -1382,6 +1401,7 @@ codex) case_codex ;;
 env) case_env ;;
 hooks) case_hooks ;;
 secret-guard) case_secret_guard ;;
+secret-guard-refusal) case_secret_guard_refusal ;;
 repair) case_repair ;;
 tracked) case_tracked ;;
 synced-tracked) case_synced_tracked ;;

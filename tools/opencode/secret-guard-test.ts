@@ -83,6 +83,28 @@ test("fails closed when the guard output is malformed", async () => {
   })
 })
 
+test("fails closed when the guard hangs with an inherited stdout pipe", async () => {
+  await withGuard("sleep 30 &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nwait\n", async (hook, home) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const outcome = await Promise.race([
+        hook({ tool: "read" }, { args: { path: "file.txt" } }).then(
+          () => "resolved",
+          () => "rejected",
+        ),
+        new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve("pending"), 5000)
+        }),
+      ])
+      assert.equal(outcome, "rejected")
+    } finally {
+      if (timer) clearTimeout(timer)
+      const pid = Number(readFileSync(join(home, "guard-grandchild.pid"), "utf8"))
+      if (Number.isInteger(pid) && pid > 0) process.kill(pid, "SIGKILL")
+    }
+  })
+})
+
 test("shows fallback warnings through the OpenCode 2 toast API", async () => {
   await withGuard("printf '%s\\n' '{\"block\":false,\"warning\":\"fixture warning\"}'\n", async () => {
     let registered: ((event: { tool: string; input: Record<string, unknown>; sessionID?: string }) => Promise<void>) | undefined

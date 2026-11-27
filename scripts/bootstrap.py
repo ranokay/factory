@@ -368,6 +368,7 @@ def render_secret_guard_settings(home: Path) -> str:
             "timeout": SECRET_GUARD_TIMEOUT,
             "onFailure": "block",
         }
+        rendered = []
         found = False
         for group in groups:
             if not isinstance(group, dict):
@@ -375,14 +376,26 @@ def render_secret_guard_settings(home: Path) -> str:
             commands = group.get("hooks", [])
             if not isinstance(commands, list):
                 raise ValueError(f"Claude settings {event} contains a non-array hooks group")
-            if group.get("matcher") != "*":
-                continue
-            for index, command in enumerate(commands):
-                if isinstance(command, dict) and managed_secret_guard_command(home, command.get("command"), mode):
-                    commands[index] = wanted
-                    found = True
+            remaining = [
+                command
+                for command in commands
+                if not (isinstance(command, dict) and managed_secret_guard_command(home, command.get("command"), mode))
+            ]
+            managed = len(remaining) != len(commands)
+            if managed and not found:
+                if remaining:
+                    rendered.append({**group, "hooks": remaining})
+                    rendered.append({"matcher": "*", "hooks": [wanted]})
+                elif group.get("matcher") == "*":
+                    rendered.append({**group, "hooks": [wanted]})
+                else:
+                    rendered.append({"matcher": "*", "hooks": [wanted]})
+                found = True
+            elif remaining or not managed:
+                rendered.append(group if not managed else {**group, "hooks": remaining})
         if not found:
-            groups.append({"matcher": "*", "hooks": [wanted]})
+            rendered.append({"matcher": "*", "hooks": [wanted]})
+        hooks[event] = rendered
     return json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -1236,12 +1249,12 @@ def main(argv: list[str] | None = None) -> int:
         for error in vendored_errors:
             print(f"bootstrap: {error}", file=sys.stderr)
         return 1
-    apply_links(changes, home)
     try:
         guard_changed = install_secret_guard(home)
     except (OSError, ValueError) as error:
         print(f"bootstrap: cannot install the Factory secret guard: {error}", file=sys.stderr)
         return 1
+    apply_links(changes, home)
     if not provision_op_token(home, args.rotate_op_token):
         return 1
     if not render_mcp(home):
