@@ -173,7 +173,7 @@ test("waits for stdout chunks that arrive after child exit", async () => {
 
 test("rejects trailing data after a parseable JSON prefix", async () => {
   await withGuard(
-    "printf '{\"block\":false}'\n( sleep 0.1; printf '{\"block\":true}\\n' ) &\nexit 0\n",
+    "printf '{\"block\":false}\\n'\n( sleep 0.05; printf '{\"block\":true}\\n' ) &\nexit 0\n",
     async (hook) => {
       await assert.rejects(() => hook({ tool: "read" }, { args: { path: "file.txt" } }), /failed closed/)
     },
