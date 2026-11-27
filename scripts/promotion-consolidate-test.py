@@ -69,7 +69,23 @@ class Pass(unittest.TestCase):
         self.state_path = self.root / "state.json"
         self.plan_path = self.root / "plan.json"
         self.plan_path.write_text(PLAN.read_text())
+        self.work = self.root / "work"
+        self.make_integration_clone()
         self.write_state(fixture_state())
+
+    def make_integration_clone(self):
+        remote = self.root / "remote.git"
+        identity = ["-c", "user.name=test", "-c", "user.email=test@example.test"]
+        subprocess.run(["git", "init", "--bare", "--quiet", "-b", "main", str(remote)], check=True)  # nosec B603 B607
+        self.work.mkdir()
+        for name in (".gitleaks.toml", "hk.pkl"):
+            shutil.copy(ROOT / name, self.work / name)
+        git = ["git", "-C", str(self.work)]
+        subprocess.run([*git, "init", "--quiet", "-b", "main"], check=True)  # nosec B603 B607
+        subprocess.run([*git, "add", "."], check=True)  # nosec B603 B607
+        subprocess.run([*git, *identity, "commit", "--quiet", "-m", "fixture"], check=True)  # nosec B603 B607
+        subprocess.run([*git, "remote", "add", "origin", str(remote)], check=True)  # nosec B603 B607
+        subprocess.run([*git, "push", "--quiet", "origin", "main"], check=True)  # nosec B603 B607
 
     def write_state(self, state):
         self.state_path.write_text(json.dumps(state, sort_keys=True))
@@ -92,7 +108,7 @@ class Pass(unittest.TestCase):
             env["FAKE_GH_FAIL_AFTER"] = str(fail_after)
         command = [
             sys.executable, str(PASS), "--plan", str(plan or self.plan_path),
-            "--repo", "ranokay/factory", "--date", "2026-11-27", "--no-fetch", *extra,
+            "--repo", "ranokay/factory", "--date", "2026-11-27", "--root", str(self.work), *extra,
         ]
         if run_id is not None:
             command += ["--run-id", run_id]
@@ -253,7 +269,7 @@ class Refused(Pass):
     def test_a_check_that_is_only_local_is_refused(self):
         plan = json.loads(PLAN.read_text())
         plan["covered"] = [dict(FIXTURE_COVERED, check={"file": "scripts/promotion-consolidate.py", "name": "run"})]
-        self.assertRefused(plan, "but not in 'origin/main'")
+        self.assertRefused(plan, "from origin/main")
 
     def test_a_cluster_that_is_not_an_object_is_refused(self):
         plan = json.loads(PLAN.read_text())
@@ -417,7 +433,7 @@ class MissingField(Pass):
         self.write_plan({"clusters": [], "covered": []})
         env = dict(os.environ, PATH=f"{stub_bin}{os.pathsep}{os.environ['PATH']}")
         result = subprocess.run(  # nosec B603 -- the test runs the pass with an argument list
-            [sys.executable, str(PASS), "--plan", str(self.plan_path), "--repo", "ranokay/factory", "--dry-run", "--no-fetch"],
+            [sys.executable, str(PASS), "--plan", str(self.plan_path), "--repo", "ranokay/factory", "--dry-run", "--root", str(self.work)],
             capture_output=True, text=True, check=False, env=env, timeout=120,
         )
         self.assertEqual(result.returncode, 1)
@@ -445,6 +461,18 @@ class HandoffOrder(Pass):
             self.assertEqual(resumed.returncode, 0, f"stop {stop}: {resumed.stderr}")
             resumed_state = json.dumps(without_summaries(self.read_state()), sort_keys=True)
             self.assertEqual(resumed_state, clean, f"stop {stop} left a different state")
+
+
+class FetchAndGate(Pass):
+    def test_a_run_whose_root_is_not_a_checkout_is_refused_before_any_write(self):
+        result = self.run_pass("--root", str(self.root / "not-a-checkout"))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot fetch origin main", result.stderr)
+        self.assertEqual(self.writes(), [])
+
+    def test_a_gate_section_is_bounded_at_the_next_heading(self):
+        body = "### Correction\n\nc\n\n### Gate check\n\ng\n\n### Merged occurrences\n\n- junk"
+        self.assertNotIn("junk", module.document({"title": "t", "body": body}))
 
 
 class OccurrenceParsing(unittest.TestCase):

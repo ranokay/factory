@@ -30,7 +30,7 @@ INTEGRATION_REF = "origin/main"
 PROPOSAL_THRESHOLD = 0.25
 MAX_PROPOSAL = 6
 RUN_ID_RE = re.compile(r"[A-Za-z0-9.:-]{1,64}")
-GATE_RE = re.compile(r"### Gate check\s*\n(.*)", re.S)
+GATE_RE = re.compile(r"### Gate check\s*\n(.*?)(?=\n###|\Z)", re.S)
 TRACKING_MARKER = "<!-- factory:promotion-consolidate-tracking -->"
 PUSHBACK_MARKER = "<!-- factory:promotion-pushback -->"
 MERGED_PREFIX = "<!-- factory:promotion-merged into="
@@ -336,8 +336,7 @@ def fetch_integration(root):
 
 
 def run(args):
-    if not args.no_fetch:
-        fetch_integration(args.root)
+    fetch_integration(args.root)
     plan = load_plan(args.plan)
     promotions = load_promotions(args.repo)
     problems = validate(plan, promotions, args.repo, args.root)
@@ -606,7 +605,6 @@ def main(argv=None):
     parser.add_argument("--run-id", help="this run's id; a resumed run passes the same id (default: a UTC timestamp)")
     parser.add_argument("--top", type=int, default=TOP_DEFAULT, help="survivors sent to pushback per run")
     parser.add_argument("--dry-run", action="store_true", help="print what a run would do and write nothing to GitHub")
-    parser.add_argument("--no-fetch", action="store_true", help="check covered files against the local origin/main without fetching")
     args = parser.parse_args(argv)
     try:
         return run(args)
