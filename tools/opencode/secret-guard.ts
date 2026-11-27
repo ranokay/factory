@@ -38,36 +38,40 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
     const child = spawn(runner, ["secret_guard", "opencode"], { stdio: ["pipe", "pipe", "ignore"] })
     let stdout = ""
     let settled = false
+    let exited = false
+    let exitCode: number | null = null
     const fail = () => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       reject(failedClosed())
     }
-    const finish = (code: number | null) => {
+    const finish = (code: number | null, final = false) => {
       if (settled) return
       if (code !== 0) {
         fail()
         return
       }
+      let result: Partial<GuardResult>
       try {
-        const result = JSON.parse(stdout) as Partial<GuardResult>
-        if (
-          typeof result !== "object" ||
-          result === null ||
-          typeof result.block !== "boolean" ||
-          (result.block && typeof result.message !== "string") ||
-          (!result.block && result.warning !== undefined && typeof result.warning !== "string")
-        ) {
-          fail()
-          return
-        }
-        settled = true
-        clearTimeout(timer)
-        resolve(result as GuardResult)
+        result = JSON.parse(stdout) as Partial<GuardResult>
       } catch {
-        fail()
+        if (final) fail()
+        return
       }
+      if (
+        typeof result !== "object" ||
+        result === null ||
+        typeof result.block !== "boolean" ||
+        (result.block && typeof result.message !== "string") ||
+        (!result.block && result.warning !== undefined && typeof result.warning !== "string")
+      ) {
+        fail()
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      resolve(result as GuardResult)
     }
     const timer = setTimeout(() => {
       child.kill("SIGKILL")
@@ -76,10 +80,15 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
     child.stdout.setEncoding("utf8")
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk
+      if (exited) finish(exitCode)
     })
     child.once("error", fail)
-    child.once("exit", (code) => setImmediate(() => finish(code)))
-    child.once("close", finish)
+    child.once("exit", (code) => {
+      exited = true
+      exitCode = code
+      setImmediate(() => finish(code))
+    })
+    child.once("close", (code) => finish(code, true))
     child.stdin.once("error", fail)
     child.stdin.end(JSON.stringify({ tool, input }))
   })

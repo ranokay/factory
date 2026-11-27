@@ -11,7 +11,12 @@ function stopGrandchild(home: string): void {
   const pidFile = join(home, "guard-grandchild.pid")
   if (!existsSync(pidFile)) return
   const pid = Number(readFileSync(pidFile, "utf8"))
-  if (Number.isInteger(pid) && pid > 0) process.kill(pid, "SIGKILL")
+  if (!Number.isInteger(pid) || pid <= 0) return
+  try {
+    process.kill(pid, "SIGKILL")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+  }
 }
 
 async function withGuard(
@@ -111,14 +116,24 @@ test("fails closed when the guard hangs with an inherited stdout pipe", async ()
   })
 })
 
-test("resolves a valid result when a grandchild keeps stdout open", async () => {
+test("resolves complete output when a grandchild keeps stdout open", async () => {
   await withGuard(
-    "printf '%s\\n' '{\"block\":false}'\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nexit 0\n",
-    async (hook, home) => {
+    "printf '%s\\n' '{\"block\":false,\"warning\":\"grandchild-close\"}'\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nexit 0\n",
+    async (_hook, home) => {
+      let toast: Record<string, unknown> | undefined
+      const plugin = await FactorySecretGuardPlugin({
+        ui: {
+          toast: {
+            show: (options) => {
+              toast = options
+            },
+          },
+        },
+      })
       let timer: ReturnType<typeof setTimeout> | undefined
       try {
         const outcome = await Promise.race([
-          hook({ tool: "read" }, { args: { path: "file.txt" } }).then(
+          plugin["tool.execute.before"]({ tool: "read" }, { args: { path: "file.txt" } }).then(
             () => "resolved",
             () => "rejected",
           ),
@@ -127,10 +142,31 @@ test("resolves a valid result when a grandchild keeps stdout open", async () => 
           }),
         ])
         assert.equal(outcome, "resolved")
+        assert.equal(toast?.message, "grandchild-close")
       } finally {
         if (timer) clearTimeout(timer)
         stopGrandchild(home)
       }
+    },
+  )
+})
+
+test("waits for stdout chunks that arrive after child exit", async () => {
+  await withGuard(
+    "printf '{\"block\":false,'\n( sleep 0.1; printf '\"warning\":\"delayed\"}' ) &\nexit 0\n",
+    async () => {
+      let toast: Record<string, unknown> | undefined
+      const plugin = await FactorySecretGuardPlugin({
+        ui: {
+          toast: {
+            show: (options) => {
+              toast = options
+            },
+          },
+        },
+      })
+      await plugin["tool.execute.before"]({ tool: "read" }, { args: { path: "file.txt" } })
+      assert.equal(toast?.message, "delayed")
     },
   )
 })
