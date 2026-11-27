@@ -77,8 +77,10 @@ def reviewer_state(name, head, head_date, reviews, comments, inline_comments, ti
         if not covers(item, anchor, commit_head):
             continue
         status = activity_status(name, item)
-        if status == "review skipped" and commit_head is None:
-            continue
+        if commit_head is None and status not in ("activity", "placeholder"):
+            created = item.get("created_at") or item.get("submitted_at") or ""
+            if status == "review skipped" or not created or created < anchor:
+                continue
         if status not in ("activity", "placeholder"):
             return {"name": name, "terminal": True, "reason": status}
     signals = []

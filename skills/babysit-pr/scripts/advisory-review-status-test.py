@@ -298,6 +298,12 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
 
+    def test_rate_limit_edited_after_the_request_stays_pending(self):
+        edited = dict(CODERABBIT_RATE_LIMIT, updated_at="2026-11-24T03:31:00Z")
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, edited]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("coderabbit: pending", result.stdout)
+
     def test_a_skip_before_the_request_stays_pending(self):
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, CODERABBIT_SKIP]))
         self.assertEqual(result.returncode, 1, result.stderr)
@@ -341,7 +347,11 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertIn("coderabbit: terminal (comment edit)", result.stdout)
 
     def test_a_same_second_reply_is_terminal(self):
-        same_second = dict(CODERABBIT_RATE_LIMIT, updated_at=CODERABBIT_REQUEST["created_at"])
+        same_second = dict(
+            CODERABBIT_RATE_LIMIT,
+            created_at=CODERABBIT_REQUEST["created_at"],
+            updated_at=CODERABBIT_REQUEST["created_at"],
+        )
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, same_second]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("coderabbit: terminal (rate limit)", result.stdout)
@@ -374,6 +384,12 @@ class AdvisoryReviewStatus(unittest.TestCase):
         result = self.invoke(state(timeline=[COPILOT_REQUEST], reviews=[COPILOT_QUOTA]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("copilot: terminal (quota)", result.stdout)
+
+    def test_copilot_quota_edited_after_the_request_stays_pending(self):
+        edited = dict(COPILOT_QUOTA, submitted_at="2026-11-24T03:27:00Z", updated_at="2026-11-24T03:31:00Z")
+        result = self.invoke(state(timeline=[COPILOT_REQUEST], reviews=[edited]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("copilot: pending", result.stdout)
 
     def test_unrequested_reviewer_is_terminal(self):
         result = self.invoke(state())
