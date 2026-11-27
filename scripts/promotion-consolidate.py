@@ -258,11 +258,18 @@ def validate(plan, promotions, repo, root):
         if survivor in promotions and promotions[survivor]["state"] != "OPEN":
             problems.append(f"survivor #{survivor} of {where} must be open")
 
-    touched = {m for cluster in plan["clusters"] if isinstance(cluster, dict) for m in cluster.get("members", [])}
-    touched |= {entry.get("issue") for entry in plan["covered"] if isinstance(entry, dict)}
+    touched = set()
+    for cluster in plan["clusters"]:
+        if isinstance(cluster, dict) and isinstance(cluster.get("members"), list):
+            touched.update(m for m in cluster["members"] if isinstance(m, int))
+    touched.update(entry["issue"] for entry in plan["covered"] if isinstance(entry, dict) and isinstance(entry.get("issue"), int))
     for number, item in promotions.items():
-        if (item["state"] == "OPEN" or number in touched) and not CORRECTION_RE.search(item["body"]):
+        if item["state"] != "OPEN" and number not in touched:
+            continue
+        if not CORRECTION_RE.search(item["body"]):
             problems.append(f"#{number} has no ### Correction section")
+        if not GATE_RE.search(item["body"]):
+            problems.append(f"#{number} has no ### Gate check section")
 
     for index, entry in enumerate(plan["covered"]):
         where = f"covered entry {index + 1}"
@@ -388,7 +395,8 @@ def run(args):
             check = f"{entry['check']['file']}#{entry['check']['name']}"
             marker = f"{COVERED_PREFIX}{check} -->"
             if not has_marker(args.repo, number, marker):
-                link = f"https://github.com/{args.repo}/blob/main/{entry['check']['file']}"
+                branch = INTEGRATION_REF.removeprefix("origin/")
+                link = f"https://github.com/{args.repo}/blob/{branch}/{entry['check']['file']}"
                 path = runner.file(
                     f"{marker}\nCovered by `{entry['check']['name']}` in {link}: "
                     f"{entry['reason']} Closing; the check is verified on {INTEGRATION_REF}."
@@ -431,11 +439,6 @@ def run(args):
             handed_off = any(PUSHBACK_MARKER in comment["body"] for comment in comments)
             if PUSHBACK_LABEL in labels and not handed_off:
                 continue
-            if PUSHBACK_LABEL not in labels:
-                runner.write(
-                    f"add {PUSHBACK_LABEL} to #{number}",
-                    "issue", "edit", str(number), "-R", args.repo, "--add-label", PUSHBACK_LABEL,
-                )
             if not handed_off:
                 path = runner.file(
                     f"{PUSHBACK_MARKER}\nSent to the Pushback Review by the promotion consolidation pass "
@@ -444,6 +447,11 @@ def run(args):
                 runner.write(
                     f"comment on #{number} recording the handoff",
                     "issue", "comment", str(number), "-R", args.repo, "--body-file", path,
+                )
+            if PUSHBACK_LABEL not in labels:
+                runner.write(
+                    f"add {PUSHBACK_LABEL} to #{number}",
+                    "issue", "edit", str(number), "-R", args.repo, "--add-label", PUSHBACK_LABEL,
                 )
             sent.append((number, score, promotions[number]["title"]))
 
@@ -597,7 +605,7 @@ def main(argv=None):
     parser.add_argument("--date", help="summary date, YYYY-MM-DD (default: today, UTC)")
     parser.add_argument("--run-id", help="this run's id; a resumed run passes the same id (default: a UTC timestamp)")
     parser.add_argument("--top", type=int, default=TOP_DEFAULT, help="survivors sent to pushback per run")
-    parser.add_argument("--dry-run", action="store_true", help="print what a run would do and write nothing")
+    parser.add_argument("--dry-run", action="store_true", help="print what a run would do and write nothing to GitHub")
     parser.add_argument("--no-fetch", action="store_true", help="check covered files against the local origin/main without fetching")
     args = parser.parse_args(argv)
     try:

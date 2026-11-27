@@ -425,6 +425,28 @@ class MissingField(Pass):
         self.assertNotIn("Traceback", result.stderr)
 
 
+class HandoffOrder(Pass):
+    def test_the_handoff_marker_is_written_before_the_label(self):
+        result = self.run_pass(run_id="R1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        writes = self.writes()
+        marker = next(i for i, a in enumerate(writes) if a[:3] == ["issue", "comment", "79"])
+        label = next(i for i, a in enumerate(writes) if a[:3] == ["issue", "edit", "79"] and "--add-label" in a)
+        self.assertLess(marker, label)
+
+    def test_a_stop_at_any_point_is_finished_by_a_rerun(self):
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
+        clean = json.dumps(without_summaries(self.read_state()), sort_keys=True)
+        for stop in range(1, 25):
+            self.write_state(fixture_state())
+            self.log.unlink(missing_ok=True)
+            self.run_pass(fail_after=stop, run_id="R1")
+            resumed = self.run_pass(run_id="R1")
+            self.assertEqual(resumed.returncode, 0, f"stop {stop}: {resumed.stderr}")
+            resumed_state = json.dumps(without_summaries(self.read_state()), sort_keys=True)
+            self.assertEqual(resumed_state, clean, f"stop {stop} left a different state")
+
+
 class OccurrenceParsing(unittest.TestCase):
     def test_a_merged_section_is_not_read_as_a_correction_when_no_gate_check_follows(self):
         body = "### Correction\n\nalpha\n\n### Merged occurrences\n\n- junk"
