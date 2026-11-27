@@ -111,7 +111,7 @@ case_named_value() {
 }
 
 case_default_rules() {
-	fake=$(random_alnum 32)
+	fake=$(printf '%s' Qz7Lp2Vx9 Rt4Wk8Mb3 Ns6Hy1Jc5 Fd0Ga)
 	mkdir -p "$test_root/defaults"
 	printf 'apiToken = %s\n' "$fake" >"$test_root/defaults/settings.txt"
 	run_scan "$test_root/defaults"

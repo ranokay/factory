@@ -49,6 +49,9 @@ GC_ERROR_LOG = Path("Library") / "Logs" / "factory-gc-error.log"
 VERIFY_LABEL = "dev.factory.verify-skill-maintenance"
 VERIFY_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance.log"
 VERIFY_ERROR_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance-error.log"
+PROMOTION_LABEL = "dev.factory.promotion-consolidate"
+PROMOTION_LOG = Path("Library") / "Logs" / "factory-promotion-consolidate.log"
+PROMOTION_ERROR_LOG = Path("Library") / "Logs" / "factory-promotion-consolidate-error.log"
 SECRET_GUARD_TIMEOUT = 15
 MIN_CLAUDE_CODE_VERSION = (2, 1, 295)
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
@@ -671,6 +674,37 @@ def verify_skill_maintenance_agent_errors(home: Path) -> list[str]:
     return agent_errors(home, verify_skill_maintenance_agent_path(home), lambda: verify_skill_maintenance_agent_plist(home))
 
 
+def promotion_consolidate_agent_plist(home: Path) -> bytes:
+    return launchd_agent_plist(
+        home,
+        PROMOTION_LABEL,
+        ["run", "promotion:consolidate"],
+        {"Weekday": 2, "Hour": 3, "Minute": 0},
+        PROMOTION_LOG,
+        PROMOTION_ERROR_LOG,
+    )
+
+
+def promotion_consolidate_agent_path(home: Path) -> Path:
+    return launchd_agent_path(home, PROMOTION_LABEL)
+
+
+def install_promotion_consolidate_agent(home: Path) -> bool:
+    return install_agent(
+        home,
+        PROMOTION_LABEL,
+        "promotion-consolidate",
+        promotion_consolidate_agent_path(home),
+        promotion_consolidate_agent_plist(home),
+    )
+
+
+def promotion_consolidate_agent_errors(home: Path) -> list[str]:
+    return agent_errors(
+        home, promotion_consolidate_agent_path(home), lambda: promotion_consolidate_agent_plist(home)
+    )
+
+
 def github_slug(url: str) -> tuple[str, str] | None:
     for pattern in (GITHUB_HTTPS, GITHUB_SSH):
         match = pattern.match(url)
@@ -1058,6 +1092,7 @@ def discovery(home: Path) -> int:
     errors.extend(secret_agent_errors(home))
     errors.extend(gc_agent_errors(home))
     errors.extend(verify_skill_maintenance_agent_errors(home))
+    errors.extend(promotion_consolidate_agent_errors(home))
     errors.extend(secret_guard_errors(home))
     errors.extend(github_push_errors())
     reference_check = mcp_sync(home, "--check-references")
@@ -1330,6 +1365,8 @@ def main(argv: list[str] | None = None) -> int:
     if not install_gc_agent(home):
         return 1
     if not install_verify_skill_maintenance_agent(home):
+        return 1
+    if not install_promotion_consolidate_agent(home):
         return 1
     if not setup_github_ssh(home):
         return 1

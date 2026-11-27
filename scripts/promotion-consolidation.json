@@ -1,0 +1,21 @@
+{
+  "clusters": [
+    {
+      "members": [79, 80, 163, 206],
+      "reason": "All four decide which tools and runtimes a mise.toml or Profile hk step may declare."
+    },
+    {
+      "members": [104, 105],
+      "reason": "Both keep a gh pr merge --admin path limited to Sync PRs that have passed Gates and AI Review."
+    },
+    {
+      "members": [64, 109],
+      "reason": "Both require coverage of changed Factory script lines in the Gate."
+    },
+    {
+      "members": [89, 211],
+      "reason": "Both stop a turn from ending while a CI wait or a code-review Reviewer is still running."
+    }
+  ],
+  "covered": []
+}

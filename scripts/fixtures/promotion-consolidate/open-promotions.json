@@ -1,0 +1,673 @@
+{
+  "issues": [
+    {
+      "number": 38,
+      "title": "Gate skipped tests and PR-body follow-up notes",
+      "body": "### Correction\n\nTwo deferred-work paths have no Gate: a skipped test marker (it.skip, xit, XCTSkip, pytest.mark.skip, t.Skip) passes every check, and a follow-up note can be written into a PR body instead of filed as an issue. The comment-ban step catches only TODO/FIXME/HACK/XXX in source comments.\n\n### Gate check\n\nA universal-Profile hk step beside comment-ban that fails on skip markers in test files, plus a PR workflow assertion that fails when a PR body carries a follow-up note instead of an issue link. `mise run check` runs the hk step in every consuming repo.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-19T23:29:27Z",
+      "labels": [
+        {
+          "name": "needs-triage"
+        },
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 51,
+      "title": "Gitleaks Gate misses Context7 API keys",
+      "body": "### Correction\n\nThe default gitleaks rules do not detect a Context7 API key, so a leaked key passes the secret Gate in every project. Add a custom rule for Context7 keys to the universal profile's gitleaks config (extending the default rules).\n\n### Gate check\n\ngitleaks custom rule for Context7 keys in the universal profile, with a fake-key fixture test in hk that proves the rule fires\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-20T09:44:52Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 52,
+      "title": "LaunchAgents must not run /usr/bin/python3",
+      "body": "### Correction\n\n/usr/bin/python3 on macOS is the Command Line Tools shim and opens an install dialog on a clean Mac. LaunchAgents and bootstrap-installed programs must use an absolute interpreter resolved at bootstrap or /bin/sh.\n\n### Gate check\n\nhk step that fails when a tracked script or plist template references /usr/bin/python\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-20T09:44:53Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 53,
+      "title": "mcp-sync removes only servers the registry retires",
+      "body": "### Correction\n\nA renderer that drops servers absent from the registry silently removed a live MCP server (cua-driver) classified as dead. mcp-sync must keep servers it does not manage and delete only those listed under the registry's retired list.\n\n### Gate check\n\nmcp-sync hk test: a rendered config keeps a server absent from the registry unless the registry lists it as retired\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-20T09:44:55Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 57,
+      "title": "canonical-clones: report and move must share one eligibility decision",
+      "body": "### Correction\n\nThe canonical-clones report marked a clone 'move: True' while 'move' refused it for linked worktrees, and a linked worktree was inventoried as a duplicate clone. Eligibility (linked worktrees, worktree-vs-clone) must be decided once in inventory, so the read-only report and the action path cannot disagree.\n\n### Gate check\n\nhk step canonical-clones: a fixture test runs 'report --json' then 'move' on the same fixture (a main clone with a linked worktree, a linked worktree in the source root, and a plain clone) and asserts each repository's reported 'move' flag equals whether 'move' actually moved it, and that no linked worktree appears as a duplicate.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-20T16:30:15Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 63,
+      "title": "bootstrap push check must not depend on local branch history",
+      "body": "### Correction\n\nbootstrap --check's HTTPS push dry-run pushed HEAD to the checkout's current branch, so it failed as non-fast-forward whenever the checkout was behind or diverged from origin, or on a detached HEAD. The dry-run must target a ref that history cannot reject, so it tests only authentication and transport.\n\n### Gate check\n\nbootstrap-test.sh case: bootstrap --check passes from a Factory clone that is behind origin and from a detached HEAD, with a fixture remote that rejects non-fast-forward pushes.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-21T02:05:42Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 64,
+      "title": "Changed script behaviour needs line coverage in the Gate",
+      "body": "### Correction\n\ncanonical-clones.py gained HTTPS push configuration for moved and canonical clones with no test exercising it.\n\n### Gate check\n\nhk step running coverage.py over the scripts fixture tests plus diff-cover against the merge base, failing when changed lines in scripts/*.py are uncovered.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-21T02:05:43Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 65,
+      "title": "Reference checks must report every unreadable item",
+      "body": "### Correction\n\nmcp-sync --check-references stopped at the first unreadable op:// reference, so bootstrap --check named only one of the items ranokay still had to move into the factory vault.\n\n### Gate check\n\nmcp-sync-test.sh case: a registry with two unreadable references makes --check-references fail and name both items.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-21T02:05:45Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 67,
+      "title": "op:// references must be valid secret-reference syntax",
+      "body": "### Correction\n\nThe service-account token reference used the item title 'Service Account Auth Token: Factory' inside op://, and op read rejects ':' in a secret reference. Fixture op shims accepted it, so the bug surfaced only on the live bootstrap after merge.\n\n### Gate check\n\nmcp-sync-test.sh / bootstrap-test.sh assertion: every op:// reference in the repo and registry matches op://<vault>/<item>/<field> with no ':' in any segment; and the fixture op shim rejects references that real op read would reject.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-21T02:25:43Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 72,
+      "title": "code-review receipts must name each axis's reviewed base, head and model",
+      "body": "### Correction\n\nA Worker reported a code-review receipt without per-axis reviewed base/head SHAs or reviewer models, and its Spec reviewer did not verify one acceptance condition (#14 legacy-rule mapping).\n\n### Gate check\n\nThe evidence script's receipt step rejects a Run receipt whose code-review section lacks, for both Standards and Spec, the reviewed base SHA, head SHA, reviewer provider/model, and a disposition for every finding; covered by an hk step test with a missing-field fixture.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-21T07:06:27Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 79,
+      "title": "Reject a new language runtime added to the Factory mise.toml for tests",
+      "body": "### Correction\n\nA Worker added ruby to mise.toml [tools] to write a 44-line workflow test, while every Factory test runs on Python through uv. Tests must use the repo's existing test runtime.\n\n### Gate check\n\nhk step that fails when the Factory mise.toml [tools] declares a language runtime (ruby, node, go, java, ...) outside an allowlist kept beside the step\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-21T22:07:31Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 80,
+      "title": "Reject mise tools that duplicate a profile's linters",
+      "body": "### Correction\n\nA Worker declared actionlint 1.7.12 and ran it on one workflow, although the universal profile's hk already runs jactionlint and zizmor on every workflow.\n\n### Gate check\n\nhk step that fails when mise.toml [tools] declares a tool whose job an included profile's hk step already covers (actionlint vs jactionlint), via a small mapping beside the step\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-21T22:07:32Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 87,
+      "title": "Workers defer already-true, checkable workflow invariants to issues instead of testing them",
+      "body": "### Correction\n\nWhile mapping the retired pr-agent policy test onto AI Review (#16), the Worker filed #85 (step failure fails the job) and #86 (least-privilege permissions) as deferred work although both properties already hold in ai-review.yml and are cheap to assert. A policy property the workflow already has gets a check now; only missing guarantees or behaviour changes become issues.\n\n### Gate check\n\nNo check possible: Whether an intent is already true and checkable is a review judgement over a mapping table; no lint or hk step can tell a deferred-but-true property from a real gap.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T00:43:56Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 89,
+      "title": "PR fork threads must not end a turn while their own CI is pending",
+      "body": "### Correction\n\nTwice in the ranokay/factory full-send run, a Codex PR fork ended its turn while waiting on hosted CI: #15 (PR #81, AI Review rerun) and #16 (factory#88, after gh event listen returned HTTP 403). Nothing woke either fork, so each sat idle until the Dispatcher resumed it by hand. Correction sent: wait in the same turn with gh run watch <id> --exit-status.\n\n### Gate check\n\nThe supervise skill test suite asserts that the PR-fork wait instructions in skills/supervise use gh run watch <id> --exit-status as the fallback when gh event listen is unavailable or refused, and that a turn ending with 'checks pending' is rejected by the stopped-notice validator (a notice whose unblock step is only 'resume after checks finish' fails the check).\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T01:03:07Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 90,
+      "title": "repo-settings: prune GitHub default labels by the API's default flag",
+      "body": "### Correction\n\nThe reconciler hard-coded GitHub's default label names and missed the default label 'accessibility' on ranokay/factory (#17).\n\n### Gate check\n\nhk step repo-settings: a fixture label with default: true outside the canonical set must be reported and deleted\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T01:55:18Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 91,
+      "title": "workflow-invariant: AI Review author guard must match repo-settings.json factory_authors",
+      "body": "### Correction\n\nThe Factory author list was written twice, in repo-settings.json and in the AI Review workflow guards, with nothing keeping them in sync (#17).\n\n### Gate check\n\nhk step workflow-invariant: fails when the author list in an AI Review workflow guard differs from factory_authors in repo-settings.json\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T01:55:19Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 92,
+      "title": "repo-settings: never require a status check no producer reports yet",
+      "body": "### Correction\n\nThe reconciler made 'Codacy Static Code Analysis' a required check in the same apply that enrolls Codacy, with no proof that Codacy posts that check, which can block every PR (#17).\n\n### Gate check\n\nhk step repo-settings: a fixture repo with no observed Codacy check run must not get the Codacy context in its required checks\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T01:55:21Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 95,
+      "title": "Required check contexts must survive the skipped path of a reusable-workflow caller",
+      "body": "### Correction\n\nThe ruleset requires 'review / review', but the AI Review caller job carries the skip guard itself; when a caller job that uses a reusable workflow is skipped, GitHub reports only the caller's check name, so the required context never appears and Outside Contributor PRs can never merge (#17).\n\n### Gate check\n\nhk step workflow-invariant: fails when a job whose 'uses:' context is a required check in repo-settings.json has a job-level 'if:' guard on the caller\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T02:33:42Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 99,
+      "title": "Gate: prove Renovate preset behaviour with Renovate's own extraction",
+      "body": "### Correction\n\nPlan for #18 grouped pin/digest updates with auto-merging minor/patch (Renovate only auto-merges a group branch when every upgrade auto-merges) and added a regex manager for workflow uses: refs that the built-in github-actions manager already extracts (double extraction of one line). Both mistakes are invisible to the config validator.\n\n### Gate check\n\nhk step renovate-managers-test runs renovate --platform=local --dry-run=extract (and lookup where offline) on a fixture with every Factory pin shape and asserts exactly one dep per pin line, the grouped branch name, automerge true on the non-major group and the protected label with automerge false on a major.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T03:41:40Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 100,
+      "title": "Tests must drive the tool, not re-implement its engine",
+      "body": "### Correction\n\nPlan for #18 tested Renovate custom-manager regexes by compiling them with Python re, while Renovate evaluates them with JavaScript/RE2 semantics; such a test can pass while Renovate extracts nothing.\n\n### Gate check\n\nNo check possible: Whether a test re-implements a third-party engine is a test-design judgement no lint rule or Gate step can detect reliably.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T03:41:41Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 101,
+      "title": "Gate: fail when Renovate runs without RE2",
+      "body": "### Correction\n\nFor #18 the mise-installed renovate@44.257.9 could not load its native re2 module, so the renovate-config and renovate-managers-test steps silently fell back to JavaScript RegExp while hosted Renovate evaluates custom-manager regexes with RE2. The Gate passed in a degraded mode that does not match production.\n\n### Gate check\n\nrenovate-managers-test (and renovate-config-check.sh) fail when Renovate's log contains 'RE2 not usable', so the Gate only passes when regexes are evaluated by RE2.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T04:44:29Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 104,
+      "title": "Reject gh pr merge --admin outside Sync PRs",
+      "body": "### Correction\n\nADR 0003 Sync PRs on Personal Forks now merge through a ruleset admin bypass in pull_request mode, with gh pr merge <n> --merge --admin (ranokay approved this on #19). --admin is reserved for Sync PRs: an agent must never use it to bypass the ruleset on an ordinary PR, on a Personal Project or on ranokay/factory.\n\n### Gate check\n\ntools/command_guard.py rejects any gh pr merge command carrying --admin unless the PR head ref (from gh pr view <n> --json headRefName) matches sync/upstream-* and the base repository has the factory-personal-fork topic. Covered by tools/tests/test_command_guard.py cases: --admin on a sync/upstream-2026-11-22 head of a Personal Fork passes; --admin on a feature branch fails; --admin on a Personal Project fails; plain gh pr merge without --admin is unaffected.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T07:34:38Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 105,
+      "title": "Sync PR --admin merge must not skip Gates or AI Review",
+      "body": "### Correction\n\nOn #19 the Worker documented the Personal Fork ruleset bypass (gh pr merge --merge --admin) as also excusing an enforced bot check. --admin bypasses every ruleset rule, including required status checks, so a Sync PR could merge with failing Gates or AI Review, contradicting ADR 0003. The bypass may only stand in for the signature and unattributed-author rules that unsigned upstream history trips.\n\n### Gate check\n\nsync-upstream merge-command --pr <n> (skills/sync-upstream/scripts/sync-upstream) exits nonzero unless verdicts pass and every check run and status on the PR head concluded success (none pending, failed or cancelled; skipped allowed only for advisory bots), and prints the head-pinned --admin merge command. babysit-pr and merge-pr execute only that printed command, and tools/command_guard.py (with #104) rejects a hand-written gh pr merge --admin. Fixture tests in sync-upstream-test.py cover a failing, a pending and an all-green head.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T07:57:33Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 107,
+      "title": "Run Codacy Semgrep rules in the local check:codacy Gate",
+      "body": "### Correction\n\nOn PR #106 (#19) the Codacy cloud check failed on Semgrep \"subprocess function without a static string\" findings in a test fixture, which the local mise run check had passed. The PR thread then reworked the fixture around subprocess.Popen (still flagged) and escalated a Blocker asking ranokay to dismiss the findings by hand, although the repo already silences that rule with \"# nosemgrep -- <reason>\" (scripts/renovate-managers-test.py:77).\n\n### Gate check\n\nmise run check:codacy runs the same Semgrep/Opengrep rule set as Codacy Cloud on changed Python files, so a subprocess call without \"# nosemgrep -- <reason>\" fails locally before push; covered by a scripts/codacy-gate-test.py case where a fixture with an unsuppressed subprocess.run fails and one carrying \"# nosemgrep -- reason\" passes.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T13:43:27Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 108,
+      "title": "Make Codacy PR finding dispositions recoverable when CLI returns 404",
+      "body": "### Correction\n\nPR #106: authenticated Codacy CLI could read findings but both PR ignore-issue and reanalysis mutations returned HTTP 404; repository issue mutation also returned 404. Provide a working access path or documented, narrowly scoped in-repo suppressions for scanner findings.\n\n### Gate check\n\nExercise the supported PR finding disposition and reanalysis path in a controlled fixture; verify the documented tool-specific inline suppression is honored by the scanner.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T13:43:39Z",
+      "labels": [
+        {
+          "name": "needs-triage"
+        },
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 109,
+      "title": "Require diff coverage for Factory skill and script tests",
+      "body": "### Correction\n\nOn PR #106 (#19) AI Review found sync-upstream branches with no test: block-style TOML arrays in an upstream mise.toml, malformed task_config types, and comment-bearing include lines. The Worker and both code-review Reviewers passed them.\n\n### Gate check\n\nAn hk step in mise run check runs the Python script tests (scripts/*-test.py, skills/*/scripts/*-test.py) under coverage.py with branch coverage and fails when a changed line or branch in the script under test is not executed (diff-cover against the merge base).\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T13:48:47Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 110,
+      "title": "Reject unused module-level names in Factory Python",
+      "body": "### Correction\n\nOn PR #106 (#19) skills/sync-upstream/scripts/sync-upstream-test.py kept an unused module-level ROOT constant through two review rounds until AI Review flagged it.\n\n### Gate check\n\nAn hk step runs vulture (min confidence 80) over scripts/, tools/ and skills/*/scripts/ and fails on any unused module-level name, function or import; a fixture test proves an unused global fails and a used one passes.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T13:48:49Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 111,
+      "title": "Generated-shape test for install-files config merges",
+      "body": "### Correction\n\nOn PR #106 (#19) install-files edited upstream mise.toml by section text and produced duplicated or lossy TOML for valid inline, dotted and quoted forms; three review rounds passed it before the Spec Reviewer reproduced it.\n\n### Gate check\n\nA property test in skills/sync-upstream/scripts/sync-upstream-test.py (hk step sync-upstream-test) generates mise.toml variants (standard, inline and dotted tables, quoted keys, comments, trailing blank lines, flow and block arrays) and asserts install-files either refuses with a named error and writes nothing, or produces a file whose tomllib parse equals the original plus exactly the Factory entries, with every original byte outside the insertion kept.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T13:58:15Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 113,
+      "title": "Require explicit encoding on Python text I/O",
+      "body": "### Correction\n\nOn PR #106 (#19) sync-upstream read and wrote text files with the platform locale encoding, so a non-UTF-8 locale or file produced an uncaught UnicodeDecodeError.\n\n### Gate check\n\nEnable ruff rule PLW1514 (unspecified-encoding) for scripts/, tools/ and skills/*/scripts/ in the hk ruff step, so open()/read_text()/write_text() without encoding= fails mise run check.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T14:07:26Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 114,
+      "title": "Workflow path matchers must accept .yml and .yaml",
+      "body": "### Correction\n\nOn PR #106 (#19) the Upstream Fork Factory-file check matched only .github/workflows/*.yml, so a .yaml workflow calling ranokay/factory would pass unnoticed.\n\n### Gate check\n\nAn hk step greps scripts/, tools/ and skills/*/scripts/ for a .github/workflows matcher naming .yml without .yaml (or vice versa) and fails, with a fixture test proving a one-extension matcher fails and a pattern covering both passes.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T14:07:27Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 116,
+      "title": "Test repo-settings across every fork-kind transition",
+      "body": "### Correction\n\nOn PR #106 (#19) repo-settings.py created a Personal-Fork-only review ruleset with an admin bypass but had no path to remove it when the repo stops being a Personal Fork, and the migration test asserted only the call sequence, so it passed without proving the bypass moved.\n\n### Gate check\n\nscripts/repo-settings-test.py gains a table-driven test over every from/to pair of {Personal Project, Personal Fork, Upstream Fork}: apply the first kind, switch topics, apply the second, then assert the final rulesets exactly (names, rules, bypass_actors) and that a further --apply reports no changes. It runs in the existing repo-settings-test hk step.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T19:04:09Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 117,
+      "title": "Ruleset names come only from repo-settings.json",
+      "body": "### Correction\n\nOn PR #106 (#19) the new review ruleset name was a string literal in repo-settings.py while the default ruleset name came from repo-settings.json.\n\n### Gate check\n\nrepo-settings-test.py asserts that repo-settings.py contains no literal equal to any *_name value in repo-settings.json (read both files and compare), so a hard-coded ruleset name fails the repo-settings-test hk step.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-22T19:04:10Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 122,
+      "title": "Parse git path lists only with -z",
+      "body": "### Correction\n\nOn PR #106 (#19) sync-upstream factory-files parsed `git diff --name-status` line output. git quotes non-ASCII paths, so `.github/workflows/café.yaml` calling ranokay/factory passed the Upstream Fork check.\n\n### Gate check\n\nAn hk step greps scripts/, tools/ and skills/*/scripts/ for git invocations that print path lists (diff/log --name-only or --name-status, ls-files, ls-tree --name-only, status --porcelain) without -z and fails, with a fixture test proving one without -z fails and one with -z passes.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-23T05:17:39Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 123,
+      "title": "A model fallback named in the Run brief must not become a Blocker",
+      "body": "### Correction\n\nOn #19 the PR fork stopped with a Blocker because Codex gpt-6.1-terra reviewers were unavailable, though the Run brief named opencode-go/deepseek-v4.1-flash variant max as the fallback for Workers and Reviewers and said a fallback is not a Blocker. Correction sent: run the reviewers on the named fallback and record it in the Run receipt.\n\n### Gate check\n\nblock-issue refuses a Blocker whose only cause is model unavailability (quota, availability, refusal) when the Run's target list has an untried fallback; supervise passes Worker/Reviewer targets as an ordered list the scripts can read, and block-issue-test.sh covers the refusal.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-23T07:55:11Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 136,
+      "title": "comment-ban: reject a suppression directive without a reason",
+      "body": "### Correction\n\nPR #133 (#21) added bare `# nosemgrep` lines with no reason in scripts/verify-skill.py:95 and scripts/fixtures/verify-skill/project/.agents/skills/verify-counter/scripts/verify.py:100,102, against profiles/universal/standards.md line 15 (a tool directive carries its reason). Fix those three when the check lands.\n\n### Gate check\n\nhk comment-ban step: reject `nosemgrep`, `nosec`, `noqa` and `*-disable*` directives that lack a ` -- <reason>` suffix; fixture cases for a bare directive (fail) and a reasoned one (pass).\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-24T03:29:14Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 147,
+      "title": "Gate duplicated skill helpers to stay byte-identical",
+      "body": "### Correction\n\nPR #145 copied the Merge Guard predicate (merge_guard.py) into skills/merge-pr/scripts and skills/babysit-pr/scripts with no check that the copies match, so a fix to one can silently leave the other merge path unguarded.\n\n### Gate check\n\nAn hk step that reads a manifest of helper files intentionally copied between skills and fails when any copy differs byte-for-byte from its canonical source.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-24T05:32:35Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 149,
+      "title": "A Run's PR must close its issue",
+      "body": "### Correction\n\nPR #145 for #22 merged without a closing reference, so #22 stayed open after the merge and had to be closed by hand.\n\n### Gate check\n\nThe pr-text checker (skills/pr) fails a PR body that has no 'Closes #<n>' for the Run's issue, and the merge script refuses a PR whose closingIssuesReferences doesn't include the Run's issue; covered by a fixture test.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-24T06:19:24Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 160,
+      "title": "Evidence attach must refuse when the last code-review head is not the PR head",
+      "body": "### Correction\n\nA PR fork pushed five post-approval commits (d950d55..24bd898 on #159: a module split plus bot-review fixes, +1828/-1474) and sent the done wake without a Standards/Spec code-review of that delta; only tests, local Codacy and bot reviews covered it.\n\n### Gate check\n\nevidence receipt takes the reviewed base and head of the last code-review (both axes), and evidence attach --pr exits non-zero when that head differs from the PR's headRefOid; covered by an hk step test with a stale-head fixture. Relates to #72.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-24T19:21:25Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 163,
+      "title": "Profile hk steps must only use runtimes the Profile declares",
+      "body": "### Correction\n\nThe #24 Worker planned a Python checker inlined into profiles/universal/hk.pkl, but profiles/universal/mise.toml declares node and no python, so consumer projects without Python would fail the step.\n\n### Gate check\n\nAn hk step (or the profile test) that reads every script inlined via read() in profiles/*/hk.pkl, resolves its interpreter (shebang or argv[0]) and fails unless it is POSIX sh or a tool declared in that profile mise.toml.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-24T23:07:13Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 167,
+      "title": "brand-preview must flag concepts illegible on a board",
+      "body": "### Correction\n\nThe #24 fixture concepts drew near-black ink that vanished on the dark preview boards (ring, bars, wordmark, dark favicon), and nothing in the generator noticed.\n\n### Gate check\n\nbrand-preview-test (hk step brand-assets) asserts that a concept whose ink fails the minimum contrast against a board background is flagged on the generated page, and that a concept with a dark treatment is not.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-25T00:15:10Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 168,
+      "title": "Brand fixtures must spell the brand name they claim",
+      "body": "### Correction\n\nThe #24 verification fixture lockup for \"arc\" rendered as \"cırc\", so the evidence showed a broken wordmark.\n\n### Gate check\n\nNo check possible: Whether hand-built letterforms read as the intended word is a visual judgement that no lint can assert.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-25T00:15:12Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 172,
+      "title": "asset-masters: reject a background tile in icon masters",
+      "body": "### Correction\n\nRun for #25: the assets fixture and evidence master put a dark rounded tile behind the mark, against the brand-assets master contract (transparent background, no app tile). Because of it, the menu-bar template silhouette came out as a solid square and nothing caught it.\n\n### Gate check\n\nprofiles/universal/scripts/asset-masters.js (hk step 'assets') rejects an icon master whose first opaque shape covers most of the viewBox (a background tile), with an hk step test fixture for a tiled master.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-25T07:43:12Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 189,
+      "title": "process-receipt: flag a restarted harness service",
+      "body": "### Correction\n\nDuring #54's live proof, Workers ran OpenCode commands under a temp HOME that restarted ranokay's launchd 'opencode serve --service' (real HOME). That interrupted every OpenCode-hosted Worker session in the Run ('Stopped by the provider' three times). The Supervisor told the Worker never to touch the shared service and to probe via a standalone 'opencode serve' it owns.\n\n### Gate check\n\nprocess-receipt baseline records the PIDs of harness services that run under the real HOME (opencode serve --service and similar). process-receipt check fails when one of them is gone or has a new PID, naming the service, so a Worker that restarts a shared harness service gets a blocking finding.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-25T22:52:37Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 200,
+      "title": "AI Review restyle failure paths must keep the routed-findings marker",
+      "body": "### Correction\n\nIn #130 the restyle step caught every failure and warned, but any failure before apply() (find_summary, rewrite_summary, compare) left OCR's freshly rewritten summary without the ocr-routed marker, so the next run carried nothing and the findings were lost.\n\n### Gate check\n\nA failure-injection test in scripts/ocr_restyle_cli_test.py (run by mise run check) that makes each FakeGitHub endpoint and each rewrite step fail in turn and asserts the final sticky summary still carries every snapshotted routed finding in its marker.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-26T08:09:21Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 206,
+      "title": "Reject root mise.toml tools that redeclare an included Profile's pin",
+      "body": "### Correction\n\n#134: root mise.toml pinned trivy again although it includes profiles/universal/mise.toml, so the two pins can drift and the Factory Gate tests a different version than Profiles ship.\n\n### Gate check\n\nscripts/profiles-fixtures.py assertion (Tests group): fail when a mise.toml redeclares a tool already pinned by a file it lists in [settings]/include.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-26T11:57:16Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 207,
+      "title": "Require restore-keys on every actions/cache step",
+      "body": "### Correction\n\n#134: the gates action cached ~/.cache/trivy under a key that only changes with mise.toml, so after the first save the cache never refreshes and every run re-downloads the Trivy DB.\n\n### Gate check\n\nworkflow-invariant assertion (Tests group): every actions/cache step under .github/ declares restore-keys and a key that is not a constant per config hash.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-26T11:57:18Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 210,
+      "title": "Secret guard prefilter must match gitleaks' decoded-content scanning",
+      "body": "### Correction\n\nThe secret guard's keyword prefilter skipped gitleaks for input with no plain-text keyword, but gitleaks 8.30.1 decodes base64/hex/percent-encoded segments (--max-decode-depth default 5) before keyword gating, so a base64-encoded GitHub token was found by gitleaks (exit 1) yet passed the prefilter. Any fast path in front of a scanner must reproduce the scanner's input transformations.\n\n### Gate check\n\ntools/tests/test_secret_guard.py equivalence test: a corpus of base64-, hex- and percent-encoded fixture tokens (built at runtime, no plain keywords) must be blocked through the prefilter path, and the prefilter's skip decision must agree with real gitleaks on every corpus item (run in mise run tools:test).\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-26T19:26:17Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 211,
+      "title": "Worker ends its turn while a code-review Reviewer is still running",
+      "body": "### Correction\n\nOn #135 the Worker twice ended its turn and reported while one code-review Reviewer (and once mise run check) was still running, so the report lacked the two-axis receipt and measurements. The Worker must wait for both Reviewers to finish before reporting.\n\n### Gate check\n\nNo check possible: the Worker's turn ending is a harness event; no repository Gate sees the report. A report validator in the supervise skill could catch a missing axis, but that belongs to a skill change, not a Gate.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-26T19:43:28Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 212,
+      "title": "Secret guard latency must be proven on representative inputs, not toy strings",
+      "body": "### Correction\n\nOn #135 the Worker reported ~57 ms medians using 'Reply with exactly OK.'-style inputs, but any prompt or tool input with a 16+ char path (every Read/Edit/Write call, most real prompts) forces gitleaks and costs ~288 ms. Latency claims need a representative corpus.\n\n### Gate check\n\ntools/tests/test_secret_guard.py asserts the prefilter's skip decision (no gitleaks spawn) for a fixed corpus of representative ordinary inputs: prompts with absolute paths and long identifiers, Read/Edit/Write tool inputs with file paths, Bash commands with paths; runs in mise run tools:test.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-26T19:58:23Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 213,
+      "title": "Live Claude Code proofs must not write to the user's auto-memory",
+      "body": "### Correction\n\nOn #135 a Worker's live proof ran 'claude -p \"ask me before you push, they said so.\"' from the Factory checkout; that session saved a bogus 'Ask before push' feedback memory into ranokay's real ~/.claude/projects/-Users-ranokay-Developer-factory/memory/, which a later Supervisor read as a real instruction. Proof sessions must run from a temp cwd with auto-memory disabled.\n\n### Gate check\n\nThe evidence skill gains a 'claude-proof' wrapper that runs claude -p from a temp directory with auto-memory disabled and --no-session-persistence, plus a test in mise run check asserting the wrapper's environment and cwd; supervise briefs point live Claude proofs at that wrapper.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-26T22:43:48Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "number": 240,
+      "title": "Advisory wait must not count an edit of a pre-request summary as a reviewer's answer",
+      "body": "### Correction\n\nThe #217 fix counted any bot comment edited after the request marker as a 'comment edit' answer. On PR #214 the false 'coderabbit: terminal (summary posted)' at 07:15:54 came from exactly that: CodeRabbit's summary comment from an earlier head had updated_at after the 07:13:19 request (old item_timestamp reads updated_at). The replay fixture for 07:15:54 left every earlier comment with updated_at == created_at, so it never reproduced the recorded failure. A pre-request comment edited after the request is not an answer unless the reviewer's table entry says its edits mark completion; CodeRabbit's answer is its command reply (created after the request) edited to 'Review finished', an inline comment, or a review.\n\n### Gate check\n\nhk step advisory-review-status: the PR #214 07:15:54 fixture includes CodeRabbit's pre-request summary comment with updated_at after the request and a non-placeholder body, and must report coderabbit pending; the final #214 fixture must still report coderabbit terminal via the edited command reply.\n",
+      "state": "OPEN",
+      "createdAt": "2026-11-27T10:22:56Z",
+      "labels": [
+        {
+          "name": "promotion"
+        }
+      ],
+      "comments": []
+    }
+  ]
+}
