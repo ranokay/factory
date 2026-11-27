@@ -607,7 +607,7 @@ for event, mode in (("UserPromptSubmit", "prompt"), ("PreToolUse", "tool")):
 		{
 			"type": "command",
 			"command": f"{runner} secret_guard {mode}",
-			"timeout": 3,
+			"timeout": 15,
 			"onFailure": "block",
 		}
 	]
@@ -708,7 +708,28 @@ case_secret_guard_version() {
 	[ "$code" -ne 0 ] || fail "bootstrap accepted an unreadable Claude Code version"
 	expect_contains "$output" "2.1.295"
 	unset CLAUDE_VERSION
-	printf 'ok: bootstrap requires Claude Code v2.1.295 or later\n'
+	rm "$bin/claude"
+	no_claude_path=$bin
+	mirrors=0
+	for dir in $(printf '%s' "$base_path" | tr ':' ' '); do
+		if [ -e "$dir/claude" ]; then
+			mirrors=$((mirrors + 1))
+			mirror=$case_dir/path-without-claude-$mirrors
+			mkdir -p "$mirror"
+			for entry in "$dir"/*; do
+				[ "${entry##*/}" = claude ] || ln -s "$entry" "$mirror/"
+			done
+			dir=$mirror
+		fi
+		no_claude_path="$no_claude_path:$dir"
+	done
+	PATH=$no_claude_path
+	run_bootstrap
+	PATH="$bin:$base_path"
+	[ "$code" -eq 0 ] || fail "bootstrap failed without Claude Code: $output"
+	expect_contains "$output" "Claude Code not found"
+	grep -q 'secret_guard prompt' "$home/.claude/settings.json" || fail "bootstrap skipped the Claude hooks without Claude Code"
+	printf 'ok: bootstrap requires Claude Code v2.1.295 or later when it is installed\n'
 }
 
 case_repair() {

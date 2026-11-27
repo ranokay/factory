@@ -107,6 +107,7 @@ class SecretGuardTests(unittest.TestCase):
         *,
         env: dict[str, str] | None = None,
         guard: Path = GUARD,
+        cwd: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(guard), mode],
@@ -115,6 +116,7 @@ class SecretGuardTests(unittest.TestCase):
             capture_output=True,
             check=False,
             env=env,
+            cwd=cwd,
         )
 
     def fake_gitleaks(self, directory: Path, script: str, marker: Path | None = None) -> dict[str, str]:
@@ -357,30 +359,40 @@ class SecretGuardTests(unittest.TestCase):
         self.assertNotIn(token, result.stdout + result.stderr)
         self.assertNotIn(payload, result.stdout + result.stderr)
 
-    def test_large_mixed_fixture_blocks_when_gitleaks_misses_it(self):
-        token, payload = long_mixed_fixture()
-        with tempfile.TemporaryDirectory() as bin_dir:
-            env = self.fake_gitleaks(Path(bin_dir), "#!/bin/sh\ncat >/dev/null\nexit 0\n")
-            result = self.invoke("prompt", {"prompt": payload}, env=env)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)
-        self.assertEqual(output["decision"], "block")
-        self.assertIn("context7-key-token", output["reason"])
-        self.assertNotIn(token, result.stdout + result.stderr)
-        self.assertNotIn(payload, result.stdout + result.stderr)
-
-    def test_clean_gitleaks_uses_fallback_at_every_input_size(self):
-        token = "0" * 32
-        prefix = "apiToken = " + token
+    def test_clean_gitleaks_verdict_is_final_at_every_input_size(self):
+        prefix = "apiToken = " + "0" * 32
         with tempfile.TemporaryDirectory() as bin_dir:
             env = self.fake_gitleaks(Path(bin_dir), "#!/bin/sh\n/bin/cat >/dev/null\nexit 0\n")
             for size in (4096, 4097):
                 with self.subTest(size=size):
                     result = self.invoke("prompt", {"prompt": prefix + "x" * (size - len(prefix))}, env=env)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    output = json.loads(result.stdout)
-                    self.assertEqual(output["decision"], "block")
-                    self.assertNotIn(token, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout, "")
+
+    def test_gitleaks_runs_from_the_factory_root_in_any_project(self):
+        token = "ghp_" + random_alnum(36)
+        shim = (
+            "#!/bin/sh\n/bin/cat >/dev/null\n"
+            f'[ "$PWD" = {json.dumps(str(TOOLS.parent))} ] || exit 1\n'
+            "printf '%s' '[{\"RuleID\":\"pinned-scanner-rule\"}]'\nexit 1\n"
+        )
+        with tempfile.TemporaryDirectory() as bin_dir, tempfile.TemporaryDirectory() as project:
+            env = self.fake_gitleaks(Path(bin_dir), shim)
+            result = self.invoke("opencode", {"tool": "bash", "input": {"command": f"echo {token}"}}, env=env, cwd=project)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {"block": True, "message": "Factory secret guard: pinned-scanner-rule"})
+
+    def test_ordinary_code_with_credential_names_passes_real_gitleaks(self):
+        cases = (
+            {"file_path": "a.ts", "content": "const token = process.env.GITHUB_TOKEN\n"},
+            {"file_path": "a.py", "content": 'api_key = os.environ.get("MY_SERVICE_API_KEY")\n'},
+            {"command": "export PASSWORD_FILE=/run/secrets/database_password_file"},
+        )
+        for tool_input in cases:
+            with self.subTest(tool_input=tool_input):
+                result = self.invoke("tool", {"tool_name": "Write", "tool_input": tool_input})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "")
 
     def test_every_upstream_content_positive_is_sent_to_gitleaks(self):
         with gzip.open(TOOLS / "gitleaks-rule-samples.json.gz", "rt") as source:
@@ -418,7 +430,7 @@ class SecretGuardTests(unittest.TestCase):
                             code = error.code
                     self.assertEqual(code, 0, stderr.getvalue())
                     self.assertEqual(stderr.getvalue(), "")
-                    self.assertEqual(json.loads(stdout.getvalue())["decision"], "block")
+                    self.assertEqual(stdout.getvalue(), "")
             finally:
                 sys.argv = previous_argv
                 sys.stdin = previous_stdin
@@ -594,7 +606,7 @@ class SecretGuardTests(unittest.TestCase):
     def test_timed_out_gitleaks_uses_the_fallback(self):
         token = context7_token()
         with tempfile.TemporaryDirectory() as bin_dir:
-            env = self.fake_gitleaks(Path(bin_dir), "#!/bin/sh\n/bin/sleep 10\n")
+            env = self.fake_gitleaks(Path(bin_dir), "#!/bin/sh\nexec /bin/sleep 30\n")
             result = self.invoke("prompt", {"prompt": token}, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("context7-key-token", json.loads(result.stdout)["reason"])

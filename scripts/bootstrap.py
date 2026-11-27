@@ -49,7 +49,7 @@ GC_ERROR_LOG = Path("Library") / "Logs" / "factory-gc-error.log"
 VERIFY_LABEL = "dev.factory.verify-skill-maintenance"
 VERIFY_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance.log"
 VERIFY_ERROR_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance-error.log"
-SECRET_GUARD_TIMEOUT = 3
+SECRET_GUARD_TIMEOUT = 15
 MIN_CLAUDE_CODE_VERSION = (2, 1, 295)
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
 SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
@@ -331,11 +331,12 @@ def write_agent(path: Path, data: bytes, home: Path) -> None:
         print(f"bootstrap: {display(path, home)} is current")
 
 
-def require_claude_code_version() -> None:
+def require_claude_code_version() -> bool:
+    """Return False when Claude Code is absent; raise when it is too old to fail closed."""
     executable = shutil.which("claude")
     required = ".".join(str(part) for part in MIN_CLAUDE_CODE_VERSION)
     if executable is None:
-        raise ValueError(f"Claude Code v{required} or later is required for the Factory secret guard")
+        return False
     try:
         result = subprocess.run(
             [executable, "--version"],
@@ -349,6 +350,7 @@ def require_claude_code_version() -> None:
     match = re.search(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)", result.stdout + "\n" + result.stderr)
     if result.returncode != 0 or match is None or tuple(map(int, match.groups())) < MIN_CLAUDE_CODE_VERSION:
         raise ValueError(f"Claude Code v{required} or later is required for the Factory secret guard")
+    return True
 
 
 def secret_guard_command(home: Path, mode: str) -> str:
@@ -458,7 +460,8 @@ def render_secret_guard_settings(home: Path) -> str:
 
 
 def install_secret_guard(home: Path) -> bool:
-    require_claude_code_version()
+    if not require_claude_code_version():
+        print("bootstrap: Claude Code not found; installing its secret guard hooks for a later install")
     path = home / ".claude" / "settings.json"
     wanted = render_secret_guard_settings(home)
     current = path.read_text() if path.is_file() else ""

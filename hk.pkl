@@ -845,6 +845,21 @@ steps {
             env { ["BOOTSTRAP_CASE"] = "secret-guard" }
             expect { code = 0 }
           }
+          ["bootstrap refuses malformed Claude settings before writing links"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secret-guard-refusal" }
+            expect { code = 0 }
+          }
+          ["bootstrap rejects settings that disable all hooks"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secret-guard-disabled" }
+            expect { code = 0 }
+          }
+          ["bootstrap requires Claude Code v2.1.295 or later when it is installed"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secret-guard-version" }
+            expect { code = 0 }
+          }
           ["bootstrap refuses a drifted vendored skill"] {
             run = "check"
             env { ["BOOTSTRAP_CASE"] = "repair" }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { test } from "node:test"
+import { test } from "bun:test"
 import secretGuardPlugin, { FactorySecretGuardPlugin } from "./secret-guard.ts"
 
 type ToolOutput = { args: Record<string, unknown> }
@@ -108,7 +108,7 @@ test("fails closed when tool input is not JSON serializable", async () => {
 })
 
 test("fails closed when a descendant keeps stdout open after valid output", async () => {
-  await withGuard("printf '%s\\n' '{\"block\":false}'\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nwait\n", async (hook, home) => {
+  await withGuard("printf '%s\\n' '{\"block\":false}'\n( sleep 16; : >\"$HOME/grandchild-ran\" ) &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nwait\n", async (hook, home) => {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       const outcome = await Promise.race([
@@ -117,16 +117,18 @@ test("fails closed when a descendant keeps stdout open after valid output", asyn
           () => "rejected",
         ),
         new Promise<string>((resolve) => {
-          timer = setTimeout(() => resolve("pending"), 5000)
+          timer = setTimeout(() => resolve("pending"), 16000)
         }),
       ])
       assert.equal(outcome, "rejected")
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      assert.equal(existsSync(join(home, "grandchild-ran")), false)
     } finally {
       if (timer) clearTimeout(timer)
       stopGrandchild(home)
     }
   })
-})
+}, 25000)
 
 test("waits for stdout chunks that arrive after child exit", async () => {
   await withGuard(

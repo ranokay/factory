@@ -4,7 +4,7 @@ include = ["./profiles/universal/mise.toml"]
 
 [tools]
 python = "3.13.18"
-node = "26.13.1"
+bun = "1.4.5"
 uv = "0.11.27"
 ffmpeg = "9.0.2"
 "npm:ctx7" = "0.12.2"
@@ -44,7 +44,7 @@ run = "hk test --step gitleaks-test"
 
 [tasks."tools:test"]
 description = "Run the agent hook helper tests"
-run = ["./tools/run tests", "node --test tools/opencode/secret-guard-test.ts"]
+run = ["./tools/run tests", "bun test ./tools/opencode/secret-guard.test.ts"]
 
 [tasks.evidence]
 description = "Record Verification Evidence and post the single PR evidence comment"

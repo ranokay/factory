@@ -44,7 +44,7 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
       reject(failedClosed())
       return
     }
-    const child = spawn(runner, ["secret_guard", "opencode"], { stdio: ["pipe", "pipe", "ignore"] })
+    const child = spawn(runner, ["secret_guard", "opencode"], { detached: true, stdio: ["pipe", "pipe", "ignore"] })
     let stdout = ""
     let settled = false
     const fail = () => {
@@ -81,9 +81,14 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
       resolve(result as GuardResult)
     }
     const timer = setTimeout(() => {
-      child.kill("SIGKILL")
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL")
+        else child.kill("SIGKILL")
+      } catch {
+        child.kill("SIGKILL")
+      }
       fail()
-    }, 4000)
+    }, 15000)
     child.stdout.setEncoding("utf8")
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk

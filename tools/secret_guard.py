@@ -24,7 +24,8 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
-GITLEAKS_TIMEOUT = 2
+# Leave room for a loaded machine: gitleaks alone takes several seconds at a high load average.
+GITLEAKS_TIMEOUT = 10
 MAX_DECODE_DEPTH = 5
 # Stdin pipe reads can split greedy decoding; use a conservative 4 KiB ceiling for whole-string prefiltering.
 # https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/file.go#L166-L212
@@ -268,7 +269,7 @@ def fallback_samples() -> dict[str, list[str]] | None:
             if not isinstance(sample, dict) or not isinstance(sample.get("id"), str) or not isinstance(sample.get("text"), str):
                 return None
             if "path" not in sample:
-                samples.setdefault(sample["id"], []).append(base64.b64decode(sample["text"]).decode())
+                samples.setdefault(sample["id"], []).append(base64.b64decode(sample["text"], validate=True).decode())
         return samples
     except (OSError, EOFError, ValueError, KeyError, TypeError, zlib.error):
         return None
@@ -351,10 +352,14 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
                 "-",
                 "--no-banner",
                 "--ignore-gitleaks-allow",
+                "--max-decode-depth",
+                str(MAX_DECODE_DEPTH),
             ],
             input=text,
             text=True,
             capture_output=True,
+            # A mise shim resolves its version from the working directory; use the Factory's pin in every project.
+            cwd=ROOT,
             timeout=GITLEAKS_TIMEOUT,
             check=False,
         )
@@ -367,7 +372,7 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
     if result.returncode not in {0, 1}:
         return fallback_scan(text, f"gitleaks exited with code {result.returncode}")
     if result.returncode == 0:
-        return fallback_rule_ids(text), None
+        return [], None
     try:
         findings = json.loads(result.stdout)
         if not isinstance(findings, list) or not findings:
