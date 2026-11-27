@@ -244,6 +244,28 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("greptile: pending", result.stdout)
 
+    def test_inline_comment_edited_after_the_request_stays_pending(self):
+        inline = {
+            "user": {"login": "greptile-apps[bot]"},
+            "created_at": "2026-11-24T03:20:00Z",
+            "updated_at": "2026-11-24T03:31:41Z",
+            "body": "Old review finding",
+        }
+        result = self.invoke(state(comments=[GREPTILE_REQUEST], inline_comments=[inline]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("greptile: pending", result.stdout)
+
+    def test_unrequested_inline_comment_on_the_head_is_terminal(self):
+        inline = {
+            "user": {"login": "greptile-apps[bot]"},
+            "created_at": "2026-11-24T03:20:00Z",
+            "commit_id": HEAD,
+            "body": "Review finding on the head",
+        }
+        result = self.invoke(state(inline_comments=[inline]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("greptile: terminal (inline comment)", result.stdout)
+
     def test_a_review_after_the_request_survives_a_later_push(self):
         review = {
             "user": {"login": "greptile-apps[bot]"},
@@ -331,7 +353,7 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
 
-    def test_coderabbit_finished_reply_counts_only_after_it_is_edited(self):
+    def test_coderabbit_finished_reply_counts_without_an_edit(self):
         reply = {
             "user": {"login": "coderabbitai[bot]"},
             "created_at": "2026-11-24T03:27:55Z",
@@ -339,12 +361,12 @@ class AdvisoryReviewStatus(unittest.TestCase):
             "body": "<!-- This is an auto-generated reply by CodeRabbit -->\nReview finished.",
         }
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, reply]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("coderabbit: terminal (completion reply)", result.stdout)
+        old = dict(reply, created_at="2026-11-24T03:20:00Z", updated_at="2026-11-24T03:20:00Z")
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, old]))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
-        reply["updated_at"] = "2026-11-24T03:31:00Z"
-        result = self.invoke(state(comments=[CODERABBIT_REQUEST, reply]))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("coderabbit: terminal (comment edit)", result.stdout)
 
     def test_a_same_second_reply_is_terminal(self):
         same_second = dict(

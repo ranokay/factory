@@ -196,10 +196,10 @@ them, but wait for the ones it requested. After the request, in this same turn
 and before the done wake or any merge, run
 `python3 ~/.agents/skills/babysit-pr/scripts/advisory-review-status OWNER/REPO PR --wait`.
 It reports Copilot, CodeRabbit and Greptile as terminal — a review, inline
-comment, new summary, or edit of a comment the reviewer created at or after its
-latest request; a post-request quota or rate-limit message; an auto-review skip
-only when no explicit request exists; or a reviewer with no request and no
-activity.
+comment, new summary, completion reply, or edit of a comment the reviewer
+created at or after its latest request; a post-request quota or rate-limit
+message; an auto-review skip only when no explicit request exists; or a reviewer
+with no request and no activity.
 A reviewer without an explicit request is anchored to the head commit instead.
 Each terminal line names its satisfying signal, and the command polls until
 every requested reviewer is terminal, bounded to 20 minutes by default. Exit 0 means

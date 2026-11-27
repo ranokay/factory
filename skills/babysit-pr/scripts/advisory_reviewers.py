@@ -25,6 +25,7 @@ REVIEWERS = {
         "marker": None,
         "summary_markers": (),
         "summary_edits_terminal": False,
+        "completion_markers": (),
         "skip_phrases": {"insufficient remaining quota": "quota"},
     },
     "coderabbit": {
@@ -35,6 +36,7 @@ REVIEWERS = {
         "marker": "<!-- factory:advisory-review:coderabbit -->",
         "summary_markers": ("summarize by coderabbit.ai",),
         "summary_edits_terminal": False,
+        "completion_markers": ("review finished",),
         "skip_phrases": {
             "review skipped": "review skipped",
             "skip review by coderabbit.ai": "review skipped",
@@ -49,6 +51,7 @@ REVIEWERS = {
         "marker": "<!-- factory:advisory-review:greptile -->",
         "summary_markers": ("<!-- greptile_summary -->",),
         "summary_edits_terminal": False,
+        "completion_markers": (),
         "skip_phrases": {},
     },
 }

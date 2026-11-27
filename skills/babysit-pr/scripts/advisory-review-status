@@ -88,6 +88,9 @@ def reviewer_state(name, head, head_date, reviews, comments, inline_comments, ti
         if covers(item, anchor, commit_head) and activity_status(name, item) == "activity":
             signals.append((item_timestamp(item), "review posted"))
     for item in bot_inline:
+        created = item.get("created_at") or ""
+        if commit_head is None and (not created or created < anchor):
+            continue
         if covers(item, anchor, commit_head) and activity_status(name, item) == "activity":
             signals.append((item_timestamp(item), "inline comment"))
     for item in bot_comments:
@@ -97,6 +100,8 @@ def reviewer_state(name, head, head_date, reviews, comments, inline_comments, ti
         updated = item.get("updated_at") or ""
         markers = REVIEWERS[name]["summary_markers"]
         is_summary = bool(markers) and any(marker in (item.get("body") or "") for marker in markers)
+        completion_markers = REVIEWERS[name]["completion_markers"]
+        is_completion = any(marker in (item.get("body") or "").lower() for marker in completion_markers)
         if created >= anchor and is_summary:
             signals.append((created, "summary posted"))
         elif (
@@ -106,6 +111,8 @@ def reviewer_state(name, head, head_date, reviews, comments, inline_comments, ti
             and (created >= anchor or (REVIEWERS[name]["summary_edits_terminal"] and is_summary))
         ):
             signals.append((updated, "comment edit"))
+        elif created >= anchor and is_completion:
+            signals.append((created, "completion reply"))
     if signals:
         return {"name": name, "terminal": True, "reason": max(signals, key=lambda signal: signal[0])[1]}
     return {"name": name, "terminal": False, "reason": ""}
