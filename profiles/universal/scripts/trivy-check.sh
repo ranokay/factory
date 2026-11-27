@@ -80,6 +80,7 @@ log_read_error() {
 
 set -- --cache-dir "$cache_dir" \
 	--scanners vuln,misconfig \
+	--include-non-failures=false \
 	--severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
 	--format json \
 	--exit-code 0 \

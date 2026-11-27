@@ -26,6 +26,14 @@ run_check() {
 	run_command "$checker" "$1"
 }
 
+run_check_in_repo() {
+	if output=$(CDPATH='' cd "$1" && "$checker" . 2>&1); then
+		code=0
+	else
+		code=$?
+	fi
+}
+
 case_misconfiguration() {
 	mkdir -p "$test_root/misconfiguration"
 	cat >"$test_root/misconfiguration/Dockerfile" <<'DOCKERFILE'
@@ -40,6 +48,20 @@ DOCKERFILE
 	*) fail "expected the known HIGH Dockerfile misconfiguration: $output" ;;
 	esac
 	printf 'ok: a HIGH misconfiguration fails the Gate\n'
+}
+
+case_misconfiguration_success() {
+	mkdir -p "$test_root/misconfiguration-success"
+	cat >"$test_root/misconfiguration-success/Dockerfile" <<'DOCKERFILE'
+FROM alpine:3.20
+RUN adduser -D app
+USER app
+CMD ["sh"]
+DOCKERFILE
+	printf '%s\n' 'misconfiguration:' '  include-non-failures: true' >"$test_root/misconfiguration-success/trivy.yaml"
+	run_check_in_repo "$test_root/misconfiguration-success"
+	[ "$code" -eq 0 ] || fail "a successful HIGH misconfiguration check blocked the Gate: $output"
+	printf 'ok: successful misconfiguration checks do not block the Gate\n'
 }
 
 case_unexplained_ignore() {
@@ -276,6 +298,7 @@ case_cache_outside_repo() {
 
 case_all() {
 	case_misconfiguration
+	case_misconfiguration_success
 	case_unexplained_ignore
 	case_vulnerable_dependency
 	case_repository_config
@@ -294,6 +317,7 @@ case_all() {
 
 case $case_name in
 misconfiguration) case_misconfiguration ;;
+misconfiguration-success) case_misconfiguration_success ;;
 unexplained-ignore) case_unexplained_ignore ;;
 vulnerable-dependency) case_vulnerable_dependency ;;
 repository-config) case_repository_config ;;
