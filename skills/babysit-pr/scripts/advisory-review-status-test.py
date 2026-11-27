@@ -297,6 +297,12 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
 
+    def test_a_skip_after_the_request_stays_pending(self):
+        skip = dict(CODERABBIT_SKIP, created_at="2026-11-24T03:31:00Z", updated_at="2026-11-24T03:31:00Z")
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, skip]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("coderabbit: pending", result.stdout)
+
     def test_in_progress_placeholder_stays_pending_then_passes(self):
         placeholder = dict(CODERABBIT_PLACEHOLDER, updated_at="2026-11-24T03:28:00Z")
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, placeholder]))

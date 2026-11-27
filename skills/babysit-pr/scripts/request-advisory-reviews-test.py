@@ -142,6 +142,24 @@ class ReviewRequests(unittest.TestCase):
         )
         self.assertIn("@greptileai\n\n<!-- factory:advisory-review:greptile -->", [write[-1] for write in writes])
 
+    def test_rate_limit_and_placeholder_comments_still_prevent_requests(self):
+        comments = [
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- coderabbit-ai-generated:v1 -->\n## Review rate limited\nYou have reached your review limit.",
+            },
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- coderabbit-ai-generated:v1 -->\nCurrently processing new changes in this PR.",
+            },
+        ]
+        for comment in comments:
+            with self.subTest(body=comment["body"]):
+                result, writes = self.invoke({"comments": [comment]})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(writes), 2)
+                self.assertFalse(any("@coderabbitai review" in str(write) for write in writes))
+
 
 if __name__ == "__main__":
     unittest.main()

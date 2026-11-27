@@ -50,7 +50,7 @@ def main():
             continue
         marked = any(spec["marker"] in (comment.get("body") or "") for comment in comments)
         has_activity = any(
-            is_reviewer((item.get("user") or {}).get("login"), bot) and activity_status(bot, item) == "activity"
+            is_reviewer((item.get("user") or {}).get("login"), bot) and activity_status(bot, item) != "review skipped"
             for item in [*reviews, *comments]
         )
         if not marked and not has_activity:
