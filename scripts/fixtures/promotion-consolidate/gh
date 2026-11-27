@@ -60,6 +60,8 @@ def view_payload(item, fields):
             payload["labels"] = [{"name": name} for name in labels_of(item)]
         elif field == "comments":
             payload["comments"] = item.get("comments", [])
+        elif field == "author":
+            payload["author"] = item.get("author", {"login": state.get("login", "ranokay")})
         else:
             payload[field] = item.get(field)
     return payload
@@ -67,7 +69,9 @@ def view_payload(item, fields):
 
 spend()
 
-if args[:2] == ["issue", "list"]:
+if args[:2] == ["api", "user"]:
+    print(state.get("login", "ranokay"))
+elif args[:2] == ["issue", "list"]:
     search = value("--search")
     state_filter = value("--state") or "open"
     found = []
@@ -93,7 +97,7 @@ elif args[:2] == ["issue", "comment"]:
         "id": number,
         "body": Path(value("--body-file")).read_text(),
         "url": f"https://example.test/{args[2]}#issuecomment-{number}",
-        "author": {"login": "ranokay"},
+        "author": {"login": state.get("login", "ranokay")},
         "createdAt": "2026-11-27T00:00:00Z",
     }
     comments.append(comment)
@@ -128,6 +132,7 @@ elif args[:2] == ["issue", "create"]:
         "body": Path(value("--body-file")).read_text(),
         "state": "OPEN",
         "createdAt": "2026-11-27T00:00:00Z",
+        "author": {"login": state.get("login", "ranokay")},
         "labels": [{"name": name} for name in [v for i, v in enumerate(args) if i and args[i - 1] == "--label"]],
         "comments": [],
     }

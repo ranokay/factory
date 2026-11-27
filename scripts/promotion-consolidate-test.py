@@ -18,6 +18,21 @@ FIXTURE = SCRIPTS / "fixtures/promotion-consolidate/open-promotions.json"
 GH = SCRIPTS / "fixtures/promotion-consolidate/gh"
 TRACKING = "<!-- factory:promotion-consolidate-tracking -->"
 MUTATING = {("issue", "comment"), ("issue", "edit"), ("issue", "close"), ("issue", "create")}
+WORKFLOW = """name: CI
+on: push
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN:
+        value: abc
+    steps:
+      - name: Typecheck
+        uses: actions/checkout@v4
+        with:
+          image:
+            tag: x
+"""
 NAMED_CLUSTERS = [[79, 80, 163, 206], [104, 105], [64, 109], [89, 211]]
 FIXTURE_COVERED = {"issue": 52, "check": {"file": "hk.pkl", "name": "gitleaks-test"}, "reason": "Test-only mapping that exercises the covered path."}
 
@@ -80,6 +95,8 @@ class Pass(unittest.TestCase):
         self.work.mkdir()
         for name in (".gitleaks.toml", "hk.pkl"):
             shutil.copy(ROOT / name, self.work / name)
+        (self.work / ".github" / "workflows").mkdir(parents=True)
+        (self.work / ".github" / "workflows" / "ci.yml").write_text(WORKFLOW)
         git = ["git", "-C", str(self.work)]
         subprocess.run([*git, "init", "--quiet", "-b", "main"], check=True)  # nosec B603 B607
         subprocess.run([*git, "add", "."], check=True)  # nosec B603 B607
@@ -461,6 +478,157 @@ class HandoffOrder(Pass):
             self.assertEqual(resumed.returncode, 0, f"stop {stop}: {resumed.stderr}")
             resumed_state = json.dumps(without_summaries(self.read_state()), sort_keys=True)
             self.assertEqual(resumed_state, clean, f"stop {stop} left a different state")
+
+
+class TrustedMarkers(Pass):
+    def copied(self, number, body, author="mallory", state_edit=None):
+        state = fixture_state()
+        if state_edit:
+            state_edit(state)
+        state["issues"][str(number)].setdefault("comments", []).append(
+            {"id": 77, "body": body, "url": f"https://example.test/{number}#issuecomment-77",
+              "author": {"login": author}, "createdAt": "2026-11-20T00:00:00Z"}
+        )
+        self.write_state(state)
+
+    def test_a_copied_merged_marker_on_a_closed_issue_is_ignored(self):
+        def close_80(state):
+            state["issues"]["80"]["state"] = "CLOSED"
+        self.copied(80, f"{module.MERGED_PREFIX}79 -->", state_edit=close_80)
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("#80 is closed and this pass did not close it as a duplicate of survivor #79", result.stderr)
+
+    def test_a_copied_covered_marker_on_a_closed_issue_is_ignored(self):
+        def close_52(state):
+            state["issues"]["52"]["state"] = "CLOSED"
+        self.copied(52, f"{module.COVERED_PREFIX}hk.pkl#gitleaks-test -->", state_edit=close_52)
+        plan = json.loads(PLAN.read_text())
+        plan["covered"] = [FIXTURE_COVERED]
+        self.write_plan(plan)
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("#52 is closed and this pass did not close it as covered by hk.pkl#gitleaks-test", result.stderr)
+
+    def test_a_copied_handoff_marker_does_not_stop_the_handoff(self):
+        self.copied(79, module.PUSHBACK_MARKER)
+        result = self.run_pass(run_id="R1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = self.read_state()
+        self.assertIn("needs-triage", [l["name"] for l in state["issues"]["79"]["labels"]])
+        own = [c for c in state["issues"]["79"]["comments"] if module.PUSHBACK_MARKER in c["body"] and c["author"]["login"] == "ranokay"]
+        self.assertEqual(len(own), 1)
+
+    def test_a_copied_summary_marker_does_not_suppress_the_run_summary(self):
+        self.write_state(fixture_state())
+        first = self.run_pass(run_id="R1")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        state = self.read_state()
+        tracking = self.tracking(state)
+        tracking["comments"] = [
+            c for c in tracking["comments"] if "id=R1 -->" not in c["body"]
+        ] + [{"id": 88, "body": "<!-- factory:promotion-consolidate-run id=R2 -->", "url": "https://example.test/x#issuecomment-88", "author": {"login": "mallory"}, "createdAt": "2026-11-20T00:00:00Z"}]
+        self.write_state(state)
+        self.log.unlink(missing_ok=True)
+        second = self.run_pass(run_id="R2")
+        self.assertEqual(second.returncode, 0, second.stderr)
+        own = [c for c in self.tracking(self.read_state())["comments"] if "id=R2 -->" in c["body"] and c["author"]["login"] == "ranokay"]
+        self.assertEqual(len(own), 1)
+
+    def test_a_copied_tracking_issue_is_not_adopted(self):
+        state = fixture_state()
+        state["issues"]["950"] = {
+            "number": 950, "title": "Promotion backlog consolidation (tracking)",
+            "body": f"{module.TRACKING_MARKER}\nmallory's copy", "state": "OPEN",
+            "createdAt": "2026-11-20T00:00:00Z", "labels": [], "comments": [], "author": {"login": "mallory"},
+        }
+        self.write_state(state)
+        result = self.run_pass(run_id="R1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = self.read_state()
+        self.assertEqual(state["issues"]["950"]["comments"], [])
+        own = [i for i in state["issues"].values() if module.TRACKING_MARKER in i["body"] and i["author"]["login"] == "ranokay"]
+        self.assertEqual(len(own), 1)
+
+
+class ClosedMembers(Pass):
+    def test_a_closed_member_merged_into_another_survivor_is_refused(self):
+        def close_80_into_163(state):
+            state["issues"]["80"]["state"] = "CLOSED"
+            state["issues"]["80"]["comments"] = [
+                {"id": 99, "body": f"{module.MERGED_PREFIX}163 -->", "url": "https://example.test/80#issuecomment-99",
+                  "author": {"login": "ranokay"}, "createdAt": "2026-11-20T00:00:00Z"}
+            ]
+        self.write_state(self._with(close_80_into_163))
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("#80 is closed and this pass did not close it as a duplicate of survivor #79", result.stderr)
+        self.assertEqual(self.writes(), [])
+
+    def test_a_closed_issue_covered_elsewhere_is_not_a_cluster_member(self):
+        def close_52_covered(state):
+            state["issues"]["52"]["state"] = "CLOSED"
+            state["issues"]["52"]["comments"] = [
+                {"id": 98, "body": f"{module.COVERED_PREFIX}hk.pkl#gitleaks-test -->", "url": "https://example.test/52#issuecomment-98",
+                  "author": {"login": "ranokay"}, "createdAt": "2026-11-20T00:00:00Z"}
+            ]
+        plan = json.loads(PLAN.read_text())
+        plan["clusters"].append({"members": [79, 52], "reason": "x"})
+        self.write_plan(plan)
+        self.write_state(self._with(close_52_covered))
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("#52 is closed", result.stderr)
+        self.assertEqual(self.writes(), [])
+
+    def _with(self, edit):
+        state = fixture_state()
+        edit(state)
+        return state
+
+
+class WorkflowNames(Pass):
+    def test_only_job_ids_and_step_names_resolve(self):
+        for name in ("lint", "Typecheck"):
+            plan = json.loads(PLAN.read_text())
+            plan["covered"] = [dict(FIXTURE_COVERED, issue=52, check={"file": ".github/workflows/ci.yml", "name": name})]
+            self.write_plan(plan)
+            result = self.run_pass("--dry-run")
+            self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
+            self.assertIn(f"#52 covered by `.github/workflows/ci.yml#{name}`", result.stdout)
+
+    def test_a_with_key_or_an_env_var_does_not_resolve(self):
+        for name in ("image", "TOKEN", "runs-on"):
+            plan = json.loads(PLAN.read_text())
+            plan["covered"] = [dict(FIXTURE_COVERED, issue=52, check={"file": ".github/workflows/ci.yml", "name": name})]
+            self.write_plan(plan)
+            result = self.run_pass("--dry-run")
+            self.assertEqual(result.returncode, 1, f"{name}: {result.stdout}")
+            self.assertIn(f".github/workflows/ci.yml does not define the check {name}", result.stderr)
+
+
+class GateBounding(Pass):
+    def test_appended_occurrences_do_not_move_proposal_weights(self):
+        def two(bodies):
+            state = {"issues": {}, "mutations": 0, "next_comment": 1, "next_issue": 900}
+            for number, body in bodies:
+                state["issues"][str(number)] = {
+                    "number": number, "title": f"Widget {number}", "body": body, "state": "OPEN",
+                    "createdAt": "2026-11-27T00:00:00Z", "labels": [{"name": "promotion"}], "comments": [],
+                }
+            return state
+        plain = "### Correction\n\nalpha beta\n\n### Gate check\n\nnothing shared here"
+        other = "### Correction\n\ngamma delta\n\n### Gate check\n\nquorumzeta widgetfoo rarebar"
+        appended = plain + "\n\n### Merged occurrences\n\n- quorumzeta widgetfoo rarebar"
+        self.write_state(two([(1, plain), (2, other)]))
+        self.write_plan({"clusters": [], "covered": []})
+        without = self.run_pass("--dry-run")
+        self.write_state(two([(1, appended), (2, other)]))
+        with_junk = self.run_pass("--dry-run")
+        self.assertEqual(without.returncode, 0, without.stderr)
+        self.assertEqual(with_junk.returncode, 0, with_junk.stderr)
+        self.assertEqual(proposal_members(without.stdout), [])
+        self.assertEqual(proposal_members(with_junk.stdout), [])
 
 
 class FetchAndGate(Pass):

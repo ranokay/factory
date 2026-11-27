@@ -179,15 +179,57 @@ def check_defined(root, check):
     text = shown.stdout
     escaped = re.escape(name)
     if file.endswith(".toml"):
-        pattern = rf'^\s*id\s*=\s*"{escaped}"\s*$'
+        defined = re.search(rf'^\s*id\s*=\s*"{escaped}"\s*$', text, re.M)
     elif file.endswith(".pkl"):
-        pattern = rf'^\s*\["{escaped}"\]\s*=\s*new Step\b'
+        defined = re.search(rf'^\s*\["{escaped}"\]\s*=\s*new Step\b', text, re.M)
     elif file.endswith((".yml", ".yaml")):
-        pattern = rf"^\s*{escaped}:\s*$|^\s*-?\s*name:\s*{escaped}\s*$"
+        defined = name in workflow_names(text)
     else:
         raise Refusal(f"check file {file} has no supported check format (.toml, .pkl, .yml, .yaml)")
-    if not re.search(pattern, text, re.M):
+    if not defined:
         raise Refusal(f"{file} does not define the check {name}")
+
+
+def workflow_names(text):
+    """Job IDs directly under jobs:, and step names inside a job's steps:."""
+    lines = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+    def indent(line):
+        return len(line) - len(line.lstrip(" "))
+
+    names = set()
+    jobs = next((i for i, line in enumerate(lines) if indent(line) == 0 and line.rstrip() == "jobs:"), None)
+    if jobs is None:
+        return names
+    end = next((i for i in range(jobs + 1, len(lines)) if indent(lines[i]) == 0), len(lines))
+    body = lines[jobs + 1 : end]
+    if not body:
+        return names
+    job_indent = indent(body[0])
+    starts = [i for i, line in enumerate(body) if indent(line) == job_indent]
+    for position, start in enumerate(starts):
+        region_end = starts[position + 1] if position + 1 < len(starts) else len(body)
+        job_line = body[start].strip()
+        if re.fullmatch(r"[A-Za-z0-9_.-]+:", job_line):
+            names.add(job_line[:-1])
+        region = body[start + 1 : region_end]
+        steps = next((i for i, line in enumerate(region) if line.strip() == "steps:"), None)
+        if steps is None:
+            continue
+        steps_indent = indent(region[steps])
+        dash = None
+        for line in region[steps + 1 :]:
+            if indent(line) <= steps_indent:
+                break
+            content = line.strip()
+            if content.startswith("- "):
+                dash = indent(line)
+                content = content[2:].strip()
+                if content.startswith("name:"):
+                    names.add(content[len("name:") :].strip().strip("\"'"))
+            elif dash is not None and indent(line) == dash + 2 and content.startswith("name:"):
+                names.add(content[len("name:") :].strip().strip("\"'"))
+    return names
 
 
 def load_plan(path):
@@ -225,16 +267,32 @@ def load_promotions(repo):
     }
 
 
-def has_marker(repo, number, marker):
-    return any(marker in comment["body"] for comment in issue_comments(repo, number))
+def fetch_login(repo):
+    login = gh("api", "user", "--jq", ".login").strip()
+    if not login:
+        raise Refusal(f"gh returned no login for the account that reads {repo}")
+    return login
 
 
-def closed_by_pass(repo, number):
-    bodies = [comment["body"] for comment in issue_comments(repo, number)]
-    return any(MERGED_PREFIX in body or COVERED_PREFIX in body for body in bodies)
+class Trust:
+    def __init__(self, repo, login):
+        self.repo = repo
+        self.login = login
+        self.cache = {}
+
+    def comments(self, number):
+        if number not in self.cache:
+            self.cache[number] = issue_comments(self.repo, number)
+        return self.cache[number]
+
+    def by_login(self, number):
+        return [comment for comment in self.comments(number) if comment["author"]["login"] == self.login]
+
+    def has(self, number, marker):
+        return any(marker in comment["body"] for comment in self.by_login(number))
 
 
-def validate(plan, promotions, repo, root):
+def validate(plan, promotions, trust, root):
     problems = []
     claims = {}
 
@@ -243,16 +301,20 @@ def validate(plan, promotions, repo, root):
             problems.append(f"#{number} appears in {claims[number]} and in {where}")
         claims[number] = where
 
-    def known(number, where):
+    def known(number, where, closed_marker, closed_as):
         if not isinstance(number, int) or isinstance(number, bool):
             problems.append(f"{where} lists {number!r}, which is not an issue number")
             return False
         if number not in promotions:
             problems.append(f"#{number} is not a promotion issue ({where})")
             return False
-        if promotions[number]["state"] == "CLOSED" and not closed_by_pass(repo, number):
-            problems.append(f"#{number} is closed and this pass did not close it ({where})")
-            return False
+        if promotions[number]["state"] == "CLOSED":
+            if closed_marker is None:
+                problems.append(f"#{number} is closed, so it cannot be used here ({where})")
+                return False
+            if not trust.has(number, closed_marker):
+                problems.append(f"#{number} is closed and this pass did not close it as {closed_as} ({where})")
+                return False
         return True
 
     for index, cluster in enumerate(plan["clusters"]):
@@ -266,13 +328,15 @@ def validate(plan, promotions, repo, root):
             continue
         if not isinstance(cluster.get("reason"), str) or not cluster["reason"].strip() or "\n" in cluster["reason"]:
             problems.append(f"{where} needs a one-line reason")
-        for number in members:
-            if known(number, where):
-                claim(number, where)
         numbers = [m for m in members if isinstance(m, int) and not isinstance(m, bool)]
         survivor = survivor_of(numbers) if numbers else None
-        if survivor in promotions and promotions[survivor]["state"] != "OPEN":
-            problems.append(f"survivor #{survivor} of {where} must be open")
+        for number in members:
+            if number == survivor:
+                valid = known(number, where, None, None)
+            else:
+                valid = known(number, where, f"{MERGED_PREFIX}{survivor} -->", f"a duplicate of survivor #{survivor}")
+            if valid:
+                claim(number, where)
         if survivor in promotions and unmanaged_text(promotions[survivor]["body"]):
             problems.append(
                 f"survivor #{survivor} has text outside the merge blocks; move it out before merging"
@@ -297,12 +361,18 @@ def validate(plan, promotions, repo, root):
             problems.append(f"{where} must be an object")
             continue
         number = entry.get("issue")
-        if known(number, where):
+        check = entry.get("check")
+        well_formed = isinstance(check, dict) and isinstance(check.get("file"), str) and isinstance(check.get("name"), str)
+        if well_formed:
+            covered_marker = f"{COVERED_PREFIX}{check['file']}#{check['name']} -->"
+            covered_as = f"covered by {check['file']}#{check['name']}"
+        else:
+            covered_marker, covered_as = None, None
+        if known(number, where, covered_marker, covered_as):
             claim(number, where)
         if not isinstance(entry.get("reason"), str) or not entry["reason"].strip() or "\n" in entry["reason"]:
             problems.append(f"{where} needs a one-line reason")
-        check = entry.get("check")
-        if not isinstance(check, dict) or not isinstance(check.get("file"), str) or not isinstance(check.get("name"), str):
+        if not well_formed:
             problems.append(f"{where} needs a check with file and name")
             continue
         try:
@@ -359,7 +429,8 @@ def run(args):
     fetch_integration(args.root)
     plan = load_plan(args.plan)
     promotions = load_promotions(args.repo)
-    problems = validate(plan, promotions, args.repo, args.root)
+    trust = Trust(args.repo, fetch_login(args.repo))
+    problems = validate(plan, promotions, trust, args.root)
     if problems:
         for problem in problems:
             print(f"promotion-consolidate: {problem}", file=sys.stderr)
@@ -376,7 +447,7 @@ def run(args):
     before = len(open_now)
     after = before - len([n for n in planned if promotions[n]["state"] == "OPEN"])
 
-    found_tracking = find_tracking(args.repo)
+    found_tracking = find_tracking(args.repo, trust.login)
     with tempfile.TemporaryDirectory(prefix="promotion-consolidate-") as scratch:
         runner = Runner(args.repo, args.dry_run, scratch)
         merged = []
@@ -395,7 +466,7 @@ def run(args):
             occurrence_count = sum(len(occurrences(promotions[n]["body"])) for n in members)
             for number in sources:
                 marker = f"{MERGED_PREFIX}{survivor} -->"
-                if not has_marker(args.repo, number, marker):
+                if not trust.has(number, marker):
                     path = runner.file(
                         f"{marker}\nMerged into #{survivor}. Its correction and occurrences now live "
                         "on that survivor, so this duplicate is closed."
@@ -413,7 +484,7 @@ def run(args):
             number = entry["issue"]
             check = f"{entry['check']['file']}#{entry['check']['name']}"
             marker = f"{COVERED_PREFIX}{check} -->"
-            if not has_marker(args.repo, number, marker):
+            if not trust.has(number, marker):
                 branch = INTEGRATION_REF.removeprefix("origin/")
                 link = f"https://github.com/{args.repo}/blob/{branch}/{entry['check']['file']}"
                 path = runner.file(
@@ -450,12 +521,11 @@ def run(args):
             if len(sent) >= args.top:
                 break
             labels = promotions[number]["labels"]
-            comments = issue_comments(args.repo, number)
-            if any(record["kind"] in VERDICT_KINDS for record in records(comments)):
+            if any(record["kind"] in VERDICT_KINDS for record in records(trust.comments(number))):
                 continue
             if set(labels) & BLOCKING_LABELS:
                 continue
-            handed_off = any(PUSHBACK_MARKER in comment["body"] for comment in comments)
+            handed_off = trust.has(number, PUSHBACK_MARKER)
             if PUSHBACK_LABEL in labels and not handed_off:
                 continue
             if not handed_off:
@@ -500,7 +570,7 @@ def run(args):
             run_id, date, args.dry_run, before, after, merged, covered_done, sent, proposals, oversized
         )
         summary_path = runner.file(summary)
-        post_summary(args, runner, tracking, run_id, summary_path)
+        post_summary(args, runner, trust, tracking, run_id, summary_path)
 
         if args.dry_run:
             print("DRY RUN: nothing was written. Writes that a live run would make:")
@@ -510,29 +580,33 @@ def run(args):
     return 0
 
 
-def find_tracking(repo):
+def find_tracking(repo, login):
     found = json.loads(
-        gh("issue", "list", "-R", repo, "--state", "all", "--limit", str(TRACKING_LIST_LIMIT), "--json", "number,body")
+        gh("issue", "list", "-R", repo, "--state", "all", "--limit", str(TRACKING_LIST_LIMIT), "--json", "number,body,author")
     )
     if len(found) >= TRACKING_LIST_LIMIT:
         raise Refusal(
             f"the tracking issue lookup reached its {TRACKING_LIST_LIMIT}-issue cap; "
             "it cannot prove there is one tracking issue"
         )
-    matches = [item["number"] for item in found if TRACKING_MARKER in item["body"]]
+    matches = [
+        item["number"]
+        for item in found
+        if TRACKING_MARKER in item["body"] and item["author"]["login"] == login
+    ]
     if len(matches) > 1:
         raise Refusal(f"more than one tracking issue carries the marker: {matches}")
     return matches[0] if matches else None
 
 
-def post_summary(args, runner, tracking, run_id, path):
+def post_summary(args, runner, trust, tracking, run_id, path):
     marker = f"<!-- factory:promotion-consolidate-run id={run_id} -->"
     if tracking is None:
         if not runner.dry_run:
             raise Refusal("the tracking issue is missing after creation")
         runner.actions.append("post the run's summary on the new tracking issue")
         return
-    if any(marker in comment["body"] for comment in issue_comments(args.repo, tracking)):
+    if trust.has(tracking, marker):
         return
     runner.write(
         f"post the run {run_id} summary on #{tracking}",

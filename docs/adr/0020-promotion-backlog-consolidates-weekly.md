@@ -12,6 +12,8 @@ Membership is decided by a reviewed file, not by the pass. An agent or a person 
 
 To run it: `mise run promotion:consolidate -- --dry-run --plan scripts/promotion-consolidation.json` prints every write a live run would make and the summary it would post, and writes nothing. Without `--dry-run` the pass writes. Each run takes an optional `--run-id`, which a resumed run passes again so it posts one comment for itself. Edit the plan through a reviewed commit, and check `--dry-run` before merging.
 
+Every marker the pass reads (merged, covered, handoff, run summary) and the tracking issue itself count only when their author is the account that runs the pass, resolved once with `gh api user`. A copied marker from another account is ignored, as ADR 0019 requires for marker records. A closed cluster member validates only when its merged marker names that cluster's survivor, and a covered marker never makes an issue a cluster member. A workflow check resolves only to a job ID directly under `jobs:` or a step `name:` inside a job's `steps:`, so a `with:` key or an env var of the same name is refused.
+
 The pass runs weekly under launchd, Tuesday 03:00, written and drift-checked by `scripts/bootstrap.py` the same way `gc` and `verify-skill-maintenance` are. It runs no GitHub Actions workflow, which would be a Protected Surface.
 
 ## Considered Options
