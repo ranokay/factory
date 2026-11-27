@@ -264,7 +264,7 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
     executable = shutil.which("gitleaks")
     if executable is None:
         return fallback_rule_ids(text), "gitleaks not found"
-    gitleaks = str(Path(executable).resolve())
+    gitleaks = str(Path(executable).absolute())
     try:
         result = subprocess.run(
             [

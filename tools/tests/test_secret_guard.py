@@ -178,6 +178,26 @@ class SecretGuardTests(unittest.TestCase):
         self.assertIn("context7-key-token", output["reason"])
         self.assertNotIn(token, result.stdout + result.stderr)
 
+    def test_symlinked_gitleaks_preserves_the_shim_name(self):
+        token = "glpat-" + random_alnum(20)
+        with tempfile.TemporaryDirectory() as bin_dir:
+            directory = Path(bin_dir)
+            target = directory / "real-gitleaks"
+            target.write_text(
+                '#!/bin/sh\n[ "${0##*/}" = gitleaks ] || exit 9\ncat >/dev/null\n'
+                'printf \'[{"RuleID":"gitlab-pat"}]\\n\'\nexit 1\n'
+            )
+            target.chmod(0o755)
+            (directory / "gitleaks").symlink_to(target)
+            env = os.environ.copy()
+            env["PATH"] = bin_dir
+            result = self.invoke("prompt", {"prompt": f"Credential: {token}"}, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("gitlab-pat", output["reason"])
+        self.assertNotIn(token, result.stdout + result.stderr)
+
     def test_missing_gitleaks_blocks_common_token_shapes_without_echoing_them(self):
         with tempfile.TemporaryDirectory() as empty_path:
             env = os.environ.copy()
@@ -375,7 +395,7 @@ class SecretGuardTests(unittest.TestCase):
         executable = shutil.which("gitleaks")
         if executable is None:
             self.fail("gitleaks is required for the equivalence check")
-        gitleaks = str(Path(executable).resolve())
+        gitleaks = str(Path(executable).absolute())
         with tempfile.TemporaryDirectory() as bin_dir:
             marker = Path(bin_dir) / "spawned"
             env = self.fake_gitleaks(Path(bin_dir), '#!/bin/sh\ncat >/dev/null\n: >"$GUARD_MARKER"\nexit 0\n', marker)
