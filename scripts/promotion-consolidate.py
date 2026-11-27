@@ -213,7 +213,11 @@ def workflow_names(text):
         if re.fullmatch(r"[A-Za-z0-9_.-]+:", job_line):
             names.add(job_line[:-1])
         region = body[start + 1 : region_end]
-        steps = next((i for i, line in enumerate(region) if line.strip() == "steps:"), None)
+        child_indent = min((indent(line) for line in region), default=None)
+        steps = next(
+            (i for i, line in enumerate(region) if line.strip() == "steps:" and indent(line) == child_indent),
+            None,
+        )
         if steps is None:
             continue
         steps_indent = indent(region[steps])
@@ -521,7 +525,7 @@ def run(args):
             if len(sent) >= args.top:
                 break
             labels = promotions[number]["labels"]
-            if any(record["kind"] in VERDICT_KINDS for record in records(trust.comments(number))):
+            if any(record["kind"] in VERDICT_KINDS for record in records(trust.by_login(number))):
                 continue
             if set(labels) & BLOCKING_LABELS:
                 continue

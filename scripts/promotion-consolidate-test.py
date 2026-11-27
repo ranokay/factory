@@ -519,6 +519,27 @@ class TrustedMarkers(Pass):
         own = [c for c in state["issues"]["79"]["comments"] if module.PUSHBACK_MARKER in c["body"] and c["author"]["login"] == "ranokay"]
         self.assertEqual(len(own), 1)
 
+    def test_a_copied_verdict_from_another_account_is_not_a_verdict(self):
+        self.copied(79, "<!-- factory:pushback verdict=go -->\nVerdict: go")
+        result = self.run_pass(run_id="R1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("needs-triage", [l["name"] for l in self.read_state()["issues"]["79"]["labels"]])
+
+    def test_a_nested_steps_key_does_not_hide_the_real_steps(self):
+        plan = json.loads(PLAN.read_text())
+        plan["covered"] = [dict(FIXTURE_COVERED, issue=52, check={"file": ".github/workflows/ci.yml", "name": "Typecheck"})]
+        self.write_plan(plan)
+        workflow = WORKFLOW.replace("    runs-on: ubuntu-latest\n", "    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        steps:\n          - 1\n")
+        self.nested_workflow = workflow
+        (self.work / ".github" / "workflows" / "ci.yml").write_text(workflow)
+        git = ["git", "-C", str(self.work)]
+        subprocess.run([*git, "add", "."], check=True)  # nosec B603 B607
+        subprocess.run([*git, "-c", "user.name=test", "-c", "user.email=test@example.test", "commit", "--quiet", "-m", "nested"], check=True)  # nosec B603 B607
+        subprocess.run([*git, "push", "--quiet", "--force", "origin", "main"], check=True)  # nosec B603 B607
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("covered by `.github/workflows/ci.yml#Typecheck`", result.stdout)
+
     def test_a_copied_summary_marker_does_not_suppress_the_run_summary(self):
         self.write_state(fixture_state())
         first = self.run_pass(run_id="R1")
