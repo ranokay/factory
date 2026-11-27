@@ -17,11 +17,5 @@
       "reason": "Both stop a turn from ending while a CI wait or a code-review Reviewer is still running."
     }
   ],
-  "covered": [
-    {
-      "issue": 51,
-      "check": {"file": ".gitleaks.toml", "name": "context7-key-token"},
-      "reason": "The gitleaks rule for Context7 keys exists, and hk step gitleaks-test runs its fixture test."
-    }
-  ]
+  "covered": []
 }

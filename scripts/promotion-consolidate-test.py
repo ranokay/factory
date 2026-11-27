@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import copy
 import importlib.util
 import json
@@ -19,8 +17,9 @@ PLAN = SCRIPTS / "promotion-consolidation.json"
 FIXTURE = SCRIPTS / "fixtures/promotion-consolidate/open-promotions.json"
 GH = SCRIPTS / "fixtures/promotion-consolidate/gh"
 TRACKING = "<!-- factory:promotion-consolidate-tracking -->"
-SUMMARY = "<!-- factory:promotion-consolidate-run date=2026-11-27 -->"
 MUTATING = {("issue", "comment"), ("issue", "edit"), ("issue", "close"), ("issue", "create")}
+NAMED_CLUSTERS = [[79, 80, 163, 206], [104, 105], [64, 109], [89, 211]]
+FIXTURE_COVERED = {"issue": 52, "check": {"file": "hk.pkl", "name": "gitleaks-test"}, "reason": "Test-only mapping that exercises the covered path."}
 
 spec = importlib.util.spec_from_file_location("promotion_consolidate", PASS)
 module = importlib.util.module_from_spec(spec)
@@ -36,6 +35,17 @@ def normalized(state):
     clean = copy.deepcopy(state)
     clean.pop("mutations", None)
     return json.dumps(clean, sort_keys=True, indent=1)
+
+
+def proposal_members(stdout):
+    section = stdout.split("Proposed clusters (not applied)")[1].split("Confirm a proposal")[0]
+    groups = []
+    for line in section.splitlines():
+        match = re.match(r"- (.*?) \(shared terms:|- not proposed, \d+ members.*?: (.*)$", line)
+        if match:
+            text = match.group(1) or match.group(2)
+            groups.append([int(n.strip().lstrip("#")) for n in text.split(",")])
+    return groups
 
 
 class Pass(unittest.TestCase):
@@ -63,7 +73,7 @@ class Pass(unittest.TestCase):
     def write_plan(self, plan):
         self.plan_path.write_text(json.dumps(plan))
 
-    def run_pass(self, *extra, fail_after=None, plan=None):
+    def run_pass(self, *extra, fail_after=None, plan=None, run_id=None):
         env = dict(
             os.environ,
             PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}",
@@ -77,6 +87,8 @@ class Pass(unittest.TestCase):
             sys.executable, str(PASS), "--plan", str(plan or self.plan_path),
             "--repo", "ranokay/factory", "--date", "2026-11-27", *extra,
         ]
+        if run_id is not None:
+            command += ["--run-id", run_id]
         return subprocess.run(  # nosec B603 -- the test runs the pass with an argument list
             command, capture_output=True, text=True, check=False, env=env, timeout=120
         )
@@ -87,17 +99,25 @@ class Pass(unittest.TestCase):
         return [json.loads(line) for line in self.log.read_text().splitlines() if line]
 
     def writes(self):
-        found = []
-        for args in self.calls():
-            if tuple(args[:2]) in MUTATING or (args[0] == "api" and "PATCH" in args):
-                found.append(args)
-        return found
+        return [args for args in self.calls() if tuple(args[:2]) in MUTATING or (args[0] == "api" and "PATCH" in args)]
 
-    def tracking_comments(self, state):
+    def tracking(self, state):
         for item in state["issues"].values():
             if TRACKING in item["body"]:
-                return item, item["comments"]
-        return None, []
+                return item
+        return None
+
+    def summaries(self, state):
+        tracking = self.tracking(state)
+        if tracking is None:
+            return []
+        return [c for c in tracking["comments"] if "factory:promotion-consolidate-run id=" in c["body"]]
+
+    def comment_bodies(self, item):
+        return "\n".join(c["body"] for c in item.get("comments", []))
+
+    def labels(self, item):
+        return [label["name"] for label in item["labels"]]
 
 
 class DryRun(Pass):
@@ -107,16 +127,21 @@ class DryRun(Pass):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(), [])
         self.assertEqual(self.state_path.read_text(), before)
-        self.assertIn("Open promotions: 51 before, 44 after this run.", result.stdout)
+        self.assertIn("Open promotions: 51 before, 45 after this run.", result.stdout)
         self.assertIn("#79 (survivor) absorbs #80, #163, #206", result.stdout)
-        self.assertIn("#51 covered by `.gitleaks.toml#context7-key-token`", result.stdout)
+        self.assertIn("Closed as covered: none.", result.stdout)
         self.assertIn("add needs-triage to #79", result.stdout)
-        self.assertNotIn("ready-for-agent", result.stdout.split("Sent to pushback")[1].split("###")[0])
+        self.assertNotIn("factory:promotion-consolidate-run id=", result.stdout.split("DRY RUN")[0])
+
+    def test_dry_run_posts_no_summary_comment(self):
+        result = self.run_pass("--dry-run", run_id="R-dry")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any(args[:2] == ["issue", "comment"] for args in self.writes()))
 
 
 class LiveRun(Pass):
-    def test_merges_closes_covers_and_hands_off(self):
-        result = self.run_pass()
+    def test_merges_closes_and_hands_off(self):
+        result = self.run_pass(run_id="R1")
         self.assertEqual(result.returncode, 0, result.stderr)
         state = self.read_state()
         issues = state["issues"]
@@ -126,50 +151,57 @@ class LiveRun(Pass):
             self.assertIn(f"<!-- factory:promotion-occurrence source={source} -->", survivor)
             self.assertIn(f"From #{source}:", survivor)
             self.assertEqual(issues[str(source)]["state"], "CLOSED")
-            self.assertIn(f"<!-- factory:promotion-merged into=79 -->", self.comment_bodies(issues[str(source)]))
+            self.assertIn("<!-- factory:promotion-merged into=79 -->", self.comment_bodies(issues[str(source)]))
         self.assertEqual(issues["79"]["state"], "OPEN")
-        self.assertEqual(issues["51"]["state"], "CLOSED")
-        self.assertIn("<!-- factory:promotion-covered check=.gitleaks.toml#context7-key-token -->", self.comment_bodies(issues["51"]))
-        for number in (79, 64, 89, 104, 52):
+        self.assertEqual(issues["51"]["state"], "OPEN")
+        for number in (79, 64, 89, 104, 51):
             self.assertIn("needs-triage", self.labels(issues[str(number)]))
         self.assertFalse(any("ready-for-agent" in args for args in self.calls()))
-        tracking, comments = self.tracking_comments(state)
-        self.assertIsNotNone(tracking)
-        summaries = [c for c in comments if SUMMARY in c["body"]]
-        self.assertEqual(len(summaries), 1)
-        self.assertIn("Open promotions: 51 before, 44 after this run.", summaries[0]["body"])
+        self.assertEqual(len(self.summaries(state)), 1)
+        self.assertIn("Open promotions: 51 before, 45 after this run.", self.summaries(state)[0]["body"])
 
-    def test_a_second_run_changes_no_issue_and_edits_only_the_summary(self):
-        self.assertEqual(self.run_pass().returncode, 0)
-        after_first = normalized(self.read_state())
+    def test_two_consecutive_runs_leave_two_summary_comments(self):
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
         self.log.unlink()
-        result = self.run_pass()
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.run_pass(run_id="R2").returncode, 0)
         writes = self.writes()
         self.assertEqual(len(writes), 1, writes)
-        self.assertEqual(writes[0][:2], ["api", "-X"])
+        self.assertEqual(writes[0][:2], ["issue", "comment"])
         state = self.read_state()
-        self.assertEqual(normalized(state), after_first)
-        _, comments = self.tracking_comments(state)
-        self.assertEqual(len([c for c in comments if SUMMARY in c["body"]]), 1)
+        self.assertEqual(len(self.summaries(state)), 2)
+        self.assertIn("id=R1 -->", self.summaries(state)[0]["body"])
+        self.assertIn("id=R2 -->", self.summaries(state)[1]["body"])
 
-    def test_an_interrupted_run_resumes_to_the_same_state(self):
-        self.assertEqual(self.run_pass().returncode, 0)
+    def test_rerunning_the_same_run_id_posts_nothing(self):
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
+        self.log.unlink()
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(len(self.summaries(self.read_state())), 1)
+
+    def test_an_interrupted_run_resumes_and_posts_one_comment_for_itself(self):
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
         clean = normalized(self.read_state())
         self.write_state(fixture_state())
         self.log.unlink(missing_ok=True)
-        interrupted = self.run_pass(fail_after=5)
+        interrupted = self.run_pass(fail_after=5, run_id="R1")
         self.assertNotEqual(interrupted.returncode, 0)
         self.assertIn("re-run to finish", interrupted.stderr)
-        resumed = self.run_pass()
+        resumed = self.run_pass(run_id="R1")
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
         self.assertEqual(normalized(self.read_state()), clean)
+        self.assertEqual(len(self.summaries(self.read_state())), 1)
 
-    def comment_bodies(self, item):
-        return "\n".join(c["body"] for c in item.get("comments", []))
-
-    def labels(self, item):
-        return [label["name"] for label in item["labels"]]
+    def test_a_covered_entry_closes_only_with_its_defined_check(self):
+        plan = json.loads(PLAN.read_text())
+        plan["covered"] = [FIXTURE_COVERED]
+        self.write_plan(plan)
+        result = self.run_pass(run_id="R1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = self.read_state()
+        self.assertEqual(state["issues"]["52"]["state"], "CLOSED")
+        self.assertIn("<!-- factory:promotion-covered check=hk.pkl#gitleaks-test -->", self.comment_bodies(state["issues"]["52"]))
+        self.assertIn("Open promotions: 51 before, 44 after this run.", self.summaries(state)[0]["body"])
 
 
 class Refused(Pass):
@@ -189,13 +221,13 @@ class Refused(Pass):
 
     def test_a_number_in_two_places_is_refused(self):
         plan = json.loads(PLAN.read_text())
-        plan["covered"][0]["issue"] = 79
+        plan["covered"] = [dict(FIXTURE_COVERED, issue=79)]
         self.assertRefused(plan, "#79 appears in")
 
     def test_a_covered_check_that_does_not_exist_is_refused(self):
         plan = json.loads(PLAN.read_text())
-        plan["covered"][0]["check"]["name"] = "no-such-check"
-        self.assertRefused(plan, ".gitleaks.toml does not define the check no-such-check")
+        plan["covered"] = [dict(FIXTURE_COVERED, check={"file": "hk.pkl", "name": "no-such-check"})]
+        self.assertRefused(plan, "hk.pkl does not define the check no-such-check")
 
     def test_a_free_text_gate_check_cannot_close_anything(self):
         plan = json.loads(PLAN.read_text())
@@ -212,6 +244,11 @@ class Refused(Pass):
         plan = json.loads(PLAN.read_text())
         plan["clusters"][0]["reason"] = "two\nlines"
         self.assertRefused(plan, "cluster 1 needs a one-line reason")
+
+    def test_a_run_id_with_spaces_is_refused(self):
+        result = self.run_pass(run_id="bad id")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("run id", result.stderr)
 
 
 class Policy(Pass):
@@ -256,6 +293,20 @@ class Policy(Pass):
         self.assertIn("- #3 (score 2)", result.stdout)
         self.assertNotIn("- #7 (score", result.stdout)
 
+
+class Proposals(Pass):
+    def test_the_empty_plan_proposes_the_named_clusters_as_components(self):
+        self.write_plan({"clusters": [], "covered": []})
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        groups = proposal_members(result.stdout)
+        self.assertTrue(all(len(group) <= module.MAX_PROPOSAL for group in groups), groups)
+        recovered = [
+            named for named in NAMED_CLUSTERS
+            if any(set(named) <= set(group) for group in groups)
+        ]
+        self.assertGreaterEqual(len(recovered), 3, recovered)
+
     def test_near_titles_are_proposed_and_never_applied(self):
         state = fixture_state()
         state["issues"]["1001"] = {
@@ -269,7 +320,7 @@ class Policy(Pass):
         self.write_state(state)
         result = self.run_pass()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("- #1001, #1002 (shared title words: mise, profile, reject, runtime)", result.stdout)
+        self.assertIn("#1001, #1002 (shared terms:", result.stdout)
         self.assertEqual(self.read_state()["issues"]["1001"]["state"], "OPEN")
         self.assertEqual(self.read_state()["issues"]["1002"]["state"], "OPEN")
 

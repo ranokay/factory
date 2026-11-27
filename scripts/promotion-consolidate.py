@@ -3,10 +3,12 @@
 import argparse
 import datetime as dt
 import json
+import math
 import re
 import subprocess  # nosec B404 -- gh runs with an argument list, never a shell
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -22,7 +24,10 @@ PUSHBACK_LABEL = "needs-triage"
 BLOCKING_LABELS = frozenset({"ready-for-agent", "wontfix"})
 TOP_DEFAULT = 5
 TRACKING_LIST_LIMIT = 1000
-JACCARD_THRESHOLD = 0.25
+PROPOSAL_THRESHOLD = 0.25
+MAX_PROPOSAL = 6
+RUN_ID_RE = re.compile(r"[A-Za-z0-9.:-]{1,64}")
+GATE_RE = re.compile(r"### Gate check\s*\n(.*)", re.S)
 TRACKING_MARKER = "<!-- factory:promotion-consolidate-tracking -->"
 PUSHBACK_MARKER = "<!-- factory:promotion-pushback -->"
 MERGED_PREFIX = "<!-- factory:promotion-merged into="
@@ -37,7 +42,8 @@ OCCURRENCE_RE = re.compile(
 CORRECTION_RE = re.compile(r"### Correction\s*\n(.*?)(?=\n### Gate check|\Z)", re.S)
 STOPWORDS = frozenset(
     "a an and any are as at be by each every for from in into is it not of on or only out "
-    "outside the this that to when while with without must new".split()
+    "outside the this that to when while with without must new has have was were its their "
+    "than then so if but which who what do does did one two also via".split()
 )
 
 
@@ -69,13 +75,34 @@ def occurrences(body):
     return [collapsed] if collapsed else []
 
 
-def tokens(title):
-    words = re.findall(r"[a-z0-9][a-z0-9.+/-]*", title.lower())
-    return {word for word in words if word not in STOPWORDS and len(word) > 1}
+def tokens(text):
+    words = re.findall(r"[a-z][a-z0-9]+", text.lower())
+    return [word for word in words if word not in STOPWORDS and len(word) > 2]
 
 
-def jaccard(first, second):
-    return len(first & second) / len(first | second)
+def document(item):
+    correction = CORRECTION_RE.search(item["body"])
+    gate = GATE_RE.search(item["body"])
+    return " ".join([item["title"], correction.group(1) if correction else "", gate.group(1) if gate else ""])
+
+
+def weights(pool, promotions):
+    counts = {n: Counter(tokens(document(promotions[n]))) for n in pool}
+    frequency = Counter()
+    for count in counts.values():
+        frequency.update(count.keys())
+    idf = {word: math.log((1 + len(pool)) / (1 + df)) + 1 for word, df in frequency.items()}
+    vectors = {}
+    for number, count in counts.items():
+        raw = {word: tf * idf[word] for word, tf in count.items()}
+        norm = math.sqrt(sum(value * value for value in raw.values())) or 1.0
+        vectors[number] = {word: value / norm for word, value in raw.items()}
+    return vectors
+
+
+def cosine(first, second):
+    small, large = (first, second) if len(first) <= len(second) else (second, first)
+    return sum(weight * large.get(word, 0.0) for word, weight in small.items())
 
 
 def survivor_of(members):
@@ -271,7 +298,11 @@ def run(args):
         print("promotion-consolidate: the plan is refused; nothing was written", file=sys.stderr)
         return 1
 
-    date = args.date or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    now = dt.datetime.now(dt.timezone.utc)
+    date = args.date or now.strftime("%Y-%m-%d")
+    run_id = args.run_id or now.strftime("%Y%m%dT%H%M%S.%fZ")
+    if not RUN_ID_RE.fullmatch(run_id):
+        raise Refusal(f"run id {run_id!r} must be 1 to 64 letters, digits, dots, colons or hyphens")
     planned = planned_closures(plan)
     open_now = [n for n, item in promotions.items() if item["state"] == "OPEN"]
     closed_at_start = [n for n in planned if promotions[n]["state"] == "CLOSED"]
@@ -373,13 +404,13 @@ def run(args):
                 )
             sent.append((number, score, promotions[number]["title"]))
 
-        proposals = propose(promotions, in_plan)
+        proposals, oversized = propose(promotions, in_plan)
 
         tracking = find_tracking(args.repo)
         if tracking is None:
             path = runner.file(
                 f"{TRACKING_MARKER}\n# Promotion backlog consolidation\n\n"
-                "The weekly promotion consolidation pass posts one summary comment per day here. "
+                "The weekly promotion consolidation pass posts one summary comment per run here. "
                 "Its merges, covered closures and pushback handoffs are listed in those comments."
             )
             url = runner.write(
@@ -393,10 +424,10 @@ def run(args):
                 tracking = int(url.strip().rstrip("/").split("/")[-1])
 
         summary = render_summary(
-            date, args.dry_run, before, after, merged, covered_done, sent, proposals
+            run_id, date, args.dry_run, before, after, merged, covered_done, sent, proposals, oversized
         )
         summary_path = runner.file(summary)
-        post_summary(args, runner, tracking, date, summary_path)
+        post_summary(args, runner, tracking, run_id, summary_path)
 
         if args.dry_run:
             print("DRY RUN: nothing was written. Writes that a live run would make:")
@@ -418,32 +449,22 @@ def find_tracking(repo):
     return matches[0] if matches else None
 
 
-def post_summary(args, runner, tracking, date, path):
-    marker = f"<!-- factory:promotion-consolidate-run date={date} -->"
+def post_summary(args, runner, tracking, run_id, path):
+    marker = f"<!-- factory:promotion-consolidate-run id={run_id} -->"
     if tracking is None:
-        runner.write("post the day's summary on the new tracking issue", "issue", "comment", "new")
+        runner.write("post the run's summary on the new tracking issue", "issue", "comment", "new")
         return
-    existing = [c for c in issue_comments(args.repo, tracking) if marker in c["body"]]
-    if existing:
-        match = re.search(r"issuecomment-(\d+)", existing[0].get("url") or "")
-        if not match:
-            raise Refusal(f"the day's summary on #{tracking} has no comment id")
-        comment_id = match.group(1)
-        runner.write(
-            f"edit the {date} summary on #{tracking}",
-            "api", "-X", "PATCH", f"repos/{args.repo}/issues/comments/{comment_id}",
-            "-F", f"body=@{path}",
-        )
-    else:
-        runner.write(
-            f"post the {date} summary on #{tracking}",
-            "issue", "comment", str(tracking), "-R", args.repo, "--body-file", path,
-        )
+    if any(marker in comment["body"] for comment in issue_comments(args.repo, tracking)):
+        return
+    runner.write(
+        f"post the run {run_id} summary on #{tracking}",
+        "issue", "comment", str(tracking), "-R", args.repo, "--body-file", path,
+    )
 
 
 def propose(promotions, in_plan):
-    pool = [n for n, item in promotions.items() if item["state"] == "OPEN" and n not in in_plan]
-    pool.sort()
+    pool = sorted(n for n, item in promotions.items() if item["state"] == "OPEN" and n not in in_plan)
+    vectors = weights(pool, promotions)
     parent = {n: n for n in pool}
 
     def find(number):
@@ -452,27 +473,31 @@ def propose(promotions, in_plan):
             number = parent[number]
         return number
 
-    words = {n: tokens(promotions[n]["title"]) for n in pool}
     for index, first in enumerate(pool):
         for second in pool[index + 1 :]:
-            if jaccard(words[first], words[second]) >= JACCARD_THRESHOLD:
+            if cosine(vectors[first], vectors[second]) >= PROPOSAL_THRESHOLD:
                 parent[find(first)] = find(second)
     groups = {}
     for number in pool:
         groups.setdefault(find(number), []).append(number)
-    proposals = []
+    proposals, oversized = [], []
     for members in groups.values():
         if len(members) < 2:
             continue
-        shared = set.intersection(*(words[m] for m in members))
-        proposals.append((sorted(members), sorted(shared)))
-    return sorted(proposals)
+        members.sort()
+        if len(members) > MAX_PROPOSAL:
+            oversized.append(members)
+            continue
+        common = set.intersection(*(set(vectors[m]) for m in members))
+        ranked = sorted(common, key=lambda word: (-sum(vectors[m][word] for m in members), word))
+        proposals.append((members, ranked[:3]))
+    return sorted(proposals), sorted(oversized)
 
 
-def render_summary(date, dry_run, before, after, merged, covered_done, sent, proposals):
+def render_summary(run_id, date, dry_run, before, after, merged, covered_done, sent, proposals, oversized):
     lines = [
-        f"<!-- factory:promotion-consolidate-run date={date} -->",
-        f"## Promotion consolidation, {date}",
+        f"<!-- factory:promotion-consolidate-run id={run_id} -->",
+        f"## Promotion consolidation, {date}, run {run_id}",
         "",
         f"Mode: {'dry run, nothing written' if dry_run else 'live'}. "
         f"Open promotions: {before} before, {after} after this run.",
@@ -485,12 +510,12 @@ def render_summary(date, dry_run, before, after, merged, covered_done, sent, pro
             lines.append(f"- #{survivor} (survivor) absorbs {links}; {count} occurrences: {reason}")
     else:
         lines.append("None.")
-    lines += ["", "### Closed as covered"]
     if covered_done:
+        lines += ["", "### Closed as covered"]
         for number, check, reason in covered_done:
             lines.append(f"- #{number} covered by `{check}`: {reason}")
     else:
-        lines.append("None.")
+        lines += ["", "Closed as covered: none."]
     lines += ["", f"### Sent to pushback (`{PUSHBACK_LABEL}`, top {len(sent)})"]
     if sent:
         for number, score, title in sent:
@@ -502,11 +527,14 @@ def render_summary(date, dry_run, before, after, merged, covered_done, sent, pro
         for members, shared in proposals:
             joined = ", ".join(f"#{n}" for n in members)
             words = ", ".join(shared) if shared else "none"
-            lines.append(f"- {joined} (shared title words: {words})")
-        lines.append("")
-        lines.append("Confirm a proposal by adding it to `scripts/promotion-consolidation.json`.")
+            lines.append(f"- {joined} (shared terms: {words})")
     else:
         lines.append("None.")
+    for members in oversized:
+        joined = ", ".join(f"#{n}" for n in members)
+        lines.append(f"- not proposed, {len(members)} members is over the cap of {MAX_PROPOSAL}: {joined}")
+    if proposals or oversized:
+        lines += ["", "Confirm a proposal by adding it to `scripts/promotion-consolidation.json`."]
     return "\n".join(lines) + "\n"
 
 
@@ -516,6 +544,7 @@ def main(argv=None):
     parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name of the Factory repository")
     parser.add_argument("--root", type=Path, default=ROOT, help="checkout whose check files are verified")
     parser.add_argument("--date", help="summary date, YYYY-MM-DD (default: today, UTC)")
+    parser.add_argument("--run-id", help="this run's id; a resumed run passes the same id (default: a UTC timestamp)")
     parser.add_argument("--top", type=int, default=TOP_DEFAULT, help="survivors sent to pushback per run")
     parser.add_argument("--dry-run", action="store_true", help="print what a run would do and write nothing")
     args = parser.parse_args(argv)
