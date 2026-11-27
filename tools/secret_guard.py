@@ -24,6 +24,7 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
+VERSION_CACHE = Path.home() / ".cache" / "factory" / "secret-guard" / "gitleaks-version"
 GITLEAKS_TIMEOUT = 10
 MAX_DECODE_DEPTH = 5
 # Stdin pipe reads can split greedy decoding; use a conservative 4 KiB ceiling for whole-string prefiltering.
@@ -47,7 +48,7 @@ ENCODING_RE_JOINED = re.compile(
     re.ASCII,
 )
 FALLBACK_RULES = (
-    ("curl-auth-user", re.compile(r"\bcurl\b[\s\S]*?[ \t](?:-u|--user)(?:=|[ \t]+)(?:'[^']*:[^']+'|\"[^\"]*:[^\"]+\"|[^\s:]*:[^\s]+)", re.IGNORECASE)),
+    ("curl-auth-user", re.compile(r"\bcurl\b[\s\S]{0,1000}?[ \t](?:-u|--user)(?:=|[ \t]+)(?:'[^']*:[^']+'|\"[^\"]*:[^\"]+\"|[^\s:]*:[^\s]+)", re.IGNORECASE)),
     ("private-key", re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
     ("aws-access-key-id", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
     ("github-token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b")),
@@ -55,6 +56,11 @@ FALLBACK_RULES = (
     ("anthropic-api-key", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b")),
     ("openai-api-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
     ("google-api-key", re.compile(r"\bAIza[A-Za-z0-9_-]{35}\b")),
+    ("gitlab-token", re.compile(r"\bgl(?:pat|dt|ptt|rt)-[A-Za-z0-9_-]{20,}")),
+    ("stripe-access-token", re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b")),
+    ("sendgrid-api-token", re.compile(r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}")),
+    ("npm-access-token", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
+    ("twilio-api-key", re.compile(r"\bSK[0-9a-fA-F]{32}\b")),
     (
         "literal-credential",
         re.compile(
@@ -325,17 +331,50 @@ def needs_gitleaks(text: str) -> bool:
     return False
 
 
+def gitleaks_version_error(gitleaks: str) -> str | None:
+    """Return why the scanner cannot be trusted, caching a match per binary and pin."""
+    pinned = pinned_gitleaks_version()
+    if pinned is None:
+        return "the pinned gitleaks version is unreadable"
+    try:
+        stat = Path(gitleaks).resolve().stat()
+    except OSError:
+        return "gitleaks could not start"
+    key = f"{Path(gitleaks).resolve()}:{stat.st_mtime_ns}:{stat.st_size}:{pinned}"
+    try:
+        if VERSION_CACHE.read_text() == key:
+            return None
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(
+            [gitleaks, "version"], capture_output=True, text=True, cwd=ROOT, timeout=GITLEAKS_TIMEOUT, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return f"gitleaks timed out after {GITLEAKS_TIMEOUT} seconds"
+    except OSError:
+        return "gitleaks could not start"
+    reported = result.stdout.strip().removeprefix("v")
+    if result.returncode != 0 or reported != pinned:
+        return f"gitleaks {reported or 'unknown'} found, {pinned} pinned"
+    try:
+        VERSION_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        VERSION_CACHE.write_text(key)
+    except OSError:
+        pass
+    return None
+
+
 def rule_ids(text: str) -> tuple[list[str], str | None]:
     executable = shutil.which("gitleaks")
-    if not needs_gitleaks(text):
-        if executable is None:
-            findings, warning = fallback_scan(text, "gitleaks not found")
-            if findings:
-                return findings, warning
-        return [], None
     if executable is None:
         return fallback_scan(text, "gitleaks not found")
+    if not needs_gitleaks(text):
+        return [], None
     gitleaks = str(Path(executable).absolute())
+    version_error = gitleaks_version_error(gitleaks)
+    if version_error:
+        return fallback_scan(text, version_error)
     try:
         result = subprocess.run(
             [
@@ -353,8 +392,7 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
                 "--max-decode-depth",
                 str(MAX_DECODE_DEPTH),
             ],
-            input=text,
-            text=True,
+            input=text.encode("utf-8", "surrogatepass"),
             capture_output=True,
             # A mise shim resolves its version from the working directory; use the Factory's pin in every project.
             cwd=ROOT,
@@ -372,7 +410,7 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
     if result.returncode == 0:
         return [], None
     try:
-        findings = json.loads(result.stdout)
+        findings = json.loads(result.stdout.decode("utf-8", "replace"))
         if not isinstance(findings, list) or not findings:
             raise ValueError("gitleaks returned no findings")
         ids = sorted({finding["RuleID"] for finding in findings})

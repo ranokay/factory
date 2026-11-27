@@ -265,3 +265,20 @@ test("fails closed when the guard runner is missing", async () => {
     await assert.rejects(() => hook({ tool: "read" }, { args: { path: "file.txt" } }), /failed closed/)
   })
 })
+
+test("kills the guard process group when the runner closes stdin early", async () => {
+  await withGuard(null, async (hook, home) => {
+    const runner = join(home, ".agents", "tools", "run")
+    mkdirSync(join(home, ".agents", "tools"), { recursive: true })
+    writeFileSync(
+      runner,
+      `#!/bin/sh\nexec 0<&-\n( sleep 2; : >"$HOME/grandchild-ran" ) &\nprintf '%s\\n' "$!" >"$HOME/guard-grandchild.pid"\nsleep 30\n`,
+    )
+    chmodSync(runner, 0o755)
+    const started = Date.now()
+    await assert.rejects(() => hook({ tool: "write" }, { args: { content: "x".repeat(1 << 20) } }), /failed closed/)
+    assert.ok(Date.now() - started < 10000)
+    await new Promise((resolve) => setTimeout(resolve, 2500))
+    assert.equal(existsSync(join(home, "grandchild-ran")), false)
+  })
+}, 20000)

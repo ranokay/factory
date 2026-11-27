@@ -47,10 +47,20 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
     const child = spawn(runner, ["secret_guard", "opencode"], { detached: true, stdio: ["pipe", "pipe", "ignore"] })
     let stdout = ""
     let settled = false
+    // The runner may exit while a descendant still holds stdout, so kill the whole group.
+    const killGroup = () => {
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL")
+        else child.kill("SIGKILL")
+      } catch {
+        child.kill("SIGKILL")
+      }
+    }
     const fail = () => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      killGroup()
       reject(failedClosed())
     }
     const finish = (code: number | null) => {
@@ -80,15 +90,7 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
       clearTimeout(timer)
       resolve(result as GuardResult)
     }
-    const timer = setTimeout(() => {
-      try {
-        if (child.pid) process.kill(-child.pid, "SIGKILL")
-        else child.kill("SIGKILL")
-      } catch {
-        child.kill("SIGKILL")
-      }
-      fail()
-    }, 15000)
+    const timer = setTimeout(fail, 15000)
     child.stdout.setEncoding("utf8")
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk
