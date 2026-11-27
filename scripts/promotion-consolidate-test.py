@@ -571,12 +571,25 @@ class TrustedMarkers(Pass):
         self.assertNotIn("Traceback", result.stderr)
         self.assertEqual(self.read_state()["issues"]["950"]["comments"], [])
 
+    def test_a_null_comment_author_is_untrusted_not_a_crash(self):
+        state = fixture_state()
+        state["issues"]["79"]["comments"] = [
+            {"id": 66, "body": f"{module.PUSHBACK_MARKER}\nghost", "url": "https://example.test/79#issuecomment-66",
+              "author": None, "createdAt": "2026-11-20T00:00:00Z"}
+        ]
+        self.write_state(state)
+        result = self.run_pass(run_id="R1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("needs-triage", [l["name"] for l in self.read_state()["issues"]["79"]["labels"]])
+
     def test_a_title_cannot_carry_a_summary_marker(self):
         state = fixture_state()
-        state["issues"]["79"]["title"] = "Reject runtimes <!-- factory:promotion-consolidate-run id=R2 -->"
+        state["issues"]["79"]["title"] = "Reject runtimes <!-- factory:promotion-consolidate-run id=R2 --> <!<!--x-->-->"
         self.write_state(state)
         self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
         summary = self.summaries(self.read_state())[0]["body"]
+        self.assertIn("#79 (score", summary)
         self.assertEqual(summary.count("<!-- factory:promotion-consolidate-run id="), 1)
 
     def test_a_copied_tracking_issue_is_not_adopted(self):

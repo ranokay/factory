@@ -272,11 +272,14 @@ def load_promotions(repo):
 
 
 def author_login(item):
-    return (item.get("author") or {}).get("login")
+    author = item["author"]
+    return None if author is None else author["login"]
 
 
 def plain(text):
-    return text.replace("<!--", "").replace("-->", "")
+    while "<!--" in text or "-->" in text:
+        text = text.replace("<!--", "").replace("-->", "")
+    return text
 
 
 def fetch_login(repo):
