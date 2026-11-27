@@ -116,7 +116,9 @@ def cosine(first, second):
     return sum(weight * large.get(word, 0.0) for word, weight in small.items())
 
 
-RESHAPED_RE = re.compile(r"(?:^|\n)## Reshaped scope\n.*?(?=\n## |\Z)", re.S)
+RESHAPED_RE = re.compile(
+    r"(?:^|\n)## Reshaped scope\n.*?(?=\n## |\n### Merged occurrences|\n<!-- factory:promotion-links|\Z)", re.S
+)
 
 
 def reshaped_scope(body):
@@ -503,7 +505,7 @@ def run(args):
         for cluster in plan["clusters"]:
             members = sorted(cluster["members"])
             survivor, sources = members[0], members[1:]
-            if completed(members, promotions, trust):
+            if all(n in promotions for n in members) and completed(members, promotions, trust):
                 finished.append(survivor)
                 continue
             survivor_issue = promotions[survivor]

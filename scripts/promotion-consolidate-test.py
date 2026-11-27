@@ -719,7 +719,7 @@ class Occurrences(Pass):
         self.assertEqual(self.writes(), [])
 
 
-class ReviewRoundFour(Pass):
+class CompletionAndReshapes(Pass):
     def merged(self, number, comment_author="ranokay"):
         return {"id": 300 + number, "body": f"{module.MERGED_PREFIX}79 -->",
                 "url": f"https://example.test/{number}#issuecomment-{300 + number}",
@@ -768,6 +768,19 @@ class ReviewRoundFour(Pass):
         second = self.run_pass(run_id="R2")
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertFalse(any(a[:3] == ["issue", "edit", "79"] for a in self.writes()))
+
+    def test_a_reshape_placed_above_the_merge_blocks_does_not_duplicate_them(self):
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
+        state = self.read_state()
+        body = state["issues"]["79"]["body"]
+        head, managed = body.split("<!-- factory:promotion-links -->", 1)
+        state["issues"]["79"]["body"] = head + "## Reshaped scope\n\nNarrow it.\n\n<!-- factory:promotion-links -->" + managed
+        self.write_state(state)
+        self.assertEqual(self.run_pass(run_id="R2").returncode, 0)
+        body = self.read_state()["issues"]["79"]["body"]
+        self.assertEqual(body.count("<!-- factory:promotion-links -->"), 1)
+        self.assertEqual(body.count("<!-- factory:promotion-occurrence source=80 -->"), 1)
+        self.assertIn("Narrow it.", body)
 
     def test_a_source_keeps_the_blocks_it_absorbed_earlier(self):
         plan = json.loads(PLAN.read_text())
