@@ -348,14 +348,16 @@ class SecretGuardTests(unittest.TestCase):
                     self.assertNotIn(token, result.stdout + result.stderr)
                     self.assertNotIn(payload, result.stdout + result.stderr)
 
-    def test_long_mixed_encoding_forces_gitleaks_across_fragment_boundaries(self):
+    def test_long_mixed_encoding_skips_the_prefilter_and_runs_gitleaks(self):
         token, payload = long_mixed_fixture()
         self.assertGreater(len(payload.encode()), 4096)
-        result = self.invoke("prompt", {"prompt": payload})
+        scanner = "#!/bin/sh\n/bin/cat >/dev/null\nprintf '%s' '[{\"RuleID\":\"scanner-only-rule\"}]'\nexit 1\n"
+        with tempfile.TemporaryDirectory() as bin_dir:
+            env = self.fake_gitleaks(Path(bin_dir), scanner)
+            result = self.invoke("prompt", {"prompt": payload}, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         output = json.loads(result.stdout)
-        self.assertEqual(output["decision"], "block")
-        self.assertIn("context7-key-token", output["reason"])
+        self.assertEqual(output["reason"], "Factory secret guard: scanner-only-rule")
         self.assertNotIn(token, result.stdout + result.stderr)
         self.assertNotIn(payload, result.stdout + result.stderr)
 
