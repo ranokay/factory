@@ -128,6 +128,38 @@ class ReviewRequests(unittest.TestCase):
         self.assertEqual(len(writes), 2)
         self.assertFalse(any("@greptileai" in str(write) for write in writes))
 
+    def test_coderabbit_skip_notice_does_not_prevent_a_request(self):
+        skip = {
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "<!-- coderabbit-ai-generated:v1 -->\n## Review skipped\nAuto reviews are disabled on this repository. To trigger a single review, invoke the `@coderabbitai review` command.",
+        }
+        result, writes = self.invoke({"comments": [skip]})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(writes), 3)
+        self.assertIn(
+            "@coderabbitai review\n\n<!-- factory:advisory-review:coderabbit -->",
+            [write[-1] for write in writes],
+        )
+        self.assertIn("@greptileai\n\n<!-- factory:advisory-review:greptile -->", [write[-1] for write in writes])
+
+    def test_rate_limit_and_placeholder_comments_still_prevent_requests(self):
+        comments = [
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- coderabbit-ai-generated:v1 -->\n## Review rate limited\nYou have reached your review limit.",
+            },
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- coderabbit-ai-generated:v1 -->\nCurrently processing new changes in this PR.",
+            },
+        ]
+        for comment in comments:
+            with self.subTest(body=comment["body"]):
+                result, writes = self.invoke({"comments": [comment]})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(writes), 2)
+                self.assertFalse(any("@coderabbitai review" in str(write) for write in writes))
+
 
 if __name__ == "__main__":
     unittest.main()

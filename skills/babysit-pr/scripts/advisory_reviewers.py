@@ -24,6 +24,8 @@ REVIEWERS = {
         "command": None,
         "marker": None,
         "summary_markers": (),
+        "summary_edits_terminal": False,
+        "completion_markers": (),
         "skip_phrases": {"insufficient remaining quota": "quota"},
     },
     "coderabbit": {
@@ -33,6 +35,8 @@ REVIEWERS = {
         "command": "@coderabbitai review",
         "marker": "<!-- factory:advisory-review:coderabbit -->",
         "summary_markers": ("summarize by coderabbit.ai",),
+        "summary_edits_terminal": False,
+        "completion_markers": ("review finished",),
         "skip_phrases": {
             "review skipped": "review skipped",
             "skip review by coderabbit.ai": "review skipped",
@@ -46,6 +50,8 @@ REVIEWERS = {
         "command": "@greptileai",
         "marker": "<!-- factory:advisory-review:greptile -->",
         "summary_markers": ("<!-- greptile_summary -->",),
+        "summary_edits_terminal": False,
+        "completion_markers": (),
         "skip_phrases": {},
     },
 }
@@ -57,6 +63,18 @@ PLACEHOLDERS = (
     "greptile is reviewing",
     "currently reviewing",
 )
+STATUS_SCAN_CHARS = 600
+# CodeRabbit and Greptile put status text at the top of a comment; their later walkthroughs can quote status or placeholder text from the diff (https://github.com/Jgocunha/dynamic-neural-field-composer/pull/80).
+
+
+def activity_status(name, item):
+    body = (item.get("body") or "").lower()[:STATUS_SCAN_CHARS]
+    if any(marker in body for marker in PLACEHOLDERS):
+        return "placeholder"
+    for phrase, reason in REVIEWERS[name]["skip_phrases"].items():
+        if phrase in body:
+            return reason
+    return "activity"
 
 
 def gh(*args):
