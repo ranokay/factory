@@ -274,6 +274,21 @@ class Policy(Pass):
         self.assertEqual(self.read_state()["issues"]["1002"]["state"], "OPEN")
 
 
+class TrackingLookup(Pass):
+    def test_refuses_when_the_listing_reaches_its_cap(self):
+        state = fixture_state()
+        for number in range(2000, 3000):
+            state["issues"][str(number)] = {
+                "number": number, "title": "unrelated", "body": "", "state": "OPEN",
+                "createdAt": "2026-11-27T00:00:00Z", "labels": [], "comments": [],
+            }
+        self.write_state(state)
+        self.write_plan({"clusters": [], "covered": []})
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("1000-issue cap", result.stderr)
+
+
 class CheckFiles(unittest.TestCase):
     def test_each_format_is_matched_by_its_definition(self):
         module.check_defined(ROOT, {"file": ".gitleaks.toml", "name": "context7-key-token"})

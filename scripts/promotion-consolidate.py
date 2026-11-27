@@ -172,7 +172,8 @@ def has_marker(repo, number, marker):
 
 
 def closed_by_pass(repo, number):
-    return has_marker(repo, number, MERGED_PREFIX) or has_marker(repo, number, COVERED_PREFIX)
+    bodies = [comment["body"] for comment in issue_comments(repo, number)]
+    return any(MERGED_PREFIX in body or COVERED_PREFIX in body for body in bodies)
 
 
 def validate(plan, promotions, repo, root):
@@ -408,6 +409,8 @@ def find_tracking(repo):
     found = json.loads(
         gh("issue", "list", "-R", repo, "--state", "all", "--limit", "1000", "--json", "number,body")
     )
+    if len(found) >= 1000:
+        raise Refusal("the tracking issue lookup reached its 1000-issue cap; it cannot prove there is one tracking issue")
     matches = [item["number"] for item in found if TRACKING_MARKER in item["body"]]
     if len(matches) > 1:
         raise Refusal(f"more than one tracking issue carries the marker: {matches}")
@@ -522,6 +525,9 @@ def main(argv=None):
         return 1
     except RuntimeError as error:
         print(f"promotion-consolidate: {error}; re-run to finish the remaining steps", file=sys.stderr)
+        return 1
+    except (KeyError, TypeError) as error:
+        print(f"promotion-consolidate: gh returned JSON without the expected field {error}", file=sys.stderr)
         return 1
 
 
