@@ -13,9 +13,8 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-UNSAFE_REGEX = re.compile(
-    r"\[\[:|\\[zCQEpP]|\(\?U(?::|\))|\(\?<[A-Za-z]|\\[1-9]|\(\?(?:=|!|<=|<!)"
-)
+sys.path.insert(0, str(ROOT / "tools"))
+from gitleaks_regex import UNSAFE_REGEX, translate_fallback_regex
 
 
 def digest(value: object) -> str:
@@ -34,7 +33,7 @@ def classify_rule(rule: dict, samples: list[dict[str, str]], *, factory_rule: bo
     if UNSAFE_REGEX.search(regex):
         return False, "RE2 syntax differs from Python"
     try:
-        pattern = re.compile(regex, re.ASCII)
+        pattern = re.compile(translate_fallback_regex(regex), re.ASCII)
     except re.error:
         return False, "Python regex compilation failed"
     if not factory_rule and not samples:

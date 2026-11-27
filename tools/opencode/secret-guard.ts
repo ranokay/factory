@@ -35,6 +35,15 @@ function failedClosed(): Error {
 function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardResult> {
   return new Promise((resolve, reject) => {
     const runner = join(process.env.HOME || homedir(), ".agents", "tools", "run")
+    let encoded: string
+    try {
+      const payload = JSON.stringify({ tool, input })
+      if (typeof payload !== "string") throw new TypeError("guard input is not JSON serializable")
+      encoded = payload
+    } catch {
+      reject(failedClosed())
+      return
+    }
     const child = spawn(runner, ["secret_guard", "opencode"], { stdio: ["pipe", "pipe", "ignore"] })
     let stdout = ""
     let settled = false
@@ -62,7 +71,7 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
         result === null ||
         typeof result.block !== "boolean" ||
         (result.block && typeof result.message !== "string") ||
-        (!result.block && result.warning !== undefined && typeof result.warning !== "string")
+        (result.warning !== undefined && typeof result.warning !== "string")
       ) {
         fail()
         return
@@ -82,30 +91,35 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
     child.once("error", fail)
     child.once("close", finish)
     child.stdin.once("error", fail)
-    child.stdin.end(JSON.stringify({ tool, input }))
+    child.stdin.end(encoded)
   })
 }
 
 async function showWarning(context: PluginContext, warning: string, sessionID?: string): Promise<void> {
-  if (context.ui?.toast?.show) {
-    context.ui.toast.show({
-      title: "Factory secret guard warning",
-      message: warning,
-      variant: "error",
-      duration: 10000,
-    })
-    return
-  }
-  if (context.client?.tui?.showToast) {
-    await context.client.tui.showToast({ body: { message: warning, variant: "error" } })
-    return
-  }
-  if (context.session?.synthetic && sessionID) {
-    await context.session.synthetic({
-      sessionID,
-      text: warning,
-      description: "Factory secret guard warning",
-    })
+  try {
+    if (context.ui?.toast?.show) {
+      context.ui.toast.show({
+        title: "Factory secret guard warning",
+        message: warning,
+        variant: "error",
+        duration: 10000,
+      })
+      return
+    }
+    if (context.client?.tui?.showToast) {
+      await context.client.tui.showToast({ body: { message: warning, variant: "error" } })
+      return
+    }
+    if (context.session?.synthetic && sessionID) {
+      await context.session.synthetic({
+        sessionID,
+        text: warning,
+        description: "Factory secret guard warning",
+      })
+      return
+    }
+  } catch {
+    console.warn(warning)
     return
   }
   console.warn(warning)

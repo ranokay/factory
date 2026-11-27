@@ -3,7 +3,7 @@
   "source": "https://raw.githubusercontent.com/gitleaks/gitleaks/v8.30.1/config/gitleaks.toml",
   "default_rule_count": 222,
   "default_rules_sha256": "3f143eac780c94c929261e83431997d27329cc53d16545bcd953e2550dcb7509",
-  "rules_sha256": "c3810aeac26a07c52b04034f91760d0d8b83b6bf8f88ee30617ec4231de52e73",
+  "rules_sha256": "910dcae132286f7e90b1363141d7e65e27d5dd580e6aff66ab321a20b4bc0e34",
   "keywords": [
     "-----begin",
     "4b1d",
@@ -303,8 +303,8 @@
         "p8e-"
       ],
       "regex": "\\b(p8e-(?i)[a-z0-9]{32})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "age-secret-key",
@@ -348,8 +348,8 @@
         "ltai"
       ],
       "regex": "\\b(LTAI(?i)[a-z0-9]{20})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "alibaba-secret-key",
@@ -435,8 +435,8 @@
         "scauth_"
       ],
       "regex": "\\b((?:sc|ext|scauth|authress)_(?i)[a-z0-9]{5,30}\\.[a-z0-9]{4,6}\\.(?-i:acc)[_-][a-z0-9-]{10,32}\\.[a-z0-9+/_=-]{30,120})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "aws-access-token",
@@ -747,8 +747,8 @@
         "dp.pt."
       ],
       "regex": "dp\\.pt\\.(?i)[a-z0-9]{43}",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "droneci-access-token",
@@ -792,8 +792,8 @@
         "duffel_"
       ],
       "regex": "duffel_(?:test|live)_(?i)[a-z0-9_\\-=]{43}",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "dynatrace-api-token",
@@ -801,8 +801,8 @@
         "dt0c01."
       ],
       "regex": "dt0c01\\.(?i)[a-z0-9]{24}\\.[a-z0-9]{64}",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "easypost-api-token",
@@ -810,8 +810,8 @@
         "ezak"
       ],
       "regex": "\\bEZAK(?i)[a-z0-9]{54}\\b",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "easypost-test-api-token",
@@ -819,8 +819,8 @@
         "eztk"
       ],
       "regex": "\\bEZTK(?i)[a-z0-9]{54}\\b",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "etsy-access-token",
@@ -847,8 +847,8 @@
         "eaam"
       ],
       "regex": "\\b(EAA[MC](?i)[a-z0-9]{100,})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "facebook-secret",
@@ -910,8 +910,8 @@
         "flwseck_test"
       ],
       "regex": "FLWSECK_TEST-(?i)[a-h0-9]{12}",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "flutterwave-public-key",
@@ -919,8 +919,8 @@
         "flwpubk_test"
       ],
       "regex": "FLWPUBK_TEST-(?i)[a-h0-9]{32}-X",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "flutterwave-secret-key",
@@ -928,8 +928,8 @@
         "flwseck_test"
       ],
       "regex": "FLWSECK_TEST-(?i)[a-h0-9]{32}-X",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "flyio-access-token",
@@ -948,8 +948,8 @@
         "fio-u-"
       ],
       "regex": "fio-u-(?i)[a-z0-9\\-_=]{64}",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "freemius-secret-key",
@@ -1193,8 +1193,8 @@
         "live_"
       ],
       "regex": "(?i)[\\w.-]{0,50}?(?:gocardless)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(live_(?i)[a-z0-9\\-_=]{40})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "grafana-api-key",
@@ -1323,8 +1323,8 @@
         "s-s4t2ud-"
       ],
       "regex": "\\b(s-s4t2(?:ud|af)-(?i)[abcdef0123456789]{64})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "jfrog-api-key",
@@ -1419,8 +1419,8 @@
         "lin_api_"
       ],
       "regex": "lin_api_(?i)[a-z0-9]{40}",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "linear-client-secret",
@@ -1769,8 +1769,8 @@
         "pscale_tkn_"
       ],
       "regex": "\\b(pscale_tkn_(?i)[\\w=\\.-]{32,64})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "planetscale-oauth-token",
@@ -1787,8 +1787,8 @@
         "pscale_pw_"
       ],
       "regex": "(?i)\\b(pscale_pw_(?i)[\\w=\\.-]{32,64})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "postman-api-token",
@@ -1796,8 +1796,8 @@
         "pmak-"
       ],
       "regex": "\\b(PMAK-(?i)[a-f0-9]{24}\\-[a-f0-9]{34})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "prefect-api-token",
@@ -1906,8 +1906,8 @@
         "sg."
       ],
       "regex": "\\b(SG\\.(?i)[a-z0-9=_\\-\\.]{66})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "sendinblue-api-token",
@@ -1915,8 +1915,8 @@
         "xkeysib-"
       ],
       "regex": "\\b(xkeysib-[a-f0-9]{64}\\-(?i)[a-z0-9]{16})(?:[\\x60'\"\\s;]|\\\\[nr]|$)",
-      "python_safe": false,
-      "python_unsafe_reason": "Python regex compilation failed"
+      "python_safe": true,
+      "python_unsafe_reason": null
     },
     {
       "id": "sentry-access-token",

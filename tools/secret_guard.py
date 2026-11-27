@@ -6,6 +6,7 @@ import argparse
 import base64
 import binascii
 import functools
+import gzip
 import json
 import re
 import shutil
@@ -13,7 +14,13 @@ import string
 import subprocess
 import sys
 import tomllib
+import zlib
 from pathlib import Path
+
+try:
+    from tools.gitleaks_regex import UNSAFE_REGEX, translate_fallback_regex
+except ModuleNotFoundError:
+    from gitleaks_regex import UNSAFE_REGEX, translate_fallback_regex
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
@@ -39,10 +46,8 @@ ENCODING_RE_JOINED = re.compile(
     r"|(?P<base64>[\w/+-]{16,}={0,2})",
     re.ASCII,
 )
-UNSAFE_REGEX = re.compile(
-    r"\[\[:|\\[zCQEpP]|\(\?U(?::|\))|\(\?<[A-Za-z]|\\[1-9]|\(\?(?:=|!|<=|<!)"
-)
 FALLBACK_RULES = (
+    ("curl-auth-user", re.compile(r"\bcurl\b[\s\S]*?[ \t](?:-u|--user)(?:=|[ \t]+)(?:'[^']*:[^']+'|\"[^\"]*:[^\"]+\"|[^\s:]*:[^\s]+)", re.IGNORECASE)),
     ("private-key", re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
     ("aws-access-key-id", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
     ("github-token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b")),
@@ -62,14 +67,42 @@ FALLBACK_RULES = (
 
 
 def fallback_rule_ids(text: str) -> list[str]:
-    return sorted(
-        {
-            rule_id
-            for decoded in decoded_texts(text)
-            for rule_id, pattern in FALLBACK_RULES
-            if pattern.search(decoded)
-        }
+    texts = decoded_texts(text)
+    matches = {
+        rule_id
+        for decoded in texts
+        for rule_id, pattern in FALLBACK_RULES
+        if pattern.search(decoded)
+    }
+    rules = prefilter_catalog()
+    if rules is not None:
+        lowered = [item.lower() for item in texts]
+        for rule in rules:
+            if not any(keyword in item for keyword in rule["keywords"] for item in lowered):
+                continue
+            if rule["regex"] is None:
+                continue
+            pattern = (
+                compile_rule_regex(rule["id"], rule["regex"])
+                if rule["python_safe"]
+                else compile_fallback_regex(rule["id"], rule["regex"])
+            )
+            if pattern is None:
+                if rule["python_safe"] or fallback_samples() is None:
+                    matches.add(rule["id"])
+                continue
+            if any(pattern.search(item) for item in texts):
+                matches.add(rule["id"])
+    return sorted(matches)
+
+
+def fallback_scan(text: str, reason: str) -> tuple[list[str], str]:
+    coverage = (
+        "fallback scan passed"
+        if prefilter_catalog() is not None
+        else "fallback scan used built-in rules only; catalog rules not evaluated"
     )
+    return fallback_rule_ids(text), f"{reason}; {coverage}"
 
 
 # Match gitleaks v8.30.1's kept-segment and printable-ASCII acceptance rules.
@@ -218,9 +251,40 @@ def compile_rule_regex(rule_id: str, regex: str) -> re.Pattern[str] | None:
     if UNSAFE_REGEX.search(regex):
         return None
     try:
-        return re.compile(regex, re.ASCII)
+        return re.compile(translate_fallback_regex(regex), re.ASCII)
     except re.error:
         return None
+
+
+@functools.lru_cache(maxsize=1)
+def fallback_samples() -> dict[str, list[str]] | None:
+    try:
+        with gzip.open(ROOT / "tools" / "gitleaks-rule-samples.json.gz", "rt") as source:
+            fixture = json.load(source)
+        if not isinstance(fixture, dict) or not isinstance(fixture.get("samples"), list):
+            return None
+        samples: dict[str, list[str]] = {}
+        for sample in fixture["samples"]:
+            if not isinstance(sample, dict) or not isinstance(sample.get("id"), str) or not isinstance(sample.get("text"), str):
+                return None
+            if "path" not in sample:
+                samples.setdefault(sample["id"], []).append(base64.b64decode(sample["text"]).decode())
+        return samples
+    except (OSError, EOFError, ValueError, KeyError, TypeError, zlib.error):
+        return None
+
+
+@functools.lru_cache(maxsize=None)
+def compile_fallback_regex(rule_id: str, regex: str) -> re.Pattern[str] | None:
+    translated = translate_fallback_regex(regex)
+    try:
+        pattern = re.compile(translated, re.ASCII)
+    except re.error:
+        return None
+    samples = fallback_samples()
+    if samples is None or any(pattern.search(sample) is None for sample in samples.get(rule_id, [])):
+        return None
+    return pattern
 
 
 def decoded_texts(text: str) -> list[str]:
@@ -263,11 +327,15 @@ def needs_gitleaks(text: str) -> bool:
 
 
 def rule_ids(text: str) -> tuple[list[str], str | None]:
-    if not needs_gitleaks(text):
-        return [], None
     executable = shutil.which("gitleaks")
+    if not needs_gitleaks(text):
+        if executable is None:
+            findings, warning = fallback_scan(text, "gitleaks not found")
+            if findings:
+                return findings, warning
+        return [], None
     if executable is None:
-        return fallback_rule_ids(text), "gitleaks not found"
+        return fallback_scan(text, "gitleaks not found")
     gitleaks = str(Path(executable).absolute())
     try:
         result = subprocess.run(
@@ -282,6 +350,7 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
                 "--report-path",
                 "-",
                 "--no-banner",
+                "--ignore-gitleaks-allow",
             ],
             input=text,
             text=True,
@@ -290,13 +359,15 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
             check=False,
         )
     except FileNotFoundError:
-        return fallback_rule_ids(text), "gitleaks not found"
+        return fallback_scan(text, "gitleaks not found")
+    except OSError:
+        return fallback_scan(text, "gitleaks could not start")
     except subprocess.TimeoutExpired:
-        return fallback_rule_ids(text), f"gitleaks timed out after {GITLEAKS_TIMEOUT} seconds"
+        return fallback_scan(text, f"gitleaks timed out after {GITLEAKS_TIMEOUT} seconds")
     if result.returncode not in {0, 1}:
-        return fallback_rule_ids(text), f"gitleaks exited with code {result.returncode}"
+        return fallback_scan(text, f"gitleaks exited with code {result.returncode}")
     if result.returncode == 0:
-        return (fallback_rule_ids(text) if exceeds_prefilter_limit(text) else []), None
+        return fallback_rule_ids(text), None
     try:
         findings = json.loads(result.stdout)
         if not isinstance(findings, list) or not findings:
@@ -305,8 +376,18 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
         if not all(isinstance(rule_id, str) and rule_id for rule_id in ids):
             raise ValueError("gitleaks returned an invalid rule ID")
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        return fallback_rule_ids(text), "gitleaks returned invalid output"
+        return fallback_scan(text, "gitleaks returned invalid output")
     return ids, None
+
+
+def escaped_string_values(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value] if json.dumps(value, ensure_ascii=False)[1:-1] != value else []
+    if isinstance(value, dict):
+        return [part for key, item in value.items() for part in [str(key), *escaped_string_values(item)]]
+    if isinstance(value, list):
+        return [part for item in value for part in escaped_string_values(item)]
+    return []
 
 
 def main() -> int:
@@ -327,15 +408,19 @@ def main() -> int:
         print(f"Factory secret guard: hook input has no valid {key}", file=sys.stderr)
         return 2
     text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if not isinstance(value, str):
+        raw_values = escaped_string_values(value)
+        if raw_values:
+            text += "\n" + "\n".join(raw_values)
     findings, warning = rule_ids(text)
     if not findings:
         if args.mode == "opencode":
             output: dict[str, object] = {"block": False}
             if warning:
-                output["warning"] = f"Factory secret guard warning: {warning}; fallback scan passed"
+                output["warning"] = f"Factory secret guard warning: {warning}"
             print(json.dumps(output))
         elif warning:
-            print(json.dumps({"systemMessage": f"Factory secret guard warning: {warning}; fallback scan passed"}))
+            print(json.dumps({"systemMessage": f"Factory secret guard warning: {warning}"}))
         return 0
     reason = "Factory secret guard: " + ", ".join(findings)
     if args.mode == "prompt":

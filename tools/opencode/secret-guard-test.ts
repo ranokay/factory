@@ -38,6 +38,7 @@ async function withGuard(
     const plugin = await FactorySecretGuardPlugin()
     await run(plugin["tool.execute.before"], home)
   } finally {
+    stopGrandchild(home)
     if (previousHome === undefined) delete process.env.HOME
     else process.env.HOME = previousHome
     if (previousCapture === undefined) delete process.env.GUARD_CAPTURE
@@ -90,8 +91,19 @@ test("fails closed when the guard process exits with an error", async () => {
 })
 
 test("fails closed when the guard output is malformed", async () => {
-  await withGuard("printf '%s\\n' 'not-json'\n", async (hook) => {
-    await assert.rejects(() => hook({ tool: "read" }, { args: { path: "file.txt" } }), /failed closed/)
+  for (const output of ["not-json", '{"block":false,"warning":42}', '{"block":true,"message":"blocked","warning":42}']) {
+    await withGuard(`printf '%s\\n' '${output}'\n`, async (hook) => {
+      await assert.rejects(() => hook({ tool: "read" }, { args: { path: "file.txt" } }), /failed closed/)
+    })
+  }
+})
+
+test("fails closed when tool input is not JSON serializable", async () => {
+  await withGuard(null, async (hook) => {
+    await assert.rejects(() => hook({ tool: "write" }, { args: { value: 1n } }), /failed closed/)
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    await assert.rejects(() => hook({ tool: "write" }, { args: circular }), /failed closed/)
   })
 })
 
@@ -216,6 +228,29 @@ test("shows fallback warnings through the OpenCode 1 toast API", async () => {
     })
     await plugin["tool.execute.before"]({ tool: "read" }, { args: { path: "ordinary.txt" } })
     assert.deepEqual(request, { body: { message: "fixture warning", variant: "error" } })
+  })
+})
+
+test("keeps a passed tool allowed when warning delivery fails", async () => {
+  await withGuard("printf '%s\\n' '{\"block\":false,\"warning\":\"fixture warning\"}'\n", async () => {
+    const warnings: string[] = []
+    const originalWarn = console.warn
+    console.warn = (message) => warnings.push(String(message))
+    try {
+      const plugin = await FactorySecretGuardPlugin({
+        client: {
+          tui: {
+            showToast: async () => {
+              throw new Error("toast unavailable")
+            },
+          },
+        },
+      })
+      await plugin["tool.execute.before"]({ tool: "read" }, { args: { path: "ordinary.txt" } })
+      assert.deepEqual(warnings, ["fixture warning"])
+    } finally {
+      console.warn = originalWarn
+    }
   })
 })
 

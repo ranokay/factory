@@ -18,7 +18,7 @@ RULE_KEYS = {"id", "keywords", "regex", "python_safe", "python_unsafe_reason"}
 PINNED_DIGESTS = {
     "8.30.1": {
         "default_rules_sha256": "3f143eac780c94c929261e83431997d27329cc53d16545bcd953e2550dcb7509",
-        "rules_sha256": "c3810aeac26a07c52b04034f91760d0d8b83b6bf8f88ee30617ec4231de52e73",
+        "rules_sha256": "910dcae132286f7e90b1363141d7e65e27d5dd580e6aff66ab321a20b4bc0e34",
         "samples_sha256": "df72c17b185798f098865e1708fdde6c365b4939b102c0f9f601ee1f2e98fa43",
         "unkeyworded_rules_sha256": "9cc0a1ec60fca2d14bf39c0e3ba2f15adb36c5d0ac561322bd20aee02d105b2a",
     }
@@ -209,8 +209,12 @@ def check(root: Path) -> tuple[int, int, int, int, int]:
     if catalog.get("rules_sha256") != rules_digest:
         raise ValueError("the merged rule digest is stale")
     config = tomllib.loads((root / ".gitleaks.toml").read_text())
-    if config.get("extend", {}).get("useDefault") is not True:
+    extend = config.get("extend")
+    if not isinstance(extend, dict) or extend.get("useDefault") is not True:
         raise ValueError("the Factory gitleaks config must extend the default rules")
+    disabled_rules = extend.get("disabledRules", [])
+    if not isinstance(disabled_rules, list) or disabled_rules:
+        raise ValueError("the Factory gitleaks config must not disable default rules")
     own_rules = config.get("rules", [])
     if not isinstance(own_rules, list):
         raise ValueError("Factory gitleaks rules must be an array")

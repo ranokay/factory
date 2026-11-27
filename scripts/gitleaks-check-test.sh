@@ -233,6 +233,17 @@ PY
 	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
 	[ "$code" -ne 0 ] || fail "unkeyworded-rule drift passed the independently pinned digest"
 	expect_contains "$output" "unkeyworded-rule digest"
+	run_command python3 - "$fixture/.gitleaks.toml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace("useDefault = true", 'useDefault = true\ndisabledRules = ["generic-api-key"]'))
+PY
+	[ "$code" -eq 0 ] || fail "cannot disable a default rule in the fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "disabled default rules passed the independently pinned catalog"
+	expect_contains "$output" "must not disable default rules"
 	printf 'ok: the keyword catalog matches independently pinned upstream rules, path rules and samples\n'
 }
 

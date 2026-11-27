@@ -50,6 +50,7 @@ VERIFY_LABEL = "dev.factory.verify-skill-maintenance"
 VERIFY_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance.log"
 VERIFY_ERROR_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance-error.log"
 SECRET_GUARD_TIMEOUT = 3
+MIN_CLAUDE_CODE_VERSION = (2, 1, 295)
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
 SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
 GITHUB_HOST_RE = re.compile(r"(?i)^\s*Host\s+github\.com(?![A-Za-z0-9.-])")
@@ -330,6 +331,26 @@ def write_agent(path: Path, data: bytes, home: Path) -> None:
         print(f"bootstrap: {display(path, home)} is current")
 
 
+def require_claude_code_version() -> None:
+    executable = shutil.which("claude")
+    required = ".".join(str(part) for part in MIN_CLAUDE_CODE_VERSION)
+    if executable is None:
+        raise ValueError(f"Claude Code v{required} or later is required for the Factory secret guard")
+    try:
+        result = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"Claude Code v{required} or later is required for the Factory secret guard") from error
+    match = re.search(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)", result.stdout + "\n" + result.stderr)
+    if result.returncode != 0 or match is None or tuple(map(int, match.groups())) < MIN_CLAUDE_CODE_VERSION:
+        raise ValueError(f"Claude Code v{required} or later is required for the Factory secret guard")
+
+
 def secret_guard_command(home: Path, mode: str) -> str:
     return f"{shlex.quote(str(home / '.agents' / 'tools' / 'run'))} secret_guard {mode}"
 
@@ -349,12 +370,49 @@ def managed_secret_guard_command(home: Path, command: object, mode: str) -> bool
     return runner.resolve(strict=False) == (home / ".agents" / "tools" / "run").resolve(strict=False)
 
 
+def secret_guard_settings_current(home: Path, settings: object) -> bool:
+    if not isinstance(settings, dict):
+        return False
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    for event, mode in (("UserPromptSubmit", "prompt"), ("PreToolUse", "tool")):
+        groups = hooks.get(event)
+        if not isinstance(groups, list):
+            return False
+        wanted = {
+            "type": "command",
+            "command": secret_guard_command(home, mode),
+            "timeout": SECRET_GUARD_TIMEOUT,
+            "onFailure": "block",
+        }
+        managed = []
+        for group in groups:
+            if not isinstance(group, dict):
+                return False
+            commands = group.get("hooks", [])
+            if not isinstance(commands, list):
+                return False
+            if any(
+                isinstance(command, dict) and managed_secret_guard_command(home, command.get("command"), mode)
+                for command in commands
+            ):
+                managed.append(group)
+        if len(managed) != 1:
+            return False
+        if managed[0].get("matcher") != "*" or managed[0].get("hooks") != [wanted]:
+            return False
+    return True
+
+
 def render_secret_guard_settings(home: Path) -> str:
     path = home / ".claude" / "settings.json"
     current = path.read_text() if path.is_file() else ""
     settings = json.loads(current) if current.strip() else {}
     if not isinstance(settings, dict):
         raise ValueError("Claude settings must be a JSON object")
+    if settings.get("disableAllHooks") is True:
+        raise ValueError("Claude settings disable all hooks; remove disableAllHooks before installing the Factory secret guard")
     hooks = settings.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise ValueError("Claude settings hooks must be a JSON object")
@@ -400,12 +458,15 @@ def render_secret_guard_settings(home: Path) -> str:
 
 
 def install_secret_guard(home: Path) -> bool:
+    require_claude_code_version()
     path = home / ".claude" / "settings.json"
     wanted = render_secret_guard_settings(home)
     current = path.read_text() if path.is_file() else ""
-    if current == wanted:
-        print(f"bootstrap: {display(path, home)} is current")
-        return False
+    if current.strip():
+        settings = json.loads(current)
+        if secret_guard_settings_current(home, settings):
+            print(f"bootstrap: {display(path, home)} is current")
+            return False
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file():
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -961,12 +1022,14 @@ def secret_guard_errors(home: Path) -> list[str]:
     errors = []
     settings = home / ".claude" / "settings.json"
     try:
-        wanted = render_secret_guard_settings(home)
+        require_claude_code_version()
+        render_secret_guard_settings(home)
         current = settings.read_text() if settings.is_file() else ""
+        parsed = json.loads(current) if current.strip() else {}
     except (OSError, ValueError) as error:
         errors.append(f"Factory secret guard: {display(settings, home)} is invalid: {error}")
     else:
-        if current != wanted:
+        if not secret_guard_settings_current(home, parsed):
             errors.append(
                 f"Factory secret guard: {display(settings, home)} is missing or stale; run mise run bootstrap"
             )
