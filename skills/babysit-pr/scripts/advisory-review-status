@@ -94,9 +94,15 @@ def reviewer_state(name, head, head_date, reviews, comments, inline_comments, ti
         created = item.get("created_at") or ""
         updated = item.get("updated_at") or ""
         markers = REVIEWERS[name]["summary_markers"]
-        if created >= anchor and markers and any(marker in (item.get("body") or "") for marker in markers):
+        is_summary = bool(markers) and any(marker in (item.get("body") or "") for marker in markers)
+        if created >= anchor and is_summary:
             signals.append((created, "summary posted"))
-        elif created and updated > created and updated >= anchor:
+        elif (
+            created
+            and updated > created
+            and updated >= anchor
+            and (created >= anchor or (REVIEWERS[name]["summary_edits_terminal"] and is_summary))
+        ):
             signals.append((updated, "comment edit"))
     if signals:
         return {"name": name, "terminal": True, "reason": max(signals, key=lambda signal: signal[0])[1]}
