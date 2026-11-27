@@ -44,16 +44,7 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
       clearTimeout(timer)
       reject(failedClosed())
     }
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL")
-      fail()
-    }, 4000)
-    child.stdout.setEncoding("utf8")
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk
-    })
-    child.once("error", fail)
-    child.once("close", (code) => {
+    const finish = (code: number | null) => {
       if (settled) return
       if (code !== 0) {
         fail()
@@ -77,7 +68,18 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
       } catch {
         fail()
       }
+    }
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL")
+      fail()
+    }, 4000)
+    child.stdout.setEncoding("utf8")
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk
     })
+    child.once("error", fail)
+    child.once("exit", (code) => setImmediate(() => finish(code)))
+    child.once("close", finish)
     child.stdin.once("error", fail)
     child.stdin.end(JSON.stringify({ tool, input }))
   })

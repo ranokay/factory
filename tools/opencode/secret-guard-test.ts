@@ -1,11 +1,18 @@
 import assert from "node:assert/strict"
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 import secretGuardPlugin, { FactorySecretGuardPlugin } from "./secret-guard.ts"
 
 type ToolOutput = { args: Record<string, unknown> }
+
+function stopGrandchild(home: string): void {
+  const pidFile = join(home, "guard-grandchild.pid")
+  if (!existsSync(pidFile)) return
+  const pid = Number(readFileSync(pidFile, "utf8"))
+  if (Number.isInteger(pid) && pid > 0) process.kill(pid, "SIGKILL")
+}
 
 async function withGuard(
   script: string | null,
@@ -99,10 +106,33 @@ test("fails closed when the guard hangs with an inherited stdout pipe", async ()
       assert.equal(outcome, "rejected")
     } finally {
       if (timer) clearTimeout(timer)
-      const pid = Number(readFileSync(join(home, "guard-grandchild.pid"), "utf8"))
-      if (Number.isInteger(pid) && pid > 0) process.kill(pid, "SIGKILL")
+      stopGrandchild(home)
     }
   })
+})
+
+test("resolves a valid result when a grandchild keeps stdout open", async () => {
+  await withGuard(
+    "printf '%s\\n' '{\"block\":false}'\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nexit 0\n",
+    async (hook, home) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const outcome = await Promise.race([
+          hook({ tool: "read" }, { args: { path: "file.txt" } }).then(
+            () => "resolved",
+            () => "rejected",
+          ),
+          new Promise<string>((resolve) => {
+            timer = setTimeout(() => resolve("pending"), 5000)
+          }),
+        ])
+        assert.equal(outcome, "resolved")
+      } finally {
+        if (timer) clearTimeout(timer)
+        stopGrandchild(home)
+      }
+    },
+  )
 })
 
 test("shows fallback warnings through the OpenCode 2 toast API", async () => {

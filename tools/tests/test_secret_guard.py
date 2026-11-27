@@ -253,6 +253,18 @@ class SecretGuardTests(unittest.TestCase):
         self.assertNotIn(token, result.stdout + result.stderr)
         self.assertNotIn(payload, result.stdout + result.stderr)
 
+    def test_large_mixed_fixture_blocks_when_gitleaks_misses_it(self):
+        token, payload = long_mixed_fixture()
+        with tempfile.TemporaryDirectory() as bin_dir:
+            env = self.fake_gitleaks(Path(bin_dir), "#!/bin/sh\ncat >/dev/null\nexit 0\n")
+            result = self.invoke("prompt", {"prompt": payload}, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("context7-key-token", output["reason"])
+        self.assertNotIn(token, result.stdout + result.stderr)
+        self.assertNotIn(payload, result.stdout + result.stderr)
+
     def test_every_upstream_content_positive_is_sent_to_gitleaks(self):
         with gzip.open(TOOLS / "gitleaks-rule-samples.json.gz", "rt") as source:
             fixture = json.load(source)

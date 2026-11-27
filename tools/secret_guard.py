@@ -236,11 +236,15 @@ def decoded_texts(text: str) -> list[str]:
     return list(dict.fromkeys(texts))
 
 
-def needs_gitleaks(text: str) -> bool:
+def exceeds_prefilter_limit(text: str) -> bool:
     try:
-        if len(text.encode("utf-8")) > MAX_PREFILTER_BYTES:
-            return True
+        return len(text.encode("utf-8")) > MAX_PREFILTER_BYTES
     except UnicodeEncodeError:
+        return True
+
+
+def needs_gitleaks(text: str) -> bool:
+    if exceeds_prefilter_limit(text):
         return True
     rules = prefilter_catalog()
     if rules is None:
@@ -292,7 +296,7 @@ def rule_ids(text: str) -> tuple[list[str], str | None]:
     if result.returncode not in {0, 1}:
         return fallback_rule_ids(text), f"gitleaks exited with code {result.returncode}"
     if result.returncode == 0:
-        return [], None
+        return (fallback_rule_ids(text) if exceeds_prefilter_limit(text) else []), None
     try:
         findings = json.loads(result.stdout)
         if not isinstance(findings, list) or not findings:
