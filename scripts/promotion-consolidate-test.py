@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""Fixture tests for the promotion consolidation pass.
-
-Every test runs the pass against a fake gh and a snapshot of the 51 open
-promotions. No test touches a real GitHub issue.
-"""
 
 import copy
 import importlib.util

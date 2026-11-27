@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Consolidate the promotion backlog from one reviewed plan.
-
-scripts/promotion-consolidation.json names the clusters that merge into a
-survivor and the promotions a verified check covers. The pass validates the
-whole plan before it writes anything. It then merges each cluster, closes the
-covered promotions, sends the most frequent survivors to the Pushback Review by
-adding `needs-triage`, and edits one summary comment per day on the tracking
-issue. It proposes clusters the plan does not name, but never applies them.
-Every step is marker-based, so a re-run after a stopped run finishes the work
-without repeating a comment or an occurrence.
-"""
 
 import argparse
 import datetime as dt
@@ -24,7 +13,7 @@ SCRIPTS = Path(__file__).resolve().parent
 ROOT = SCRIPTS.parent
 sys.path.insert(0, str(SCRIPTS))
 
-from pushback_common import issue_comments, records  # noqa: E402
+from pushback_common import issue_comments, records  # noqa: E402 -- scripts/ must be on sys.path first
 
 DEFAULT_PLAN = SCRIPTS / "promotion-consolidation.json"
 DEFAULT_REPO = "ranokay/factory"
@@ -52,7 +41,7 @@ STOPWORDS = frozenset(
 
 
 class Refusal(Exception):
-    """The plan or the repository state is wrong. Nothing has been written."""
+    pass
 
 
 def gh(*args, timeout=120):
@@ -70,7 +59,6 @@ def gh(*args, timeout=120):
 
 
 def occurrences(body):
-    """The Correction's `- ` bullets, or the whole Correction as one occurrence."""
     match = CORRECTION_RE.search(body or "")
     text = match.group(1) if match else (body or "")
     bullets = [" ".join(line[2:].split()) for line in text.splitlines() if line.startswith("- ")]
@@ -94,11 +82,6 @@ def survivor_of(members):
 
 
 def merged_body(survivor, body, sources):
-    """The survivor body with its links block and one occurrence block per source.
-
-    Rebuilding from the same inputs gives the same text, so a re-run that changes
-    nothing writes nothing.
-    """
     body = body or ""
     base = body.split(LINKS_START, 1)[0].rstrip()
     blocks = {int(number): inner for number, inner in OCCURRENCE_RE.findall(body)}
@@ -174,21 +157,22 @@ def load_promotions(repo):
     return {
         item["number"]: {
             "number": item["number"],
-            "title": item.get("title") or "",
-            "body": item.get("body") or "",
+            "title": item["title"],
+            "body": item["body"],
             "state": item["state"].upper(),
-            "labels": [label["name"] for label in item.get("labels") or []],
-            "createdAt": item.get("createdAt") or "",
+            "labels": [label["name"] for label in item["labels"]],
+            "createdAt": item["createdAt"],
         }
         for item in raw
     }
 
 
+def has_marker(repo, number, marker):
+    return any(marker in comment["body"] for comment in issue_comments(repo, number))
+
+
 def closed_by_pass(repo, number):
-    return any(
-        MERGED_PREFIX in (comment.get("body") or "") or COVERED_PREFIX in (comment.get("body") or "")
-        for comment in issue_comments(repo, number)
-    )
+    return has_marker(repo, number, MERGED_PREFIX) or has_marker(repo, number, COVERED_PREFIX)
 
 
 def validate(plan, promotions, repo, root):
@@ -310,7 +294,7 @@ def run(args):
             occurrence_count = sum(len(occurrences(promotions[n]["body"])) for n in members)
             for number in sources:
                 marker = f"{MERGED_PREFIX}{survivor} -->"
-                if not any(marker in (c.get("body") or "") for c in issue_comments(args.repo, number)):
+                if not has_marker(args.repo, number, marker):
                     path = runner.file(
                         f"{marker}\nMerged into #{survivor}. Its correction and occurrences now live "
                         "on that survivor, so this duplicate is closed."
@@ -328,7 +312,7 @@ def run(args):
             number = entry["issue"]
             check = f"{entry['check']['file']}#{entry['check']['name']}"
             marker = f"{COVERED_PREFIX}{check} -->"
-            if not any(marker in (c.get("body") or "") for c in issue_comments(args.repo, number)):
+            if not has_marker(args.repo, number, marker):
                 path = runner.file(
                     f"{marker}\nCovered by `{entry['check']['file']}` (`{entry['check']['name']}`): "
                     f"{entry['reason']} Closing; the check is verified in the repository."
@@ -368,15 +352,15 @@ def run(args):
                 continue
             if set(labels) & BLOCKING_LABELS:
                 continue
-            has_marker = any(PUSHBACK_MARKER in (c.get("body") or "") for c in comments)
-            if PUSHBACK_LABEL in labels and not has_marker:
+            handed_off = any(PUSHBACK_MARKER in comment["body"] for comment in comments)
+            if PUSHBACK_LABEL in labels and not handed_off:
                 continue
             if PUSHBACK_LABEL not in labels:
                 runner.write(
                     f"add {PUSHBACK_LABEL} to #{number}",
                     "issue", "edit", str(number), "-R", args.repo, "--add-label", PUSHBACK_LABEL,
                 )
-            if not has_marker:
+            if not handed_off:
                 path = runner.file(
                     f"{PUSHBACK_MARKER}\nSent to the Pushback Review by the promotion consolidation pass "
                     f"(score {score}). The pass adds `{PUSHBACK_LABEL}` and never sets `ready-for-agent`."
@@ -401,7 +385,10 @@ def run(args):
                 "issue", "create", "-R", args.repo, "--title",
                 "Promotion backlog consolidation (tracking)", "--body-file", path,
             )
-            tracking = int(url.strip().rstrip("/").split("/")[-1]) if url.strip() else None
+            if not args.dry_run:
+                if not url.strip():
+                    raise Refusal("gh created the tracking issue but printed no URL")
+                tracking = int(url.strip().rstrip("/").split("/")[-1])
 
         summary = render_summary(
             date, args.dry_run, before, after, merged, covered_done, sent, proposals
@@ -419,13 +406,9 @@ def run(args):
 
 def find_tracking(repo):
     found = json.loads(
-        gh(
-            "issue", "list", "-R", repo, "--state", "all",
-            "--search", f'"{TRACKING_MARKER}" in:body', "--json", "number,body,state",
-            "--limit", "100",
-        )
+        gh("issue", "list", "-R", repo, "--state", "all", "--limit", "1000", "--json", "number,body")
     )
-    matches = [item["number"] for item in found if TRACKING_MARKER in (item.get("body") or "")]
+    matches = [item["number"] for item in found if TRACKING_MARKER in item["body"]]
     if len(matches) > 1:
         raise Refusal(f"more than one tracking issue carries the marker: {matches}")
     return matches[0] if matches else None
@@ -436,7 +419,7 @@ def post_summary(args, runner, tracking, date, path):
     if tracking is None:
         runner.write("post the day's summary on the new tracking issue", "issue", "comment", "new")
         return
-    existing = [c for c in issue_comments(args.repo, tracking) if marker in (c.get("body") or "")]
+    existing = [c for c in issue_comments(args.repo, tracking) if marker in c["body"]]
     if existing:
         match = re.search(r"issuecomment-(\d+)", existing[0].get("url") or "")
         if not match:
@@ -524,7 +507,7 @@ def render_summary(date, dry_run, before, after, merged, covered_done, sent, pro
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description="Consolidate the promotion backlog from one reviewed plan.")
     parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN, help="reviewed consolidation plan")
     parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name of the Factory repository")
     parser.add_argument("--root", type=Path, default=ROOT, help="checkout whose check files are verified")

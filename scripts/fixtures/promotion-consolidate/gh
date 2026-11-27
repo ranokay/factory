@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Fake gh for the promotion consolidation tests.
-
-State lives in FAKE_GH_STATE. Every call is appended to FAKE_GH_LOG. A mutating
-call counts toward FAKE_GH_FAIL_AFTER: once that many have succeeded, the next
-mutating call exits 1 without changing anything, which simulates a run that
-stops midway.
-"""
 
 import json
 import os
