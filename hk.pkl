@@ -12,6 +12,7 @@ local const universalMise = """
 local const universalHk = """
   amends "https://raw.githubusercontent.com/ranokay/factory/v0.2.0/profiles/universal/hk.pkl"
   """
+local const trivyCheck = "{% raw %}" + read("profiles/universal/scripts/trivy-check.sh").text + "{% endraw %}"
 
 steps {
   ["lint"] {
@@ -582,6 +583,12 @@ steps {
         check = "sh {{root}}/scripts/gitleaks-check.sh"
         tests = new Mapping<String, Config.StepTest> {}
       }
+      ["trivy"] = new Step {
+        env { ["TRIVY_CHECK"] = trivyCheck }
+        check = new Command {
+          argv = List("sh", "-c", "eval \"$TRIVY_CHECK\"", "trivy", ".")
+        }
+      }
     }
   }
   ["tests"] {
@@ -599,6 +606,15 @@ steps {
         check = "sh {{root}}/scripts/gitleaks-check-test.sh"
         tests {
           ["the gitleaks rules pass their cases"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["trivy-test"] = new Step {
+        check = "sh {{root}}/scripts/trivy-check-test.sh && python3 {{root}}/scripts/trivy-gates-test.py"
+        tests {
+          ["the Trivy Gate fixtures pass"] {
             run = "check"
             expect { code = 0 }
           }

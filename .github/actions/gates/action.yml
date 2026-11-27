@@ -11,6 +11,19 @@ runs:
       with:
         version: 2026.11.10
         cache: true
+    - name: Set Trivy cache date
+      if: inputs.group == 'security'
+      id: trivy-cache-date
+      shell: bash
+      run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+    - name: Cache Trivy databases
+      if: inputs.group == 'security'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/trivy
+        key: ${{ runner.os }}-trivy-${{ steps.trivy-cache-date.outputs.date }}
+        restore-keys: |
+          ${{ runner.os }}-trivy-
     - name: Run ${{ inputs.group }} Gates
       shell: bash
       env:

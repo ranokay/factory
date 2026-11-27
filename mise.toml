@@ -42,6 +42,10 @@ run = "hk test --step mcp-sync"
 description = "Run the gitleaks rule tests"
 run = "hk test --step gitleaks-test"
 
+[tasks."trivy:test"]
+description = "Run the Trivy Gate fixtures"
+run = "hk test --step trivy-test"
+
 [tasks."tools:test"]
 description = "Run the agent hook helper tests"
 run = ["./tools/run tests", "bun test ./tools/opencode/secret-guard.test.ts"]
@@ -117,6 +121,7 @@ depends = [
   "canonical-clones:test",
   "mcp:test",
   "gitleaks:test",
+  "trivy:test",
   "tools:test",
   "workflow-invariant:test",
   "advisory-review-requests:test",

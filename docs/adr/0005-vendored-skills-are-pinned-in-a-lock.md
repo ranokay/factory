@@ -6,6 +6,6 @@ Tool-owned skills are not vendored: the Ardia, cua, Context7, gh-stack and REA C
 
 Git submodules were rejected because a harness must see one flat `skills/` folder, and hand-copying was rejected because it cannot detect drift or show updates. The trade-off is a small sync CLI and its fixture tests inside the Factory.
 
-Typos and editorconfig-checker skip vendored trees, shellcheck and shfmt skip the individual vendored files that fail them, and Codacy skips the vendored skills whose upstream frontmatter cannot carry attribution, because those bytes cannot be edited; `gitleaks` still scans them.
+Typos and editorconfig-checker skip vendored trees, shellcheck and shfmt skip the individual vendored files that fail them, and Codacy skips the vendored skills whose upstream frontmatter cannot carry attribution, because those bytes cannot be edited; `gitleaks` still scans them for secrets, and `trivy` scans them for dependency vulnerabilities and misconfigurations.
 
 `skills:sync` rewrites the vendored tree and is the repair path; `skills:sync --check` is the Gate that fails on a hand edit, added file or deletion.

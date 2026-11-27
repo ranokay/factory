@@ -36,6 +36,7 @@ local function assetsScript(mode: String): String = """
   """
 local const pinactScript = read("scripts/pinact.sh").text
 local const pinactCmd = List("sh", "-c", "eval \"$PINACT_WRAPPER\"", "pinact", "run", "--verify-comment")
+local const trivyCheck = "{% raw %}" + read("scripts/trivy-check.sh").text + "{% endraw %}"
 
 // Inline so a repository that amends this Profile by URL needs no profiles/universal/scripts path; see https://hk.jdx.dev/configuration#share-configuration.
 local const gateGroups = """
@@ -784,6 +785,23 @@ steps = new Mapping<String, Step | Group> {
   ["security"] = new Group {
     steps {
       ["gitleaks"] = Builtins.gitleaks
+      ["trivy"] = new Step {
+        env { ["TRIVY_CHECK"] = trivyCheck }
+        check = new Command {
+          argv = List("sh", "-c", "eval \"$TRIVY_CHECK\"", "trivy", ".")
+        }
+        tests {
+          ["an unexplained ignore fails before scanning"] {
+            run = "check"
+            tmpdir = true
+            write { [".trivyignore"] = "CVE-2021-23337\n" }
+            expect {
+              code = 1
+              stderr = ".trivyignore:1: ignore entry requires a reason"
+            }
+          }
+        }
+      }
       ["zizmor"] = Builtins.zizmor
       ["pinact"] = (Builtins.pinact) {
         env { ["PINACT_WRAPPER"] = pinactScript }
