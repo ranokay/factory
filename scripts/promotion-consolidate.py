@@ -116,11 +116,20 @@ def cosine(first, second):
     return sum(weight * large.get(word, 0.0) for word, weight in small.items())
 
 
+RESHAPED_RE = re.compile(r"(?:^|\n)## Reshaped scope\n.*?(?=\n## |\Z)", re.S)
+
+
+def reshaped_scope(body):
+    match = RESHAPED_RE.search(body or "")
+    return match.group(0).strip() if match else ""
+
+
 def unmanaged_text(body):
     managed = (body or "").split(LINKS_START, 1)
     if len(managed) == 1:
         return ""
     rest = managed[1].split(LINKS_END, 1)[-1]
+    rest = RESHAPED_RE.sub("", rest)
     rest = re.sub(OCCURRENCE_RE, "", rest)
     rest = rest.replace(OCCURRENCES_HEADING, "")
     return rest.strip()
@@ -130,10 +139,13 @@ def survivor_of(members):
     return min(members)
 
 
-def merged_body(survivor, body, sources):
+def merged_body(survivor, body, sources, carried):
     body = body or ""
-    base = body.split(LINKS_START, 1)[0].rstrip()
+    base = RESHAPED_RE.sub("", body.split(LINKS_START, 1)[0]).rstrip()
+    reshaped = reshaped_scope(body)
     blocks = {int(number): inner for number, inner in OCCURRENCE_RE.findall(body)}
+    for number, inner in carried.items():
+        blocks.setdefault(number, inner)
     for number, source_body in sources:
         if number not in blocks:
             lines = [f"- {item}" for item in occurrences(source_body)]
@@ -144,7 +156,7 @@ def merged_body(survivor, body, sources):
         "<!-- /factory:promotion-occurrence -->"
         for number in sorted(blocks)
     ]
-    return "\n".join(
+    text = "\n".join(
         [
             base,
             "",
@@ -158,6 +170,9 @@ def merged_body(survivor, body, sources):
             "",
         ]
     )
+    if reshaped:
+        text = f"{text}\n{reshaped}\n"
+    return text
 
 
 def check_defined(root, check):
@@ -181,7 +196,7 @@ def check_defined(root, check):
     if file.endswith(".toml"):
         defined = re.search(rf'^\s*id\s*=\s*"{escaped}"\s*$', text, re.M)
     elif file.endswith(".pkl"):
-        defined = re.search(rf'^\s*\["{escaped}"\]\s*=\s*new Step\b', text, re.M)
+        defined = re.search(rf'^\s*\["{escaped}"\]\s*=\s*(?:new Step\b|\(?Builtins\.)', text, re.M)
     elif file.endswith((".yml", ".yaml")):
         defined = name in workflow_names(text)
     else:
@@ -345,6 +360,14 @@ def validate(plan, promotions, trust, root):
             problems.append(f"{where} needs a one-line reason")
         numbers = [m for m in members if isinstance(m, int) and not isinstance(m, bool)]
         survivor = survivor_of(numbers) if numbers else None
+        if (
+            len(numbers) == len(members)
+            and all(n in promotions for n in numbers)
+            and completed(sorted(numbers), promotions, trust)
+        ):
+            for number in numbers:
+                claim(number, where)
+            continue
         for number in members:
             if number == survivor:
                 valid = known(number, where, None, None)
@@ -395,6 +418,16 @@ def validate(plan, promotions, trust, root):
         except Refusal as error:
             problems.append(f"{where} (#{number}): {error}")
     return problems
+
+
+def completed(members, promotions, trust):
+    survivor, sources = members[0], members[1:]
+    if promotions[survivor]["state"] != "CLOSED":
+        return False
+    return all(
+        promotions[number]["state"] == "CLOSED" and trust.has(number, f"{MERGED_PREFIX}{survivor} -->")
+        for number in sources
+    )
 
 
 def planned_closures(plan):
@@ -466,12 +499,20 @@ def run(args):
     with tempfile.TemporaryDirectory(prefix="promotion-consolidate-") as scratch:
         runner = Runner(args.repo, args.dry_run, scratch)
         merged = []
+        finished = []
         for cluster in plan["clusters"]:
             members = sorted(cluster["members"])
             survivor, sources = members[0], members[1:]
+            if completed(members, promotions, trust):
+                finished.append(survivor)
+                continue
             survivor_issue = promotions[survivor]
             source_bodies = [(n, promotions[n]["body"]) for n in sources]
-            new_body = merged_body(survivor, survivor_issue["body"], source_bodies)
+            carried = {}
+            for number in sources:
+                for block_number, inner in OCCURRENCE_RE.findall(promotions[number]["body"]):
+                    carried.setdefault(int(block_number), inner)
+            new_body = merged_body(survivor, survivor_issue["body"], source_bodies, carried)
             if new_body != survivor_issue["body"]:
                 path = runner.file(new_body)
                 runner.write(
@@ -582,7 +623,7 @@ def run(args):
                     raise Refusal(f"gh printed an unexpected tracking issue URL: {url.strip()}") from None
 
         summary = render_summary(
-            run_id, date, args.dry_run, before, after, merged, covered_done, sent, proposals, oversized
+            run_id, date, args.dry_run, before, after, merged, covered_done, sent, proposals, oversized, finished
         )
         summary_path = runner.file(summary)
         post_summary(args, runner, trust, tracking, run_id, summary_path)
@@ -661,7 +702,7 @@ def propose(promotions, in_plan):
     return sorted(proposals), sorted(oversized)
 
 
-def render_summary(run_id, date, dry_run, before, after, merged, covered_done, sent, proposals, oversized):
+def render_summary(run_id, date, dry_run, before, after, merged, covered_done, sent, proposals, oversized, finished):
     lines = [
         f"<!-- factory:promotion-consolidate-run id={run_id} -->",
         f"## Promotion consolidation, {date}, run {run_id}",
@@ -677,6 +718,8 @@ def render_summary(run_id, date, dry_run, before, after, merged, covered_done, s
             lines.append(f"- #{survivor} (survivor) absorbs {links}; {count} occurrences: {reason}")
     else:
         lines.append("None.")
+    for survivor in finished:
+        lines.append(f"- #{survivor} (survivor) is complete: every source is merged into it and closed; skipped")
     if covered_done:
         lines += ["", "### Closed as covered"]
         for number, check, reason in covered_done:

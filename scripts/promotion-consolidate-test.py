@@ -719,5 +719,70 @@ class Occurrences(Pass):
         self.assertEqual(self.writes(), [])
 
 
+class ReviewRoundFour(Pass):
+    def merged(self, number, comment_author="ranokay"):
+        return {"id": 300 + number, "body": f"{module.MERGED_PREFIX}79 -->",
+                "url": f"https://example.test/{number}#issuecomment-{300 + number}",
+                "author": {"login": comment_author}, "createdAt": "2026-11-20T00:00:00Z"}
+
+    def test_a_builtin_step_resolves_as_a_check(self):
+        plan = json.loads(PLAN.read_text())
+        plan["covered"] = [dict(FIXTURE_COVERED, issue=52, check={"file": "hk.pkl", "name": "gitleaks"})]
+        self.write_plan(plan)
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("covered by `hk.pkl#gitleaks`", result.stdout)
+
+    def test_a_completed_cluster_is_skipped_not_refused(self):
+        state = fixture_state()
+        state["issues"]["79"]["state"] = "CLOSED"
+        for number in (80, 163, 206):
+            state["issues"][str(number)]["state"] = "CLOSED"
+            state["issues"][str(number)]["comments"] = [self.merged(number)]
+        self.write_state(state)
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("#79 (survivor) is complete", result.stdout)
+        self.assertEqual(self.writes(), [])
+
+    def test_a_closed_survivor_with_an_open_source_is_still_refused(self):
+        state = fixture_state()
+        state["issues"]["79"]["state"] = "CLOSED"
+        state["issues"]["80"]["state"] = "CLOSED"
+        state["issues"]["80"]["comments"] = [self.merged(80)]
+        self.write_state(state)
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("#79 is closed, so it cannot be used here", result.stderr)
+
+    def test_an_accepted_reshape_survives_the_merge_and_settles(self):
+        state = fixture_state()
+        state["issues"]["79"]["body"] += "\n\n## Reshaped scope\n\nNarrow it to runtimes only."
+        self.write_state(state)
+        first = self.run_pass(run_id="R1")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        body = self.read_state()["issues"]["79"]["body"]
+        self.assertIn("## Reshaped scope", body)
+        self.assertIn("Narrow it to runtimes only.", body)
+        self.log.unlink(missing_ok=True)
+        second = self.run_pass(run_id="R2")
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse(any(a[:3] == ["issue", "edit", "79"] for a in self.writes()))
+
+    def test_a_source_keeps_the_blocks_it_absorbed_earlier(self):
+        plan = json.loads(PLAN.read_text())
+        plan["clusters"] = [{"members": [79, 163], "reason": "x"}]
+        self.write_plan(plan)
+        state = fixture_state()
+        state["issues"]["163"]["body"] += (
+            "\n\n<!-- factory:promotion-occurrence source=999 -->\nFrom #999:\n- older case\n"
+            "<!-- /factory:promotion-occurrence -->"
+        )
+        self.write_state(state)
+        result = self.run_pass(run_id="R1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("<!-- factory:promotion-occurrence source=999 -->", self.read_state()["issues"]["79"]["body"])
+
+
 if __name__ == "__main__":
     unittest.main()
