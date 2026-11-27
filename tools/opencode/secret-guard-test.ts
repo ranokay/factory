@@ -95,8 +95,8 @@ test("fails closed when the guard output is malformed", async () => {
   })
 })
 
-test("fails closed when the guard hangs with an inherited stdout pipe", async () => {
-  await withGuard("sleep 30 &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nwait\n", async (hook, home) => {
+test("fails closed when a descendant keeps stdout open after valid output", async () => {
+  await withGuard("printf '%s\\n' '{\"block\":false}'\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nwait\n", async (hook, home) => {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       const outcome = await Promise.race([
@@ -114,41 +114,6 @@ test("fails closed when the guard hangs with an inherited stdout pipe", async ()
       stopGrandchild(home)
     }
   })
-})
-
-test("resolves complete output when a grandchild keeps stdout open", async () => {
-  await withGuard(
-    "printf '%s\\n' '{\"block\":false,\"warning\":\"grandchild-close\"}'\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$HOME/guard-grandchild.pid\"\nexit 0\n",
-    async (_hook, home) => {
-      let toast: Record<string, unknown> | undefined
-      const plugin = await FactorySecretGuardPlugin({
-        ui: {
-          toast: {
-            show: (options) => {
-              toast = options
-            },
-          },
-        },
-      })
-      let timer: ReturnType<typeof setTimeout> | undefined
-      try {
-        const outcome = await Promise.race([
-          plugin["tool.execute.before"]({ tool: "read" }, { args: { path: "file.txt" } }).then(
-            () => "resolved",
-            () => "rejected",
-          ),
-          new Promise<string>((resolve) => {
-            timer = setTimeout(() => resolve("pending"), 5000)
-          }),
-        ])
-        assert.equal(outcome, "resolved")
-        assert.equal(toast?.message, "grandchild-close")
-      } finally {
-        if (timer) clearTimeout(timer)
-        stopGrandchild(home)
-      }
-    },
-  )
 })
 
 test("waits for stdout chunks that arrive after child exit", async () => {

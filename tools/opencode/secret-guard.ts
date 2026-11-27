@@ -38,31 +38,23 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
     const child = spawn(runner, ["secret_guard", "opencode"], { stdio: ["pipe", "pipe", "ignore"] })
     let stdout = ""
     let settled = false
-    let exited = false
-    let exitCode: number | null = null
-    let quiesce: ReturnType<typeof setTimeout> | undefined
     const fail = () => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      if (quiesce) clearTimeout(quiesce)
       reject(failedClosed())
     }
-    const finish = (code: number | null, final = false) => {
+    const finish = (code: number | null) => {
       if (settled) return
       if (code !== 0) {
         fail()
-        return
-      }
-      if (!stdout.endsWith("\n")) {
-        if (final) fail()
         return
       }
       let result: Partial<GuardResult>
       try {
         result = JSON.parse(stdout) as Partial<GuardResult>
       } catch {
-        if (final) fail()
+        fail()
         return
       }
       if (
@@ -77,12 +69,7 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
       }
       settled = true
       clearTimeout(timer)
-      if (quiesce) clearTimeout(quiesce)
       resolve(result as GuardResult)
-    }
-    const scheduleFinish = (code: number | null) => {
-      if (quiesce) clearTimeout(quiesce)
-      quiesce = setTimeout(() => finish(code), 100)
     }
     const timer = setTimeout(() => {
       child.kill("SIGKILL")
@@ -91,18 +78,9 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
     child.stdout.setEncoding("utf8")
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk
-      if (exited) scheduleFinish(exitCode)
     })
     child.once("error", fail)
-    child.once("exit", (code) => {
-      exited = true
-      exitCode = code
-      scheduleFinish(code)
-    })
-    child.once("close", (code) => {
-      if (quiesce) clearTimeout(quiesce)
-      finish(code, true)
-    })
+    child.once("close", finish)
     child.stdin.once("error", fail)
     child.stdin.end(JSON.stringify({ tool, input }))
   })
