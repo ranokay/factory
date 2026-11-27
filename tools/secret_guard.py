@@ -24,7 +24,6 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYWORD_CATALOG = ROOT / "tools" / "gitleaks-keywords.json"
-# Leave room for a loaded machine: gitleaks alone takes several seconds at a high load average.
 GITLEAKS_TIMEOUT = 10
 MAX_DECODE_DEPTH = 5
 # Stdin pipe reads can split greedy decoding; use a conservative 4 KiB ceiling for whole-string prefiltering.
@@ -67,6 +66,11 @@ FALLBACK_RULES = (
 )
 
 
+def keyword_hit_rules(rules: list[dict], texts: list[str]) -> list[dict]:
+    lowered = [item.lower() for item in texts]
+    return [rule for rule in rules if any(keyword in item for keyword in rule["keywords"] for item in lowered)]
+
+
 def fallback_rule_ids(text: str) -> list[str]:
     texts = decoded_texts(text)
     matches = {
@@ -77,10 +81,7 @@ def fallback_rule_ids(text: str) -> list[str]:
     }
     rules = prefilter_catalog()
     if rules is not None:
-        lowered = [item.lower() for item in texts]
-        for rule in rules:
-            if not any(keyword in item for keyword in rule["keywords"] for item in lowered):
-                continue
+        for rule in keyword_hit_rules(rules, texts):
             if rule["regex"] is None:
                 continue
             pattern = (
@@ -315,10 +316,7 @@ def needs_gitleaks(text: str) -> bool:
     if rules is None:
         return True
     texts = decoded_texts(text)
-    lowered = [item.lower() for item in texts]
-    for rule in rules:
-        if not any(keyword in item for keyword in rule["keywords"] for item in lowered):
-            continue
+    for rule in keyword_hit_rules(rules, texts):
         if not rule["python_safe"] or rule["regex"] is None:
             return True
         pattern = compile_rule_regex(rule["id"], rule["regex"])
