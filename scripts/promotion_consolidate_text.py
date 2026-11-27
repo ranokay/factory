@@ -195,7 +195,6 @@ def check_defined(root, check):
 
 
 def workflow_names(text):
-    """Job IDs directly under jobs:, and step names inside a job's steps:."""
     lines = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
 
     def indent(line):

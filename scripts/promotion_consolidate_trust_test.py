@@ -1,6 +1,7 @@
 import json
 import subprocess  # nosec B404 -- the tests drive the CLI under test
-from promotion_consolidate_test_support import PLAN, WORKFLOW, FIXTURE_COVERED, module, fixture_state, Pass
+from promotion_consolidate_text import COVERED_PREFIX, MERGED_PREFIX, PUSHBACK_MARKER, TRACKING_MARKER
+from promotion_consolidate_test_support import PLAN, WORKFLOW, FIXTURE_COVERED, fixture_state, Pass
 
 
 class TrustedMarkers(Pass):
@@ -17,7 +18,7 @@ class TrustedMarkers(Pass):
     def test_a_copied_merged_marker_on_a_closed_issue_is_ignored(self):
         def close_80(state):
             state["issues"]["80"]["state"] = "CLOSED"
-        self.copied(80, f"{module.MERGED_PREFIX}79 -->", state_edit=close_80)
+        self.copied(80, f"{MERGED_PREFIX}79 -->", state_edit=close_80)
         result = self.run_pass("--dry-run")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("#80 is closed and this pass did not close it as a duplicate of survivor #79", result.stderr)
@@ -25,7 +26,7 @@ class TrustedMarkers(Pass):
     def test_a_copied_covered_marker_on_a_closed_issue_is_ignored(self):
         def close_52(state):
             state["issues"]["52"]["state"] = "CLOSED"
-        self.copied(52, f"{module.COVERED_PREFIX}hk.pkl#gitleaks-test -->", state_edit=close_52)
+        self.copied(52, f"{COVERED_PREFIX}hk.pkl#gitleaks-test -->", state_edit=close_52)
         plan = json.loads(PLAN.read_text())
         plan["covered"] = [FIXTURE_COVERED]
         self.write_plan(plan)
@@ -34,12 +35,12 @@ class TrustedMarkers(Pass):
         self.assertIn("#52 is closed and this pass did not close it as covered by hk.pkl#gitleaks-test", result.stderr)
 
     def test_a_copied_handoff_marker_does_not_stop_the_handoff(self):
-        self.copied(79, module.PUSHBACK_MARKER)
+        self.copied(79, PUSHBACK_MARKER)
         result = self.run_pass(run_id="R1")
         self.assertEqual(result.returncode, 0, result.stderr)
         state = self.read_state()
         self.assertIn("needs-triage", [l["name"] for l in state["issues"]["79"]["labels"]])
-        own = [c for c in state["issues"]["79"]["comments"] if module.PUSHBACK_MARKER in c["body"] and c["author"]["login"] == "ranokay"]
+        own = [c for c in state["issues"]["79"]["comments"] if PUSHBACK_MARKER in c["body"] and c["author"]["login"] == "ranokay"]
         self.assertEqual(len(own), 1)
 
     def test_a_copied_verdict_from_another_account_is_not_a_verdict(self):
@@ -85,7 +86,7 @@ class TrustedMarkers(Pass):
         state = fixture_state()
         state["issues"]["950"] = {
             "number": 950, "title": "Promotion backlog consolidation (tracking)",
-            "body": f"{module.TRACKING_MARKER}\nghost copy", "state": "OPEN",
+            "body": f"{TRACKING_MARKER}\nghost copy", "state": "OPEN",
             "createdAt": "2026-11-20T00:00:00Z", "labels": [], "comments": [], "author": None,
         }
         self.write_state(state)
@@ -97,7 +98,7 @@ class TrustedMarkers(Pass):
     def test_a_null_comment_author_is_untrusted_not_a_crash(self):
         state = fixture_state()
         state["issues"]["79"]["comments"] = [
-            {"id": 66, "body": f"{module.PUSHBACK_MARKER}\nghost", "url": "https://example.test/79#issuecomment-66",
+            {"id": 66, "body": f"{PUSHBACK_MARKER}\nghost", "url": "https://example.test/79#issuecomment-66",
               "author": None, "createdAt": "2026-11-20T00:00:00Z"}
         ]
         self.write_state(state)
@@ -119,7 +120,7 @@ class TrustedMarkers(Pass):
         state = fixture_state()
         state["issues"]["950"] = {
             "number": 950, "title": "Promotion backlog consolidation (tracking)",
-            "body": f"{module.TRACKING_MARKER}\nmallory's copy", "state": "OPEN",
+            "body": f"{TRACKING_MARKER}\nmallory's copy", "state": "OPEN",
             "createdAt": "2026-11-20T00:00:00Z", "labels": [], "comments": [], "author": {"login": "mallory"},
         }
         self.write_state(state)
@@ -127,13 +128,13 @@ class TrustedMarkers(Pass):
         self.assertEqual(result.returncode, 0, result.stderr)
         state = self.read_state()
         self.assertEqual(state["issues"]["950"]["comments"], [])
-        own = [i for i in state["issues"].values() if module.TRACKING_MARKER in i["body"] and i["author"]["login"] == "ranokay"]
+        own = [i for i in state["issues"].values() if TRACKING_MARKER in i["body"] and i["author"]["login"] == "ranokay"]
         self.assertEqual(len(own), 1)
 
 
 class CompletionAndReshapes(Pass):
     def merged(self, number, comment_author="ranokay"):
-        return {"id": 300 + number, "body": f"{module.MERGED_PREFIX}79 -->",
+        return {"id": 300 + number, "body": f"{MERGED_PREFIX}79 -->",
                 "url": f"https://example.test/{number}#issuecomment-{300 + number}",
                 "author": {"login": comment_author}, "createdAt": "2026-11-20T00:00:00Z"}
 

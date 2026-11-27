@@ -3,7 +3,9 @@ import os
 import re
 import subprocess  # nosec B404 -- the tests drive the CLI under test
 import sys
-from promotion_consolidate_test_support import PASS, PLAN, NAMED_CLUSTERS, FIXTURE_COVERED, module, fixture_state, normalized, without_summaries, proposal_members, Pass
+from promotion_consolidate_github import PROMOTION_LIST_LIMIT, TRACKING_LIST_LIMIT
+from promotion_consolidate_render import MAX_PROPOSAL
+from promotion_consolidate_test_support import PASS, PLAN, NAMED_CLUSTERS, FIXTURE_COVERED, fixture_state, normalized, without_summaries, proposal_members, Pass
 
 
 class DryRun(Pass):
@@ -164,7 +166,7 @@ class Proposals(Pass):
         result = self.run_pass("--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         groups = proposal_members(result.stdout)
-        self.assertTrue(all(len(group) <= module.MAX_PROPOSAL for group in groups), groups)
+        self.assertTrue(all(len(group) <= MAX_PROPOSAL for group in groups), groups)
         recovered = [
             named for named in NAMED_CLUSTERS
             if any(set(named) <= set(group) for group in groups)
@@ -192,7 +194,7 @@ class Proposals(Pass):
 class TrackingLookup(Pass):
     def test_refuses_when_the_listing_reaches_its_cap(self):
         state = fixture_state()
-        for number in range(2000, 2000 + module.TRACKING_LIST_LIMIT):
+        for number in range(2000, 2000 + TRACKING_LIST_LIMIT):
             state["issues"][str(number)] = {
                 "number": number, "title": "unrelated", "body": "", "state": "OPEN",
                 "createdAt": "2026-11-27T00:00:00Z", "labels": [], "comments": [],
@@ -201,13 +203,13 @@ class TrackingLookup(Pass):
         self.write_plan({"clusters": [], "covered": []})
         result = self.run_pass("--dry-run")
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn(f"{module.TRACKING_LIST_LIMIT}-issue cap", result.stderr)
+        self.assertIn(f"{TRACKING_LIST_LIMIT}-issue cap", result.stderr)
 
 
 class PromotionCap(Pass):
     def test_refuses_when_the_promotion_listing_reaches_its_cap(self):
         state = fixture_state()
-        for number in range(3000, 3000 + module.PROMOTION_LIST_LIMIT - len(state["issues"])):
+        for number in range(3000, 3000 + PROMOTION_LIST_LIMIT - len(state["issues"])):
             state["issues"][str(number)] = {
                 "number": number, "title": "unrelated", "body": "x", "state": "OPEN",
                 "createdAt": "2026-11-27T00:00:00Z", "labels": [], "comments": [],
@@ -216,7 +218,7 @@ class PromotionCap(Pass):
         self.write_plan({"clusters": [], "covered": []})
         result = self.run_pass("--dry-run")
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn(f"{module.PROMOTION_LIST_LIMIT}-issue cap", result.stderr)
+        self.assertIn(f"{PROMOTION_LIST_LIMIT}-issue cap", result.stderr)
 
 
 class MissingField(Pass):

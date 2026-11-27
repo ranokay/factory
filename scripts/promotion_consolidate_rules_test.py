@@ -1,5 +1,6 @@
 import json
-from promotion_consolidate_test_support import PLAN, FIXTURE_COVERED, module, fixture_state, proposal_members, Pass
+from promotion_consolidate_text import COVERED_PREFIX, MERGED_PREFIX
+from promotion_consolidate_test_support import PLAN, FIXTURE_COVERED, fixture_state, proposal_members, Pass
 
 
 class Refused(Pass):
@@ -96,7 +97,7 @@ class ClosedMembers(Pass):
         def close_80_into_163(state):
             state["issues"]["80"]["state"] = "CLOSED"
             state["issues"]["80"]["comments"] = [
-                {"id": 99, "body": f"{module.MERGED_PREFIX}163 -->", "url": "https://example.test/80#issuecomment-99",
+                {"id": 99, "body": f"{MERGED_PREFIX}163 -->", "url": "https://example.test/80#issuecomment-99",
                   "author": {"login": "ranokay"}, "createdAt": "2026-11-20T00:00:00Z"}
             ]
         self.write_state(self._with(close_80_into_163))
@@ -109,7 +110,7 @@ class ClosedMembers(Pass):
         def close_52_covered(state):
             state["issues"]["52"]["state"] = "CLOSED"
             state["issues"]["52"]["comments"] = [
-                {"id": 98, "body": f"{module.COVERED_PREFIX}hk.pkl#gitleaks-test -->", "url": "https://example.test/52#issuecomment-98",
+                {"id": 98, "body": f"{COVERED_PREFIX}hk.pkl#gitleaks-test -->", "url": "https://example.test/52#issuecomment-98",
                   "author": {"login": "ranokay"}, "createdAt": "2026-11-20T00:00:00Z"}
             ]
         plan = json.loads(PLAN.read_text())

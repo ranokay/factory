@@ -14,8 +14,6 @@ sys.path.insert(0, str(SCRIPTS))
 
 from pushback_common import records  # noqa: E402 -- scripts/ must be on sys.path first
 from promotion_consolidate_github import (  # noqa: E402 -- scripts/ must be on sys.path first
-    PROMOTION_LIST_LIMIT,
-    TRACKING_LIST_LIMIT,
     Runner,
     Trust,
     fetch_integration,
@@ -24,7 +22,7 @@ from promotion_consolidate_github import (  # noqa: E402 -- scripts/ must be on 
     load_promotions,
 )
 from promotion_consolidate_plan import completed, load_plan, planned_closures, validate  # noqa: E402 -- scripts/ must be on sys.path first
-from promotion_consolidate_render import MAX_PROPOSAL, Summary, propose, render_summary  # noqa: E402 -- scripts/ must be on sys.path first
+from promotion_consolidate_render import Summary, propose, render_summary  # noqa: E402 -- scripts/ must be on sys.path first
 from promotion_consolidate_text import (  # noqa: E402 -- scripts/ must be on sys.path first
     COVERED_PREFIX,
     INTEGRATION_REF,
@@ -38,16 +36,6 @@ from promotion_consolidate_text import (  # noqa: E402 -- scripts/ must be on sy
     occurrences,
 )
 
-__all__ = [
-    "COVERED_PREFIX",
-    "MAX_PROPOSAL",
-    "MERGED_PREFIX",
-    "PROMOTION_LIST_LIMIT",
-    "PUSHBACK_MARKER",
-    "Refusal",
-    "TRACKING_LIST_LIMIT",
-    "TRACKING_MARKER",
-]
 
 
 DEFAULT_PLAN = SCRIPTS / "promotion-consolidation.json"
