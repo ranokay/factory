@@ -91,18 +91,18 @@ class Pass(unittest.TestCase):
     def make_integration_clone(self):
         remote = self.root / "remote.git"
         identity = ["-c", "user.name=test", "-c", "user.email=test@example.test"]
-        subprocess.run(["git", "init", "--bare", "--quiet", "-b", "main", str(remote)], check=True)  # nosec B603 B607
+        subprocess.run(["git", "init", "--bare", "--quiet", "-b", "main", str(remote)], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
         self.work.mkdir()
         for name in (".gitleaks.toml", "hk.pkl"):
             shutil.copy(ROOT / name, self.work / name)
         (self.work / ".github" / "workflows").mkdir(parents=True)
         (self.work / ".github" / "workflows" / "ci.yml").write_text(WORKFLOW)
         git = ["git", "-C", str(self.work)]
-        subprocess.run([*git, "init", "--quiet", "-b", "main"], check=True)  # nosec B603 B607
-        subprocess.run([*git, "add", "."], check=True)  # nosec B603 B607
-        subprocess.run([*git, *identity, "commit", "--quiet", "-m", "fixture"], check=True)  # nosec B603 B607
-        subprocess.run([*git, "remote", "add", "origin", str(remote)], check=True)  # nosec B603 B607
-        subprocess.run([*git, "push", "--quiet", "origin", "main"], check=True)  # nosec B603 B607
+        subprocess.run([*git, "init", "--quiet", "-b", "main"], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
+        subprocess.run([*git, "add", "."], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
+        subprocess.run([*git, *identity, "commit", "--quiet", "-m", "fixture"], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
+        subprocess.run([*git, "remote", "add", "origin", str(remote)], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
+        subprocess.run([*git, "push", "--quiet", "origin", "main"], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
 
     def write_state(self, state):
         self.state_path.write_text(json.dumps(state, sort_keys=True))
@@ -129,7 +129,7 @@ class Pass(unittest.TestCase):
         ]
         if run_id is not None:
             command += ["--run-id", run_id]
-        return subprocess.run(  # nosec B603 -- the test runs the pass with an argument list
+        return subprocess.run(  # nosec B603 -- the test runs the pass with an argument list  # nosemgrep -- the test runs git and the pass with fixed argument lists
             command, capture_output=True, text=True, check=False, env=env, timeout=120
         )
 
@@ -449,7 +449,7 @@ class MissingField(Pass):
         stub.chmod(0o755)
         self.write_plan({"clusters": [], "covered": []})
         env = dict(os.environ, PATH=f"{stub_bin}{os.pathsep}{os.environ['PATH']}")
-        result = subprocess.run(  # nosec B603 -- the test runs the pass with an argument list
+        result = subprocess.run(  # nosec B603 -- the test runs the pass with an argument list  # nosemgrep -- the test runs git and the pass with fixed argument lists
             [sys.executable, str(PASS), "--plan", str(self.plan_path), "--repo", "ranokay/factory", "--dry-run", "--root", str(self.work)],
             capture_output=True, text=True, check=False, env=env, timeout=120,
         )
@@ -530,14 +530,14 @@ class TrustedMarkers(Pass):
         plan["covered"] = [dict(FIXTURE_COVERED, issue=52, check={"file": ".github/workflows/ci.yml", "name": "Typecheck"})]
         self.write_plan(plan)
         anchor = "    runs-on: ubuntu-latest\n"
-        assert WORKFLOW.count(anchor) == 1
+        self.assertEqual(WORKFLOW.count(anchor), 1)
         workflow = WORKFLOW.replace(anchor, anchor + "    strategy:\n      matrix:\n        steps:\n          - 1\n")
         self.assertNotEqual(workflow, WORKFLOW)
         (self.work / ".github" / "workflows" / "ci.yml").write_text(workflow)
         git = ["git", "-C", str(self.work)]
-        subprocess.run([*git, "add", "."], check=True)  # nosec B603 B607
-        subprocess.run([*git, "-c", "user.name=test", "-c", "user.email=test@example.test", "commit", "--quiet", "-m", "nested"], check=True)  # nosec B603 B607
-        subprocess.run([*git, "push", "--quiet", "--force", "origin", "main"], check=True)  # nosec B603 B607
+        subprocess.run([*git, "add", "."], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
+        subprocess.run([*git, "-c", "user.name=test", "-c", "user.email=test@example.test", "commit", "--quiet", "-m", "nested"], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
+        subprocess.run([*git, "push", "--quiet", "--force", "origin", "main"], check=True)  # nosec B603 B607  # nosemgrep -- the test runs git and the pass with fixed argument lists
         result = self.run_pass("--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("covered by `.github/workflows/ci.yml#Typecheck`", result.stdout)
