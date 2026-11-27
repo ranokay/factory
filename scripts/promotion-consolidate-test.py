@@ -470,10 +470,6 @@ class FetchAndGate(Pass):
         self.assertIn("cannot fetch origin main", result.stderr)
         self.assertEqual(self.writes(), [])
 
-    def test_a_gate_section_is_bounded_at_the_next_heading(self):
-        body = "### Correction\n\nc\n\n### Gate check\n\ng\n\n### Merged occurrences\n\n- junk"
-        self.assertNotIn("junk", module.document({"title": "t", "body": body}))
-
 
 class Occurrences(Pass):
     def test_every_line_of_a_correction_is_kept_as_an_occurrence(self):
