@@ -92,7 +92,7 @@ class Pass(unittest.TestCase):
             env["FAKE_GH_FAIL_AFTER"] = str(fail_after)
         command = [
             sys.executable, str(PASS), "--plan", str(plan or self.plan_path),
-            "--repo", "ranokay/factory", "--date", "2026-11-27", *extra,
+            "--repo", "ranokay/factory", "--date", "2026-11-27", "--no-fetch", *extra,
         ]
         if run_id is not None:
             command += ["--run-id", run_id]
@@ -253,7 +253,7 @@ class Refused(Pass):
     def test_a_check_that_is_only_local_is_refused(self):
         plan = json.loads(PLAN.read_text())
         plan["covered"] = [dict(FIXTURE_COVERED, check={"file": "scripts/promotion-consolidate.py", "name": "run"})]
-        self.assertRefused(plan, "is not on origin/main")
+        self.assertRefused(plan, "but not in 'origin/main'")
 
     def test_a_cluster_that_is_not_an_object_is_refused(self):
         plan = json.loads(PLAN.read_text())
@@ -417,12 +417,18 @@ class MissingField(Pass):
         self.write_plan({"clusters": [], "covered": []})
         env = dict(os.environ, PATH=f"{stub_bin}{os.pathsep}{os.environ['PATH']}")
         result = subprocess.run(  # nosec B603 -- the test runs the pass with an argument list
-            [sys.executable, str(PASS), "--plan", str(self.plan_path), "--repo", "ranokay/factory", "--dry-run"],
+            [sys.executable, str(PASS), "--plan", str(self.plan_path), "--repo", "ranokay/factory", "--dry-run", "--no-fetch"],
             capture_output=True, text=True, check=False, env=env, timeout=120,
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("without the expected field", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+
+
+class OccurrenceParsing(unittest.TestCase):
+    def test_a_merged_section_is_not_read_as_a_correction_when_no_gate_check_follows(self):
+        body = "### Correction\n\nalpha\n\n### Merged occurrences\n\n- junk"
+        self.assertEqual(module.occurrences(body), ["alpha"])
 
 
 class CheckFiles(unittest.TestCase):

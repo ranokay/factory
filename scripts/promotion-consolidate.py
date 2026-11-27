@@ -42,7 +42,7 @@ OCCURRENCE_RE = re.compile(
     r"<!-- factory:promotion-occurrence source=(\d+) -->\n(.*?)\n<!-- /factory:promotion-occurrence -->",
     re.S,
 )
-CORRECTION_RE = re.compile(r"### Correction\s*\n(.*?)(?=\n### Gate check|\Z)", re.S)
+CORRECTION_RE = re.compile(r"### Correction\s*\n(.*?)(?=\n###|\Z)", re.S)
 STOPWORDS = frozenset(
     "a an and any are as at be by each every for from in into is it not of on or only out "
     "outside the this that to when while with without must new has have was were its their "
@@ -158,7 +158,8 @@ def check_defined(root, check):
         check=False,
     )
     if shown.returncode != 0:
-        raise Refusal(f"check file {file} is not on {INTEGRATION_REF}")
+        detail = shown.stderr.strip() or "git show failed"
+        raise Refusal(f"cannot read {file} from {INTEGRATION_REF}: {detail}")
     text = shown.stdout
     escaped = re.escape(name)
     if file.endswith(".toml"):
@@ -257,8 +258,10 @@ def validate(plan, promotions, repo, root):
         if survivor in promotions and promotions[survivor]["state"] != "OPEN":
             problems.append(f"survivor #{survivor} of {where} must be open")
 
+    touched = {m for cluster in plan["clusters"] if isinstance(cluster, dict) for m in cluster.get("members", [])}
+    touched |= {entry.get("issue") for entry in plan["covered"] if isinstance(entry, dict)}
     for number, item in promotions.items():
-        if not CORRECTION_RE.search(item["body"]):
+        if (item["state"] == "OPEN" or number in touched) and not CORRECTION_RE.search(item["body"]):
             problems.append(f"#{number} has no ### Correction section")
 
     for index, entry in enumerate(plan["covered"]):
@@ -312,7 +315,22 @@ class Runner:
         return gh(*args)
 
 
+def fetch_integration(root):
+    result = subprocess.run(  # nosec B603 B607 -- git with an argument list
+        ["git", "-C", str(root), "fetch", "--quiet", "origin", "main"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or "git fetch failed"
+        raise Refusal(f"cannot fetch origin main, so checks cannot be verified against it: {detail}")
+
+
 def run(args):
+    if not args.no_fetch:
+        fetch_integration(args.root)
     plan = load_plan(args.plan)
     promotions = load_promotions(args.repo)
     problems = validate(plan, promotions, args.repo, args.root)
@@ -580,6 +598,7 @@ def main(argv=None):
     parser.add_argument("--run-id", help="this run's id; a resumed run passes the same id (default: a UTC timestamp)")
     parser.add_argument("--top", type=int, default=TOP_DEFAULT, help="survivors sent to pushback per run")
     parser.add_argument("--dry-run", action="store_true", help="print what a run would do and write nothing")
+    parser.add_argument("--no-fetch", action="store_true", help="check covered files against the local origin/main without fetching")
     args = parser.parse_args(argv)
     try:
         return run(args)
@@ -591,6 +610,9 @@ def main(argv=None):
         return 1
     except KeyError as error:
         print(f"promotion-consolidate: gh returned JSON without the expected field {error}", file=sys.stderr)
+        return 1
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"promotion-consolidate: cannot run a required command or read its output: {error}", file=sys.stderr)
         return 1
 
 
