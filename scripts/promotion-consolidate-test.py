@@ -782,6 +782,17 @@ class CompletionAndReshapes(Pass):
         self.assertEqual(body.count("<!-- factory:promotion-occurrence source=80 -->"), 1)
         self.assertIn("Narrow it.", body)
 
+    def test_an_empty_reshape_above_the_merge_heading_does_not_duplicate_the_blocks(self):
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
+        state = self.read_state()
+        body = state["issues"]["79"]["body"]
+        state["issues"]["79"]["body"] = body.replace("### Merged occurrences", "## Reshaped scope\n### Merged occurrences", 1)
+        self.write_state(state)
+        self.assertEqual(self.run_pass(run_id="R2").returncode, 0)
+        body = self.read_state()["issues"]["79"]["body"]
+        self.assertEqual(body.count("### Merged occurrences"), 1)
+        self.assertEqual(body.count("<!-- factory:promotion-occurrence source=80 -->"), 1)
+
     def test_a_source_keeps_the_blocks_it_absorbed_earlier(self):
         plan = json.loads(PLAN.read_text())
         plan["clusters"] = [{"members": [79, 163], "reason": "x"}]

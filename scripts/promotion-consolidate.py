@@ -117,7 +117,7 @@ def cosine(first, second):
 
 
 RESHAPED_RE = re.compile(
-    r"(?:^|\n)## Reshaped scope\n.*?(?=\n## |\n### Merged occurrences|\n<!-- factory:promotion-links|\Z)", re.S
+    r"(?:^|\n)## Reshaped scope.*?(?=\n## |\n### Merged occurrences|\n<!-- factory:promotion-links|\Z)", re.S
 )
 
 
