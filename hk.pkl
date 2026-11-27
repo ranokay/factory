@@ -26,7 +26,7 @@ steps {
         check = "sh {{root}}/scripts/renovate-config-check.sh"
       }
       ["typos"] {
-        exclude = vendored
+        exclude = vendored.add("tools/gitleaks-keywords.json")
       }
       // Codacy requires the document start in .codacy.yml; yamlfmt removes it.
       ["yamlfmt"] = (Builtins.yamlfmt) { exclude = List(".codacy.yml") }
@@ -838,6 +838,26 @@ steps {
           ["the hook helpers still resolve and run"] {
             run = "check"
             env { ["BOOTSTRAP_CASE"] = "hooks" }
+            expect { code = 0 }
+          }
+          ["bootstrap installs both secret guards once and preserves unrelated hooks"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secret-guard" }
+            expect { code = 0 }
+          }
+          ["bootstrap refuses malformed Claude settings before writing links"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secret-guard-refusal" }
+            expect { code = 0 }
+          }
+          ["bootstrap rejects settings that disable all hooks"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secret-guard-disabled" }
+            expect { code = 0 }
+          }
+          ["bootstrap requires Claude Code v2.1.295 or later when it is installed"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "secret-guard-version" }
             expect { code = 0 }
           }
           ["bootstrap refuses a drifted vendored skill"] {

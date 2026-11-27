@@ -16,6 +16,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -48,6 +49,8 @@ GC_ERROR_LOG = Path("Library") / "Logs" / "factory-gc-error.log"
 VERIFY_LABEL = "dev.factory.verify-skill-maintenance"
 VERIFY_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance.log"
 VERIFY_ERROR_LOG = Path("Library") / "Logs" / "factory-verify-skill-maintenance-error.log"
+SECRET_GUARD_TIMEOUT = 15
+MIN_CLAUDE_CODE_VERSION = (2, 1, 295)
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
 SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
 GITHUB_HOST_RE = re.compile(r"(?i)^\s*Host\s+github\.com(?![A-Za-z0-9.-])")
@@ -93,6 +96,7 @@ def desired_links(home: Path) -> list[Link]:
         Link(home / ".claude" / "CLAUDE.md", agents / "AGENTS.md"),
         Link(codex_home(home) / "AGENTS.md", agents / "AGENTS.md"),
         Link(opencode / "AGENTS.md", agents / "AGENTS.md"),
+        Link(opencode / "plugins" / "factory-secret-guard.ts", agents / "tools" / "opencode" / "secret-guard.ts"),
     ]
 
 
@@ -325,6 +329,157 @@ def write_agent(path: Path, data: bytes, home: Path) -> None:
         print(f"bootstrap: wrote {display(path, home)}")
     else:
         print(f"bootstrap: {display(path, home)} is current")
+
+
+def require_claude_code_version() -> bool:
+    """Return False when Claude Code is absent; raise when it is too old to fail closed."""
+    executable = shutil.which("claude")
+    required = ".".join(str(part) for part in MIN_CLAUDE_CODE_VERSION)
+    if executable is None:
+        return False
+    try:
+        result = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"Claude Code v{required} or later is required for the Factory secret guard") from error
+    match = re.search(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)", result.stdout + "\n" + result.stderr)
+    if result.returncode != 0 or match is None or tuple(map(int, match.groups())) < MIN_CLAUDE_CODE_VERSION:
+        raise ValueError(f"Claude Code v{required} or later is required for the Factory secret guard")
+    return True
+
+
+def secret_guard_command(home: Path, mode: str) -> str:
+    return f"{shlex.quote(str(home / '.agents' / 'tools' / 'run'))} secret_guard {mode}"
+
+
+def managed_secret_guard_command(home: Path, command: object, mode: str) -> bool:
+    if not isinstance(command, str):
+        return False
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return False
+    if len(words) != 3 or words[1:] != ["secret_guard", mode]:
+        return False
+    runner = Path(words[0])
+    if words[0].startswith("~/"):
+        runner = home / words[0][2:]
+    return runner.resolve(strict=False) == (home / ".agents" / "tools" / "run").resolve(strict=False)
+
+
+def secret_guard_settings_current(home: Path, settings: object) -> bool:
+    if not isinstance(settings, dict):
+        return False
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    for event, mode in (("UserPromptSubmit", "prompt"), ("PreToolUse", "tool")):
+        groups = hooks.get(event)
+        if not isinstance(groups, list):
+            return False
+        wanted = {
+            "type": "command",
+            "command": secret_guard_command(home, mode),
+            "timeout": SECRET_GUARD_TIMEOUT,
+            "onFailure": "block",
+        }
+        managed = []
+        for group in groups:
+            if not isinstance(group, dict):
+                return False
+            commands = group.get("hooks", [])
+            if not isinstance(commands, list):
+                return False
+            if any(
+                isinstance(command, dict) and managed_secret_guard_command(home, command.get("command"), mode)
+                for command in commands
+            ):
+                managed.append(group)
+        if len(managed) != 1:
+            return False
+        if managed[0].get("matcher") != "*" or managed[0].get("hooks") != [wanted]:
+            return False
+    return True
+
+
+def render_secret_guard_settings(home: Path) -> str:
+    path = home / ".claude" / "settings.json"
+    current = path.read_text() if path.is_file() else ""
+    settings = json.loads(current) if current.strip() else {}
+    if not isinstance(settings, dict):
+        raise ValueError("Claude settings must be a JSON object")
+    if settings.get("disableAllHooks") is True:
+        raise ValueError("Claude settings disable all hooks; remove disableAllHooks before installing the Factory secret guard")
+    hooks = settings.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        raise ValueError("Claude settings hooks must be a JSON object")
+    for event, mode in (("UserPromptSubmit", "prompt"), ("PreToolUse", "tool")):
+        groups = hooks.setdefault(event, [])
+        if not isinstance(groups, list):
+            raise ValueError(f"Claude settings {event} hooks must be a JSON array")
+        wanted = {
+            "type": "command",
+            "command": secret_guard_command(home, mode),
+            "timeout": SECRET_GUARD_TIMEOUT,
+            "onFailure": "block",
+        }
+        rendered = []
+        found = False
+        for group in groups:
+            if not isinstance(group, dict):
+                raise ValueError(f"Claude settings {event} contains a non-object hook group")
+            commands = group.get("hooks", [])
+            if not isinstance(commands, list):
+                raise ValueError(f"Claude settings {event} contains a non-array hooks group")
+            remaining = [
+                command
+                for command in commands
+                if not (isinstance(command, dict) and managed_secret_guard_command(home, command.get("command"), mode))
+            ]
+            managed = len(remaining) != len(commands)
+            if managed and not found:
+                if remaining:
+                    rendered.append({**group, "hooks": remaining})
+                    rendered.append({"matcher": "*", "hooks": [wanted]})
+                elif group.get("matcher") == "*":
+                    rendered.append({**group, "hooks": [wanted]})
+                else:
+                    rendered.append({"matcher": "*", "hooks": [wanted]})
+                found = True
+            elif remaining or not managed:
+                rendered.append(group if not managed else {**group, "hooks": remaining})
+        if not found:
+            rendered.append({"matcher": "*", "hooks": [wanted]})
+        hooks[event] = rendered
+    return json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+
+
+def install_secret_guard(home: Path) -> bool:
+    if not require_claude_code_version():
+        print("bootstrap: Claude Code not found; installing its secret guard hooks for a later install")
+    path = home / ".claude" / "settings.json"
+    wanted = render_secret_guard_settings(home)
+    current = path.read_text() if path.is_file() else ""
+    if current.strip():
+        settings = json.loads(current)
+        if secret_guard_settings_current(home, settings):
+            print(f"bootstrap: {display(path, home)} is current")
+            return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file():
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup = backup_path(path, stamp)
+        shutil.copy2(path, backup)
+        print(f"bootstrap: backed up {display(path, home)} -> {display(backup, home)}")
+    path.write_text(wanted)
+    os.chmod(path, 0o600)
+    print(f"bootstrap: installed the Factory secret guard in {display(path, home)}")
+    return True
 
 
 def load_agent(launchctl: str, label: str, path: Path) -> bool:
@@ -866,6 +1021,30 @@ def codex_root_errors(home: Path) -> list[str]:
     return errors
 
 
+def secret_guard_errors(home: Path) -> list[str]:
+    errors = []
+    settings = home / ".claude" / "settings.json"
+    try:
+        require_claude_code_version()
+        render_secret_guard_settings(home)
+        current = settings.read_text() if settings.is_file() else ""
+        parsed = json.loads(current) if current.strip() else {}
+    except (OSError, ValueError) as error:
+        errors.append(f"Factory secret guard: {display(settings, home)} is invalid: {error}")
+    else:
+        if not secret_guard_settings_current(home, parsed):
+            errors.append(
+                f"Factory secret guard: {display(settings, home)} is missing or stale; run mise run bootstrap"
+            )
+    plugin = config_home(home) / "opencode" / "plugins" / "factory-secret-guard.ts"
+    target = home / ".agents" / "tools" / "opencode" / "secret-guard.ts"
+    if resolved_link(plugin) != target.resolve(strict=False) or not target.is_file():
+        errors.append(
+            f"Factory secret guard: {display(plugin, home)} is missing or stale; run mise run bootstrap"
+        )
+    return errors
+
+
 def discovery(home: Path) -> int:
     errors = []
     factory_agents = ROOT / "AGENTS.md"
@@ -879,6 +1058,7 @@ def discovery(home: Path) -> int:
     errors.extend(secret_agent_errors(home))
     errors.extend(gc_agent_errors(home))
     errors.extend(verify_skill_maintenance_agent_errors(home))
+    errors.extend(secret_guard_errors(home))
     errors.extend(github_push_errors())
     reference_check = mcp_sync(home, "--check-references")
     if reference_check.returncode != 0:
@@ -1135,6 +1315,11 @@ def main(argv: list[str] | None = None) -> int:
         for error in vendored_errors:
             print(f"bootstrap: {error}", file=sys.stderr)
         return 1
+    try:
+        guard_changed = install_secret_guard(home)
+    except (OSError, ValueError) as error:
+        print(f"bootstrap: cannot install the Factory secret guard: {error}", file=sys.stderr)
+        return 1
     apply_links(changes, home)
     if not provision_op_token(home, args.rotate_op_token):
         return 1
@@ -1155,12 +1340,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"bootstrap: {error}", file=sys.stderr)
     if errors or discovery_code != 0:
         return 1
-    if not changes and tools_present_before:
+    if not changes and not guard_changed and tools_present_before:
         print("Already bootstrapped: no changes.")
     else:
         work = []
         if changes:
             work.append(f"{len(changes)} link change(s)")
+        if guard_changed:
+            work.append("secret guard installed")
         if not tools_present_before:
             work.append("tool skills installed")
         print("bootstrap: complete with " + ", ".join(work))

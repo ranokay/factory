@@ -121,7 +121,134 @@ case_default_rules() {
 	printf 'ok: the default rules still fire\n'
 }
 
+case_keyword_catalog() {
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py"
+	[ "$code" -eq 0 ] || fail "the gitleaks keyword catalog is stale: $output"
+	fixture=$test_root/keyword-catalog
+	mkdir -p "$fixture/tools" "$fixture/profiles/universal"
+	cp "$root/mise.toml" "$fixture/mise.toml"
+	cp "$root/profiles/universal/mise.toml" "$fixture/profiles/universal/mise.toml"
+	cp "$root/.gitleaks.toml" "$fixture/.gitleaks.toml"
+	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	cp "$root/tools/gitleaks-rule-samples.json.gz" "$fixture/tools/gitleaks-rule-samples.json.gz"
+	run_command python3 - "$fixture/profiles/universal/mise.toml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace('gitleaks = "8.30.1"', 'gitleaks = "8.30.2"'))
+PY
+	[ "$code" -eq 0 ] || fail "cannot bump the fixture gitleaks pin: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "a gitleaks pin bump did not invalidate the keyword catalog"
+	expect_contains "$output" "gitleaks version"
+	run_command python3 - "$fixture/profiles/universal/mise.toml" "$fixture/tools/gitleaks-keywords.json" "$root/scripts" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[3])
+from gitleaks_catalog import digest
+
+pin = Path(sys.argv[1])
+pin.write_text(pin.read_text().replace('gitleaks = "8.30.2"', 'gitleaks = "8.30.1"'))
+path = Path(sys.argv[2])
+catalog = json.loads(path.read_text())
+rule = next(rule for rule in catalog["rules"] if rule["id"] == "1password-secret-key")
+rule["regex"] += "x"
+catalog["rules_sha256"] = digest(catalog["rules"])
+path.write_text(json.dumps(catalog, indent=2) + "\n")
+PY
+	[ "$code" -eq 0 ] || fail "cannot drift the default rule fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "default-rule drift passed the independently pinned digest"
+	expect_contains "$output" "default-rule digest"
+	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	run_command python3 - "$fixture/tools/gitleaks-keywords.json" "$root/scripts" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[2])
+from gitleaks_catalog import digest
+
+path = Path(sys.argv[1])
+catalog = json.loads(path.read_text())
+rule = next(rule for rule in catalog["rules"] if rule["python_safe"])
+rule["python_safe"] = False
+rule["python_unsafe_reason"] = "forged classification"
+catalog["rules_sha256"] = digest(catalog["rules"])
+path.write_text(json.dumps(catalog, indent=2) + "\n")
+PY
+	[ "$code" -eq 0 ] || fail "cannot drift the merged rule fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "merged-rule drift passed the independently pinned digest"
+	expect_contains "$output" "merged-rule digest"
+	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	run_command python3 - "$fixture/tools/gitleaks-rule-samples.json.gz" "$root/scripts" <<'PY'
+import base64
+import gzip
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[2])
+from gitleaks_catalog import digest
+
+path = Path(sys.argv[1])
+with gzip.open(path, "rt") as source:
+	fixture = json.load(source)
+fixture["samples"][0]["text"] = base64.b64encode(b"tampered").decode()
+samples = []
+for sample in fixture["samples"]:
+	decoded = {"id": sample["id"], "text": base64.b64decode(sample["text"]).decode()}
+	if "path" in sample:
+		decoded["path"] = sample["path"]
+	samples.append(decoded)
+fixture["samples_sha256"] = digest(samples)
+with gzip.GzipFile(filename=path, mode="wb", mtime=0) as output:
+	output.write(json.dumps(fixture, separators=(",", ":")).encode())
+PY
+	[ "$code" -eq 0 ] || fail "cannot drift the true-positive fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "true-positive drift passed the independently pinned digest"
+	expect_contains "$output" "true-positive digest"
+	cp "$root/tools/gitleaks-keywords.json" "$fixture/tools/gitleaks-keywords.json"
+	cp "$root/tools/gitleaks-rule-samples.json.gz" "$fixture/tools/gitleaks-rule-samples.json.gz"
+	run_command python3 - "$fixture/tools/gitleaks-keywords.json" "$root/scripts" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[2])
+from gitleaks_catalog import digest
+
+path = Path(sys.argv[1])
+catalog = json.loads(path.read_text())
+catalog["unkeyworded_rules"][0]["path"] = "(?i)\\.pem$"
+catalog["unkeyworded_rules_sha256"] = digest(catalog["unkeyworded_rules"])
+path.write_text(json.dumps(catalog, indent=2) + "\n")
+PY
+	[ "$code" -eq 0 ] || fail "cannot drift the unkeyworded rule fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "unkeyworded-rule drift passed the independently pinned digest"
+	expect_contains "$output" "unkeyworded-rule digest"
+	run_command python3 - "$fixture/.gitleaks.toml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace("useDefault = true", 'useDefault = true\ndisabledRules = ["generic-api-key"]'))
+PY
+	[ "$code" -eq 0 ] || fail "cannot disable a default rule in the fixture: $output"
+	run_command python3 "$root/scripts/gitleaks-keywords-check.py" --root "$fixture"
+	[ "$code" -ne 0 ] || fail "disabled default rules passed the independently pinned catalog"
+	expect_contains "$output" "must not disable default rules"
+	printf 'ok: the keyword catalog matches independently pinned upstream rules, path rules and samples\n'
+}
+
 case_all() {
+	case_keyword_catalog
 	case_fabricated
 	case_env_reference
 	case_bare_key
@@ -131,6 +258,7 @@ case_all() {
 }
 
 case $case_name in
+keyword-catalog) case_keyword_catalog ;;
 fabricated) case_fabricated ;;
 env-reference) case_env_reference ;;
 bare-key) case_bare_key ;;
