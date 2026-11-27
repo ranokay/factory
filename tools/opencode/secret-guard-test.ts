@@ -153,7 +153,7 @@ test("resolves complete output when a grandchild keeps stdout open", async () =>
 
 test("waits for stdout chunks that arrive after child exit", async () => {
   await withGuard(
-    "printf '{\"block\":false,'\n( sleep 0.1; printf '\"warning\":\"delayed\"}' ) &\nexit 0\n",
+    "printf '{\"block\":false,'\n( sleep 0.1; printf '\"warning\":\"delayed\"}\\n' ) &\nexit 0\n",
     async () => {
       let toast: Record<string, unknown> | undefined
       const plugin = await FactorySecretGuardPlugin({
@@ -167,6 +167,15 @@ test("waits for stdout chunks that arrive after child exit", async () => {
       })
       await plugin["tool.execute.before"]({ tool: "read" }, { args: { path: "file.txt" } })
       assert.equal(toast?.message, "delayed")
+    },
+  )
+})
+
+test("rejects trailing data after a parseable JSON prefix", async () => {
+  await withGuard(
+    "printf '{\"block\":false}'\n( sleep 0.1; printf '{\"block\":true}\\n' ) &\nexit 0\n",
+    async (hook) => {
+      await assert.rejects(() => hook({ tool: "read" }, { args: { path: "file.txt" } }), /failed closed/)
     },
   )
 })

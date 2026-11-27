@@ -52,6 +52,10 @@ function runGuard(tool: string, input: Record<string, unknown>): Promise<GuardRe
         fail()
         return
       }
+      if (!stdout.endsWith("\n")) {
+        if (final) fail()
+        return
+      }
       let result: Partial<GuardResult>
       try {
         result = JSON.parse(stdout) as Partial<GuardResult>
