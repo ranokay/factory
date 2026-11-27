@@ -793,6 +793,15 @@ class CompletionAndReshapes(Pass):
         self.assertEqual(body.count("### Merged occurrences"), 1)
         self.assertEqual(body.count("<!-- factory:promotion-occurrence source=80 -->"), 1)
 
+    def test_a_near_miss_heading_is_not_a_reshape(self):
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
+        state = self.read_state()
+        state["issues"]["79"]["body"] += "\n\n## Reshaped scopes\n\nNot a reshape."
+        self.write_state(state)
+        result = self.run_pass("--dry-run", run_id="R2")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("survivor #79 has text outside the merge blocks", result.stderr)
+
     def test_a_source_keeps_the_blocks_it_absorbed_earlier(self):
         plan = json.loads(PLAN.read_text())
         plan["clusters"] = [{"members": [79, 163], "reason": "x"}]
