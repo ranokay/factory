@@ -25,6 +25,8 @@ VERDICT_KINDS = frozenset({"review", "accept", "override", "confirm"})
 BLOCKING_LABELS = frozenset({"ready-for-agent", "wontfix"})
 TOP_DEFAULT = 5
 TRACKING_LIST_LIMIT = 1000
+PROMOTION_LIST_LIMIT = 1000
+INTEGRATION_REF = "origin/main"
 PROPOSAL_THRESHOLD = 0.25
 MAX_PROPOSAL = 6
 RUN_ID_RE = re.compile(r"[A-Za-z0-9.:-]{1,64}")
@@ -149,10 +151,15 @@ def check_defined(root, check):
         raise Refusal(f"check file {file} must be a path inside the Factory")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
         raise Refusal(f"check name {name!r} is not a plain identifier")
-    target = root / path
-    if not target.is_file():
-        raise Refusal(f"check file {file} does not exist")
-    text = target.read_text(encoding="utf-8")
+    shown = subprocess.run(  # nosec B603 B607 -- git with an argument list
+        ["git", "-C", str(root), "show", f"{INTEGRATION_REF}:{file}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if shown.returncode != 0:
+        raise Refusal(f"check file {file} is not on {INTEGRATION_REF}")
+    text = shown.stdout
     escaped = re.escape(name)
     if file.endswith(".toml"):
         pattern = rf'^\s*id\s*=\s*"{escaped}"\s*$'
@@ -183,9 +190,11 @@ def load_promotions(repo):
     raw = json.loads(
         gh(
             "issue", "list", "-R", repo, "--label", PROMOTION, "--state", "all",
-            "--limit", "500", "--json", "number,title,body,state,labels,createdAt",
+            "--limit", str(PROMOTION_LIST_LIMIT), "--json", "number,title,body,state,labels,createdAt",
         )
     )
+    if len(raw) >= PROMOTION_LIST_LIMIT:
+        raise Refusal(f"the promotion listing reached its {PROMOTION_LIST_LIMIT}-issue cap; it cannot see the whole backlog")
     return {
         item["number"]: {
             "number": item["number"],
@@ -231,6 +240,9 @@ def validate(plan, promotions, repo, root):
 
     for index, cluster in enumerate(plan["clusters"]):
         where = f"cluster {index + 1}"
+        if not isinstance(cluster, dict):
+            problems.append(f"{where} must be an object")
+            continue
         members = cluster.get("members")
         if not isinstance(members, list) or len(members) < 2:
             problems.append(f"{where} needs at least two members")
@@ -246,11 +258,14 @@ def validate(plan, promotions, repo, root):
             problems.append(f"survivor #{survivor} of {where} must be open")
 
     for number, item in promotions.items():
-        if item["state"] == "OPEN" and not CORRECTION_RE.search(item["body"]):
+        if not CORRECTION_RE.search(item["body"]):
             problems.append(f"#{number} has no ### Correction section")
 
     for index, entry in enumerate(plan["covered"]):
         where = f"covered entry {index + 1}"
+        if not isinstance(entry, dict):
+            problems.append(f"{where} must be an object")
+            continue
         number = entry.get("issue")
         if known(number, where):
             claim(number, where)
@@ -317,6 +332,7 @@ def run(args):
     before = len(open_now)
     after = before - len([n for n in planned if promotions[n]["state"] == "OPEN"])
 
+    found_tracking = find_tracking(args.repo)
     with tempfile.TemporaryDirectory(prefix="promotion-consolidate-") as scratch:
         runner = Runner(args.repo, args.dry_run, scratch)
         merged = []
@@ -354,9 +370,10 @@ def run(args):
             check = f"{entry['check']['file']}#{entry['check']['name']}"
             marker = f"{COVERED_PREFIX}{check} -->"
             if not has_marker(args.repo, number, marker):
+                link = f"https://github.com/{args.repo}/blob/main/{entry['check']['file']}"
                 path = runner.file(
-                    f"{marker}\nCovered by `{entry['check']['file']}` (`{entry['check']['name']}`): "
-                    f"{entry['reason']} Closing; the check is verified in the repository."
+                    f"{marker}\nCovered by `{entry['check']['name']}` in {link}: "
+                    f"{entry['reason']} Closing; the check is verified on {INTEGRATION_REF}."
                 )
                 runner.write(
                     f"comment on #{number} linking its covering check",
@@ -414,7 +431,7 @@ def run(args):
 
         proposals, oversized = propose(promotions, in_plan)
 
-        tracking = find_tracking(args.repo)
+        tracking = found_tracking
         if tracking is None:
             path = runner.file(
                 f"{TRACKING_MARKER}\n# Promotion backlog consolidation\n\n"
@@ -453,7 +470,10 @@ def find_tracking(repo):
         gh("issue", "list", "-R", repo, "--state", "all", "--limit", str(TRACKING_LIST_LIMIT), "--json", "number,body")
     )
     if len(found) >= TRACKING_LIST_LIMIT:
-        raise Refusal(f"the tracking issue lookup reached its {TRACKING_LIST_LIMIT}-issue cap; it cannot prove there is one tracking issue")
+        raise Refusal(
+            f"the tracking issue lookup reached its {TRACKING_LIST_LIMIT}-issue cap; "
+            "it cannot prove there is one tracking issue"
+        )
     matches = [item["number"] for item in found if TRACKING_MARKER in item["body"]]
     if len(matches) > 1:
         raise Refusal(f"more than one tracking issue carries the marker: {matches}")
@@ -471,7 +491,7 @@ def post_summary(args, runner, tracking, run_id, path):
         return
     runner.write(
         f"post the run {run_id} summary on #{tracking}",
-        "issue", "comment", str(tracking), "-R", args.repo, "--body-file", path,
+        "issue", "comment", str(tracking), "-R", runner.repo, "--body-file", path,
     )
 
 

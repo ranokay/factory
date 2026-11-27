@@ -210,6 +210,7 @@ class LiveRun(Pass):
         state = self.read_state()
         self.assertEqual(state["issues"]["52"]["state"], "CLOSED")
         self.assertIn("<!-- factory:promotion-covered check=hk.pkl#gitleaks-test -->", self.comment_bodies(state["issues"]["52"]))
+        self.assertIn("https://github.com/ranokay/factory/blob/main/hk.pkl", self.comment_bodies(state["issues"]["52"]))
         self.assertIn("Open promotions: 51 before, 44 after this run.", self.summaries(state)[0]["body"])
 
 
@@ -248,6 +249,16 @@ class Refused(Pass):
         state["issues"]["80"]["state"] = "CLOSED"
         self.write_state(state)
         self.assertRefused(json.loads(PLAN.read_text()), "#80 is closed and this pass did not close it")
+
+    def test_a_check_that_is_only_local_is_refused(self):
+        plan = json.loads(PLAN.read_text())
+        plan["covered"] = [dict(FIXTURE_COVERED, check={"file": "scripts/promotion-consolidate.py", "name": "run"})]
+        self.assertRefused(plan, "is not on origin/main")
+
+    def test_a_cluster_that_is_not_an_object_is_refused(self):
+        plan = json.loads(PLAN.read_text())
+        plan["clusters"] = ["x"]
+        self.assertRefused(plan, "cluster 1 must be an object")
 
     def test_a_reason_must_be_one_line(self):
         plan = json.loads(PLAN.read_text())
@@ -364,6 +375,21 @@ class Proposals(Pass):
         self.assertIn("#1001, #1002 (shared terms:", result.stdout)
         self.assertEqual(self.read_state()["issues"]["1001"]["state"], "OPEN")
         self.assertEqual(self.read_state()["issues"]["1002"]["state"], "OPEN")
+
+
+class PromotionCap(Pass):
+    def test_refuses_when_the_promotion_listing_reaches_its_cap(self):
+        state = fixture_state()
+        for number in range(3000, 3000 + module.PROMOTION_LIST_LIMIT - len(state["issues"])):
+            state["issues"][str(number)] = {
+                "number": number, "title": "unrelated", "body": "x", "state": "OPEN",
+                "createdAt": "2026-11-27T00:00:00Z", "labels": [], "comments": [],
+            }
+        self.write_state(state)
+        self.write_plan({"clusters": [], "covered": []})
+        result = self.run_pass("--dry-run")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn(f"{module.PROMOTION_LIST_LIMIT}-issue cap", result.stderr)
 
 
 class TrackingLookup(Pass):
