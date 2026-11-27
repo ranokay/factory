@@ -95,7 +95,7 @@ STUB
 #!/bin/sh
 set -eu
 printf 'cua %s\n' "$*" >>"$STUB_LOG"
-for name in cua-driver cua-sandboxes cua-spaces cua-volume gui-automation; do
+for name in cua-driver cua-sandboxes cua-spaces cua-volume gui-automation supercomputer; do
 	mkdir -p "$HOME/.claude/skills/$name"
 	printf '# %s\n' "$name" >"$HOME/.claude/skills/$name/SKILL.md"
 done
@@ -284,8 +284,13 @@ snapshot() {
 
 case_fresh() {
 	setup_case fresh
+	baseline_repo "$factory"
 	run_bootstrap
 	[ "$code" -eq 0 ] || fail "fresh bootstrap failed: $output"
+	bootstrap_output=$output
+	run_command git -C "$factory" status --porcelain
+	[ -z "$output" ] || fail "bootstrap left untracked tool-owned skills: $output"
+	output=$bootstrap_output
 	expect_contains "$output" "tool-owned skills are installed"
 	expect_contains "$output" "vendored skills check passed"
 	expect_contains "$output" "discovery check passed"
@@ -300,7 +305,7 @@ case_fresh() {
 		[ "$(readlink "$path")" = "$home/.agents/AGENTS.md" ] || fail "$path points at $(readlink "$path")"
 		[ "$(head -n 1 "$path")" = "# Factory" ] || fail "$path does not show the Factory instructions"
 	done
-	for name in ardia cua-driver cua-sandboxes cua-spaces cua-volume gui-automation find-docs reverse-engineer-anything gh-stack; do
+	for name in ardia cua-driver cua-sandboxes cua-spaces cua-volume gui-automation supercomputer find-docs reverse-engineer-anything gh-stack; do
 		[ -f "$factory/skills/$name/SKILL.md" ] || fail "installer did not create skills/$name"
 	done
 	for name in find-skills emil-prototype playwright-cli prototype; do
