@@ -107,6 +107,7 @@ depends = [
   "messages:test",
   "triage:test",
   "pushback:test",
+  "promotion-consolidate:test",
   "adopt:test",
   "new:test",
   "ocr-restyle:test",
@@ -190,6 +191,14 @@ run = "hk test --step adopt"
 [tasks."new:test"]
 description = "Run the new CLI fixture tests"
 run = "hk test --step new"
+
+[tasks."promotion:consolidate"]
+description = "Consolidate the promotion backlog from scripts/promotion-consolidation.json; --dry-run writes nothing"
+run = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python scripts/promotion-consolidate.py"
+
+[tasks."promotion-consolidate:test"]
+description = "Run the promotion consolidation fixture tests"
+run = "hk test --step promotion-consolidate"
 
 [tasks."pushback:test"]
 description = "Run the pushback review tests"

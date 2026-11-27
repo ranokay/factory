@@ -957,6 +957,39 @@ case_gc_agent() {
 	printf 'ok: missing gc plist detected\n'
 }
 
+case_promotion_agent() {
+	setup_case promotion-agent
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	plist=$home/Library/LaunchAgents/dev.factory.promotion-consolidate.plist
+	[ -f "$plist" ] || fail "promotion plist missing"
+	[ "$(plist_value "$plist" Label)" = dev.factory.promotion-consolidate ] || fail "wrong label"
+	[ "$(plist_value "$plist" StartCalendarInterval.Weekday)" = 2 ] || fail "wrong day"
+	[ "$(plist_value "$plist" StartCalendarInterval.Hour)" = 3 ] || fail "wrong hour"
+	[ "$(plist_value "$plist" StartCalendarInterval.Minute)" = 0 ] || fail "wrong minute"
+	[ "$(plist_value "$plist" ProgramArguments.2)" = "$home/.agents" ] || fail "wrong working directory"
+	[ "$(plist_value "$plist" ProgramArguments.3)" = run ] || fail "does not run a task"
+	[ "$(plist_value "$plist" ProgramArguments.4)" = promotion:consolidate ] || fail "does not run promotion:consolidate"
+	[ "$(plist_value "$plist" StandardOutPath)" = "$home/Library/Logs/factory-promotion-consolidate.log" ] || fail "wrong log path"
+	[ "$(plist_value "$plist" StandardErrorPath)" = "$home/Library/Logs/factory-promotion-consolidate-error.log" ] || fail "wrong error log path"
+	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v mise)")"
+	expect_contains "$(plist_value "$plist" EnvironmentVariables.PATH)" "$(dirname "$(command -v gh)")"
+	[ -n "$(env -i PATH="$(plist_value "$plist" EnvironmentVariables.PATH)" /bin/sh -c 'command -v uv')" ] || fail "uv is not on the promotion agent PATH"
+	run_discovery
+	[ "$code" -eq 0 ] || fail "promotion discovery failed: $output"
+	printf 'ok: promotion plist installed at %s and discovery passed\n' "$plist"
+	run_python -c 'import plistlib,sys; p=sys.argv[1]; d=plistlib.loads(open(p,"rb").read()); d["StartCalendarInterval"]["Hour"]=4; open(p,"wb").write(plistlib.dumps(d))' "$plist"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "drift went undetected"
+	expect_contains "$output" dev.factory.promotion-consolidate.plist
+	printf 'ok: promotion plist drift detected\n'
+	rm "$plist"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "missing plist went undetected"
+	expect_contains "$output" dev.factory.promotion-consolidate.plist
+	printf 'ok: missing promotion plist detected\n'
+}
+
 case_verify_agent() {
 	setup_case verify-agent
 	run_bootstrap
@@ -1494,6 +1527,7 @@ mcp) case_mcp ;;
 mcp-absent) case_mcp_absent ;;
 secrets-agent) case_secrets_agent ;;
 gc-agent) case_gc_agent ;;
+promotion-agent) case_promotion_agent ;;
 verify-agent) case_verify_agent ;;
 verify-agent-narrow) case_verify_agent_narrow ;;
 plist-drift) case_plist_drift ;;

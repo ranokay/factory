@@ -169,3 +169,11 @@ _Avoid_: fork, modification, override
 **Promotion**:
 Turning an agent correction into a lint rule, check, type or API change, and deleting any prose rule it replaces.
 _Avoid_: new rule, reminder
+
+**Promotion Cluster**:
+A reviewed set of open promotions that describe one mistake, merged into one Promotion Survivor by the weekly consolidation pass.
+_Avoid_: duplicate group, bucket
+
+**Promotion Survivor**:
+The lowest-numbered member of a Promotion Cluster; it stays open, links its sources and carries their occurrences.
+_Avoid_: canonical issue, master

@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Fake gh for the promotion consolidation tests.
+
+State lives in FAKE_GH_STATE. Every call is appended to FAKE_GH_LOG. A mutating
+call counts toward FAKE_GH_FAIL_AFTER: once that many have succeeded, the next
+mutating call exits 1 without changing anything, which simulates a run that
+stops midway.
+"""
+
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+state_path = Path(os.environ["FAKE_GH_STATE"])
+state = json.loads(state_path.read_text())
+with Path(os.environ["FAKE_GH_LOG"]).open("a") as handle:
+    handle.write(json.dumps(args) + "\n")
+
+MUTATING = {("issue", "comment"), ("issue", "edit"), ("issue", "close"), ("issue", "create")}
+
+
+def value(flag):
+    return args[args.index(flag) + 1] if flag in args else None
+
+
+def save():
+    state_path.write_text(json.dumps(state, sort_keys=True))
+
+
+def fail(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
+def is_mutating():
+    if tuple(args[:2]) in MUTATING:
+        return True
+    return args[0] == "api" and "PATCH" in args
+
+
+def spend():
+    if is_mutating():
+        limit = os.environ.get("FAKE_GH_FAIL_AFTER")
+        if limit is not None and state["mutations"] >= int(limit):
+            fail("fake gh: injected failure")
+        state["mutations"] += 1
+
+
+def labels_of(item):
+    return [label["name"] if isinstance(label, dict) else label for label in item["labels"]]
+
+
+def issue(number):
+    item = state["issues"].get(str(number))
+    if item is None:
+        fail(f"no issue {number}")
+    return item
+
+
+def view_payload(item, fields):
+    payload = {}
+    for field in fields.split(","):
+        if field == "labels":
+            payload["labels"] = [{"name": name} for name in labels_of(item)]
+        elif field == "comments":
+            payload["comments"] = item.get("comments", [])
+        else:
+            payload[field] = item.get(field)
+    return payload
+
+
+spend()
+
+if args[:2] == ["issue", "list"]:
+    search = value("--search")
+    state_filter = value("--state") or "open"
+    found = []
+    for item in state["issues"].values():
+        if state_filter != "all" and item["state"].lower() != state_filter:
+            continue
+        if value("--label") and value("--label") not in labels_of(item):
+            continue
+        if search:
+            needle = re.search(r'"([^"]+)"', search).group(1)
+            if needle not in item["body"]:
+                continue
+        found.append(view_payload(item, value("--json")))
+    print(json.dumps(found))
+elif args[:2] == ["issue", "view"]:
+    print(json.dumps(view_payload(issue(args[2]), value("--json"))))
+elif args[:2] == ["issue", "comment"]:
+    item = issue(args[2])
+    comments = item.setdefault("comments", [])
+    number = state["next_comment"]
+    state["next_comment"] += 1
+    comment = {
+        "id": number,
+        "body": Path(value("--body-file")).read_text(),
+        "url": f"https://example.test/{args[2]}#issuecomment-{number}",
+        "author": {"login": "ranokay"},
+        "createdAt": "2026-11-27T00:00:00Z",
+    }
+    comments.append(comment)
+    save()
+    print(comment["url"])
+elif args[:2] == ["issue", "edit"]:
+    item = issue(args[2])
+    index = 0
+    while index < len(args):
+        if args[index] == "--add-label":
+            if args[index + 1] not in labels_of(item):
+                item["labels"].append({"name": args[index + 1]})
+            index += 2
+        elif args[index] == "--remove-label":
+            item["labels"] = [label for label in item["labels"] if labels_of({"labels": [label]})[0] != args[index + 1]]
+            index += 2
+        elif args[index] == "--body-file":
+            item["body"] = Path(args[index + 1]).read_text()
+            index += 2
+        else:
+            index += 1
+    save()
+elif args[:2] == ["issue", "close"]:
+    issue(args[2])["state"] = "CLOSED"
+    save()
+elif args[:2] == ["issue", "create"]:
+    number = state["next_issue"]
+    state["next_issue"] += 1
+    state["issues"][str(number)] = {
+        "number": number,
+        "title": value("--title"),
+        "body": Path(value("--body-file")).read_text(),
+        "state": "OPEN",
+        "createdAt": "2026-11-27T00:00:00Z",
+        "labels": [{"name": name} for name in [v for i, v in enumerate(args) if i and args[i - 1] == "--label"]],
+        "comments": [],
+    }
+    save()
+    print(f"https://example.test/issues/{number}")
+elif args[0] == "api" and "PATCH" in args:
+    match = re.search(r"repos/[^/]+/[^/]+/issues/comments/(\d+)", " ".join(args))
+    comment_id = int(match.group(1))
+    body = value("-F").split("=", 1)[1]
+    body = Path(body[1:]).read_text() if body.startswith("@") else body
+    for item in state["issues"].values():
+        for comment in item.get("comments", []):
+            if comment["id"] == comment_id:
+                comment["body"] = body
+                save()
+                print(json.dumps({"id": comment_id}))
+                sys.exit(0)
+    fail(f"no comment {comment_id}")
+else:
+    fail(f"fake gh: unsupported call {args}")

@@ -1,0 +1,546 @@
+#!/usr/bin/env python3
+"""Consolidate the promotion backlog from one reviewed plan.
+
+scripts/promotion-consolidation.json names the clusters that merge into a
+survivor and the promotions a verified check covers. The pass validates the
+whole plan before it writes anything. It then merges each cluster, closes the
+covered promotions, sends the most frequent survivors to the Pushback Review by
+adding `needs-triage`, and edits one summary comment per day on the tracking
+issue. It proposes clusters the plan does not name, but never applies them.
+Every step is marker-based, so a re-run after a stopped run finishes the work
+without repeating a comment or an occurrence.
+"""
+
+import argparse
+import datetime as dt
+import json
+import re
+import subprocess  # nosec B404 -- gh runs with an argument list, never a shell
+import sys
+import tempfile
+from pathlib import Path
+
+SCRIPTS = Path(__file__).resolve().parent
+ROOT = SCRIPTS.parent
+sys.path.insert(0, str(SCRIPTS))
+
+from pushback_common import issue_comments, records  # noqa: E402
+
+DEFAULT_PLAN = SCRIPTS / "promotion-consolidation.json"
+DEFAULT_REPO = "ranokay/factory"
+PROMOTION = "promotion"
+PUSHBACK_LABEL = "needs-triage"
+BLOCKING_LABELS = frozenset({"ready-for-agent", "wontfix"})
+TOP_DEFAULT = 5
+JACCARD_THRESHOLD = 0.25
+TRACKING_MARKER = "<!-- factory:promotion-consolidate-tracking -->"
+PUSHBACK_MARKER = "<!-- factory:promotion-pushback -->"
+MERGED_PREFIX = "<!-- factory:promotion-merged into="
+COVERED_PREFIX = "<!-- factory:promotion-covered check="
+LINKS_START = "<!-- factory:promotion-links -->"
+LINKS_END = "<!-- /factory:promotion-links -->"
+OCCURRENCES_HEADING = "### Merged occurrences"
+OCCURRENCE_RE = re.compile(
+    r"<!-- factory:promotion-occurrence source=(\d+) -->\n(.*?)\n<!-- /factory:promotion-occurrence -->",
+    re.S,
+)
+CORRECTION_RE = re.compile(r"### Correction\s*\n(.*?)(?=\n### Gate check|\Z)", re.S)
+STOPWORDS = frozenset(
+    "a an and any are as at be by each every for from in into is it not of on or only out "
+    "outside the this that to when while with without must new".split()
+)
+
+
+class Refusal(Exception):
+    """The plan or the repository state is wrong. Nothing has been written."""
+
+
+def gh(*args, timeout=120):
+    result = subprocess.run(  # nosec B603 B607 -- gh with an argument list
+        ["gh", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"gh {' '.join(args[:3])} failed: {detail}")
+    return result.stdout
+
+
+def occurrences(body):
+    """The Correction's `- ` bullets, or the whole Correction as one occurrence."""
+    match = CORRECTION_RE.search(body or "")
+    text = match.group(1) if match else (body or "")
+    bullets = [" ".join(line[2:].split()) for line in text.splitlines() if line.startswith("- ")]
+    if bullets:
+        return bullets
+    collapsed = " ".join(text.split())
+    return [collapsed] if collapsed else []
+
+
+def tokens(title):
+    words = re.findall(r"[a-z0-9][a-z0-9.+/-]*", title.lower())
+    return {word for word in words if word not in STOPWORDS and len(word) > 1}
+
+
+def jaccard(first, second):
+    return len(first & second) / len(first | second)
+
+
+def survivor_of(members):
+    return min(members)
+
+
+def merged_body(survivor, body, sources):
+    """The survivor body with its links block and one occurrence block per source.
+
+    Rebuilding from the same inputs gives the same text, so a re-run that changes
+    nothing writes nothing.
+    """
+    body = body or ""
+    base = body.split(LINKS_START, 1)[0].rstrip()
+    blocks = {int(number): inner for number, inner in OCCURRENCE_RE.findall(body)}
+    for number, source_body in sources:
+        if number not in blocks:
+            lines = [f"- {item}" for item in occurrences(source_body)]
+            blocks[number] = "\n".join([f"From #{number}:", *lines])
+    members = ", ".join([f"#{survivor} (survivor)", *(f"#{number}" for number in sorted(blocks))])
+    rendered = [
+        f"<!-- factory:promotion-occurrence source={number} -->\n{blocks[number]}\n"
+        "<!-- /factory:promotion-occurrence -->"
+        for number in sorted(blocks)
+    ]
+    return "\n".join(
+        [
+            base,
+            "",
+            LINKS_START,
+            f"Cluster members: {members}. Their corrections and occurrences are copied below.",
+            LINKS_END,
+            "",
+            OCCURRENCES_HEADING,
+            "",
+            *rendered,
+            "",
+        ]
+    )
+
+
+def check_defined(root, check):
+    file, name = check["file"], check["name"]
+    path = Path(file)
+    if path.is_absolute() or ".." in path.parts:
+        raise Refusal(f"check file {file} must be a path inside the Factory")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
+        raise Refusal(f"check name {name!r} is not a plain identifier")
+    target = root / path
+    if not target.is_file():
+        raise Refusal(f"check file {file} does not exist")
+    text = target.read_text(encoding="utf-8")
+    escaped = re.escape(name)
+    if file.endswith(".toml"):
+        pattern = rf'^\s*id\s*=\s*"{escaped}"\s*$'
+    elif file.endswith(".pkl"):
+        pattern = rf'^\s*\["{escaped}"\]\s*=\s*new Step\b'
+    elif file.endswith((".yml", ".yaml")):
+        pattern = rf"^\s*{escaped}:\s*$|^\s*-?\s*name:\s*{escaped}\s*$"
+    else:
+        raise Refusal(f"check file {file} has no supported check format (.toml, .pkl, .yml, .yaml)")
+    if not re.search(pattern, text, re.M):
+        raise Refusal(f"{file} does not define the check {name}")
+
+
+def load_plan(path):
+    try:
+        plan = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise Refusal(f"cannot read the plan {path}: {error}") from None
+    if not isinstance(plan, dict):
+        raise Refusal("the plan must be a JSON object")
+    plan.setdefault("clusters", [])
+    plan.setdefault("covered", [])
+    return plan
+
+
+def load_promotions(repo):
+    raw = json.loads(
+        gh(
+            "issue", "list", "-R", repo, "--label", PROMOTION, "--state", "all",
+            "--limit", "500", "--json", "number,title,body,state,labels,createdAt",
+        )
+    )
+    return {
+        item["number"]: {
+            "number": item["number"],
+            "title": item.get("title") or "",
+            "body": item.get("body") or "",
+            "state": item["state"].upper(),
+            "labels": [label["name"] for label in item.get("labels") or []],
+            "createdAt": item.get("createdAt") or "",
+        }
+        for item in raw
+    }
+
+
+def closed_by_pass(repo, number):
+    return any(
+        MERGED_PREFIX in (comment.get("body") or "") or COVERED_PREFIX in (comment.get("body") or "")
+        for comment in issue_comments(repo, number)
+    )
+
+
+def validate(plan, promotions, repo, root):
+    problems = []
+    claims = {}
+
+    def claim(number, where):
+        if number in claims:
+            problems.append(f"#{number} appears in {claims[number]} and in {where}")
+        claims[number] = where
+
+    def known(number, where):
+        if not isinstance(number, int) or isinstance(number, bool):
+            problems.append(f"{where} lists {number!r}, which is not an issue number")
+            return False
+        if number not in promotions:
+            problems.append(f"#{number} is not a promotion issue ({where})")
+            return False
+        if promotions[number]["state"] == "CLOSED" and not closed_by_pass(repo, number):
+            problems.append(f"#{number} is closed and this pass did not close it ({where})")
+            return False
+        return True
+
+    for index, cluster in enumerate(plan["clusters"]):
+        where = f"cluster {index + 1}"
+        members = cluster.get("members")
+        if not isinstance(members, list) or len(members) < 2:
+            problems.append(f"{where} needs at least two members")
+            continue
+        if not isinstance(cluster.get("reason"), str) or not cluster["reason"].strip() or "\n" in cluster["reason"]:
+            problems.append(f"{where} needs a one-line reason")
+        for number in members:
+            if known(number, where):
+                claim(number, where)
+        survivor = survivor_of([m for m in members if isinstance(m, int)]) if members else None
+        if survivor in promotions and promotions[survivor]["state"] != "OPEN":
+            problems.append(f"survivor #{survivor} of {where} must be open")
+
+    for index, entry in enumerate(plan["covered"]):
+        where = f"covered entry {index + 1}"
+        number = entry.get("issue")
+        if known(number, where):
+            claim(number, where)
+        if not isinstance(entry.get("reason"), str) or not entry["reason"].strip() or "\n" in entry["reason"]:
+            problems.append(f"{where} needs a one-line reason")
+        check = entry.get("check")
+        if not isinstance(check, dict) or not isinstance(check.get("file"), str) or not isinstance(check.get("name"), str):
+            problems.append(f"{where} needs a check with file and name")
+            continue
+        try:
+            check_defined(root, check)
+        except Refusal as error:
+            problems.append(f"{where} (#{number}): {error}")
+    return problems
+
+
+def planned_closures(plan):
+    closures = set()
+    for cluster in plan["clusters"]:
+        members = sorted(cluster["members"])
+        closures.update(members[1:])
+    closures.update(entry["issue"] for entry in plan["covered"])
+    return closures
+
+
+class Runner:
+    def __init__(self, repo, dry_run, scratch):
+        self.repo = repo
+        self.dry_run = dry_run
+        self.scratch = Path(scratch)
+        self.actions = []
+        self.counter = 0
+
+    def file(self, text):
+        self.counter += 1
+        path = self.scratch / f"body-{self.counter}.md"
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def write(self, description, *args):
+        self.actions.append(description)
+        if self.dry_run:
+            return ""
+        return gh(*args)
+
+
+def run(args):
+    plan = load_plan(args.plan)
+    promotions = load_promotions(args.repo)
+    problems = validate(plan, promotions, args.repo, args.root)
+    if problems:
+        for problem in problems:
+            print(f"promotion-consolidate: {problem}", file=sys.stderr)
+        print("promotion-consolidate: the plan is refused; nothing was written", file=sys.stderr)
+        return 1
+
+    date = args.date or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    planned = planned_closures(plan)
+    open_now = [n for n, item in promotions.items() if item["state"] == "OPEN"]
+    closed_at_start = [n for n in planned if promotions[n]["state"] == "CLOSED"]
+    before = len(open_now) + len(closed_at_start)
+    after = before - len(planned)
+
+    with tempfile.TemporaryDirectory(prefix="promotion-consolidate-") as scratch:
+        runner = Runner(args.repo, args.dry_run, scratch)
+        merged = []
+        for cluster in plan["clusters"]:
+            members = sorted(cluster["members"])
+            survivor, sources = members[0], members[1:]
+            survivor_issue = promotions[survivor]
+            source_bodies = [(n, promotions[n]["body"]) for n in sources]
+            new_body = merged_body(survivor, survivor_issue["body"], source_bodies)
+            if new_body != survivor_issue["body"]:
+                path = runner.file(new_body)
+                runner.write(
+                    f"edit the survivor #{survivor} body",
+                    "issue", "edit", str(survivor), "-R", args.repo, "--body-file", path,
+                )
+            occurrence_count = sum(len(occurrences(promotions[n]["body"])) for n in members)
+            for number in sources:
+                marker = f"{MERGED_PREFIX}{survivor} -->"
+                if not any(marker in (c.get("body") or "") for c in issue_comments(args.repo, number)):
+                    path = runner.file(
+                        f"{marker}\nMerged into #{survivor}. Its correction and occurrences now live "
+                        "on that survivor, so this duplicate is closed."
+                    )
+                    runner.write(
+                        f"comment on #{number} pointing to #{survivor}",
+                        "issue", "comment", str(number), "-R", args.repo, "--body-file", path,
+                    )
+                if promotions[number]["state"] == "OPEN":
+                    runner.write(f"close duplicate #{number}", "issue", "close", str(number), "-R", args.repo)
+            merged.append((survivor, sources, cluster["reason"], occurrence_count))
+
+        covered_done = []
+        for entry in plan["covered"]:
+            number = entry["issue"]
+            check = f"{entry['check']['file']}#{entry['check']['name']}"
+            marker = f"{COVERED_PREFIX}{check} -->"
+            if not any(marker in (c.get("body") or "") for c in issue_comments(args.repo, number)):
+                path = runner.file(
+                    f"{marker}\nCovered by `{entry['check']['file']}` (`{entry['check']['name']}`): "
+                    f"{entry['reason']} Closing; the check is verified in the repository."
+                )
+                runner.write(
+                    f"comment on #{number} linking its covering check",
+                    "issue", "comment", str(number), "-R", args.repo, "--body-file", path,
+                )
+            if promotions[number]["state"] == "OPEN":
+                runner.write(f"close covered #{number}", "issue", "close", str(number), "-R", args.repo)
+            covered_done.append((number, check, entry["reason"]))
+
+        in_plan = planned | {m for c in plan["clusters"] for m in c["members"]}
+        candidates = []
+        for cluster in plan["clusters"]:
+            members = sorted(cluster["members"])
+            candidates.append((members[0], members))
+        for number, item in promotions.items():
+            if number not in in_plan and item["state"] == "OPEN":
+                candidates.append((number, [number]))
+
+        ranked = []
+        for number, members in candidates:
+            if promotions[number]["state"] != "OPEN":
+                continue
+            score = len(members) + sum(len(occurrences(promotions[m]["body"])) for m in members)
+            ranked.append((-score, promotions[number]["createdAt"], number, score))
+        ranked.sort()
+
+        sent = []
+        for _, _, number, score in ranked:
+            if len(sent) >= args.top:
+                break
+            labels = promotions[number]["labels"]
+            comments = issue_comments(args.repo, number)
+            if any(record["kind"] == "review" for record in records(comments)):
+                continue
+            if set(labels) & BLOCKING_LABELS:
+                continue
+            has_marker = any(PUSHBACK_MARKER in (c.get("body") or "") for c in comments)
+            if PUSHBACK_LABEL in labels and not has_marker:
+                continue
+            if PUSHBACK_LABEL not in labels:
+                runner.write(
+                    f"add {PUSHBACK_LABEL} to #{number}",
+                    "issue", "edit", str(number), "-R", args.repo, "--add-label", PUSHBACK_LABEL,
+                )
+            if not has_marker:
+                path = runner.file(
+                    f"{PUSHBACK_MARKER}\nSent to the Pushback Review by the promotion consolidation pass "
+                    f"(score {score}). The pass adds `{PUSHBACK_LABEL}` and never sets `ready-for-agent`."
+                )
+                runner.write(
+                    f"comment on #{number} recording the handoff",
+                    "issue", "comment", str(number), "-R", args.repo, "--body-file", path,
+                )
+            sent.append((number, score, promotions[number]["title"]))
+
+        proposals = propose(promotions, in_plan)
+
+        tracking = find_tracking(args.repo)
+        if tracking is None:
+            path = runner.file(
+                f"{TRACKING_MARKER}\n# Promotion backlog consolidation\n\n"
+                "The weekly promotion consolidation pass posts one summary comment per day here. "
+                "Its merges, covered closures and pushback handoffs are listed in those comments."
+            )
+            url = runner.write(
+                "create the tracking issue",
+                "issue", "create", "-R", args.repo, "--title",
+                "Promotion backlog consolidation (tracking)", "--body-file", path,
+            )
+            tracking = int(url.strip().rstrip("/").split("/")[-1]) if url.strip() else None
+
+        summary = render_summary(
+            date, args.dry_run, before, after, merged, covered_done, sent, proposals
+        )
+        summary_path = runner.file(summary)
+        post_summary(args, runner, tracking, date, summary_path)
+
+        if args.dry_run:
+            print("DRY RUN: nothing was written. Writes that a live run would make:")
+            for action in runner.actions:
+                print(f"  - {action}")
+        print(summary)
+    return 0
+
+
+def find_tracking(repo):
+    found = json.loads(
+        gh(
+            "issue", "list", "-R", repo, "--state", "all",
+            "--search", f'"{TRACKING_MARKER}" in:body', "--json", "number,body,state",
+            "--limit", "100",
+        )
+    )
+    matches = [item["number"] for item in found if TRACKING_MARKER in (item.get("body") or "")]
+    if len(matches) > 1:
+        raise Refusal(f"more than one tracking issue carries the marker: {matches}")
+    return matches[0] if matches else None
+
+
+def post_summary(args, runner, tracking, date, path):
+    marker = f"<!-- factory:promotion-consolidate-run date={date} -->"
+    if tracking is None:
+        runner.write("post the day's summary on the new tracking issue", "issue", "comment", "new")
+        return
+    existing = [c for c in issue_comments(args.repo, tracking) if marker in (c.get("body") or "")]
+    if existing:
+        match = re.search(r"issuecomment-(\d+)", existing[0].get("url") or "")
+        if not match:
+            raise Refusal(f"the day's summary on #{tracking} has no comment id")
+        comment_id = match.group(1)
+        runner.write(
+            f"edit the {date} summary on #{tracking}",
+            "api", "-X", "PATCH", f"repos/{args.repo}/issues/comments/{comment_id}",
+            "-F", f"body=@{path}",
+        )
+    else:
+        runner.write(
+            f"post the {date} summary on #{tracking}",
+            "issue", "comment", str(tracking), "-R", args.repo, "--body-file", path,
+        )
+
+
+def propose(promotions, in_plan):
+    pool = [n for n, item in promotions.items() if item["state"] == "OPEN" and n not in in_plan]
+    pool.sort()
+    parent = {n: n for n in pool}
+
+    def find(number):
+        while parent[number] != number:
+            parent[number] = parent[parent[number]]
+            number = parent[number]
+        return number
+
+    words = {n: tokens(promotions[n]["title"]) for n in pool}
+    for index, first in enumerate(pool):
+        for second in pool[index + 1 :]:
+            if jaccard(words[first], words[second]) >= JACCARD_THRESHOLD:
+                parent[find(first)] = find(second)
+    groups = {}
+    for number in pool:
+        groups.setdefault(find(number), []).append(number)
+    proposals = []
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        shared = set.intersection(*(words[m] for m in members))
+        proposals.append((sorted(members), sorted(shared)))
+    return sorted(proposals)
+
+
+def render_summary(date, dry_run, before, after, merged, covered_done, sent, proposals):
+    lines = [
+        f"<!-- factory:promotion-consolidate-run date={date} -->",
+        f"## Promotion consolidation, {date}",
+        "",
+        f"Mode: {'dry run, nothing written' if dry_run else 'live'}. "
+        f"Open promotions: {before} before, {after} after this run.",
+        "",
+        "### Merged clusters",
+    ]
+    if merged:
+        for survivor, sources, reason, count in merged:
+            links = ", ".join(f"#{n}" for n in sources)
+            lines.append(f"- #{survivor} (survivor) absorbs {links}; {count} occurrences: {reason}")
+    else:
+        lines.append("None.")
+    lines += ["", "### Closed as covered"]
+    if covered_done:
+        for number, check, reason in covered_done:
+            lines.append(f"- #{number} covered by `{check}`: {reason}")
+    else:
+        lines.append("None.")
+    lines += ["", f"### Sent to pushback (`{PUSHBACK_LABEL}`, top {len(sent)})"]
+    if sent:
+        for number, score, title in sent:
+            lines.append(f"- #{number} (score {score}): {title}")
+    else:
+        lines.append("None.")
+    lines += ["", "### Proposed clusters (not applied)"]
+    if proposals:
+        for members, shared in proposals:
+            joined = ", ".join(f"#{n}" for n in members)
+            words = ", ".join(shared) if shared else "none"
+            lines.append(f"- {joined} (shared title words: {words})")
+        lines.append("")
+        lines.append("Confirm a proposal by adding it to `scripts/promotion-consolidation.json`.")
+    else:
+        lines.append("None.")
+    return "\n".join(lines) + "\n"
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN, help="reviewed consolidation plan")
+    parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name of the Factory repository")
+    parser.add_argument("--root", type=Path, default=ROOT, help="checkout whose check files are verified")
+    parser.add_argument("--date", help="summary date, YYYY-MM-DD (default: today, UTC)")
+    parser.add_argument("--top", type=int, default=TOP_DEFAULT, help="survivors sent to pushback per run")
+    parser.add_argument("--dry-run", action="store_true", help="print what a run would do and write nothing")
+    args = parser.parse_args(argv)
+    try:
+        return run(args)
+    except Refusal as error:
+        print(f"promotion-consolidate: {error}", file=sys.stderr)
+        return 1
+    except RuntimeError as error:
+        print(f"promotion-consolidate: {error}; re-run to finish the remaining steps", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

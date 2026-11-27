@@ -916,6 +916,11 @@ steps {
             env { ["BOOTSTRAP_CASE"] = "gc-agent" }
             expect { code = 0 }
           }
+          ["the promotion agent is installed and drift is detected"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "promotion-agent" }
+            expect { code = 0 }
+          }
           ["the weekly verify maintenance agent is installed and drift is detected"] {
             run = "check"
             env { ["BOOTSTRAP_CASE"] = "verify-agent" }
@@ -1084,6 +1089,15 @@ steps {
         check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/pushback-test.py"
         tests {
           ["parses verdicts, posts one comment and gates ready-for-agent"] {
+            run = "check"
+            expect { code = 0 }
+          }
+        }
+      }
+      ["promotion-consolidate"] = new Step {
+        check = "uv run --offline --no-project --no-config --python \"$(mise which python)\" python {{root}}/scripts/promotion-consolidate-test.py"
+        tests {
+          ["dry run writes nothing, the live run is idempotent and resumes after a failure"] {
             run = "check"
             expect { code = 0 }
           }
