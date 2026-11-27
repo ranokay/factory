@@ -269,7 +269,7 @@ class SecretGuardTests(unittest.TestCase):
                         self.assertNotIn("decision", json.loads(result.stdout))
                     self.assertNotIn(token, result.stdout + result.stderr)
 
-    def test_uncompilable_fallback_rule_does_not_force_a_block(self):
+    def test_uncompilable_fallback_rule_blocks_on_its_keyword(self):
         with tempfile.TemporaryDirectory() as case_dir:
             root = Path(case_dir)
             tools = root / "tools"
@@ -282,7 +282,6 @@ class SecretGuardTests(unittest.TestCase):
             rule["keywords"] = ["fixturekeyword"]
             rule["regex"] = "(?<fixture"
             (tools / "gitleaks-keywords.json").write_text(json.dumps(catalog))
-            shutil.copy2(TOOLS / "gitleaks-rule-samples.json.gz", tools / "gitleaks-rule-samples.json.gz")
             profile = root / "profiles" / "universal" / "mise.toml"
             profile.parent.mkdir(parents=True)
             profile.write_text('[tools]\ngitleaks = "8.30.1"\n')
@@ -292,8 +291,8 @@ class SecretGuardTests(unittest.TestCase):
                 result = self.invoke("prompt", {"prompt": "fixturekeyword ordinary text"}, env=env, guard=guard)
         self.assertEqual(result.returncode, 0, result.stderr)
         output = json.loads(result.stdout)
-        self.assertNotIn("decision", output)
-        self.assertIn("fallback scan passed", output["systemMessage"])
+        self.assertEqual(output["decision"], "block")
+        self.assertIn(rule["id"], output["reason"])
 
     def test_failed_gitleaks_blocks_catalog_rules_without_echoing(self):
         fixtures = (
@@ -664,7 +663,7 @@ class SecretGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty_path:
             env = os.environ.copy()
             env["PATH"] = empty_path
-            for prompt in ("curl --version", "curl https://example.com", "curl https://dropbox.com/s/" + random_alnum(16)):
+            for prompt in ("What does the auth module do?", "Rotate the API key docs", "Refactor the token parser"):
                 with self.subTest(prompt=prompt):
                     result = self.invoke("prompt", {"prompt": prompt}, env=env)
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -695,32 +694,21 @@ class SecretGuardTests(unittest.TestCase):
         self.assertIn("catalog rules not evaluated", warning)
         self.assertNotIn("fallback scan passed", warning)
 
-    def test_missing_or_corrupt_fallback_fixture_fails_closed_for_unsafe_rule(self):
-        token = random_alnum(40)
-        for fixture in ("missing", "corrupt"):
-            with self.subTest(fixture=fixture), tempfile.TemporaryDirectory() as case_dir:
-                root = Path(case_dir)
-                tools = root / "tools"
-                tools.mkdir()
-                guard = tools / "secret_guard.py"
-                shutil.copy2(GUARD, guard)
-                shutil.copy2(TOOLS / "gitleaks_regex.py", tools / "gitleaks_regex.py")
-                shutil.copy2(TOOLS / "gitleaks-keywords.json", tools / "gitleaks-keywords.json")
-                if fixture == "corrupt":
-                    (tools / "gitleaks-rule-samples.json.gz").write_bytes(b"\x1f\x8b\x08\x00" + b"\x00" * 6 + b"\xff" * 32)
-                profile = root / "profiles" / "universal" / "mise.toml"
-                profile.parent.mkdir(parents=True)
-                profile.write_text('[tools]\ngitleaks = "8.30.1"\n')
-                bin_dir = root / "bin"
-                bin_dir.mkdir()
-                env = self.fake_gitleaks(bin_dir, "#!/bin/sh\ncat >/dev/null\nexit 2\n")
-                prompt = f'curl -H "X-Session: {token}" https://example.test'
-                result = self.invoke("prompt", {"prompt": prompt}, env=env, guard=guard)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            output = json.loads(result.stdout)
-            self.assertEqual(output["decision"], "block")
-            self.assertIn("curl-auth-header", output["reason"])
-            self.assertNotIn(token, result.stdout + result.stderr)
+    def test_failed_gitleaks_blocks_unsafe_rule_keywords(self):
+        password = random_alnum(12)
+        cases = (
+            f'curl -H "X-Session: {random_alnum(40)}" https://example.test',
+            "curl --data '" + "x" * 5000 + f"' -u ':{password}' https://example.test",
+        )
+        with tempfile.TemporaryDirectory() as bin_dir:
+            env = self.fake_gitleaks(Path(bin_dir), "#!/bin/sh\n/bin/cat >/dev/null\nexit 2\n")
+            for command in cases:
+                with self.subTest(command=command[:20]):
+                    result = self.invoke("tool", {"tool_name": "Bash", "tool_input": {"command": command}}, env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    reason = json.loads(result.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+                    self.assertIn("curl-auth-header", reason)
+                    self.assertNotIn(password, result.stdout + result.stderr)
 
     def test_input_without_keywords_skips_gitleaks(self):
         cases = (

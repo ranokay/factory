@@ -6,7 +6,6 @@ import argparse
 import base64
 import binascii
 import functools
-import gzip
 import json
 import re
 import shutil
@@ -14,7 +13,6 @@ import string
 import subprocess
 import sys
 import tomllib
-import zlib
 from pathlib import Path
 
 try:
@@ -90,16 +88,9 @@ def fallback_rule_ids(text: str) -> list[str]:
         for rule in keyword_hit_rules(rules, texts):
             if rule["regex"] is None:
                 continue
-            pattern = (
-                compile_rule_regex(rule["id"], rule["regex"])
-                if rule["python_safe"]
-                else compile_fallback_regex(rule["id"], rule["regex"])
-            )
-            if pattern is None:
-                if rule["python_safe"] or fallback_samples() is None:
-                    matches.add(rule["id"])
-                continue
-            if any(pattern.search(item) for item in texts):
+            pattern = compile_rule_regex(rule["id"], rule["regex"]) if rule["python_safe"] else None
+            # Without gitleaks, a rule Python cannot evaluate faithfully blocks on its keyword alone.
+            if pattern is None or any(pattern.search(item) for item in texts):
                 matches.add(rule["id"])
     return sorted(matches)
 
@@ -264,37 +255,6 @@ def compile_rule_regex(rule_id: str, regex: str) -> re.Pattern[str] | None:
         return None
 
 
-@functools.lru_cache(maxsize=1)
-def fallback_samples() -> dict[str, list[str]] | None:
-    try:
-        with gzip.open(ROOT / "tools" / "gitleaks-rule-samples.json.gz", "rt") as source:
-            fixture = json.load(source)
-        if not isinstance(fixture, dict) or not isinstance(fixture.get("samples"), list):
-            return None
-        samples: dict[str, list[str]] = {}
-        for sample in fixture["samples"]:
-            if not isinstance(sample, dict) or not isinstance(sample.get("id"), str) or not isinstance(sample.get("text"), str):
-                return None
-            if "path" not in sample:
-                samples.setdefault(sample["id"], []).append(base64.b64decode(sample["text"], validate=True).decode())
-        return samples
-    except (OSError, EOFError, ValueError, KeyError, TypeError, zlib.error):
-        return None
-
-
-@functools.lru_cache(maxsize=None)
-def compile_fallback_regex(rule_id: str, regex: str) -> re.Pattern[str] | None:
-    translated = translate_fallback_regex(regex)
-    try:
-        pattern = re.compile(translated, re.ASCII)
-    except re.error:
-        return None
-    samples = fallback_samples()
-    if samples is None or any(pattern.search(sample) is None for sample in samples.get(rule_id, [])):
-        return None
-    return pattern
-
-
 def decoded_texts(text: str) -> list[str]:
     texts = [text]
     for encoding_re in (ENCODING_RE, ENCODING_RE_JOINED):
@@ -348,7 +308,13 @@ def gitleaks_version_error(gitleaks: str) -> str | None:
         pass
     try:
         result = subprocess.run(
-            [gitleaks, "version"], capture_output=True, text=True, cwd=ROOT, timeout=GITLEAKS_TIMEOUT, check=False
+            [gitleaks, "version"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            cwd=ROOT,
+            timeout=GITLEAKS_TIMEOUT,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         return f"gitleaks timed out after {GITLEAKS_TIMEOUT} seconds"
