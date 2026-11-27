@@ -28,6 +28,8 @@ elif "/commits/" in endpoint:
     result = {"commit": {"committer": {"date": s["head_date"]}}}
 elif "/reviews?" in endpoint:
     result = [s.get("reviews", [])]
+elif "/pulls/" in endpoint and "/comments?" in endpoint:
+    result = [s.get("inline_comments", [])]
 elif "/comments?" in endpoint:
     result = [s.get("comments", [])]
 elif "/timeline?" in endpoint:
@@ -62,7 +64,7 @@ CODERABBIT_SKIP = {
     "user": {"login": "coderabbitai[bot]"},
     "created_at": "2026-11-24T02:20:21Z",
     "updated_at": "2026-11-24T03:22:55Z",
-    "body": "<!-- coderabbit-ai-generated:v1 -->\n<!-- This is an auto-generated comment: skip review by coderabbit.ai -->\n> ## Review skipped\n> Auto reviews are disabled on this repository.",
+    "body": "<!-- coderabbit-ai-generated:v1 -->\n## Review skipped\nAuto reviews are disabled on this repository. To trigger a single review, invoke the `@coderabbitai review` command.",
 }
 CODERABBIT_RATE_LIMIT = {
     "user": {"login": "coderabbitai[bot]"},
@@ -91,10 +93,92 @@ CODERABBIT_SUMMARY_BODY = (
     "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n"
     "## Summary by CodeRabbit\n\nNo issues found."
 )
+PR214_HEAD = "110ff399edd572bd0849d2b52cc4217bf0118d27"
+PR214_GREPTILE_REQUEST = {
+    "user": {"login": "ranokay"},
+    "created_at": "2026-11-27T07:13:20Z",
+    "body": "@greptileai\n\n<!-- factory:advisory-review:greptile -->",
+}
+PR214_CODERABBIT_REQUEST = {
+    "user": {"login": "ranokay"},
+    "created_at": "2026-11-27T07:13:19Z",
+    "body": "@coderabbitai review\n\n<!-- factory:advisory-review:coderabbit -->",
+}
+PR214_EARLIER_COMMENTS = [
+    {
+        "user": {"login": "greptile-apps[bot]"},
+        "created_at": "2026-11-27T02:28:16Z",
+        "updated_at": "2026-11-27T02:28:16Z",
+        "body": "<!-- greptile_summary -->\n\n<h2>Greptile Overview</h2>",
+    },
+    {
+        "user": {"login": "coderabbitai[bot]"},
+        "created_at": "2026-11-27T04:50:52Z",
+        "updated_at": "2026-11-27T04:50:52Z",
+        "body": CODERABBIT_SUMMARY_BODY,
+    },
+    {
+        "user": {"login": "coderabbitai[bot]"},
+        "created_at": "2026-11-27T07:13:25Z",
+        "updated_at": "2026-11-27T07:13:25Z",
+        "body": "<!-- This is an auto-generated reply by CodeRabbit -->\nCurrently processing new changes in this PR.",
+    },
+]
+PR214_EARLIER_REVIEWS = [
+    {
+        "user": {"login": "greptile-apps[bot]"},
+        "commit_id": "6a892430fa339b94ed92eb5a5e06bb4627ca2899",
+        "submitted_at": "2026-11-27T07:10:00Z",
+        "body": "",
+    },
+    {
+        "user": {"login": "coderabbitai[bot]"},
+        "commit_id": "5e2e9cbaa3a023f30e6232e1a4afcdf3f40ead19",
+        "submitted_at": "2026-11-27T07:12:00Z",
+        "body": "",
+    },
+]
+PR214_FINAL_INLINE_COMMENTS = [
+    {
+        "user": {"login": "greptile-apps[bot]"},
+        "created_at": "2026-11-27T07:15:37Z",
+        "updated_at": "2026-11-27T07:15:37Z",
+        "body": "Greptile review finding",
+    },
+    {
+        "user": {"login": "greptile-apps[bot]"},
+        "created_at": "2026-11-27T07:17:35Z",
+        "updated_at": "2026-11-27T07:17:36Z",
+        "body": "Another Greptile review finding",
+    },
+    {
+        "user": {"login": "coderabbitai[bot]"},
+        "created_at": "2026-11-27T07:24:27Z",
+        "updated_at": "2026-11-27T07:24:27Z",
+        "body": "CodeRabbit review finding",
+    },
+]
+PR214_FINISHED_REPLY = {
+    "user": {"login": "coderabbitai[bot]"},
+    "created_at": "2026-11-27T07:13:25Z",
+    "updated_at": "2026-11-27T07:24:40Z",
+    "body": "<!-- This is an auto-generated reply by CodeRabbit -->\nReview finished.",
+}
 
 
 def state(**extra):
     value = {"head": HEAD, "head_date": HEAD_DATE}
+    value.update(extra)
+    return value
+
+
+def pr214_state(**extra):
+    value = state(
+        head=PR214_HEAD,
+        head_date="2026-11-27T07:13:00Z",
+        comments=[PR214_CODERABBIT_REQUEST, PR214_GREPTILE_REQUEST, *PR214_EARLIER_COMMENTS],
+        reviews=PR214_EARLIER_REVIEWS,
+    )
     value.update(extra)
     return value
 
@@ -134,6 +218,26 @@ class AdvisoryReviewStatus(unittest.TestCase):
         self.assertIn("greptile: terminal (summary posted)", result.stdout)
         self.assertIn("all advisory reviewers terminal", result.stdout)
 
+    def test_greptile_inline_comment_after_the_request_passes(self):
+        inline = {
+            "user": {"login": "greptile-apps[bot]"},
+            "created_at": "2026-11-24T03:31:41Z",
+            "body": "Review finding",
+        }
+        result = self.invoke(state(comments=[GREPTILE_REQUEST], inline_comments=[inline]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("greptile: terminal (inline comment)", result.stdout)
+
+    def test_another_reviewers_activity_does_not_answer_greptile(self):
+        inline = {
+            "user": {"login": "coderabbitai[bot]"},
+            "created_at": "2026-11-24T03:31:41Z",
+            "body": "CodeRabbit review finding",
+        }
+        result = self.invoke(state(comments=[GREPTILE_REQUEST], inline_comments=[inline]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("greptile: pending", result.stdout)
+
     def test_a_review_after_the_request_survives_a_later_push(self):
         review = {
             "user": {"login": "greptile-apps[bot]"},
@@ -144,6 +248,17 @@ class AdvisoryReviewStatus(unittest.TestCase):
         result = self.invoke(state(head_date="2026-11-24T04:00:00Z", comments=[GREPTILE_REQUEST], reviews=[review]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("greptile: terminal (review posted)", result.stdout)
+
+    def test_a_review_on_the_head_before_the_request_stays_pending(self):
+        review = {
+            "user": {"login": "greptile-apps[bot]"},
+            "commit_id": HEAD,
+            "submitted_at": "2026-11-24T03:27:53Z",
+            "body": "",
+        }
+        result = self.invoke(state(comments=[GREPTILE_REQUEST], reviews=[review]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("greptile: pending", result.stdout)
 
     def test_the_latest_request_is_the_anchor(self):
         later = dict(GREPTILE_REQUEST, created_at="2026-11-24T03:40:00Z")
@@ -190,13 +305,28 @@ class AdvisoryReviewStatus(unittest.TestCase):
         completed = dict(placeholder, updated_at="2026-11-24T03:31:00Z", body=CODERABBIT_SUMMARY_BODY)
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, completed]))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("coderabbit: terminal (summary posted)", result.stdout)
+        self.assertIn("coderabbit: terminal (comment edit)", result.stdout)
 
-    def test_an_unrelated_code_rabbit_reply_stays_pending(self):
-        reply = dict(CODERABBIT_PLACEHOLDER, updated_at="2026-11-24T03:31:00Z", body="Thanks for the mention.")
+    def test_an_unrelated_new_code_rabbit_reply_stays_pending(self):
+        reply = dict(CODERABBIT_PLACEHOLDER, created_at="2026-11-24T03:31:00Z", updated_at="2026-11-24T03:31:00Z", body="Thanks for the mention.")
         result = self.invoke(state(comments=[CODERABBIT_REQUEST, reply]))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("coderabbit: pending", result.stdout)
+
+    def test_coderabbit_finished_reply_counts_only_after_it_is_edited(self):
+        reply = {
+            "user": {"login": "coderabbitai[bot]"},
+            "created_at": "2026-11-24T03:27:55Z",
+            "updated_at": "2026-11-24T03:27:55Z",
+            "body": "<!-- This is an auto-generated reply by CodeRabbit -->\nReview finished.",
+        }
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, reply]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("coderabbit: pending", result.stdout)
+        reply["updated_at"] = "2026-11-24T03:31:00Z"
+        result = self.invoke(state(comments=[CODERABBIT_REQUEST, reply]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("coderabbit: terminal (comment edit)", result.stdout)
 
     def test_a_same_second_reply_is_terminal(self):
         same_second = dict(CODERABBIT_RATE_LIMIT, updated_at=CODERABBIT_REQUEST["created_at"])
@@ -211,7 +341,7 @@ class AdvisoryReviewStatus(unittest.TestCase):
             state(comments=[CODERABBIT_REQUEST, dict(CODERABBIT_PLACEHOLDER, updated_at="2026-11-24T03:31:00Z", body=body)])
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("coderabbit: terminal (summary posted)", result.stdout)
+        self.assertIn("coderabbit: terminal (comment edit)", result.stdout)
 
     def test_copilot_request_without_a_review_is_pending(self):
         result = self.invoke(state(timeline=[COPILOT_REQUEST]))
@@ -227,6 +357,27 @@ class AdvisoryReviewStatus(unittest.TestCase):
         result = self.invoke(state())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.count("terminal (not requested)"), 3, result.stdout)
+
+    def test_pr_214_earlier_activity_does_not_finish_requested_reviewers(self):
+        result = self.invoke(pr214_state())
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("coderabbit: pending", result.stdout)
+        self.assertIn("greptile: pending", result.stdout)
+        self.assertIn("pending: coderabbit, greptile", result.stdout)
+
+    def test_pr_214_inline_comments_and_summary_edit_finish_requested_reviewers(self):
+        value = pr214_state(
+            comments=[PR214_CODERABBIT_REQUEST, PR214_GREPTILE_REQUEST, *PR214_EARLIER_COMMENTS[:2], PR214_FINISHED_REPLY],
+            inline_comments=PR214_FINAL_INLINE_COMMENTS,
+        )
+        result = self.invoke(value)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("greptile: terminal (inline comment)", result.stdout)
+        self.assertIn("coderabbit: terminal (comment edit)", result.stdout)
+        result = self.invoke(value, "--wait", "--timeout-minutes", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("greptile: terminal (inline comment)", result.stdout)
+        self.assertIn("coderabbit: terminal (comment edit)", result.stdout)
 
     def test_wait_times_out_with_named_reviewers(self):
         result = self.invoke(state(comments=[GREPTILE_REQUEST]), "--wait", "--timeout-minutes", "0")

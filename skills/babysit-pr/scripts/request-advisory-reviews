@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from advisory_reviewers import REVIEWERS, gh, is_reviewer, pages  # noqa: E402 -- the shared table ships beside this script
+from advisory_reviewers import REVIEWERS, activity_status, gh, is_reviewer, pages  # noqa: E402 -- the shared table ships beside this script
 from merge_guard import is_outside  # noqa: E402 -- the Merge Guard ships beside this script
 
 
@@ -49,7 +49,10 @@ def main():
         if not spec["command"]:
             continue
         marked = any(spec["marker"] in (comment.get("body") or "") for comment in comments)
-        has_activity = any(is_reviewer((item.get("user") or {}).get("login"), bot) for item in [*reviews, *comments])
+        has_activity = any(
+            is_reviewer((item.get("user") or {}).get("login"), bot) and activity_status(bot, item) == "activity"
+            for item in [*reviews, *comments]
+        )
         if not marked and not has_activity:
             subprocess.run(["gh", "pr", "comment", number, "--repo", repo, "--body", f"{spec['command']}\n\n{spec['marker']}"], check=True)
 

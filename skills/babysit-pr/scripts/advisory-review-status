@@ -11,16 +11,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from advisory_reviewers import (  # noqa: E402 -- the shared table ships beside this script
-    PLACEHOLDERS,
     REVIEWERS,
+    activity_status,
     gh,
     is_reviewer,
     pages,
 )
 
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-# CodeRabbit and Greptile put status text at the top of a comment; their later walkthroughs can quote status or placeholder text from the diff (https://github.com/Jgocunha/dynamic-neural-field-composer/pull/80).
-STATUS_SCAN_CHARS = 600
 READ_ERRORS = (
     ValueError,
     KeyError,
@@ -40,21 +38,8 @@ def item_timestamp(item):
     return item.get("updated_at") or item.get("created_at") or item.get("submitted_at") or ""
 
 
-def covers(item, head, anchor):
-    return item.get("commit_id") == head or item_timestamp(item) >= anchor
-
-
-def placeholder(item):
-    body = (item.get("body") or "").lower()[:STATUS_SCAN_CHARS]
-    return any(marker in body for marker in PLACEHOLDERS)
-
-
-def skip_reason(name, item):
-    body = (item.get("body") or "").lower()[:STATUS_SCAN_CHARS]
-    for phrase, reason in REVIEWERS[name]["skip_phrases"].items():
-        if phrase in body:
-            return reason
-    return None
+def covers(item, anchor, head=None):
+    return item_timestamp(item) >= anchor or (head is not None and item.get("commit_id") == head)
 
 
 def request_anchor(name, comments, timeline):
@@ -78,29 +63,41 @@ def request_anchor(name, comments, timeline):
     return max(stamps, default=None)
 
 
-def reviewer_state(name, head, head_date, reviews, comments, timeline):
+def reviewer_state(name, head, head_date, reviews, comments, inline_comments, timeline):
     bot_reviews = [item for item in reviews if is_reviewer((item.get("user") or {}).get("login"), name)]
     bot_comments = [item for item in comments if is_reviewer((item.get("user") or {}).get("login"), name)]
+    bot_inline = [item for item in inline_comments if is_reviewer((item.get("user") or {}).get("login"), name)]
     anchor = request_anchor(name, comments, timeline)
-    if anchor is None and not (bot_reviews or bot_comments):
+    if anchor is None and not (bot_reviews or bot_comments or bot_inline):
         return {"name": name, "terminal": True, "reason": "not requested"}
+    commit_head = head if anchor is None else None
     if anchor is None:
         anchor = head_date
-    for item in [*bot_comments, *bot_reviews]:
-        if covers(item, head, anchor) and not placeholder(item):
-            reason = skip_reason(name, item)
-            if reason:
-                return {"name": name, "terminal": True, "reason": reason}
+    for item in [*bot_comments, *bot_inline, *bot_reviews]:
+        if not covers(item, anchor, commit_head):
+            continue
+        status = activity_status(name, item)
+        if status not in ("activity", "placeholder"):
+            return {"name": name, "terminal": True, "reason": status}
+    signals = []
     for item in bot_reviews:
-        if covers(item, head, anchor) and not placeholder(item):
-            return {"name": name, "terminal": True, "reason": "review posted"}
+        if covers(item, anchor, commit_head) and activity_status(name, item) == "activity":
+            signals.append((item_timestamp(item), "review posted"))
+    for item in bot_inline:
+        if covers(item, anchor, commit_head) and activity_status(name, item) == "activity":
+            signals.append((item_timestamp(item), "inline comment"))
     for item in bot_comments:
-        if not covers(item, head, anchor) or placeholder(item):
+        if not covers(item, anchor, commit_head) or activity_status(name, item) != "activity":
             continue
+        created = item.get("created_at") or ""
+        updated = item.get("updated_at") or ""
         markers = REVIEWERS[name]["summary_markers"]
-        if markers and not any(marker in (item.get("body") or "") for marker in markers):
-            continue
-        return {"name": name, "terminal": True, "reason": "summary posted"}
+        if created >= anchor and markers and any(marker in (item.get("body") or "") for marker in markers):
+            signals.append((created, "summary posted"))
+        elif created and updated > created and updated >= anchor:
+            signals.append((updated, "comment edit"))
+    if signals:
+        return {"name": name, "terminal": True, "reason": max(signals, key=lambda signal: signal[0])[1]}
     return {"name": name, "terminal": False, "reason": ""}
 
 
@@ -115,8 +112,11 @@ def report(repo, number):
         raise Problem(f"commit {head} has no committer date")
     reviews = [item for page in pages(f"repos/{repo}/pulls/{number}/reviews?per_page=100") for item in page]
     comments = [item for page in pages(f"repos/{repo}/issues/{number}/comments?per_page=100") for item in page]
+    inline_comments = [item for page in pages(f"repos/{repo}/pulls/{number}/comments?per_page=100") for item in page]
     timeline = [item for page in pages(f"repos/{repo}/issues/{number}/timeline?per_page=100") for item in page]
-    return [reviewer_state(name, head, head_date, reviews, comments, timeline) for name in REVIEWERS]
+    return [
+        reviewer_state(name, head, head_date, reviews, comments, inline_comments, timeline) for name in REVIEWERS
+    ]
 
 
 def wait_for_terminal(check, timeout_seconds, interval_seconds, clock=time.monotonic, sleep=time.sleep):

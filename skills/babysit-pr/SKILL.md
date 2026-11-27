@@ -195,11 +195,13 @@ Treat hosted AI reviewers as optional until `request-advisory-reviews` requests
 them, but wait for the ones it requested. After the request, in this same turn
 and before the done wake or any merge, run
 `python3 ~/.agents/skills/babysit-pr/scripts/advisory-review-status OWNER/REPO PR --wait`.
-It reports Copilot, CodeRabbit and Greptile as terminal — a review or summary
-posted after the request, a review on the head, an explicit skip or quota
-message after the request, or a reviewer with no request and no activity — and
-polls until every requested reviewer is terminal, bounded to 20 minutes by
-default. Exit 0 means
+It reports Copilot, CodeRabbit and Greptile as terminal — a review, inline
+comment, new summary, or edit of the reviewer's own comment after its latest
+request; an explicit skip or quota message after the request; or a reviewer
+with no request and no activity. A reviewer without an explicit request is
+anchored to the head commit instead. Each terminal line names the satisfying
+signal, and the command polls until every requested reviewer is terminal,
+bounded to 20 minutes by default. Exit 0 means
 all terminal, exit 1 means a reviewer is still pending (the one-shot report),
 exit 3 means the wait timed out and prints `timed out after 20m: <names>`, and
 exit 2 is an operational error and a Blocker. Proceed on 0 or 3. A fix push
