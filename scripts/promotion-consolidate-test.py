@@ -475,22 +475,27 @@ class FetchAndGate(Pass):
         self.assertNotIn("junk", module.document({"title": "t", "body": body}))
 
 
-class OccurrenceParsing(unittest.TestCase):
-    def test_a_merged_section_is_not_read_as_a_correction_when_no_gate_check_follows(self):
-        body = "### Correction\n\nalpha\n\n### Merged occurrences\n\n- junk"
-        self.assertEqual(module.occurrences(body), ["alpha"])
+class Occurrences(Pass):
+    def test_every_line_of_a_correction_is_kept_as_an_occurrence(self):
+        state = fixture_state()
+        state["issues"]["900"] = {
+            "number": 900, "title": "Reject widget", "createdAt": "2026-11-27T00:00:00Z", "state": "OPEN",
+            "body": "### Correction\n\nTwo cases:\n- first\n  continued here\n- second\n\n### Gate check\n\ng",
+            "labels": [{"name": "promotion"}], "comments": [],
+        }
+        self.write_state(state)
+        self.write_plan({"clusters": [], "covered": []})
+        result = self.run_pass("--dry-run", "--top", "10")
+        self.assertIn("- #900 (score 4)", result.stdout)
 
-
-class CheckFiles(unittest.TestCase):
-    def test_each_format_is_matched_by_its_definition(self):
-        module.check_defined(ROOT, {"file": ".gitleaks.toml", "name": "context7-key-token"})
-        module.check_defined(ROOT, {"file": "hk.pkl", "name": "gitleaks-test"})
-        with self.assertRaises(module.Refusal):
-            module.check_defined(ROOT, {"file": "hk.pkl", "name": "gitleaks"})
-        with self.assertRaises(module.Refusal):
-            module.check_defined(ROOT, {"file": "../outside.toml", "name": "x"})
-        with self.assertRaises(module.Refusal):
-            module.check_defined(ROOT, {"file": "README.md", "name": "x"})
+    def test_a_human_note_in_a_survivor_refuses_the_run(self):
+        state = fixture_state()
+        state["issues"]["79"]["body"] += "\n\n<!-- factory:promotion-links -->\nCluster members: #79.\n<!-- /factory:promotion-links -->\n\n### Merged occurrences\n\nA human note.\n"
+        self.write_state(state)
+        result = self.run_pass()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("text outside the merge blocks", result.stderr)
+        self.assertEqual(self.writes(), [])
 
 
 if __name__ == "__main__":

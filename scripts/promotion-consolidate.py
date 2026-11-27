@@ -72,12 +72,18 @@ def occurrences(body):
     match = CORRECTION_RE.search(body or "")
     if not match:
         raise Refusal("a promotion has no ### Correction section")
-    text = match.group(1)
-    bullets = [" ".join(line[2:].split()) for line in text.splitlines() if line.startswith("- ")]
-    if bullets:
-        return bullets
-    collapsed = " ".join(text.split())
-    return [collapsed] if collapsed else []
+    items = []
+    for line in match.group(1).splitlines():
+        text = " ".join(line.split())
+        if not text:
+            continue
+        if line.startswith("- "):
+            items.append(" ".join(line[2:].split()))
+        elif items:
+            items[-1] = f"{items[-1]} {text}"
+        else:
+            items.append(text)
+    return items
 
 
 def tokens(text):
@@ -108,6 +114,16 @@ def weights(pool, promotions):
 def cosine(first, second):
     small, large = (first, second) if len(first) <= len(second) else (second, first)
     return sum(weight * large.get(word, 0.0) for word, weight in small.items())
+
+
+def unmanaged_text(body):
+    managed = (body or "").split(LINKS_START, 1)
+    if len(managed) == 1:
+        return ""
+    rest = managed[1].split(LINKS_END, 1)[-1]
+    rest = re.sub(OCCURRENCE_RE, "", rest)
+    rest = rest.replace(OCCURRENCES_HEADING, "")
+    return rest.strip()
 
 
 def survivor_of(members):
@@ -257,6 +273,10 @@ def validate(plan, promotions, repo, root):
         survivor = survivor_of(numbers) if numbers else None
         if survivor in promotions and promotions[survivor]["state"] != "OPEN":
             problems.append(f"survivor #{survivor} of {where} must be open")
+        if survivor in promotions and unmanaged_text(promotions[survivor]["body"]):
+            problems.append(
+                f"survivor #{survivor} has text outside the merge blocks; move it out before merging"
+            )
 
     touched = set()
     for cluster in plan["clusters"]:
@@ -516,7 +536,7 @@ def post_summary(args, runner, tracking, run_id, path):
         return
     runner.write(
         f"post the run {run_id} summary on #{tracking}",
-        "issue", "comment", str(tracking), "-R", runner.repo, "--body-file", path,
+        "issue", "comment", str(tracking), "-R", args.repo, "--body-file", path,
     )
 
 
