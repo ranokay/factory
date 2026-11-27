@@ -1,5 +1,4 @@
 import copy
-import importlib.util
 import json
 import os
 import re
@@ -56,13 +55,6 @@ NAMED_CLUSTERS = [[79, 80, 163, 206], [104, 105], [64, 109], [89, 211]]
 
 
 FIXTURE_COVERED = {"issue": 52, "check": {"file": "hk.pkl", "name": "gitleaks-test"}, "reason": "Test-only mapping that exercises the covered path."}
-
-
-spec = importlib.util.spec_from_file_location("promotion_consolidate", PASS)
-
-
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
 
 
 def fixture_state():
