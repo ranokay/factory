@@ -37,6 +37,13 @@ def normalized(state):
     return json.dumps(clean, sort_keys=True, indent=1)
 
 
+def without_summaries(state):
+    clean = copy.deepcopy(state)
+    for item in clean["issues"].values():
+        item["comments"] = [c for c in item.get("comments", []) if "factory:promotion-consolidate-run id=" not in c["body"]]
+    return clean
+
+
 def proposal_members(stdout):
     section = stdout.split("Proposed clusters (not applied)")[1].split("Confirm a proposal")[0]
     groups = []
@@ -189,8 +196,10 @@ class LiveRun(Pass):
         self.assertIn("re-run to finish", interrupted.stderr)
         resumed = self.run_pass(run_id="R1")
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
-        self.assertEqual(normalized(self.read_state()), clean)
-        self.assertEqual(len(self.summaries(self.read_state())), 1)
+        state = self.read_state()
+        self.assertEqual(normalized(without_summaries(state)), normalized(without_summaries(json.loads(clean))))
+        self.assertEqual(len(self.summaries(state)), 1)
+        self.assertIn("Open promotions: 49 before, 45 after this run.", self.summaries(state)[0]["body"])
 
     def test_a_covered_entry_closes_only_with_its_defined_check(self):
         plan = json.loads(PLAN.read_text())
@@ -249,6 +258,38 @@ class Refused(Pass):
         result = self.run_pass(run_id="bad id")
         self.assertEqual(result.returncode, 1)
         self.assertIn("run id", result.stderr)
+
+
+class StrictPlan(Pass):
+    def test_a_cluster_of_non_numbers_is_refused_not_a_traceback(self):
+        plan = json.loads(PLAN.read_text())
+        plan["clusters"] = [{"members": ["a", "b"], "reason": "x"}]
+        self.write_plan(plan)
+        result = self.run_pass()
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.writes(), [])
+
+    def test_a_missing_plan_key_is_refused(self):
+        self.write_plan({"clusters": []})
+        result = self.run_pass()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("needs a covered list", result.stderr)
+        self.assertEqual(self.writes(), [])
+
+    def test_a_promotion_without_a_correction_section_refuses_the_run(self):
+        state = fixture_state()
+        state["issues"]["80"]["body"] = "Just a note, no template."
+        self.write_state(state)
+        result = self.run_pass()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("#80 has no ### Correction section", result.stderr)
+        self.assertEqual(self.writes(), [])
+
+    def test_a_rerun_of_a_finished_backlog_reports_no_change(self):
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
+        result = self.run_pass("--dry-run", run_id="R2")
+        self.assertIn("Open promotions: 45 before, 45 after this run.", result.stdout)
 
 
 class Policy(Pass):

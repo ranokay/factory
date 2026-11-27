@@ -8,6 +8,10 @@ The pass ranks the open survivors and standalone promotions by source count plus
 
 Each run posts one summary comment on the single tracking issue, carrying its own run id (`<!-- factory:promotion-consolidate-run id=… -->`). A run given an id that already has a summary posts nothing, so a re-run of the same run is harmless, and two runs leave two comments. `--dry-run` posts none. Each handoff also records a marker comment, which keeps a re-run from repeating it. Every step carries a marker, so a re-run after a stopped run finishes the remaining steps without repeating a comment, an occurrence or a handoff.
 
+Membership is decided by a reviewed file, not by the pass. An agent or a person reads the open promotions, names the members of each cluster and states one line of reason, then commits the file. The pass never adds a member itself. Its proposal step (TF-IDF cosine over each promotion's title, Correction and Gate check, linked at 0.25 or more, no proposal larger than six) only lists candidates for that review.
+
+To run it: `mise run promotion:consolidate -- --dry-run --plan scripts/promotion-consolidation.json` prints every write a live run would make and the summary it would post, and writes nothing. Without `--dry-run` the pass writes. Each run takes an optional `--run-id`, which a resumed run passes again so it posts one comment for itself. Edit the plan through a reviewed commit, and check `--dry-run` before merging.
+
 The pass runs weekly under launchd, Tuesday 03:00, written and drift-checked by `scripts/bootstrap.py` the same way `gc` and `verify-skill-maintenance` are. It runs no GitHub Actions workflow, which would be a Protected Surface.
 
 ## Considered Options

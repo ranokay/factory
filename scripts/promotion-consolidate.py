@@ -21,6 +21,7 @@ DEFAULT_PLAN = SCRIPTS / "promotion-consolidation.json"
 DEFAULT_REPO = "ranokay/factory"
 PROMOTION = "promotion"
 PUSHBACK_LABEL = "needs-triage"
+VERDICT_KINDS = frozenset({"review", "accept", "override", "confirm"})
 BLOCKING_LABELS = frozenset({"ready-for-agent", "wontfix"})
 TOP_DEFAULT = 5
 TRACKING_LIST_LIMIT = 1000
@@ -67,7 +68,9 @@ def gh(*args, timeout=120):
 
 def occurrences(body):
     match = CORRECTION_RE.search(body or "")
-    text = match.group(1) if match else (body or "")
+    if not match:
+        raise Refusal("a promotion has no ### Correction section")
+    text = match.group(1)
     bullets = [" ".join(line[2:].split()) for line in text.splitlines() if line.startswith("- ")]
     if bullets:
         return bullets
@@ -170,8 +173,9 @@ def load_plan(path):
         raise Refusal(f"cannot read the plan {path}: {error}") from None
     if not isinstance(plan, dict):
         raise Refusal("the plan must be a JSON object")
-    plan.setdefault("clusters", [])
-    plan.setdefault("covered", [])
+    for key in ("clusters", "covered"):
+        if not isinstance(plan.get(key), list):
+            raise Refusal(f"the plan needs a {key} list, even an empty one")
     return plan
 
 
@@ -236,9 +240,14 @@ def validate(plan, promotions, repo, root):
         for number in members:
             if known(number, where):
                 claim(number, where)
-        survivor = survivor_of([m for m in members if isinstance(m, int)]) if members else None
+        numbers = [m for m in members if isinstance(m, int) and not isinstance(m, bool)]
+        survivor = survivor_of(numbers) if numbers else None
         if survivor in promotions and promotions[survivor]["state"] != "OPEN":
             problems.append(f"survivor #{survivor} of {where} must be open")
+
+    for number, item in promotions.items():
+        if item["state"] == "OPEN" and not CORRECTION_RE.search(item["body"]):
+            problems.append(f"#{number} has no ### Correction section")
 
     for index, entry in enumerate(plan["covered"]):
         where = f"covered entry {index + 1}"
@@ -305,9 +314,8 @@ def run(args):
         raise Refusal(f"run id {run_id!r} must be 1 to 64 letters, digits, dots, colons or hyphens")
     planned = planned_closures(plan)
     open_now = [n for n, item in promotions.items() if item["state"] == "OPEN"]
-    closed_at_start = [n for n in planned if promotions[n]["state"] == "CLOSED"]
-    before = len(open_now) + len(closed_at_start)
-    after = before - len(planned)
+    before = len(open_now)
+    after = before - len([n for n in planned if promotions[n]["state"] == "OPEN"])
 
     with tempfile.TemporaryDirectory(prefix="promotion-consolidate-") as scratch:
         runner = Runner(args.repo, args.dry_run, scratch)
@@ -381,7 +389,7 @@ def run(args):
                 break
             labels = promotions[number]["labels"]
             comments = issue_comments(args.repo, number)
-            if any(record["kind"] == "review" for record in records(comments)):
+            if any(record["kind"] in VERDICT_KINDS for record in records(comments)):
                 continue
             if set(labels) & BLOCKING_LABELS:
                 continue
@@ -421,7 +429,10 @@ def run(args):
             if not args.dry_run:
                 if not url.strip():
                     raise Refusal("gh created the tracking issue but printed no URL")
-                tracking = int(url.strip().rstrip("/").split("/")[-1])
+                try:
+                    tracking = int(url.strip().rstrip("/").split("/")[-1])
+                except ValueError:
+                    raise Refusal(f"gh printed an unexpected tracking issue URL: {url.strip()}") from None
 
         summary = render_summary(
             run_id, date, args.dry_run, before, after, merged, covered_done, sent, proposals, oversized
@@ -452,7 +463,9 @@ def find_tracking(repo):
 def post_summary(args, runner, tracking, run_id, path):
     marker = f"<!-- factory:promotion-consolidate-run id={run_id} -->"
     if tracking is None:
-        runner.write("post the run's summary on the new tracking issue", "issue", "comment", "new")
+        if not runner.dry_run:
+            raise Refusal("the tracking issue is missing after creation")
+        runner.actions.append("post the run's summary on the new tracking issue")
         return
     if any(marker in comment["body"] for comment in issue_comments(args.repo, tracking)):
         return
