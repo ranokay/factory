@@ -529,8 +529,10 @@ class TrustedMarkers(Pass):
         plan = json.loads(PLAN.read_text())
         plan["covered"] = [dict(FIXTURE_COVERED, issue=52, check={"file": ".github/workflows/ci.yml", "name": "Typecheck"})]
         self.write_plan(plan)
-        workflow = WORKFLOW.replace("    runs-on: ubuntu-latest\n", "    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        steps:\n          - 1\n")
-        self.nested_workflow = workflow
+        anchor = "    runs-on: ubuntu-latest\n"
+        assert WORKFLOW.count(anchor) == 1
+        workflow = WORKFLOW.replace(anchor, anchor + "    strategy:\n      matrix:\n        steps:\n          - 1\n")
+        self.assertNotEqual(workflow, WORKFLOW)
         (self.work / ".github" / "workflows" / "ci.yml").write_text(workflow)
         git = ["git", "-C", str(self.work)]
         subprocess.run([*git, "add", "."], check=True)  # nosec B603 B607
