@@ -286,7 +286,7 @@ class TrackingLookup(Pass):
         self.write_plan({"clusters": [], "covered": []})
         result = self.run_pass("--dry-run")
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("issue cap", result.stderr)
+        self.assertIn(f"{module.TRACKING_LIST_LIMIT}-issue cap", result.stderr)
 
 
 class MissingField(Pass):
