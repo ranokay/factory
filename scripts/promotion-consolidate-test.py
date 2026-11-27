@@ -277,7 +277,7 @@ class Policy(Pass):
 class TrackingLookup(Pass):
     def test_refuses_when_the_listing_reaches_its_cap(self):
         state = fixture_state()
-        for number in range(2000, 3000):
+        for number in range(2000, 2000 + module.TRACKING_LIST_LIMIT):
             state["issues"][str(number)] = {
                 "number": number, "title": "unrelated", "body": "", "state": "OPEN",
                 "createdAt": "2026-11-27T00:00:00Z", "labels": [], "comments": [],
@@ -286,7 +286,25 @@ class TrackingLookup(Pass):
         self.write_plan({"clusters": [], "covered": []})
         result = self.run_pass("--dry-run")
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("1000-issue cap", result.stderr)
+        self.assertIn("issue cap", result.stderr)
+
+
+class MissingField(Pass):
+    def test_a_gh_listing_without_a_field_is_named_not_a_traceback(self):
+        stub_bin = self.root / "stub"
+        stub_bin.mkdir()
+        stub = stub_bin / "gh"
+        stub.write_text("#!/usr/bin/env python3\nprint('[{\"number\": 1, \"state\": \"OPEN\"}]')\n")
+        stub.chmod(0o755)
+        self.write_plan({"clusters": [], "covered": []})
+        env = dict(os.environ, PATH=f"{stub_bin}{os.pathsep}{os.environ['PATH']}")
+        result = subprocess.run(  # nosec B603 -- the test runs the pass with an argument list
+            [sys.executable, str(PASS), "--plan", str(self.plan_path), "--repo", "ranokay/factory", "--dry-run"],
+            capture_output=True, text=True, check=False, env=env, timeout=120,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("without the expected field", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 class CheckFiles(unittest.TestCase):

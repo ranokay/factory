@@ -21,6 +21,7 @@ PROMOTION = "promotion"
 PUSHBACK_LABEL = "needs-triage"
 BLOCKING_LABELS = frozenset({"ready-for-agent", "wontfix"})
 TOP_DEFAULT = 5
+TRACKING_LIST_LIMIT = 1000
 JACCARD_THRESHOLD = 0.25
 TRACKING_MARKER = "<!-- factory:promotion-consolidate-tracking -->"
 PUSHBACK_MARKER = "<!-- factory:promotion-pushback -->"
@@ -407,10 +408,10 @@ def run(args):
 
 def find_tracking(repo):
     found = json.loads(
-        gh("issue", "list", "-R", repo, "--state", "all", "--limit", "1000", "--json", "number,body")
+        gh("issue", "list", "-R", repo, "--state", "all", "--limit", str(TRACKING_LIST_LIMIT), "--json", "number,body")
     )
-    if len(found) >= 1000:
-        raise Refusal("the tracking issue lookup reached its 1000-issue cap; it cannot prove there is one tracking issue")
+    if len(found) >= TRACKING_LIST_LIMIT:
+        raise Refusal(f"the tracking issue lookup reached its {TRACKING_LIST_LIMIT}-issue cap; it cannot prove there is one tracking issue")
     matches = [item["number"] for item in found if TRACKING_MARKER in item["body"]]
     if len(matches) > 1:
         raise Refusal(f"more than one tracking issue carries the marker: {matches}")
@@ -526,7 +527,7 @@ def main(argv=None):
     except RuntimeError as error:
         print(f"promotion-consolidate: {error}; re-run to finish the remaining steps", file=sys.stderr)
         return 1
-    except (KeyError, TypeError) as error:
+    except KeyError as error:
         print(f"promotion-consolidate: gh returned JSON without the expected field {error}", file=sys.stderr)
         return 1
 
