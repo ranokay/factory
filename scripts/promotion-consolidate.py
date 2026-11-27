@@ -271,6 +271,14 @@ def load_promotions(repo):
     }
 
 
+def author_login(item):
+    return (item.get("author") or {}).get("login")
+
+
+def plain(text):
+    return text.replace("<!--", "").replace("-->", "")
+
+
 def fetch_login(repo):
     login = gh("api", "user", "--jq", ".login").strip()
     if not login:
@@ -290,7 +298,7 @@ class Trust:
         return self.cache[number]
 
     def by_login(self, number):
-        return [comment for comment in self.comments(number) if comment["author"]["login"] == self.login]
+        return [comment for comment in self.comments(number) if author_login(comment) == self.login]
 
     def has(self, number, marker):
         return any(marker in comment["body"] for comment in self.by_login(number))
@@ -596,7 +604,7 @@ def find_tracking(repo, login):
     matches = [
         item["number"]
         for item in found
-        if TRACKING_MARKER in item["body"] and item["author"]["login"] == login
+        if TRACKING_MARKER in item["body"] and author_login(item) == login
     ]
     if len(matches) > 1:
         raise Refusal(f"more than one tracking issue carries the marker: {matches}")
@@ -675,7 +683,7 @@ def render_summary(run_id, date, dry_run, before, after, merged, covered_done, s
     lines += ["", f"### Sent to pushback (`{PUSHBACK_LABEL}`, top {len(sent)})"]
     if sent:
         for number, score, title in sent:
-            lines.append(f"- #{number} (score {score}): {title}")
+            lines.append(f"- #{number} (score {score}): {plain(title)}")
     else:
         lines.append("None.")
     lines += ["", "### Proposed clusters (not applied)"]

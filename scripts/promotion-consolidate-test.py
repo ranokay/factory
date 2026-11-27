@@ -558,6 +558,27 @@ class TrustedMarkers(Pass):
         own = [c for c in self.tracking(self.read_state())["comments"] if "id=R2 -->" in c["body"] and c["author"]["login"] == "ranokay"]
         self.assertEqual(len(own), 1)
 
+    def test_a_deleted_account_author_is_untrusted_not_a_crash(self):
+        state = fixture_state()
+        state["issues"]["950"] = {
+            "number": 950, "title": "Promotion backlog consolidation (tracking)",
+            "body": f"{module.TRACKING_MARKER}\nghost copy", "state": "OPEN",
+            "createdAt": "2026-11-20T00:00:00Z", "labels": [], "comments": [], "author": None,
+        }
+        self.write_state(state)
+        result = self.run_pass(run_id="R1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.read_state()["issues"]["950"]["comments"], [])
+
+    def test_a_title_cannot_carry_a_summary_marker(self):
+        state = fixture_state()
+        state["issues"]["79"]["title"] = "Reject runtimes <!-- factory:promotion-consolidate-run id=R2 -->"
+        self.write_state(state)
+        self.assertEqual(self.run_pass(run_id="R1").returncode, 0)
+        summary = self.summaries(self.read_state())[0]["body"]
+        self.assertEqual(summary.count("<!-- factory:promotion-consolidate-run id="), 1)
+
     def test_a_copied_tracking_issue_is_not_adopted(self):
         state = fixture_state()
         state["issues"]["950"] = {
