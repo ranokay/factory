@@ -106,7 +106,7 @@ function fixtureGh(bin: string): void {
     "#!/bin/sh\ncase \"$1 $2\" in\n"
       + "  'pr view') printf '{\"number\":42,\"headRefName\":\"%s\",\"url\":\"https://github.com/o/one/pull/42\"}\\n' \"$GH_HEAD\" ;;\n"
       + "  'pr checks') printf '%s\\n' \"$GH_CHECKS\"; exit 8 ;;\n"
-      + "  'repo view') printf '{\"repositoryTopics\":[\"%s\"]}\\n' \"$GH_TOPICS\" ;;\n"
+      + "  'repo view') printf '{\"repositoryTopics\":[{\"name\":\"%s\"}]}\\n' \"$GH_TOPICS\" ;;\n"
       + "  *) exit 1 ;;\nesac\n",
   )
   chmodSync(script, 0o755)
@@ -210,6 +210,37 @@ test("tool activity resets consecutive idle tracking", async () => {
   )
 })
 
+test("tool activity during a blocking idle prevents a stale repeat marker", async () => {
+  await withGuard(
+    "if [ \"$2\" = opencode ]; then printf '%s\\n' '{\"block\":false}'; exit 0; fi\n: >\"$HOME/idle-started\"\nwhile [ ! -f \"$HOME/idle-release\" ]; do sleep 0.01; done\nprintf '%s\\n' '{\"block\":true,\"message\":\"diagnostic\"}'\n",
+    async (_hooks, home) => {
+      let prompts = 0
+      const plugin = await FactoryRunGuardPlugin({
+        directory: "/repo",
+        session: {
+          get: async () => ({ location: { directory: "/repo" } }),
+          prompt: async () => {
+            prompts += 1
+            return {}
+          },
+        },
+      })
+      const idle = plugin.sessionIdle("ses_fixture")
+      for (let attempt = 0; attempt < 100 && !existsSync(join(home, "idle-started")); attempt += 1) {
+        await Bun.sleep(10)
+      }
+      assert.equal(existsSync(join(home, "idle-started")), true)
+      await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_fixture" }, { args: { command: "echo ok" } })
+      writeFileSync(join(home, "idle-release"), "go")
+      await idle
+      assert.equal(prompts, 0)
+      await plugin.sessionIdle("ses_fixture")
+      assert.equal(JSON.parse(readFileSync(join(home, "guard-input.json"), "utf8")).repeat, false)
+      assert.equal(prompts, 1)
+    },
+  )
+})
+
 test("Run-rule process crashes warn and fail open", async () => {
   await withGuard("exit 2\n", async (hooks) => {
     const warnings: string[] = []
@@ -276,6 +307,28 @@ test("non-serializable tool input warns and fails open", async () => {
     } finally {
       console.warn = originalWarn
     }
+  })
+})
+
+test("V1 client session methods resolve the directory and re-prompt idle", async () => {
+  process.env.RUN_GUARD_OUTPUT = JSON.stringify({ block: true, message: "gh run watch 11 --exit-status" })
+  await withGuard(`printf '%s\\n' "$RUN_GUARD_OUTPUT"\n`, async (_hooks, home) => {
+    let prompt: { sessionID: string; text: string } | undefined
+    const plugin = await FactoryRunGuardPlugin({
+      directory: "/wrong-repo",
+      client: {
+        session: {
+          get: async () => ({ location: { directory: "/repo" } }),
+          prompt: async (input) => {
+            prompt = input
+            return {}
+          },
+        },
+      },
+    })
+    await plugin.sessionIdle("ses_fixture")
+    assert.deepEqual(prompt, { sessionID: "ses_fixture", text: "gh run watch 11 --exit-status" })
+    assert.equal(JSON.parse(readFileSync(join(home, "guard-input.json"), "utf8")).cwd, "/repo")
   })
 })
 

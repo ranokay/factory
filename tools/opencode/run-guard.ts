@@ -27,6 +27,12 @@ type PluginContext = {
     get: (input: { sessionID: string }) => Promise<unknown>
     prompt: (input: { sessionID: string; text: string }) => Promise<unknown>
   }
+  client?: {
+    session?: {
+      get: (input: { sessionID: string }) => Promise<unknown>
+      prompt: (input: { sessionID: string; text: string }) => Promise<unknown>
+    }
+  }
 }
 
 function failedOpen(error: unknown): GuardResult {
@@ -137,8 +143,11 @@ async function sessionDirectory(context: PluginContext, sessionID: string): Prom
 
 function hooks(context: PluginContext) {
   const blockedIdles = new Set<string>()
+  const activityVersions = new Map<string, number>()
   const beforeTool = async (input: ToolInput, output: ToolOutput) => {
-    blockedIdles.delete(input.sessionID || "")
+    const sessionID = input.sessionID || ""
+    activityVersions.set(sessionID, (activityVersions.get(sessionID) || 0) + 1)
+    blockedIdles.delete(sessionID)
     const cwd = await sessionDirectory(context, input.sessionID || "")
     if (!cwd) return
     const result = await runGuard("opencode", {
@@ -152,8 +161,10 @@ function hooks(context: PluginContext) {
   const idle = async (sessionID: string) => {
     const cwd = await sessionDirectory(context, sessionID)
     if (!cwd) return
+    const activityVersion = activityVersions.get(sessionID) || 0
     const repeat = blockedIdles.has(sessionID)
     const result = await runGuard("opencode-idle", { cwd, repeat })
+    if ((activityVersions.get(sessionID) || 0) !== activityVersion) return
     if (!result.block) {
       blockedIdles.delete(sessionID)
       if (result.warning) console.warn(result.warning)
@@ -168,7 +179,7 @@ function hooks(context: PluginContext) {
     try {
       await context.session.prompt({ sessionID, text: result.message || "Continue waiting for required checks." })
     } catch (error) {
-      blockedIdles.delete(sessionID)
+      if ((activityVersions.get(sessionID) || 0) === activityVersion) blockedIdles.delete(sessionID)
       console.warn(`Factory Run guard warning: cannot re-prompt session: ${String(error)}`)
     }
   }
@@ -183,7 +194,8 @@ function hooks(context: PluginContext) {
   }
 }
 
-export const FactoryRunGuardPlugin = async (context: PluginContext = {}) => hooks(context)
+export const FactoryRunGuardPlugin = async (context: PluginContext = {}) =>
+  hooks({ ...context, session: context.session || context.client?.session })
 
 const plugin = {
   id: "factory-run-guard",
