@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess  # nosec B404  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git with argument lists
 import tomllib
 from pathlib import Path
 
 from check_result import load_result
-from run_guard_paths import directory_target, exports_variable, pushd_no_change, resolve_directory
+from run_guard_paths import cdpath_risk, directory_target, exports_variable, pushd_has_stack, pushd_no_change, resolve_directory
 from shell_parser import Invocation, Word, has_expansion, invocations
 
-HEAD_CHANGING_COMMANDS = {"am", "checkout", "cherry-pick", "commit", "merge", "pull", "rebase", "reset", "revert", "switch", "symbolic-ref", "update-ref"}
+HEAD_CHANGING_COMMANDS = {"am", "branch", "checkout", "cherry-pick", "commit", "merge", "pull", "rebase", "reset", "revert", "switch", "symbolic-ref", "tag", "update-ref"}
 
 
 def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -81,7 +82,7 @@ def push_sources(arguments: tuple[Word, ...], index: int) -> list[str]:
     delete_option = False
     while index < len(arguments):
         text = arguments[index].text
-        if text in {"--all", "--mirror", "--tags"}:
+        if text in {"--all", "--branches", "--mirror", "--tags"}:
             raise ValueError("multi-ref pushes are unsupported; push an explicit ref with a passing check record")
         if text == "--delete":
             delete_option = True
@@ -185,11 +186,13 @@ def push_record_reason(directory: Path, source: str = "HEAD") -> str | None:
     )
 
 
-def directory_change(invocation: Invocation, possible_cwds: set[Path]) -> tuple[set[Path], str | None]:
+def directory_change(invocation: Invocation, possible_cwds: set[Path], cdpath_active: bool) -> tuple[set[Path], str | None]:
     if invocation.executable not in {"cd", "pushd"}:
         return possible_cwds, None
     if invocation.executable == "pushd" and pushd_no_change(invocation.arguments):
         return possible_cwds, None
+    if invocation.executable == "pushd" and pushd_has_stack(invocation.arguments):
+        return possible_cwds, "Factory Run guard: cannot verify a push after a directory stack change. Use one explicit repository directory."
     target, error = directory_target(invocation.arguments)
     if error == "bare":
         return possible_cwds, "Factory Run guard: cannot verify a push after a bare directory change. Use an explicit repository directory."
@@ -197,6 +200,8 @@ def directory_change(invocation: Invocation, possible_cwds: set[Path]) -> tuple[
         return possible_cwds, "Factory Run guard: cannot verify a push after a bare or previous-directory change. Use an explicit repository directory."
     if error == "dynamic":
         return possible_cwds, "Factory Run guard: cannot verify a push after a shell-local directory expansion. Use an explicit repository directory."
+    if cdpath_risk(target, cdpath_active):
+        return possible_cwds, "Factory Run guard: cannot verify a push after a CDPATH directory change. Use an absolute repository directory."
     return possible_cwds | {resolve_directory(directory, target) for directory in possible_cwds}, None
 
 
@@ -221,13 +226,17 @@ def push_rule(command: str, cwd: Path) -> str | None:
     possible_cwds = {cwd}
     head_may_change = False
     exported_git_dir = False
+    cdpath_active = bool(os.environ.get("CDPATH"))
     directory_error: str | None = None
     for invocation in invocations(command):
         exported_git_dir = exported_git_dir or exports_variable(invocation, "GIT_DIR")
+        cdpath_active = cdpath_active or exports_variable(invocation, "CDPATH") or any(
+            name == "CDPATH" for name, _ in invocation.environment
+        )
         if invocation.executable == "popd":
             directory_error = "Factory Run guard: cannot verify a push after popd. Run the push from an explicit repository directory."
             continue
-        possible_cwds, error = directory_change(invocation, possible_cwds)
+        possible_cwds, error = directory_change(invocation, possible_cwds, cdpath_active)
         if error:
             directory_error = error
         if invocation.executable in {"cd", "pushd"}:

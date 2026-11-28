@@ -130,6 +130,10 @@ case_waiting() {
 		printf 'stopped-notice accepted a deferred pipeline wait\n' >&2
 		return 1
 	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: wait for checks to finish' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a deferred check wait\n' >&2
+		return 1
+	fi
 	printf 'ok: PR forks wait for checks and stopped notices reject deferred waits\n'
 }
 

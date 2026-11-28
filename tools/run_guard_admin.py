@@ -3,24 +3,22 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from run_guard_paths import directory_target, exports_variable, pushd_no_change, resolve_directory
+from run_guard_paths import cdpath_risk, directory_target, exports_variable, pushd_has_stack, pushd_no_change, resolve_directory
 from run_guard_stop import gh
 from shell_parser import Invocation, invocations
 
 GH_MERGE_VALUE_OPTIONS = {
     "-A", "--author-email", "-b", "--body", "-F", "--body-file",
-    "-R", "--repo", "-t", "--subject", "--match-head-commit",
+    "-R", "--repo", "-t", "--subject",
 }
 
 
-def gh_merge(invocation: Invocation) -> tuple[str | None, str | None] | None:
-    if invocation.executable != "gh":
-        return None
-    texts = [word.text for word in invocation.arguments]
+def gh_repository(texts: list[str]) -> str | None:
     repository = None
     index = 0
     while index < len(texts):
@@ -36,30 +34,47 @@ def gh_merge(invocation: Invocation) -> tuple[str | None, str | None] | None:
         elif text.startswith("-R") and len(text) > 2:
             repository = text[2:]
         index += 1
-    try:
-        pr = texts.index("pr")
-        merge = texts.index("merge", pr + 1)
-    except ValueError:
-        return None
-    admin = any(
-        text == "--admin"
-        or (text.startswith("--admin=") and text.split("=", 1)[1].lower() in {"1", "t", "true"})
-        for text in texts[merge + 1 :]
-    )
-    if not admin:
-        return None
-    selector = None
-    index = merge + 1
+    return repository
+
+
+def gh_admin_option(texts: list[str], index: int) -> bool:
+    while index < len(texts):
+        text = texts[index]
+        if text in GH_MERGE_VALUE_OPTIONS:
+            index += 2
+            continue
+        if text == "--admin" or (
+            text.startswith("--admin=") and text.split("=", 1)[1].lower() in {"1", "t", "true"}
+        ):
+            return True
+        index += 1
+    return False
+
+
+def gh_selector(texts: list[str], index: int) -> str | None:
     while index < len(texts):
         text = texts[index]
         if text in GH_MERGE_VALUE_OPTIONS:
             index += 2
             continue
         if not text.startswith("-"):
-            selector = text
-            break
+            return text
         index += 1
-    return selector, repository
+    return None
+
+
+def gh_merge(invocation: Invocation) -> tuple[str | None, str | None] | None:
+    if invocation.executable != "gh":
+        return None
+    texts = [word.text for word in invocation.arguments]
+    try:
+        pr = texts.index("pr")
+        merge = texts.index("merge", pr + 1)
+    except ValueError:
+        return None
+    if not gh_admin_option(texts, merge + 1):
+        return None
+    return gh_selector(texts, merge + 1), gh_repository(texts)
 
 
 def repository_arguments(repository: str | None) -> list[str]:
@@ -89,14 +104,29 @@ class AdminContext:
 
 def admin_contexts(command: str, cwd: Path) -> list[AdminContext]:
     exported = False
+    cdpath_active = bool(os.environ.get("CDPATH"))
     contexts: list[AdminContext] = []
     for invocation in invocations(command):
         exported = exported or exports_variable(invocation, "GH_REPO")
+        cdpath_active = cdpath_active or exports_variable(invocation, "CDPATH") or any(
+            name == "CDPATH" for name, _ in invocation.environment
+        )
         if invocation.executable in {"export", "declare", "typeset", "readonly"}:
             continue
         if invocation.executable in {"cd", "pushd"}:
             if invocation.executable == "pushd" and pushd_no_change(invocation.arguments):
                 continue
+            if invocation.executable == "pushd" and pushd_has_stack(invocation.arguments):
+                contexts.append(
+                    AdminContext(
+                        invocation,
+                        None,
+                        cwd,
+                        exported,
+                        "Factory Run guard: cannot verify an admin merge after a directory stack change. Use one explicit repository directory.",
+                    )
+                )
+                return contexts
             target, error = directory_target(invocation.arguments)
             if error == "bare":
                 error = "Factory Run guard: cannot verify an admin merge after a bare directory change. Use an explicit repository directory."
@@ -106,6 +136,17 @@ def admin_contexts(command: str, cwd: Path) -> list[AdminContext]:
                 error = "Factory Run guard: cannot verify an admin merge after a shell-local directory expansion. Use an explicit repository directory."
             if error:
                 contexts.append(AdminContext(invocation, None, cwd, exported, error))
+                return contexts
+            if cdpath_risk(target, cdpath_active):
+                contexts.append(
+                    AdminContext(
+                        invocation,
+                        None,
+                        cwd,
+                        exported,
+                        "Factory Run guard: cannot verify an admin merge after a CDPATH directory change. Use an absolute repository directory.",
+                    )
+                )
                 return contexts
             cwd = resolve_directory(cwd, target)
             continue

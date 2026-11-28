@@ -10,6 +10,7 @@ from pathlib import Path
 
 from run_guard_admin import GH_MERGE_VALUE_OPTIONS, admin_rule, gh_merge
 from run_guard_fallback import fallback_reason, fallback_rule
+from run_guard_paths import declared_assignments
 from run_guard_push import HEAD_CHANGING_COMMANDS, git_subcommand_word, push_rule
 from run_guard_stop import stop_rule
 from shell_parser import Invocation, Word, has_expansion, invocations, shell_words
@@ -87,13 +88,7 @@ def command_value_guarded(value: str, depth: int = 0) -> bool:
             word = git_subcommand_word(invocation)
             if word is not None and word.text == "push":
                 return True
-        arguments = [word.text for word in invocation.arguments]
-        if (
-            invocation.executable == "gh"
-            and "pr" in arguments
-            and "merge" in arguments
-            and any(text == "--admin" or text.startswith("--admin=") for text in arguments)
-        ):
+        if invocation.executable == "gh" and gh_merge(invocation) is not None:
             return True
     return False
 
@@ -131,6 +126,40 @@ def has_unquoted_expansion(word: Word) -> bool:
     )
 
 
+def expansion_names(word: Word) -> list[str]:
+    return [braced or plain for braced, plain in re.findall(
+        r"\$(?:\{([A-Za-z_][A-Za-z_0-9]*)\}|([A-Za-z_][A-Za-z_0-9]*))",
+        word.text,
+    )]
+
+
+def assigned_admin_risk(invocation: Invocation, pr_index: int | None, assignments: dict[str, str]) -> bool:
+    if pr_index is None:
+        return False
+    arguments = [word.text for word in invocation.arguments]
+    index = pr_index + 1
+    if index >= len(arguments) or arguments[index] != "merge":
+        return False
+    index += 1
+    while index < len(arguments):
+        text = arguments[index]
+        if text in GH_MERGE_VALUE_OPTIONS:
+            index += 2
+            continue
+        if any(text.startswith(option + "=") for option in GH_MERGE_VALUE_OPTIONS):
+            index += 1
+            continue
+        if has_expansion(invocation.arguments[index]):
+            for name in expansion_names(invocation.arguments[index]):
+                value = assignments.get(name, "")
+                if value == "--admin" or (
+                    value.startswith("--admin=") and value.split("=", 1)[1].lower() in {"1", "t", "true"}
+                ):
+                    return True
+        index += 1
+    return False
+
+
 def gh_admin_risk(invocation: Invocation, pr_index: int | None) -> bool:
     arguments = [word.text for word in invocation.arguments]
     if pr_index is None:
@@ -142,7 +171,7 @@ def gh_admin_risk(invocation: Invocation, pr_index: int | None) -> bool:
         return True
     if arguments[index] != "merge":
         return any(text == "--admin" or text.startswith("--admin=") for text in arguments)
-    explicit_admin = any(text == "--admin" or text.startswith("--admin=") for text in arguments)
+    explicit_admin = gh_merge(invocation) is not None
     selector_seen = False
     selector_dynamic = False
     index += 1
@@ -193,11 +222,15 @@ def value_may_guard(value: str) -> bool:
 
 def dynamic_rule(command: str) -> str | None:
     parsed = invocations(command)
-    environment_values = [
-        value
-        for invocation in parsed
-        for _, value in invocation.environment
-    ]
+    environment_assignments = dict(os.environ)
+    environment_values: list[str] = []
+    for invocation in parsed:
+        for name, value in invocation.environment:
+            environment_assignments[name] = value
+            environment_values.append(value)
+        for name, value in declared_assignments(invocation):
+            environment_assignments[name] = value
+            environment_values.append(value)
     state_sensitive = any(
         (
             invocation.executable == "git"
@@ -261,10 +294,14 @@ def dynamic_rule(command: str) -> str | None:
         )
         dynamic_executable = "$" in invocation.executable or "`" in invocation.executable
         pr_index = gh_pr_index(arguments) if invocation.executable == "gh" else None
-        explicit_admin = any(text == "--admin" or text.startswith("--admin=") for text in arguments)
-        assigned_admin = invocation.executable == "gh" and any(
-            has_expansion(word) for word in invocation.arguments
-        ) and any(value == "--admin" or value.startswith("--admin=") for value in environment_values)
+        explicit_admin = (
+            gh_merge(invocation) is not None
+            if invocation.executable == "gh"
+            else any(text == "--admin" or text.startswith("--admin=") for text in arguments)
+        )
+        assigned_admin = invocation.executable == "gh" and assigned_admin_risk(
+            invocation, pr_index, environment_assignments
+        )
         admin_expansion = assigned_admin or (
             gh_admin_risk(invocation, pr_index) if invocation.executable == "gh" else (
                 explicit_admin and dynamic_executable and "pr" in arguments and "merge" in arguments
@@ -380,6 +417,7 @@ def block_issue(arguments: list[str]) -> int:
     reason = ""
     unblock = ""
     findings: list[str] = []
+    details: list[str] = []
     index = 2
     while index < len(arguments):
         option = arguments[index]
@@ -393,10 +431,12 @@ def block_issue(arguments: list[str]) -> int:
                 unblock = arguments[index + 1]
             elif option == "--finding":
                 findings.append(arguments[index + 1])
+            elif option == "--detail":
+                details.append(arguments[index + 1])
             index += 2
             continue
         index += 1
-    message = fallback_reason(repository, issue, reason, unblock, "\n".join(findings))
+    message = fallback_reason(repository, issue, reason, unblock, "\n".join(findings), "\n".join(details))
     if message:
         print(message, file=sys.stderr)
         return 3

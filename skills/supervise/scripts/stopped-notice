@@ -35,7 +35,7 @@ def main() -> int:
             continue
         value = normalize(line.split(":", 1)[1])
         if (
-            re.search(r"\b(?:resume|continue|proceed|retry)\b", value)
+            re.search(r"\b(?:resume|continue|proceed|retry|wait)\b", value)
             and re.search(rf"\b{CHECK_TERM}\b", value)
             and re.search(r"\b(?:finish|finishes|finished|complete|completes|completed|pass|passes|passed|green|done)\b", value)
         ):

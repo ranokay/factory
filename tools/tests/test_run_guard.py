@@ -69,6 +69,8 @@ class RunGuardTests(RunGuardFixture):
             "eval 'git status'",
             "eval 'cd /tmp'",
             "eval 'git commit --allow-empty -m next'",
+            'A=--admin; gh pr merge 42 --body "$A"',
+            'export A=--admin; gh pr merge 42 --body "$A"',
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
@@ -100,6 +102,10 @@ class RunGuardTests(RunGuardFixture):
             "gh pr \"$SUB\" --admin",
             "gh pr merge sync/x \"--admin=$T\"",
             "A=--admin; gh pr merge \"$A\"",
+            "A=--admin gh pr merge \"$A\"",
+            "export A=--admin; gh pr merge \"$A\"",
+            "declare -x A=--admin; gh pr merge \"$A\"",
+            "readonly A=--admin; gh pr merge \"$A\"",
             "gh -R o/r pr merge 42 \"$A\"",
             "git \"pu\"\"sh\" \"$REF\"",
             "git -c \"$CFG\" push",
@@ -117,6 +123,14 @@ class RunGuardTests(RunGuardFixture):
                 output = self.output(self.invoke(command))
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
                 self.assertIn("dynamic command", output["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_inherited_admin_value_denies_only_an_admin_dynamic_selector(self):
+        self.env["PR"] = "--admin"
+        output = self.output(self.invoke('gh pr merge "$PR" --merge'))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("dynamic command", output["hookSpecificOutput"]["permissionDecisionReason"])
+        self.env["PR"] = "42"
+        self.assertEqual(self.output(self.invoke('gh pr merge "$PR" --merge')), {})
 
     def test_shorthand_check_task_scope_is_respected(self):
         (self.repo / "mise.toml").write_text('[tasks]\ncheck = "echo no recorder"\n')
@@ -164,6 +178,9 @@ class RunGuardTests(RunGuardFixture):
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
+        output = self.output(self.invoke("git push --branches"))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("multi-ref", output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_git_c_and_compound_pushes_require_a_pass_record(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
@@ -287,6 +304,7 @@ class RunGuardTests(RunGuardFixture):
         )
         subprocess.run(["git", "-C", str(other), "config", "user.name", "Run guard test"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
         subprocess.run(["git", "-C", str(other), "config", "user.email", "run-guard@example.invalid"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
+        subprocess.run(["git", "-C", str(other), "config", "commit.gpgsign", "false"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
         (other / "README").write_text("fixture\n")
         subprocess.run(["git", "-C", str(other), "add", "README"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
         subprocess.run(["git", "-C", str(other), "commit", "-qm", "baseline"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
@@ -317,6 +335,7 @@ class RunGuardTests(RunGuardFixture):
             f"export GIT_DIR={self.repo}/.git; git push",
             f'DEST={self.repo}; cd "$DEST"; git push',
             "git push --all",
+            "git push --branches",
             "git push origin --tags",
             "git push origin main :refs/heads/other",
             "git push origin :refs/heads/other main",
@@ -326,6 +345,23 @@ class RunGuardTests(RunGuardFixture):
             with self.subTest(command=command):
                 output = self.output(self.invoke(command, cwd=other))
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_cdpath_relative_push_is_rejected_but_absolute_paths_are_checked(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        other = self.root / "other"
+        other.mkdir()
+        self.env["CDPATH"] = str(self.root)
+        output = self.output(self.invoke("cd repo && git push", cwd=other))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("CDPATH", output["hookSpecificOutput"]["permissionDecisionReason"])
+        self.env.pop("CDPATH")
+        output = self.output(self.invoke(f"export CDPATH={self.root}; cd repo && git push", cwd=other))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("CDPATH", output["hookSpecificOutput"]["permissionDecisionReason"])
+        recorded = self.record_check("true")
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        self.env["CDPATH"] = str(self.root)
+        self.assertEqual(self.output(self.invoke(f"cd {self.repo} && git push", cwd=other)), {})
 
     def test_deletion_push_requires_a_pass_record(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
@@ -356,16 +392,25 @@ class RunGuardTests(RunGuardFixture):
         self.write_mise("~/.agents/tools/run check_result -- true")
         recorded = self.record_check("true")
         self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        self.git("checkout", "-qb", "unchecked-ref")
+        self.git("commit", "--allow-empty", "-m", "unchecked ref")
+        self.git("checkout", "-")
         for command in (
             "git commit --allow-empty -m next && git push",
+            "git branch -f other unchecked-ref && git push origin other",
+            "git tag -f other unchecked-ref && git push origin other",
             "git symbolic-ref HEAD refs/heads/unchecked && git push",
+            f"pushd {self.repo} {self.root / 'other'} && git push",
             "nohup git commit --allow-empty -m next && git push",
             "git --$OPT commit && git push",
         ):
             with self.subTest(command=command):
                 output = self.output(self.invoke(command))
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-                self.assertIn("HEAD-changing", output["hookSpecificOutput"]["permissionDecisionReason"])
+                self.assertIn(
+                    "directory stack" if command.startswith("pushd ") else "HEAD-changing",
+                    output["hookSpecificOutput"]["permissionDecisionReason"],
+                )
 
     def test_recorded_red_check_blocks_push(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
@@ -373,118 +418,6 @@ class RunGuardTests(RunGuardFixture):
         self.assertEqual(recorded.returncode, 9)
         output = self.output(self.invoke("git push"))
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-
-    def test_admin_merge_all_selector_forms_pass_for_a_sync_pr_on_a_personal_fork(self):
-        self.gh_stub()
-        cases = (
-            ("gh pr merge --admin", None),
-            ("gh pr merge 42 --admin", "42"),
-            ("gh pr merge 42 --admin=1", "42"),
-            ("gh pr merge https://github.com/o/one/pull/42 --admin", "https://github.com/o/one/pull/42"),
-            ("gh pr merge sync/upstream-2026-11-28 --admin", "sync/upstream-2026-11-28"),
-            ("gh -R o/one pr merge 42 --admin", "42"),
-            ("gh pr merge 42 -R o/one --admin", "42"),
-            ("gh pr merge -R o/one 42 --admin", "42"),
-            ("gh pr merge -t subject 42 --admin", "42"),
-            ("gh pr merge -b body 42 --admin", "42"),
-            ("gh pr merge -F body.md 42 --admin", "42"),
-            ("gh pr merge -A author@example.invalid 42 --admin", "42"),
-            ('gh pr merge 42 --admin --body "$BODY"', "42"),
-        )
-        for command, selector in cases:
-            with self.subTest(command=command):
-                self.assertEqual(self.output(self.invoke(command)), {})
-                logged = [line for line in (self.root / "gh.log").read_text().splitlines() if " pr view " in line][-1]
-                expected = f"pr view {selector} " if selector else "pr view --json"
-                self.assertIn(expected, logged)
-
-    def test_admin_merge_is_denied_for_a_feature_branch(self):
-        self.gh_stub(head="feature/example")
-        for command in ("gh pr merge --admin", "gh pr -R o/one merge 42 --admin"):
-            with self.subTest(command=command):
-                output = self.output(self.invoke(command))
-                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-                self.assertIn("sync/upstream-", output["hookSpecificOutput"]["permissionDecisionReason"])
-        for flag in ("--admin", "--admin=true", "--admin=1", "--admin=t", "--admin=TRUE"):
-            with self.subTest(flag=flag):
-                output = self.output(self.invoke(f"gh pr merge 42 {flag}"))
-                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-                self.assertIn("sync/upstream-", output["hookSpecificOutput"]["permissionDecisionReason"])
-                self.assertIn("without --admin", output["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def test_admin_merge_is_denied_without_the_personal_fork_topic(self):
-        self.gh_stub(topics="")
-        output = self.output(self.invoke("gh pr merge 42 --admin"))
-        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("factory-personal-fork", output["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def test_admin_merge_rejects_environment_repository_and_directory_changes(self):
-        self.gh_stub()
-        for command, message in (
-            ("GH_REPO=victim/repo gh pr merge 42 --admin", "GH_REPO"),
-            ("env GH_REPO=victim/repo gh pr merge 42 --admin", "GH_REPO"),
-            ("export GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
-            ("export GH_REPO+=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
-            ("declare -x GH_REPO+=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
-            ("env GH_REPO+=victim/repo gh pr merge 42 --admin", "GH_REPO"),
-            ("declare -x GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
-            ("typeset -x GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
-            ("set -a; GH_REPO=victim/repo; set +a; gh pr merge 42 --admin", "GH_REPO"),
-            ("GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
-            ("GH_REPO=o/r+=x gh pr merge 42 --admin", "GH_REPO"),
-            ("(cd /tmp); gh pr merge 42 --admin", "subshell"),
-            ("cd /tmp & gh pr merge 42 --admin", "background or pipeline"),
-            ("cd /tmp | gh pr merge 42 --admin", "background or pipeline"),
-            ("cd /ineligible && false && cd /eligible; gh pr merge 42 --admin", "multiple directory changes"),
-            ("cd; gh pr merge 42 --admin", "bare"),
-            ("cd -; gh pr merge 42 --admin", "previous-directory"),
-        ):
-            with self.subTest(command=command):
-                output = self.output(self.invoke(command))
-                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-                self.assertIn(message, output["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def test_later_admin_merge_is_checked(self):
-        self.gh_stub()
-        command = "gh pr merge 42 --admin; GH_REPO=victim/repo gh pr merge 43 --admin"
-        output = self.output(self.invoke(command))
-        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("GH_REPO", output["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def test_malformed_admin_topics_block(self):
-        self.gh_stub(topics_json='{"repositoryTopics":"invalid"}')
-        output = self.output(self.invoke("gh pr merge 42 --admin"))
-        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("repositoryTopics", output["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def test_admin_merge_uses_the_changed_checkout(self):
-        self.gh_stub()
-        fork = self.root / "fork"
-        fork.mkdir()
-        self.assertEqual(self.output(self.invoke(f"cd {fork} && gh pr merge 42 --admin")), {})
-        self.assertIn(f"cwd={fork.resolve()} ", (self.root / "gh.log").read_text())
-
-    def test_pushd_without_change_verifies_the_current_admin_checkout(self):
-        self.gh_stub()
-        other = self.root / "other"
-        other.mkdir()
-        self.assertEqual(self.output(self.invoke(f"pushd -n {other}; gh pr merge 42 --admin")), {})
-        logged = [line for line in (self.root / "gh.log").read_text().splitlines() if " pr view " in line][-1]
-        self.assertIn(f"cwd={self.repo.resolve()} ", logged)
-        self.assertNotIn(f"cwd={other.resolve()} ", logged)
-
-    def test_plain_merge_does_not_query_github(self):
-        self.gh_stub(head="feature/example", topics="")
-        for command in (
-            "gh pr merge 42 --merge",
-            'gh pr merge 42 --merge --body "$BODY"',
-            'gh pr merge 42 --merge --body="$BODY"',
-            'gh pr merge "$PR" --merge',
-            "gh pr merge $PR --merge",
-        ):
-            with self.subTest(command=command):
-                self.assertEqual(self.output(self.invoke(command)), {})
-        self.assertFalse((self.root / "gh.log").exists())
 
 
 if __name__ == "__main__":

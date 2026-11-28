@@ -314,6 +314,25 @@ case_model_fallback() {
 	printf 'ok: a model-only Blocker is refused while a fallback is untried\n'
 }
 
+case_model_fallback_detail() {
+	reset_gh_fixtures
+	cache=$test_root/model-fallback-detail-cache
+	primary='{"providerInstanceId":"opencode","model":"opencode-go/hungerg-free","options":{}}'
+	fallback='{"providerInstanceId":"opencode","model":"opencode-go/hy4-flash-free","options":{"variant":"high"}}'
+	XDG_CACHE_HOME="$cache" "$targets" set o/one 65 "$primary" "$fallback"
+	XDG_CACHE_HOME="$cache" "$targets" mark o/one 65 "$primary"
+	if XDG_CACHE_HOME="$cache" "$block" o/one 65 --reason 'Run stopped' --detail 'Reviewer quota exhausted' --unblock 'Launch the next target' >"$test_root/out" 2>"$test_root/err"; then
+		printf 'expected a model-only detail to refuse the Blocker\n' >&2
+		return 1
+	else
+		status=$?
+	fi
+	[ "$status" -eq 3 ] || fail "expected detail refusal exit 3, got $status"
+	expect_contains "$(cat "$test_root/err")" 'opencode-go/hy4-flash-free'
+	[ ! -s "$GH_LOG" ] || fail 'a refused detail fallback called gh'
+	printf 'ok: model-only details refuse a Blocker while a fallback is untried\n'
+}
+
 case_model_fallbacks_tried() {
 	reset_gh_fixtures
 	cache=$test_root/model-tried-cache
@@ -384,6 +403,7 @@ missing) case_missing ;;
 invalid_repo) case_invalid_repo ;;
 failure) case_failure ;;
 model_fallback) case_model_fallback ;;
+model_fallback_detail) case_model_fallback_detail ;;
 model_fallbacks_tried) case_model_fallbacks_tried ;;
 mixed_fallback) case_mixed_fallback ;;
 no_targets) case_no_targets ;;
@@ -413,6 +433,7 @@ all)
 	case_invalid_repo
 	case_failure
 	case_model_fallback
+	case_model_fallback_detail
 	case_model_fallbacks_tried
 	case_mixed_fallback
 	case_no_targets

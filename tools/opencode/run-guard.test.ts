@@ -256,23 +256,32 @@ test("Run-rule process crashes warn and fail open", async () => {
   })
 })
 
-test("session lookup failure warns without inspecting another checkout", async () => {
-  await withGuard("printf '%s\\n' '{\"block\":false}'\n", async (hooks, home) => {
+test("session lookup failure blocks tools and re-prompts idle without inspecting another checkout", async () => {
+  await withGuard("printf '%s\\n' '{\"block\":false}'\n", async (_hooks, home) => {
     const warnings: string[] = []
     const originalWarn = console.warn
     console.warn = (message) => warnings.push(String(message))
     try {
+      let prompt: { sessionID: string; text: string } | undefined
       const plugin = await FactoryRunGuardPlugin({
         directory: "/wrong-repo",
         session: {
           get: async () => {
             throw new Error("session unavailable")
           },
-          prompt: async () => ({}),
+          prompt: async (input) => {
+            prompt = input
+            return {}
+          },
         },
       })
-      await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_fixture" }, { args: { command: "git push" } })
-      assert.equal(warnings.length, 1)
+      await assert.rejects(
+        () => plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_fixture" }, { args: { command: "git push" } }),
+        /cannot resolve the session directory/,
+      )
+      await plugin.sessionIdle("ses_fixture")
+      assert.match(prompt?.text || "", /cannot resolve the session directory/)
+      assert.equal(warnings.length, 2)
       assert.equal(existsSync(join(home, "guard-input.json")), false)
     } finally {
       console.warn = originalWarn

@@ -22,6 +22,7 @@ class RunGuardFixture(unittest.TestCase):
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self.env = dict(os.environ, XDG_CACHE_HOME=str(self.root / "cache"))
+        self.env.pop("CDPATH", None)
         self.git("init", "-q")
         self.git("config", "user.name", "Run guard test")
         self.git("config", "user.email", "run-guard@example.invalid")

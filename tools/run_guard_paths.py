@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from shell_parser import Invocation, Word, has_expansion
@@ -22,6 +23,17 @@ def exports_variable(invocation: Invocation, name: str) -> bool:
     )
 
 
+def declared_assignments(invocation: Invocation) -> list[tuple[str, str]]:
+    if invocation.executable not in {"export", "declare", "typeset", "readonly"}:
+        return []
+    assignments = []
+    for argument in invocation.arguments:
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z_0-9]*)\+?=(.*)", argument.text)
+        if match:
+            assignments.append((match.group(1), match.group(2)))
+    return assignments
+
+
 def pushd_no_change(arguments: tuple[Word, ...]) -> bool:
     for argument in arguments:
         if argument.text == "--":
@@ -33,6 +45,21 @@ def pushd_no_change(arguments: tuple[Word, ...]) -> bool:
         ):
             return True
     return False
+
+
+def pushd_has_stack(arguments: tuple[Word, ...]) -> bool:
+    operands = 0
+    for argument in arguments:
+        if operands == 0 and argument.text != "--" and argument.text.startswith("-"):
+            continue
+        operands += 1
+        if operands > 1:
+            return True
+    return False
+
+
+def cdpath_risk(target: str | None, active: bool) -> bool:
+    return active and target is not None and not Path(os.path.expandvars(target)).expanduser().is_absolute()
 
 
 def directory_target(arguments: tuple[Word, ...]) -> tuple[str | None, str | None]:

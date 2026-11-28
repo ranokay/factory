@@ -52,7 +52,7 @@ OTHER_CAUSE_TERMS = (
 )
 
 
-def block_issue_arguments(invocation: Invocation) -> tuple[str, str, str, str, str] | None:
+def block_issue_arguments(invocation: Invocation) -> tuple[str, str, str, str, str, str] | None:
     if invocation.executable != "block-issue" or len(invocation.arguments) < 2:
         return None
     texts = [word.text for word in invocation.arguments]
@@ -60,10 +60,11 @@ def block_issue_arguments(invocation: Invocation) -> tuple[str, str, str, str, s
     reason = ""
     unblock = ""
     findings: list[str] = []
+    details: list[str] = []
     index = 2
     while index < len(texts):
         option = texts[index]
-        if option in {"--reason", "--unblock", "--finding"}:
+        if option in {"--reason", "--unblock", "--finding", "--detail"}:
             if index + 1 >= len(texts):
                 return None
             value = texts[index + 1]
@@ -71,12 +72,14 @@ def block_issue_arguments(invocation: Invocation) -> tuple[str, str, str, str, s
                 reason = value
             elif option == "--unblock":
                 unblock = value
+            elif option == "--detail":
+                details.append(value)
             else:
                 findings.append(value)
             index += 2
             continue
-        index += 2 if option in {"--evidence", "--detail"} else 1
-    return repository, issue, reason, unblock, "\n".join(findings)
+        index += 2 if option == "--evidence" else 1
+    return repository, issue, reason, unblock, "\n".join(findings), "\n".join(details)
 
 
 def contains_term(text: str, terms: tuple[str, ...]) -> bool:
@@ -91,17 +94,15 @@ def model_named(text: str, model: str) -> bool:
     )
 
 
-def fallback_reason(repository: str, issue: str, reason: str, unblock: str, findings: str) -> str | None:
+def fallback_reason(repository: str, issue: str, reason: str, unblock: str, findings: str, detail: str = "") -> str | None:
     targets = load_targets(repository, issue)
     if not targets:
         return None
-    cause = "\n".join((reason, findings))
+    cause = "\n".join((reason, findings, detail))
+    if contains_term(cause, NON_FALLBACK_ROLE_TERMS):
+        return None
     named_target = any(model_named(cause, target["model"]) for target in targets)
-    role_unavailability = (
-        not contains_term(cause, NON_FALLBACK_ROLE_TERMS)
-        and contains_term(cause, MODEL_ROLE_TERMS)
-        and contains_term(cause, UNAVAILABLE_TERMS)
-    )
+    role_unavailability = contains_term(cause, MODEL_ROLE_TERMS) and contains_term(cause, UNAVAILABLE_TERMS)
     unavailable_cause = (named_target and contains_term(cause, UNAVAILABLE_TERMS)) or role_unavailability
     if not unavailable_cause or contains_term(cause, OTHER_CAUSE_TERMS):
         return None

@@ -151,7 +151,7 @@ function hooks(context: PluginContext) {
     activityVersions.set(sessionID, (activityVersions.get(sessionID) || 0) + 1)
     blockedIdles.delete(sessionID)
     const cwd = await sessionDirectory(context, input.sessionID || "")
-    if (!cwd) return
+    if (!cwd) throw new Error("Factory Run guard: cannot resolve the session directory; retry after the session lookup recovers.")
     const result = await runGuard("opencode", {
       tool: input.tool,
       input: output.args,
@@ -162,10 +162,11 @@ function hooks(context: PluginContext) {
   }
   const idle = async (sessionID: string) => {
     const cwd = await sessionDirectory(context, sessionID)
-    if (!cwd) return
     const activityVersion = activityVersions.get(sessionID) || 0
     const repeat = blockedIdles.has(sessionID)
-    const result = await runGuard("opencode-idle", { cwd, repeat })
+    const result = cwd
+      ? await runGuard("opencode-idle", { cwd, repeat })
+      : { block: true, message: "Factory Run guard: cannot resolve the session directory; retry after the session lookup recovers." }
     if ((activityVersions.get(sessionID) || 0) !== activityVersion) return
     if (!result.block) {
       blockedIdles.delete(sessionID)
@@ -176,7 +177,7 @@ function hooks(context: PluginContext) {
     if (!context.session?.prompt) {
       blockedIdles.delete(sessionID)
       console.warn("Factory Run guard warning: session.prompt is unavailable")
-      return
+      throw new Error(result.message || "Factory Run guard: session.prompt is unavailable")
     }
     try {
       await context.session.prompt({ sessionID, text: result.message || "Continue waiting for required checks." })
