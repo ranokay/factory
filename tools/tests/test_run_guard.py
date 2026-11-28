@@ -119,6 +119,7 @@ class RunGuardTests(unittest.TestCase):
             'echo "block-issue wording" "$X"',
             'git commit -m "gh pr merge --admin" "$X"',
             'gh pr view "$NUMBER"',
+            'gh label pr --admin "$X"',
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
@@ -134,6 +135,7 @@ class RunGuardTests(unittest.TestCase):
             "gh pr \"$SUB\" --admin",
             "gh pr merge sync/x \"--admin=$T\"",
             "A=--admin; gh pr merge \"$A\"",
+            "gh -R o/r pr merge 42 \"$A\"",
             "git \"pu\"\"sh\" \"$REF\"",
             "git -c \"$CFG\" push",
             "git \"$OPT\" commit",

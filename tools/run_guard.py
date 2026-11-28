@@ -46,13 +46,30 @@ OTHER_CAUSE_TERMS = (
 HEAD_CHANGING_COMMANDS = {"am", "checkout", "cherry-pick", "commit", "merge", "pull", "rebase", "reset", "revert", "switch", "update-ref"}
 
 
+def gh_pr_index(arguments: list[str]) -> int | None:
+    index = 0
+    while index < len(arguments):
+        text = arguments[index]
+        if text in {"-R", "--repo", "--hostname"}:
+            index += 2
+            continue
+        if text.startswith(("--repo=", "--hostname=")) or (text.startswith("-R") and len(text) > 2):
+            index += 1
+            continue
+        if text.startswith("-"):
+            index += 1
+            continue
+        return index if text == "pr" else None
+    return None
+
+
 def dynamic_rule(command: str) -> str | None:
     parsed = invocations(command)
     for position, invocation in enumerate(parsed):
         if not invocation.dynamic:
             continue
         arguments = [word.text for word in invocation.arguments]
-        executable = invocation.executable
+        executable = Path(invocation.executable).name
         nested_words = [word.text for word in invocation.arguments if not word.data]
         nested_guarded = any(word.operator for word in invocation.arguments) and (
             ("git" in nested_words and "push" in nested_words)
@@ -64,7 +81,10 @@ def dynamic_rule(command: str) -> str | None:
             or (
                 following.executable == "pr"
                 and "merge" in [word.text for word in following.arguments]
-                and "--admin" in [word.text for word in following.arguments]
+                and (
+                    "--admin" in [word.text for word in following.arguments]
+                    or any(has_expansion(word) for word in following.arguments)
+                )
             )
             or (
                 following.executable == "which"
@@ -78,14 +98,19 @@ def dynamic_rule(command: str) -> str | None:
             and arguments[1].isdigit()
             and {"--reason", "--unblock"}.issubset(arguments)
         )
-        admin_expansion = any(text == "--admin" or text.startswith("--admin=") for text in arguments)
+        dynamic_executable = "$" in invocation.executable or "`" in invocation.executable
+        pr_index = gh_pr_index(arguments) if invocation.executable == "gh" else None
+        admin_expansion = any(text == "--admin" or text.startswith("--admin=") for text in arguments) and (
+            pr_index is not None
+            or (dynamic_executable and "pr" in arguments and "merge" in arguments)
+        )
         subcommand_word = git_subcommand_word(invocation)
         git_guarded = invocation.executable == "git" and subcommand_word is not None and (
             subcommand_word.text == "push" or has_expansion(subcommand_word)
         )
         gh_guarded = False
-        if invocation.executable == "gh" and "pr" in arguments:
-            index = arguments.index("pr") + 1
+        if pr_index is not None:
+            index = pr_index + 1
             if index < len(arguments):
                 subcommand = arguments[index]
                 gh_guarded = (
@@ -93,7 +118,6 @@ def dynamic_rule(command: str) -> str | None:
                     or has_expansion(invocation.arguments[index])
                     or admin_expansion
                 )
-        dynamic_executable = "$" in invocation.executable or "`" in invocation.executable
         if (
             executable == "block-issue"
             or block_issue_shape
