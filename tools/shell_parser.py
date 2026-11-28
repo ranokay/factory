@@ -235,9 +235,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
     directory: str | None = None
     while remaining:
         first = remaining[0].text
-        if re.match(r"[A-Za-z_][A-Za-z_0-9]*\+?=", first):
-            assignment = re.match(r"([A-Za-z_][A-Za-z_0-9]*)(\+=|=)", first)
-            assert assignment is not None
+        assignment = re.match(r"([A-Za-z_][A-Za-z_0-9]*)(\+=|=)", first)
+        if assignment is not None:
             environment.append((assignment.group(1), first[assignment.end() :]))
             remaining.pop(0)
             continue
@@ -355,9 +354,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             remaining.pop(0)
             while remaining:
                 candidate = remaining[0].text
-                if re.match(r"[A-Za-z_][A-Za-z_0-9]*\+?=", candidate):
-                    assignment = re.match(r"([A-Za-z_][A-Za-z_0-9]*)(\+=|=)", candidate)
-                    assert assignment is not None
+                assignment = re.match(r"([A-Za-z_][A-Za-z_0-9]*)(\+=|=)", candidate)
+                if assignment is not None:
                     environment.append((assignment.group(1), candidate[assignment.end() :]))
                     remaining.pop(0)
                     continue

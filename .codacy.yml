@@ -33,3 +33,6 @@ engines:
       - "profiles/apple/scripts/assets.js"
       - "profiles/web/scripts/assets.js"
       - "profiles/universal/tests/assets-test.js"
+      # The Run guard and its integration suite stay cohesive; NLOC is only a size metric.
+      - "tools/run_guard.py"
+      - "tools/tests/test_run_guard.py"
