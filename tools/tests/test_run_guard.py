@@ -301,6 +301,10 @@ class RunGuardTests(unittest.TestCase):
             f"GIT_DIR={self.repo}/.git git push",
             "git push --all",
             "git push origin --tags",
+            "git push origin main :refs/heads/other",
+            "git push origin :refs/heads/other main",
+            "cd; git push",
+            "cd -; git push",
         ):
             with self.subTest(command=command):
                 output = self.output(self.invoke(command, cwd=other))
@@ -396,7 +400,10 @@ class RunGuardTests(unittest.TestCase):
         for command, message in (
             ("GH_REPO=victim/repo gh pr merge 42 --admin", "GH_REPO"),
             ("env GH_REPO=victim/repo gh pr merge 42 --admin", "GH_REPO"),
+            ("export GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
             ("cd /tmp && gh pr merge 42 --admin", "directory change"),
+            ("cd; gh pr merge 42 --admin", "bare"),
+            ("cd -; gh pr merge 42 --admin", "previous-directory"),
         ):
             with self.subTest(command=command):
                 output = self.output(self.invoke(command))

@@ -137,14 +137,15 @@ def git_push(invocation: Invocation, cwd: Path) -> tuple[Path, list[str]] | None
     else:
         return None
     sources: list[str] = []
+    deleted_refs = 0
     repository_seen = False
-    delete = False
+    delete_option = False
     while index < len(arguments):
         text = arguments[index].text
         if text in {"--all", "--mirror", "--tags"}:
             raise ValueError("multi-ref pushes are unsupported; push an explicit ref with a passing check record")
         if text == "--delete":
-            delete = True
+            delete_option = True
             index += 1
             continue
         if text in {"--repo", "--receive-pack", "--exec", "--push-option", "-o"}:
@@ -159,14 +160,16 @@ def git_push(invocation: Invocation, cwd: Path) -> tuple[Path, list[str]] | None
             continue
         refspec = text[1:] if text.startswith("+") else text
         source = refspec.split(":", 1)[0]
-        if not source:
-            delete = True
-        elif delete:
-            raise ValueError("mixed deletion and update pushes are unsupported")
+        if not source or delete_option:
+            deleted_refs += 1
         else:
             sources.append(source)
         index += 1
-    if delete:
+    if delete_option and not deleted_refs:
+        raise ValueError("--delete requires an explicit ref")
+    if sources and (deleted_refs or delete_option):
+        raise ValueError("mixed deletion and update pushes are unsupported")
+    if deleted_refs:
         return directory, []
     return directory, sources or ["HEAD"]
 
@@ -239,7 +242,9 @@ def push_rule(command: str, cwd: Path) -> str | None:
     possible_cwds = {cwd}
     head_may_change = False
     for invocation in invocations(command):
-        if invocation.executable in {"cd", "pushd"} and invocation.arguments:
+        if invocation.executable in {"cd", "pushd"}:
+            if not invocation.arguments:
+                return "Factory Run guard: cannot verify a push after a bare directory change. Use an explicit repository directory."
             index = 0
             while index < len(invocation.arguments):
                 option = invocation.arguments[index].text
@@ -250,8 +255,8 @@ def push_rule(command: str, cwd: Path) -> str | None:
                     index += 1
                     continue
                 break
-            if index >= len(invocation.arguments):
-                continue
+            if index >= len(invocation.arguments) or invocation.arguments[index].text == "-":
+                return "Factory Run guard: cannot verify a push after a bare or previous-directory change. Use an explicit repository directory."
             target = invocation.arguments[index].text
             possible_cwds |= {
                 resolve_directory(directory, target)
@@ -365,8 +370,17 @@ def topic_names(value: object) -> list[str]:
 
 def admin_rule(command: str, cwd: Path) -> str | None:
     directory_changed = False
+    exported_repo = False
     for invocation in invocations(command):
-        if invocation.executable in {"cd", "pushd"} and invocation.arguments:
+        if invocation.executable == "export" and any(
+            argument.text == "GH_REPO" or argument.text.startswith("GH_REPO=")
+            for argument in invocation.arguments
+        ):
+            exported_repo = True
+            continue
+        if invocation.executable in {"cd", "pushd"}:
+            if not invocation.arguments:
+                return "Factory Run guard: cannot verify an admin merge after a bare directory change. Use an explicit repository directory."
             index = 0
             while index < len(invocation.arguments):
                 option = invocation.arguments[index].text
@@ -377,15 +391,17 @@ def admin_rule(command: str, cwd: Path) -> str | None:
                     index += 1
                     continue
                 break
-            if index < len(invocation.arguments):
+            if index < len(invocation.arguments) and invocation.arguments[index].text != "-":
                 directory_changed = True
+            else:
+                return "Factory Run guard: cannot verify an admin merge after a bare or previous-directory change. Use an explicit repository directory."
             continue
         if invocation.executable == "popd":
             return "Factory Run guard: cannot verify an admin merge after popd. Run the merge from an explicit repository directory."
         merge = gh_merge(invocation)
         if merge is None:
             continue
-        if any(name == "GH_REPO" for name, _ in invocation.environment):
+        if any(name == "GH_REPO" for name, _ in invocation.environment) or exported_repo:
             return "Factory Run guard: GH_REPO admin merges are unsupported; use gh -R <repository> pr merge."
         if directory_changed:
             return "Factory Run guard: cannot verify an admin merge after a directory change. Run the merge from the target checkout."
