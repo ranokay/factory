@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- the fixture drives the local recorder and git
 import sys
 import tempfile
 import tomllib
@@ -32,7 +32,7 @@ class CheckResultTests(unittest.TestCase):
         self.git("commit", "-qm", "baseline")
 
     def git(self, *args: str) -> str:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git with an argument list
             ["git", "-C", str(self.repo), *args],
             text=True,
             capture_output=True,
@@ -42,7 +42,7 @@ class CheckResultTests(unittest.TestCase):
         return result.stdout.strip()
 
     def record(self, *command: str) -> tuple[subprocess.CompletedProcess[str], dict]:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's recorder
             [sys.executable, str(RECORDER), "--", *command],
             cwd=self.repo,
             text=True,
@@ -94,7 +94,7 @@ class CheckResultTests(unittest.TestCase):
     def test_failed_recorder_start_cannot_leave_a_stale_pass(self):
         self.assertEqual(self.record("true")[0].returncode, 0)
         path = next((self.root / "cache" / "factory" / "check-results").glob("*/*.json"))
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's recorder
             [sys.executable, str(RECORDER), "--", "missing-check-command"],
             cwd=self.repo,
             text=True,

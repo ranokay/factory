@@ -158,10 +158,35 @@ def invocations(command: str) -> list[Invocation]:
     return result
 
 
+def truncate_env_string(value: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if quote == "'":
+            if char == "'":
+                quote = None
+            continue
+        if char == "\\":
+            following = value[index + 1 : index + 2]
+            if quote is None and following == "c":
+                return value[:index]
+            if quote is None or (quote == '"' and following in {'$', '`', '"', "\\", "\n"}):
+                escaped = True
+            continue
+        if quote is not None:
+            if char == quote:
+                quote = None
+        elif char in "'\"":
+            quote = char
+    return value
+
+
 def split_env_string(value: str) -> list[str] | None:
-    value = value.split("\\c", 1)[0]
     try:
-        return shlex.split(value)
+        return shlex.split(truncate_env_string(value))
     except ValueError:
         return None
 

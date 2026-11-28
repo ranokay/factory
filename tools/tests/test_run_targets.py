@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- the fixture drives the local target CLI
 import sys
 import tempfile
 import unittest
@@ -26,7 +26,7 @@ class RunTargetsTests(unittest.TestCase):
         )
 
     def invoke(self, *arguments: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's target CLI
             [sys.executable, str(TARGETS), *arguments],
             text=True,
             capture_output=True,

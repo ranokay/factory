@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 -- Run tools invoke local programs with argument lists
 import sys
 import tomllib
 from pathlib import Path
@@ -52,7 +52,7 @@ def dynamic_rule(command: str) -> str | None:
 
 
 def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    return subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git with an argument list
         ["git", "-C", str(root), *args],
         text=True,
         capture_output=True,
@@ -236,7 +236,7 @@ def gh_merge(invocation: Invocation) -> tuple[str | None, str | None] | None:
 
 def gh(arguments: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(
+        return subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local gh with an argument list
             ["gh", *arguments],
             cwd=cwd,
             text=True,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- Run tools invoke local programs with argument lists
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    return subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git with an argument list
         ["git", "-C", str(root), *args],
         text=True,
         capture_output=True,
@@ -86,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     result_path(root, head).unlink(missing_ok=True)
     try:
-        completed = subprocess.run(command, cwd=root, check=False)
+        completed = subprocess.run(command, cwd=root, check=False)  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- runs the caller's requested command without a shell
         exit_code = completed.returncode
     except OSError as error:
         print(f"check_result: cannot run {command[0]}: {error}", file=sys.stderr)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- the fixture drives the local guard and git
 import sys
 import tempfile
 import unittest
@@ -31,7 +31,7 @@ class RunGuardTests(unittest.TestCase):
         self.git("commit", "-qm", "baseline")
 
     def git(self, *args: str) -> str:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git with an argument list
             ["git", "-C", str(self.repo), *args],
             text=True,
             capture_output=True,
@@ -41,7 +41,7 @@ class RunGuardTests(unittest.TestCase):
         return result.stdout.strip()
 
     def invoke(self, command: str, *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's guard
             [sys.executable, str(GUARD), "tool"],
             input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd or self.repo)}),
             text=True,
@@ -52,7 +52,7 @@ class RunGuardTests(unittest.TestCase):
         )
 
     def invoke_mode(self, mode: str, payload: dict) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's guard
             [sys.executable, str(GUARD), mode],
             input=json.dumps(payload),
             text=True,
@@ -145,7 +145,7 @@ class RunGuardTests(unittest.TestCase):
                 self.assertIn("mise.toml", output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def record_check(self, *command: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's recorder
             [sys.executable, str(TOOLS / "check_result.py"), "--", *command],
             cwd=self.repo,
             text=True,
@@ -207,6 +207,9 @@ class RunGuardTests(unittest.TestCase):
             "env --split-string='git push\\c'",
             "env -vS'git push\\c'",
             "env -S 'git push\\c\\'",
+            "env -S 'X=\\\\c git push'",
+            "env -S \"'X=\\c' git push\"",
+            "env -S '\"X=\\c\" git push'",
             "echo ok; env -S 'x\\'; git push",
             "echo ok; env -S'x\\'; git push",
             "echo ok; env --split-string='x\\'; git push",
@@ -349,7 +352,7 @@ class RunGuardTests(unittest.TestCase):
         self.assertEqual(output["decision"], "block")
 
     def target_command(self, command: str, *targets: str) -> None:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's target CLI
             [sys.executable, str(TOOLS / "run_targets.py"), command, "o/one", "6", *targets],
             text=True,
             capture_output=True,
@@ -449,7 +452,7 @@ class RunGuardTests(unittest.TestCase):
         self.assertIn("warning", repeat["warning"].lower())
 
     def test_internal_crash_warns_and_fails_open(self):
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's guard
             [sys.executable, str(GUARD), "tool"],
             input="not json",
             text=True,
