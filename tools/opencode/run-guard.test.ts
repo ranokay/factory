@@ -390,6 +390,55 @@ test("V2 setup registers the tool hook and consumes idle session.status", async 
   })
 })
 
+test("V2 consumes idle session.status delivered under data", async () => {
+  process.env.RUN_GUARD_OUTPUT = JSON.stringify({ block: true, message: "gh run watch 11 --exit-status" })
+  await withGuard(`printf '%s\\n' "$RUN_GUARD_OUTPUT"\n`, async () => {
+    let registered: ((event: { tool: string; input: Record<string, unknown>; sessionID?: string }) => Promise<void>) | undefined
+    let resolvePrompt: (() => void) | undefined
+    const prompted = new Promise<void>((resolve) => {
+      resolvePrompt = resolve
+    })
+    let subscription: AsyncIterable<{ type: string; data: { sessionID: string; status: { type: string } } }> | undefined
+    let subscriptionTypes: string[] | undefined
+    const cleanup = await runGuardPlugin.setup({
+      directory: "/repo",
+      tool: {
+        hook: async (name, callback) => {
+          assert.equal(name, "execute.before")
+          registered = callback
+        },
+      },
+      event: {
+        subscribe: (options: { types?: string[] }) => {
+          subscriptionTypes = options.types
+          subscription = {
+            async *[Symbol.asyncIterator]() {
+              yield { type: "session.status", data: { sessionID: "ses_fixture", status: { type: "idle" } } }
+            },
+          }
+          return subscription
+        },
+      },
+      session: {
+        get: async () => ({ location: { directory: "/repo" } }),
+        prompt: async () => {
+          resolvePrompt?.()
+          return {}
+        },
+      },
+    })
+    assert.ok(registered)
+    assert.ok(subscription)
+    assert.deepEqual(subscriptionTypes, ["session.status"])
+    await assert.rejects(
+      () => registered!({ tool: "bash", input: { command: "git push" } }),
+      { message: "gh run watch 11 --exit-status" },
+    )
+    await prompted
+    if (typeof cleanup === "function") cleanup()
+  })
+})
+
 test("V2 busy session.status does not re-prompt", async () => {
   await withGuard("printf '%s\\n' '{\"block\":false}'\n", async (_hooks, home) => {
     let resolveConsumed: (() => void) | undefined

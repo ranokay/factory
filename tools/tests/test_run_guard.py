@@ -363,16 +363,11 @@ class RunGuardTests(RunGuardFixture):
         self.env["CDPATH"] = str(self.root)
         self.assertEqual(self.output(self.invoke(f"cd {self.repo} && git push", cwd=other)), {})
 
-    def test_deletion_push_requires_a_pass_record(self):
+    def test_deletion_push_needs_no_check_record(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
-        for command in ("git push --delete origin x", "git push origin :refs/heads/other"):
+        for command in ("git push --delete origin x", "git push origin :refs/heads/other", "git push origin --delete x"):
             with self.subTest(command=command):
-                output = self.output(self.invoke(command))
-                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-                self.assertIn("no passing mise run check record", output["hookSpecificOutput"]["permissionDecisionReason"])
-        recorded = self.record_check("true")
-        self.assertEqual(recorded.returncode, 0, recorded.stderr)
-        self.assertEqual(self.output(self.invoke("git push --delete origin x")), {})
+                self.assertEqual(self.output(self.invoke(command)), {})
 
     def test_push_refspec_requires_a_record_for_the_pushed_commit(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
@@ -418,6 +413,14 @@ class RunGuardTests(RunGuardFixture):
         self.assertEqual(recorded.returncode, 9)
         output = self.output(self.invoke("git push"))
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_bare_value_option_forms_parse_without_a_guard_warning(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        for command in ("sudo -D", "sudo -u", "sudo -nD", "sudo -Du", "env -u", "env -iu", "env -S"):
+            with self.subTest(command=command):
+                result = self.invoke(command)
+                self.assertEqual(self.output(result), {})
+                self.assertNotIn("warning", result.stderr.lower())
 
 
 if __name__ == "__main__":

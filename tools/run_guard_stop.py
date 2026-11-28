@@ -25,8 +25,9 @@ def gh(arguments: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def unavailable(message: str, repeat: bool) -> tuple[str, str]:
+    # Unavailable facts block the first stop and warn-and-allow the repeat, so a GitHub outage cannot trap a thread.
     if repeat:
-        return "block", f"Factory Run guard warning: {message}"
+        return "warning", f"Factory Run guard warning: {message}"
     return "block", message
 
 
