@@ -150,6 +150,7 @@ class RunGuardTests(unittest.TestCase):
             "command -p git push",
             "command -- git push",
             "sudo -u root git push",
+            "sudo -nu root git push",
             "sudo --user root git push",
             "env -S 'git push'",
         ):

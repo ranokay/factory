@@ -176,6 +176,9 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 "-C", "--close-from", "-T", "--command-timeout", "-D", "--chdir",
                 "-R", "--chroot", "-t", "--type", "-U", "--other-user",
             }
+            short_value_options = {
+                option[1] for option in value_options if option.startswith("-") and not option.startswith("--")
+            }
             while remaining:
                 option = remaining[0].text
                 if option == "--":
@@ -186,8 +189,18 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     if remaining:
                         remaining.pop(0)
                     continue
-                if option.startswith("-"):
+                if option.startswith("--"):
                     remaining.pop(0)
+                    continue
+                if option.startswith("-") and len(option) > 1:
+                    grouped = option[1:]
+                    takes_next = any(
+                        character in short_value_options and index == len(grouped) - 1
+                        for index, character in enumerate(grouped)
+                    )
+                    remaining.pop(0)
+                    if takes_next and remaining:
+                        remaining.pop(0)
                     continue
                 break
             continue
