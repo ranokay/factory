@@ -12,7 +12,7 @@ from pathlib import Path
 
 from check_result import load_result
 from run_targets import load_targets, next_target
-from shell_parser import Invocation, invocations
+from shell_parser import Invocation, invocations, shell_words
 
 UNAVAILABLE_TERMS = (
     "quota",
@@ -50,24 +50,25 @@ def dynamic_rule(command: str) -> str | None:
     parsed = invocations(command)
     if not any(invocation.dynamic for invocation in parsed):
         return None
-    for invocation in parsed:
-        arguments = [word.text for word in invocation.arguments]
-        if (
-            invocation.executable == "push"
-            or "push" in arguments
-            or (
-                "merge" in arguments
-                and any(
-                    text == "--admin"
-                    or (text.startswith("--admin=") and text.split("=", 1)[1].lower() in {"1", "t", "true"})
-                    for text in arguments
-                )
-            )
-            or "block-issue" in invocation.executable
-            or "block-issue" in arguments
-            or {"--reason", "--unblock"}.issubset(arguments)
-        ):
-            return "Factory Run guard: cannot verify a dynamic command that may invoke a guarded action. Use a literal command."
+    tokens = [word.text for word in shell_words(command)]
+    raw = " ".join(tokens)
+    block_issue_shape = any(
+        invocation.dynamic
+        and len(invocation.arguments) >= 2
+        and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", invocation.arguments[0].text) is not None
+        and invocation.arguments[1].text.isdigit()
+        and {"--reason", "--unblock"}.issubset(word.text for word in invocation.arguments)
+        for invocation in parsed
+    )
+    guarded = (
+        re.search(r"\bpush\b", raw) is not None
+        or re.search(r"--admin(?:=|\b)", command) is not None
+        or "block-issue" in command
+        or re.search(r"\bgh\s+pr\b", command) is not None
+        or block_issue_shape
+    )
+    if guarded:
+        return "Factory Run guard: cannot verify a dynamic command that may invoke a guarded action. Use a literal command."
     return None
 
 
@@ -268,7 +269,11 @@ def push_rule(command: str, cwd: Path) -> str | None:
         if invocation.executable == "popd":
             return "Factory Run guard: cannot verify a push after popd. Run the push from an explicit repository directory."
         subcommand = git_subcommand(invocation)
-        if subcommand in HEAD_CHANGING_COMMANDS:
+        if subcommand in HEAD_CHANGING_COMMANDS or (
+            invocation.executable == "git"
+            and subcommand is None
+            and not any(argument.text in {"--help", "--version", "-h"} for argument in invocation.arguments)
+        ):
             head_may_change = True
         if subcommand != "push":
             continue
@@ -363,11 +368,12 @@ def repository_arguments(repository: str | None) -> list[str]:
 def topic_names(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [
-        item if isinstance(item, str) else item.get("name")
-        for item in value
-        if isinstance(item, str) or isinstance(item, dict)
-    ]
+    names = []
+    for item in value:
+        name = item if isinstance(item, str) else item.get("name") if isinstance(item, dict) else None
+        if isinstance(name, str):
+            names.append(name)
+    return names
 
 
 def admin_rule(command: str, cwd: Path) -> str | None:
@@ -487,9 +493,14 @@ def fallback_reason(repository: str, issue: str, reason: str, unblock: str, find
     targets = load_targets(repository, issue)
     if not targets:
         return None
-    text = "\n".join((reason, findings))
-    named_target = any(target["model"].lower() in text.lower() for target in targets)
-    if not named_target or not contains_term(text, UNAVAILABLE_TERMS) or contains_term(text, OTHER_CAUSE_TERMS):
+    cause = "\n".join((reason, findings))
+    text = "\n".join((cause, unblock))
+    named_target = any(
+        target["model"].lower() in text.lower()
+        or target["model"].rsplit("/", 1)[-1].lower() in text.lower()
+        for target in targets
+    )
+    if not named_target or not contains_term(text, UNAVAILABLE_TERMS) or contains_term(cause, OTHER_CAUSE_TERMS):
         return None
     fallback = next_target(repository, issue)
     if fallback is None:

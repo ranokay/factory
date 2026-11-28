@@ -106,9 +106,16 @@ def main(argv: list[str] | None = None) -> int:
         if command == "set":
             if len(arguments) == 3:
                 raise ValueError("set requires at least one target")
-            targets = [parse_target(text) for text in arguments[3:]]
-            for target in targets:
+            targets = []
+            seen = set()
+            for text in arguments[3:]:
+                target = parse_target(text)
+                identity = target_identity(target)
+                if identity in seen:
+                    continue
+                seen.add(identity)
                 target["tried"] = False
+                targets.append(target)
             write_targets(repository, issue, targets)
             return 0
         if len(arguments) != 4:
@@ -117,14 +124,11 @@ def main(argv: list[str] | None = None) -> int:
         if targets is None:
             raise ValueError("targets file is missing or invalid")
         identity = target_identity(parse_target(arguments[3]))
-        matched = False
         for target in targets:
             if target_identity(target) == identity:
                 target["tried"] = True
-                matched = True
-        if matched:
-            write_targets(repository, issue, targets)
-            return 0
+                write_targets(repository, issue, targets)
+                return 0
         raise ValueError("target is not in the ordered list")
     except (OSError, ValueError) as error:
         print(f"run-targets: {error}", file=sys.stderr)

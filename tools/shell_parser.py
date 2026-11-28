@@ -237,6 +237,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
         first = remaining[0].text
         assignment = re.match(r"([A-Za-z_][A-Za-z_0-9]*)(\+=|=)", first)
         if assignment is not None:
+            dynamic = dynamic or has_expansion(remaining[0])
             environment.append((assignment.group(1), first[assignment.end() :]))
             remaining.pop(0)
             continue
@@ -270,6 +271,14 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             if "$" in command_word.text or "`" in command_word.text or any(word.operator for word in command_words):
                 dynamic = True
             remaining = command_words
+            continue
+        if first == "nohup":
+            remaining.pop(0)
+            while remaining and remaining[0].text.startswith("-"):
+                if remaining[0].text == "--":
+                    remaining.pop(0)
+                    break
+                remaining.pop(0)
             continue
         if first == "sudo":
             remaining.pop(0)
@@ -356,12 +365,24 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 candidate = remaining[0].text
                 assignment = re.match(r"([A-Za-z_][A-Za-z_0-9]*)(\+=|=)", candidate)
                 if assignment is not None:
+                    dynamic = dynamic or has_expansion(remaining[0])
                     environment.append((assignment.group(1), candidate[assignment.end() :]))
                     remaining.pop(0)
                     continue
                 if candidate == "--":
                     remaining.pop(0)
                     break
+                if candidate.startswith("--"):
+                    name, separator, suffix = candidate.partition("=")
+                    long_options = {
+                        "--help", "--version", "--split-string", "--unset", "--chdir",
+                        "--ignore-environment", "--null", "--debug", "--list-signal-handling",
+                        "--block-signal", "--default-signal", "--ignore-signal",
+                        "--env0-from", "--argv0", "--quoting-style",
+                    }
+                    matches = [option for option in long_options if option.startswith(name)]
+                    if len(matches) == 1:
+                        candidate = matches[0] + (f"={suffix}" if separator else "")
                 if candidate in {"--help", "--version"}:
                     return None
                 if candidate in {"-S", "--split-string"}:
@@ -383,7 +404,9 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     remaining.pop(0)
                     remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                     continue
-                if candidate in {"-u", "--unset", "-C", "--chdir"}:
+                if candidate in {
+                    "-u", "--unset", "-C", "--chdir", "--env0-from", "--argv0", "--quoting-style",
+                }:
                     option = remaining.pop(0).text
                     if remaining:
                         value = remaining.pop(0).text
@@ -449,7 +472,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
     return Invocation(
         Path(remaining[0].text).name,
         tuple(remaining[1:]),
-        dynamic or has_expansion(remaining[0]),
+        dynamic or any(has_expansion(word) for word in remaining),
         tuple(environment),
         directory,
     )

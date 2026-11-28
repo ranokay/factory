@@ -52,12 +52,14 @@ class RunTargetsTests(unittest.TestCase):
         self.assertEqual(following.returncode, 0, following.stderr)
         self.assertEqual(json.loads(following.stdout)["model"], "opencode-go/hy4-flash-free")
 
-    def test_mark_marks_every_duplicate_target_identity(self):
+    def test_set_deduplicates_targets_and_mark_advances_the_fallback(self):
         self.assertEqual(self.invoke("set", "o/one", "6", self.primary, self.primary, self.fallback).returncode, 0)
+        targets = json.loads(self.path().read_text())["targets"]
+        self.assertEqual([target["model"] for target in targets], ["opencode-go/hungerg-free", "opencode-go/hy4-flash-free"])
         marked = self.invoke("mark", "o/one", "6", self.primary)
         self.assertEqual(marked.returncode, 0, marked.stderr)
         targets = json.loads(self.path().read_text())["targets"]
-        self.assertEqual([target["tried"] for target in targets], [True, True, False])
+        self.assertEqual([target["tried"] for target in targets], [True, False])
         following = self.invoke("next", "o/one", "6")
         self.assertEqual(json.loads(following.stdout)["model"], "opencode-go/hy4-flash-free")
 
