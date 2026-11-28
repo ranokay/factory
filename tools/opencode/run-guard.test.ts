@@ -385,7 +385,7 @@ test("real shared guard scopes dynamic commands to guarded actions", async () =>
     for (const command of ['"$EDITOR" file', 'env -S "$FLAGS git status"']) {
       await plugin["tool.execute.before"]({ tool: "bash" }, { args: { command } })
     }
-    for (const command of ["env -S $'git push'", "env -S '${CMD} git push'", "$(which git) push", "sudo -s 'git push'"]) {
+    for (const command of ["env -S $'git push'", "env -S '${CMD} git push'", "$(which git) push", "GH=gh; ${GH} pr merge 42 --admin", "sudo -s 'git push'"]) {
       await assert.rejects(
         () => plugin["tool.execute.before"]({ tool: "bash" }, { args: { command } }),
         /dynamic command|mise run check/,

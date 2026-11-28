@@ -55,8 +55,7 @@ def dynamic_rule(command: str) -> str | None:
             invocation.executable == "push"
             or "push" in arguments
             or (
-                invocation.executable == "pr"
-                and "merge" in arguments
+                "merge" in arguments
                 and any(
                     text == "--admin"
                     or (text.startswith("--admin=") and text.split("=", 1)[1].lower() in {"1", "t", "true"})
@@ -65,6 +64,7 @@ def dynamic_rule(command: str) -> str | None:
             )
             or "block-issue" in invocation.executable
             or "block-issue" in arguments
+            or {"--reason", "--unblock"}.issubset(arguments)
         ):
             return "Factory Run guard: cannot verify a dynamic command that may invoke a guarded action. Use a literal command."
     return None

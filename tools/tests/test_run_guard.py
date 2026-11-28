@@ -109,7 +109,11 @@ class RunGuardTests(unittest.TestCase):
             "env -S '${CMD} git push'",
             "$(which git) push",
             "$(which gh) pr merge 42 --admin",
+            "GH=gh; ${GH} pr merge 42 --admin",
+            'env -S "${GH} pr merge 42 --admin"',
             "$(which block-issue) o/one 6",
+            "BI=block-issue; ${BI} o/one 6 --reason quota --unblock fallback",
+            'env -S "${BI} o/one 6 --reason quota --unblock fallback"',
             "sudo -s 'echo hi; git push'",
         ):
             with self.subTest(command=command):
