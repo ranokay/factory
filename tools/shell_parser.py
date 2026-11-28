@@ -274,6 +274,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             continue
         if first == "nohup":
             remaining.pop(0)
+            if remaining and remaining[0].text.startswith("-") and remaining[0].text != "--":
+                dynamic = True
             while remaining and remaining[0].text.startswith("-"):
                 if remaining[0].text == "--":
                     remaining.pop(0)
@@ -378,10 +380,12 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                         "--help", "--version", "--split-string", "--unset", "--chdir",
                         "--ignore-environment", "--null", "--debug", "--list-signal-handling",
                         "--block-signal", "--default-signal", "--ignore-signal",
-                        "--env0-from", "--argv0", "--quoting-style",
+                        "--env0-from", "--argv0",
                     }
                     matches = [option for option in long_options if option.startswith(name)]
                     if len(matches) == 1:
+                        if matches[0] in {"--env0-from", "--argv0"} and not separator:
+                            return None
                         candidate = matches[0] + (f"={suffix}" if separator else "")
                 if candidate in {"--help", "--version"}:
                     return None
@@ -404,16 +408,14 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     remaining.pop(0)
                     remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                     continue
-                if candidate in {
-                    "-u", "--unset", "-C", "--chdir", "--env0-from", "--argv0", "--quoting-style",
-                }:
+                if candidate in {"-u", "--unset", "-C", "--chdir"}:
                     option = remaining.pop(0).text
                     if remaining:
                         value = remaining.pop(0).text
                         if option in {"-C", "--chdir"}:
                             directory = value
                     continue
-                if candidate.startswith(("--unset=", "--chdir=")):
+                if candidate.startswith(("--unset=", "--chdir=", "--env0-from=", "--argv0=")):
                     if candidate.startswith("--chdir="):
                         directory = candidate.split("=", 1)[1]
                     remaining.pop(0)
@@ -443,7 +445,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                                 return None
                             remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                             break
-                        if character in "uCP":
+                        if character in "uaCP":
                             remaining.pop(0)
                             if index == len(grouped) - 1:
                                 if remaining:

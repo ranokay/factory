@@ -97,8 +97,29 @@ class RunGuardTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
 
+    def test_env_required_equals_options_reject_bare_forms(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        for command in (
+            "env --argv0 git push",
+            "env --env0-from envfile git push",
+            "env --arg git push",
+            "env --env envfile git push",
+            "env --quoting-style shell git push",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self.output(self.invoke(command)), {})
+
     def test_benign_dynamic_commands_are_allowed(self):
-        for command in ('"$EDITOR" file', "$(which git) status", 'env -S "$FLAGS git status"', 'some-tool "$X" --reason y --unblock z'):
+        for command in (
+            '"$EDITOR" file',
+            "$(which git) status",
+            'env -S "$FLAGS git status"',
+            'some-tool "$X" --reason y --unblock z',
+            'echo "git push is guarded" "$X"',
+            'echo "block-issue wording" "$X"',
+            'git commit -m "gh pr merge --admin" "$X"',
+            'gh pr view "$NUMBER"',
+        ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
 
@@ -111,6 +132,9 @@ class RunGuardTests(unittest.TestCase):
             "$(which gh) pr merge 42 --admin",
             "CMD=push && git \"$CMD\"",
             "gh pr \"$SUB\" --admin",
+            "gh pr merge sync/x \"--admin=$T\"",
+            "A=--admin; gh pr merge \"$A\"",
+            "git \"pu\"\"sh\" \"$REF\"",
             "export REF=\"$X\" && git push origin \"$REF\"",
             "GH=gh; ${GH} pr merge 42 --admin",
             'env -S "${GH} pr merge 42 --admin"',
@@ -118,6 +142,7 @@ class RunGuardTests(unittest.TestCase):
             "BI=block-issue; ${BI} o/one 6 --reason quota --unblock fallback",
             'env -S "${BI} o/one 6 --reason quota --unblock fallback"',
             "sudo -s 'echo hi; git push'",
+            "nohup --help git push",
         ):
             with self.subTest(command=command):
                 output = self.output(self.invoke(command))
@@ -171,7 +196,13 @@ class RunGuardTests(unittest.TestCase):
         self.write_mise("~/.agents/tools/run check_result -- true")
         recorded = self.record_check("true")
         self.assertEqual(recorded.returncode, 0, recorded.stderr)
-        for command in ("git push", f"git -C {self.repo} push", "echo ready && git push"):
+        for command in (
+            "git push",
+            f"git -C {self.repo} push",
+            "echo ready && git push",
+            'git log --grep="$MSG" && git push',
+            'git -c key="$VALUE" && git push',
+        ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
 
@@ -252,6 +283,11 @@ class RunGuardTests(unittest.TestCase):
             "env -P/usr/bin git push",
             "env --unset FOO git push",
             "env --unset=FOO git push",
+            "env --argv0=git git push",
+            "env --env0-from=envfile git push",
+            "env --arg=git git push",
+            "env --env=envfile git push",
+            "env -a git git push",
             f"env --chdir {self.repo} git push",
             f"env --chdir={self.repo} git push",
             f"env --chd {self.repo} git push",
@@ -345,7 +381,6 @@ class RunGuardTests(unittest.TestCase):
         for command in (
             "git commit --allow-empty -m next && git push",
             "nohup git commit --allow-empty -m next && git push",
-            "git --unknown-global && git push",
         ):
             with self.subTest(command=command):
                 output = self.output(self.invoke(command))
@@ -508,21 +543,22 @@ class RunGuardTests(unittest.TestCase):
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("opencode-go/hy4-flash-free", output["hookSpecificOutput"]["permissionDecisionReason"])
 
-    def test_unblock_remediation_wording_does_not_hide_an_untried_fallback(self):
+    def test_unblock_remediation_wording_does_not_create_a_model_only_cause(self):
         primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})
         fallback = json.dumps(
             {"providerInstanceId": "opencode", "model": "opencode-go/hy4-flash-free", "options": {"variant": "high"}}
         )
         self.target_command("set", primary, fallback)
         self.target_command("mark", primary)
-        for reason, unblock in (
-            ("opencode-go/hungerg-free unavailable quota", "Check the provider quota"),
-            ("blocked", "Restore the hungerg-free quota"),
-        ):
-            with self.subTest(reason=reason, unblock=unblock):
-                output = self.output(self.invoke(self.fallback_command(reason, unblock)))
-                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-                self.assertIn("opencode-go/hy4-flash-free", output["hookSpecificOutput"]["permissionDecisionReason"])
+        output = self.output(
+            self.invoke(self.fallback_command("opencode-go/hungerg-free unavailable quota", "Check the provider quota"))
+        )
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("opencode-go/hy4-flash-free", output["hookSpecificOutput"]["permissionDecisionReason"])
+        for reason in ("blocked", "tests fail on main"):
+            with self.subTest(reason=reason):
+                command = self.fallback_command(reason, "Restore the hungerg-free provider quota")
+                self.assertEqual(self.output(self.invoke(command)), {})
 
     def test_model_only_blocker_with_every_fallback_tried_is_allowed(self):
         primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})

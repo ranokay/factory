@@ -12,7 +12,7 @@ from pathlib import Path
 
 from check_result import load_result
 from run_targets import load_targets, next_target
-from shell_parser import Invocation, invocations, shell_words
+from shell_parser import Invocation, Word, has_expansion, invocations
 
 UNAVAILABLE_TERMS = (
     "quota",
@@ -48,27 +48,64 @@ HEAD_CHANGING_COMMANDS = {"am", "checkout", "cherry-pick", "commit", "merge", "p
 
 def dynamic_rule(command: str) -> str | None:
     parsed = invocations(command)
-    if not any(invocation.dynamic for invocation in parsed):
-        return None
-    tokens = [word.text for word in shell_words(command)]
-    raw = " ".join(tokens)
-    block_issue_shape = any(
-        invocation.dynamic
-        and len(invocation.arguments) >= 2
-        and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", invocation.arguments[0].text) is not None
-        and invocation.arguments[1].text.isdigit()
-        and {"--reason", "--unblock"}.issubset(word.text for word in invocation.arguments)
-        for invocation in parsed
-    )
-    guarded = (
-        re.search(r"\bpush\b", raw) is not None
-        or re.search(r"--admin(?:=|\b)", command) is not None
-        or "block-issue" in command
-        or re.search(r"\bgh\s+pr\b", command) is not None
-        or block_issue_shape
-    )
-    if guarded:
-        return "Factory Run guard: cannot verify a dynamic command that may invoke a guarded action. Use a literal command."
+    for position, invocation in enumerate(parsed):
+        if not invocation.dynamic:
+            continue
+        arguments = [word.text for word in invocation.arguments]
+        executable = Path(invocation.executable).name
+        nested_words = [word.text for word in invocation.arguments if not word.data]
+        nested_guarded = any(word.operator for word in invocation.arguments) and (
+            ("git" in nested_words and "push" in nested_words)
+            or ("gh" in nested_words and "pr" in nested_words and "merge" in nested_words and "--admin" in nested_words)
+            or "block-issue" in nested_words
+        )
+        substitution_guarded = invocation.executable == "$" and any(
+            following.executable == "push"
+            or (
+                following.executable == "pr"
+                and "merge" in [word.text for word in following.arguments]
+                and "--admin" in [word.text for word in following.arguments]
+            )
+            or (
+                following.executable == "which"
+                and any(word.text == "block-issue" for word in following.arguments)
+            )
+            for following in parsed[position + 1 :]
+        )
+        block_issue_shape = (
+            len(arguments) >= 2
+            and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", arguments[0]) is not None
+            and arguments[1].isdigit()
+            and {"--reason", "--unblock"}.issubset(arguments)
+        )
+        admin_expansion = any(text == "--admin" or text.startswith("--admin=") for text in arguments)
+        subcommand_word = git_subcommand_word(invocation)
+        git_guarded = invocation.executable == "git" and subcommand_word is not None and (
+            subcommand_word.text == "push" or has_expansion(subcommand_word)
+        )
+        gh_guarded = False
+        if invocation.executable == "gh" and "pr" in arguments:
+            index = arguments.index("pr") + 1
+            if index < len(arguments):
+                subcommand = arguments[index]
+                gh_guarded = (
+                    subcommand == "merge"
+                    or has_expansion(invocation.arguments[index])
+                    or (subcommand == "merge" and any(has_expansion(word) for word in invocation.arguments[index + 1 :]))
+                )
+        dynamic_executable = "$" in invocation.executable or "`" in invocation.executable
+        if (
+            executable == "block-issue"
+            or "block-issue" in invocation.executable
+            or block_issue_shape
+            or admin_expansion
+            or git_guarded
+            or gh_guarded
+            or (dynamic_executable and "push" in arguments)
+            or nested_guarded
+            or substitution_guarded
+        ):
+            return "Factory Run guard: cannot verify a dynamic command that may invoke a guarded action. Use a literal command."
     return None
 
 
@@ -86,7 +123,7 @@ def resolve_directory(base: Path, target: str) -> Path:
     return path if path.is_absolute() else base / path
 
 
-def git_subcommand(invocation: Invocation) -> str | None:
+def git_subcommand_word(invocation: Invocation) -> Word | None:
     if invocation.executable != "git":
         return None
     index = 0
@@ -98,8 +135,13 @@ def git_subcommand(invocation: Invocation) -> str | None:
         if text.startswith("-"):
             index += 1
             continue
-        return text
+        return invocation.arguments[index]
     return None
+
+
+def git_subcommand(invocation: Invocation) -> str | None:
+    word = git_subcommand_word(invocation)
+    return word.text if word is not None else None
 
 
 def git_push(invocation: Invocation, cwd: Path) -> tuple[Path, list[str]] | None:
@@ -268,11 +310,10 @@ def push_rule(command: str, cwd: Path) -> str | None:
             continue
         if invocation.executable == "popd":
             return "Factory Run guard: cannot verify a push after popd. Run the push from an explicit repository directory."
-        subcommand = git_subcommand(invocation)
+        subcommand_word = git_subcommand_word(invocation)
+        subcommand = subcommand_word.text if subcommand_word is not None else None
         if subcommand in HEAD_CHANGING_COMMANDS or (
-            invocation.executable == "git"
-            and subcommand is None
-            and not any(argument.text in {"--help", "--version", "-h"} for argument in invocation.arguments)
+            invocation.executable == "git" and subcommand_word is not None and has_expansion(subcommand_word)
         ):
             head_may_change = True
         if subcommand != "push":
@@ -489,18 +530,21 @@ def contains_term(text: str, terms: tuple[str, ...]) -> bool:
     return any(re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE) for term in terms)
 
 
+def model_named(text: str, model: str) -> bool:
+    names = {model, model.rsplit("/", 1)[-1]}
+    return any(
+        re.search(rf"(?<![\w./-]){re.escape(name)}(?![\w./-])", text, re.IGNORECASE)
+        for name in names
+    )
+
+
 def fallback_reason(repository: str, issue: str, reason: str, unblock: str, findings: str) -> str | None:
     targets = load_targets(repository, issue)
     if not targets:
         return None
     cause = "\n".join((reason, findings))
-    text = "\n".join((cause, unblock))
-    named_target = any(
-        target["model"].lower() in text.lower()
-        or target["model"].rsplit("/", 1)[-1].lower() in text.lower()
-        for target in targets
-    )
-    if not named_target or not contains_term(text, UNAVAILABLE_TERMS) or contains_term(cause, OTHER_CAUSE_TERMS):
+    named_target = any(model_named(cause, target["model"]) for target in targets)
+    if not named_target or not contains_term(cause, UNAVAILABLE_TERMS) or contains_term(cause, OTHER_CAUSE_TERMS):
         return None
     fallback = next_target(repository, issue)
     if fallback is None:

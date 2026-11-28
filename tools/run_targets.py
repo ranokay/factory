@@ -124,11 +124,14 @@ def main(argv: list[str] | None = None) -> int:
         if targets is None:
             raise ValueError("targets file is missing or invalid")
         identity = target_identity(parse_target(arguments[3]))
+        matched = False
         for target in targets:
             if target_identity(target) == identity:
                 target["tried"] = True
-                write_targets(repository, issue, targets)
-                return 0
+                matched = True
+        if matched:
+            write_targets(repository, issue, targets)
+            return 0
         raise ValueError("target is not in the ordered list")
     except (OSError, ValueError) as error:
         print(f"run-targets: {error}", file=sys.stderr)
