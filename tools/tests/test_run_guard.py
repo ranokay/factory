@@ -77,6 +77,24 @@ class RunGuardTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
 
+    def test_wrapper_introspection_does_not_require_a_check_record(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        for command in (
+            "command -v git push",
+            "command -V git push",
+            "command -pv git push",
+            "command -p -v git push",
+            "sudo -l git push",
+            "sudo -v git push",
+            "sudo -nl git push",
+            "sudo -nv git push",
+            "env --help git push",
+            "env --version git push",
+            "env --list-signal-handling git push",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self.output(self.invoke(command)), {})
+
     def test_shorthand_check_task_scope_is_respected(self):
         (self.repo / "mise.toml").write_text('[tasks]\ncheck = "echo no recorder"\n')
         self.git("add", "mise.toml")
@@ -151,8 +169,36 @@ class RunGuardTests(unittest.TestCase):
             "command -- git push",
             "sudo -u root git push",
             "sudo -nu root git push",
+            "sudo -uroot git push",
+            "sudo -nuroot git push",
             "sudo --user root git push",
+            "sudo --user=root git push",
+            "sudo -n -- git push",
             "env -S 'git push'",
+            "env -S'git push'",
+            "env --split-string='git push'",
+            "env -vS'git push'",
+            "env -ivS'git push'",
+            "env -i git push",
+            "env -v git push",
+            "env -iv git push",
+            "env -0 git push",
+            "env -u FOO git push",
+            "env -uFOO git push",
+            "env -uS git push",
+            "env -iu FOO git push",
+            "env -iuFOO git push",
+            "env -C /tmp git push",
+            "env -C/tmp git push",
+            "env -P /usr/bin git push",
+            "env -P/usr/bin git push",
+            "env --unset FOO git push",
+            "env --unset=FOO git push",
+            "env --chdir /tmp git push",
+            "env --chdir=/tmp git push",
+            "env --block-signal=TERM git push",
+            "env -- git push",
+            "env FOO=bar git push",
         ):
             with self.subTest(command=command):
                 output = self.output(

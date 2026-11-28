@@ -166,15 +166,19 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             continue
         if first in {"command", "builtin"}:
             remaining.pop(0)
-            while remaining and remaining[0].text in {"-p", "-v", "-V", "--"}:
-                remaining.pop(0)
+            while remaining and remaining[0].text.startswith("-") and remaining[0].text != "-":
+                option = remaining.pop(0).text
+                if option == "--":
+                    break
+                if "v" in option[1:] or "V" in option[1:]:
+                    return None
             continue
         if first == "sudo":
             remaining.pop(0)
             value_options = {
                 "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
                 "-C", "--close-from", "-T", "--command-timeout", "-D", "--chdir",
-                "-R", "--chroot", "-t", "--type", "-U", "--other-user",
+                "-R", "--chroot", "-r", "--role", "-t", "--type", "-U", "--other-user",
             }
             short_value_options = {
                 option[1] for option in value_options if option.startswith("-") and not option.startswith("--")
@@ -184,6 +188,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 if option == "--":
                     remaining.pop(0)
                     break
+                if option in {"-l", "--list", "-v", "--validate", "-V", "--version"}:
+                    return None
                 if option in value_options:
                     remaining.pop(0)
                     if remaining:
@@ -194,12 +200,15 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     continue
                 if option.startswith("-") and len(option) > 1:
                     grouped = option[1:]
-                    takes_next = any(
-                        character in short_value_options and index == len(grouped) - 1
-                        for index, character in enumerate(grouped)
-                    )
-                    remaining.pop(0)
-                    if takes_next and remaining:
+                    for index, character in enumerate(grouped):
+                        if character in "lvV":
+                            return None
+                        if character in short_value_options:
+                            remaining.pop(0)
+                            if index == len(grouped) - 1 and remaining:
+                                remaining.pop(0)
+                            break
+                    else:
                         remaining.pop(0)
                     continue
                 break
@@ -211,21 +220,58 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 if re.match(r"[A-Za-z_][A-Za-z_0-9]*=", candidate):
                     remaining.pop(0)
                     continue
+                if candidate == "--":
+                    remaining.pop(0)
+                    break
+                if candidate in {"--help", "--version", "--list-signal-handling"}:
+                    return None
                 if candidate in {"-S", "--split-string"}:
                     remaining.pop(0)
-                    if remaining:
-                        split = shlex.split(remaining.pop(0).text)
-                        remaining = [Word(text, [False] * len(text), [False] * len(text)) for text in split] + remaining
+                    if not remaining:
+                        return None
+                    split = shlex.split(remaining.pop(0).text)
+                    remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
+                    continue
+                if candidate.startswith("--split-string="):
+                    split = shlex.split(candidate.split("=", 1)[1])
+                    remaining.pop(0)
+                    remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                     continue
                 if candidate in {"-u", "--unset", "-C", "--chdir"}:
                     remaining.pop(0)
                     if remaining:
                         remaining.pop(0)
                     continue
-                if candidate in {"-i", "--ignore-environment", "-", "-v", "--debug", "--"} or candidate.startswith(
-                    ("--unset=", "--chdir=", "-u", "-C")
-                ):
+                if candidate.startswith(("--unset=", "--chdir=")):
                     remaining.pop(0)
+                    continue
+                if candidate in {
+                    "-i", "-0", "-v", "-", "--ignore-environment", "--null", "--debug",
+                    "--block-signal", "--default-signal", "--ignore-signal",
+                } or candidate.startswith(("--block-signal=", "--default-signal=", "--ignore-signal=")):
+                    remaining.pop(0)
+                    continue
+                if candidate.startswith("-") and len(candidate) > 1:
+                    grouped = candidate[1:]
+                    for index, character in enumerate(grouped):
+                        if character == "S":
+                            remaining.pop(0)
+                            if index == len(grouped) - 1:
+                                if not remaining:
+                                    return None
+                                value = remaining.pop(0).text
+                            else:
+                                value = grouped[index + 1 :]
+                            split = shlex.split(value)
+                            remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
+                            break
+                        if character in "uCP":
+                            remaining.pop(0)
+                            if index == len(grouped) - 1 and remaining:
+                                remaining.pop(0)
+                            break
+                    else:
+                        remaining.pop(0)
                     continue
                 break
             continue
