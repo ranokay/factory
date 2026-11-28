@@ -68,6 +68,9 @@ class RunGuardTests(RunGuardFixture):
             "$(which git) push",
             "$(which gh) pr merge 42 --admin",
             "CMD=push && git \"$CMD\"",
+            "CMD='git push'; $CMD",
+            "FLAGS='git push'; env -S \"$FLAGS\"",
+            "CMD='gh pr merge 42 --admin'; $CMD",
             "gh pr \"$SUB\" --admin",
             "gh pr merge sync/x \"--admin=$T\"",
             "A=--admin; gh pr merge \"$A\"",
@@ -346,6 +349,9 @@ class RunGuardTests(RunGuardFixture):
 
     def test_admin_merge_is_denied_for_a_feature_branch(self):
         self.gh_stub(head="feature/example")
+        selectorless = self.output(self.invoke("gh pr merge --admin"))
+        self.assertEqual(selectorless["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("sync/upstream-", selectorless["hookSpecificOutput"]["permissionDecisionReason"])
         for flag in ("--admin", "--admin=true", "--admin=1", "--admin=t", "--admin=TRUE"):
             with self.subTest(flag=flag):
                 output = self.output(self.invoke(f"gh pr merge 42 {flag}"))
@@ -382,9 +388,28 @@ class RunGuardTests(RunGuardFixture):
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
                 self.assertIn(message, output["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_later_admin_merge_is_checked(self):
+        self.gh_stub()
+        command = "gh pr merge 42 --admin; GH_REPO=victim/repo gh pr merge 43 --admin"
+        output = self.output(self.invoke(command))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("GH_REPO", output["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_malformed_admin_topics_block(self):
+        self.gh_stub(topics_json='{"repositoryTopics":"invalid"}')
+        output = self.output(self.invoke("gh pr merge 42 --admin"))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("repositoryTopics", output["hookSpecificOutput"]["permissionDecisionReason"])
+
     def test_plain_merge_does_not_query_github(self):
         self.gh_stub(head="feature/example", topics="")
-        self.assertEqual(self.output(self.invoke("gh pr merge 42 --merge")), {})
+        for command in (
+            "gh pr merge 42 --merge",
+            'gh pr merge 42 --merge --body "$BODY"',
+            'gh pr merge 42 --merge --body="$BODY"',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self.output(self.invoke(command)), {})
         self.assertFalse((self.root / "gh.log").exists())
 
 

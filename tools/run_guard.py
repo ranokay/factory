@@ -12,7 +12,7 @@ from run_guard_admin import admin_rule
 from run_guard_fallback import fallback_reason, fallback_rule
 from run_guard_push import git_subcommand_word, push_rule
 from run_guard_stop import stop_rule
-from shell_parser import has_expansion, invocations
+from shell_parser import Invocation, has_expansion, invocations
 
 
 def gh_pr_index(arguments: list[str]) -> int | None:
@@ -30,6 +30,56 @@ def gh_pr_index(arguments: list[str]) -> int | None:
             continue
         return index if text == "pr" else None
     return None
+
+
+def assigned_command_guarded(value: str) -> bool:
+    for invocation in invocations(value):
+        if invocation.executable == "block-issue":
+            return True
+        if invocation.executable == "git":
+            word = git_subcommand_word(invocation)
+            if word is not None and word.text == "push":
+                return True
+        arguments = [word.text for word in invocation.arguments]
+        if (
+            invocation.executable == "gh"
+            and "pr" in arguments
+            and "merge" in arguments
+            and any(text == "--admin" or text.startswith("--admin=") for text in arguments)
+        ):
+            return True
+    return False
+
+
+def gh_admin_risk(invocation: Invocation, pr_index: int | None) -> bool:
+    arguments = [word.text for word in invocation.arguments]
+    if pr_index is None:
+        return False
+    if any(text == "--admin" or text.startswith("--admin=") for text in arguments):
+        return True
+    index = pr_index + 1
+    if index >= len(arguments):
+        return False
+    if has_expansion(invocation.arguments[index]):
+        return True
+    if arguments[index] != "merge":
+        return False
+    value_options = {
+        "-A", "--author-email", "-b", "--body", "-F", "--body-file",
+        "-R", "--repo", "-t", "--subject", "--match-head-commit",
+    }
+    index += 1
+    while index < len(arguments):
+        text = arguments[index]
+        if text in value_options:
+            index += 2
+            continue
+        if has_expansion(invocation.arguments[index]) and not any(
+            text.startswith(option + "=") for option in value_options
+        ):
+            return True
+        index += 1
+    return False
 
 
 def dynamic_rule(command: str) -> str | None:
@@ -69,9 +119,14 @@ def dynamic_rule(command: str) -> str | None:
         )
         dynamic_executable = "$" in invocation.executable or "`" in invocation.executable
         pr_index = gh_pr_index(arguments) if invocation.executable == "gh" else None
-        admin_expansion = any(text == "--admin" or text.startswith("--admin=") for text in arguments) and (
-            pr_index is not None
-            or (dynamic_executable and "pr" in arguments and "merge" in arguments)
+        explicit_admin = any(text == "--admin" or text.startswith("--admin=") for text in arguments)
+        admin_expansion = gh_admin_risk(invocation, pr_index) if invocation.executable == "gh" else (
+            explicit_admin and dynamic_executable and "pr" in arguments and "merge" in arguments
+        )
+        assigned_guarded = dynamic_executable and any(
+            assigned_command_guarded(value)
+            for previous in parsed[:position]
+            for _, value in previous.environment
         )
         subcommand_word = git_subcommand_word(invocation)
         git_guarded = invocation.executable == "git" and subcommand_word is not None and (
@@ -81,12 +136,7 @@ def dynamic_rule(command: str) -> str | None:
         if pr_index is not None:
             index = pr_index + 1
             if index < len(arguments):
-                subcommand = arguments[index]
-                gh_guarded = (
-                    subcommand == "merge"
-                    or has_expansion(invocation.arguments[index])
-                    or admin_expansion
-                )
+                gh_guarded = has_expansion(invocation.arguments[index]) or admin_expansion
         if (
             executable == "block-issue"
             or block_issue_shape
@@ -94,6 +144,7 @@ def dynamic_rule(command: str) -> str | None:
             or git_guarded
             or gh_guarded
             or (dynamic_executable and "push" in arguments)
+            or assigned_guarded
             or nested_guarded
             or substitution_guarded
         ):

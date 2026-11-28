@@ -5,7 +5,6 @@
 exclude_paths:
   - "skills/periphery-scan/**"
   - "skills/periphery-scan-setup/**"
-  # CLAUDE.md is a tracked symlink to AGENTS.md; scanning both reports the same instructions twice.
   - "CLAUDE.md"
 # The asset driver is one self-contained file so the hk Gate can inline it and
 # a repository that amends the Profile by URL needs no scripts checkout. It is

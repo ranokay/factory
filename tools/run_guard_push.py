@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import subprocess  # nosec B404  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git with argument lists
 import tomllib
 from pathlib import Path
 
 from check_result import load_result
-from run_guard_paths import resolve_directory
+from run_guard_paths import directory_target, resolve_directory
 from shell_parser import Invocation, Word, has_expansion, invocations
 
 HEAD_CHANGING_COMMANDS = {"am", "checkout", "cherry-pick", "commit", "merge", "pull", "rebase", "reset", "revert", "switch", "update-ref"}
@@ -37,11 +37,6 @@ def git_subcommand_word(invocation: Invocation) -> Word | None:
             continue
         return invocation.arguments[index]
     return None
-
-
-def git_subcommand(invocation: Invocation) -> str | None:
-    word = git_subcommand_word(invocation)
-    return word.text if word is not None else None
 
 
 def git_push_options(invocation: Invocation, cwd: Path) -> tuple[Path, int] | None:
@@ -194,27 +189,12 @@ def push_record_reason(directory: Path, source: str = "HEAD") -> str | None:
 def directory_change(invocation: Invocation, possible_cwds: set[Path]) -> tuple[set[Path], str | None]:
     if invocation.executable not in {"cd", "pushd"}:
         return possible_cwds, None
-    if not invocation.arguments:
+    target, error = directory_target(invocation.arguments)
+    if error == "bare":
         return possible_cwds, "Factory Run guard: cannot verify a push after a bare directory change. Use an explicit repository directory."
-    index = 0
-    while index < len(invocation.arguments):
-        option = invocation.arguments[index].text
-        if option == "--":
-            index += 1
-            break
-        if option.startswith("-") and len(option) > 1:
-            index += 1
-            continue
-        break
-    if index >= len(invocation.arguments) or invocation.arguments[index].text == "-":
+    if error == "previous":
         return possible_cwds, "Factory Run guard: cannot verify a push after a bare or previous-directory change. Use an explicit repository directory."
-    target = invocation.arguments[index].text
     return possible_cwds | {resolve_directory(directory, target) for directory in possible_cwds}, None
-
-
-def head_changes(invocation: Invocation) -> bool:
-    word = git_subcommand_word(invocation)
-    return word is not None and (word.text in HEAD_CHANGING_COMMANDS or has_expansion(word))
 
 
 def verify_push(invocation: Invocation, directory: Path, head_may_change: bool) -> str | None:
@@ -245,8 +225,12 @@ def push_rule(command: str, cwd: Path) -> str | None:
             return error
         if invocation.executable in {"cd", "pushd"}:
             continue
-        head_may_change = head_may_change or head_changes(invocation)
-        if git_subcommand(invocation) != "push":
+        subcommand_word = git_subcommand_word(invocation)
+        if subcommand_word is not None and (
+            subcommand_word.text in HEAD_CHANGING_COMMANDS or has_expansion(subcommand_word)
+        ):
+            head_may_change = True
+        if subcommand_word is None or subcommand_word.text != "push":
             continue
         base_cwds = (
             {resolve_directory(directory, invocation.directory) for directory in possible_cwds}
