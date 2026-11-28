@@ -46,8 +46,27 @@ OTHER_CAUSE_TERMS = (
 
 
 def dynamic_rule(command: str) -> str | None:
-    if any(invocation.dynamic for invocation in invocations(command)):
-        return "Factory Run guard: cannot verify a dynamic command executable. Use a literal command."
+    parsed = invocations(command)
+    if not any(invocation.dynamic for invocation in parsed):
+        return None
+    for invocation in parsed:
+        arguments = [word.text for word in invocation.arguments]
+        if (
+            invocation.executable == "push"
+            or "push" in arguments
+            or (
+                invocation.executable == "pr"
+                and "merge" in arguments
+                and any(
+                    text == "--admin"
+                    or (text.startswith("--admin=") and text.split("=", 1)[1].lower() in {"1", "t", "true"})
+                    for text in arguments
+                )
+            )
+            or "block-issue" in invocation.executable
+            or "block-issue" in arguments
+        ):
+            return "Factory Run guard: cannot verify a dynamic command that may invoke a guarded action. Use a literal command."
     return None
 
 

@@ -376,16 +376,19 @@ test("real shared guard blocks a git -C push without a check record", async () =
   })
 })
 
-test("real shared guard blocks dynamic command executables", async () => {
+test("real shared guard scopes dynamic commands to guarded actions", async () => {
   await withRealGuard(async ({ repo }) => {
     writeFileSync(join(repo, "mise.toml"), '[tasks.check]\nrun = "~/.agents/tools/run check_result -- true"\n')
     fixtureGit(repo, "add", "mise.toml")
     fixtureGit(repo, "commit", "-qm", "check task")
     const plugin = await FactoryRunGuardPlugin({ directory: repo })
-    for (const command of ["$CMD", "env -S $'git push'", 'env -S "$CMD"', "sudo -s 'git push'"]) {
+    for (const command of ['"$EDITOR" file', 'env -S "$FLAGS git status"']) {
+      await plugin["tool.execute.before"]({ tool: "bash" }, { args: { command } })
+    }
+    for (const command of ["env -S $'git push'", "env -S '${CMD} git push'", "$(which git) push", "sudo -s 'git push'"]) {
       await assert.rejects(
         () => plugin["tool.execute.before"]({ tool: "bash" }, { args: { command } }),
-        /dynamic command executable|mise run check/,
+        /dynamic command|mise run check/,
       )
     }
   })

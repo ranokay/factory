@@ -97,19 +97,25 @@ class RunGuardTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
 
-    def test_dynamic_command_executables_are_denied(self):
+    def test_benign_dynamic_commands_are_allowed(self):
+        for command in ('"$EDITOR" file', "$(which git) status", 'env -S "$FLAGS git status"'):
+            with self.subTest(command=command):
+                self.assertEqual(self.output(self.invoke(command)), {})
+
+    def test_dynamic_guarded_actions_are_denied(self):
         for command in (
-            "$CMD",
             "env -S $'git push'",
-            'env -S "$CMD"',
-            "sudo $CMD",
-            "sudo -s '$CMD'",
+            'env -S "${CMD} git push"',
+            "env -S '${CMD} git push'",
+            "$(which git) push",
+            "$(which gh) pr merge 42 --admin",
+            "$(which block-issue) o/one 6",
             "sudo -s 'echo hi; git push'",
         ):
             with self.subTest(command=command):
                 output = self.output(self.invoke(command))
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-                self.assertIn("dynamic command executable", output["hookSpecificOutput"]["permissionDecisionReason"])
+                self.assertIn("dynamic command", output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_shorthand_check_task_scope_is_respected(self):
         (self.repo / "mise.toml").write_text('[tasks]\ncheck = "echo no recorder"\n')

@@ -158,6 +158,30 @@ def invocations(command: str) -> list[Invocation]:
     return result
 
 
+def has_env_expansion(value: str) -> bool:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if quote == "'":
+            if char == "'":
+                quote = None
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote is not None:
+            if char == quote:
+                quote = None
+        elif char in "'\"":
+            quote = char
+        elif char == "$" and value[index + 1 : index + 2] == "{":
+            return True
+    return False
+
+
 def truncate_env_string(value: str) -> str:
     quote: str | None = None
     escaped = False
@@ -293,14 +317,14 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     if not remaining:
                         return None
                     value_word = remaining.pop(0)
-                    dynamic = dynamic or has_expansion(value_word)
+                    dynamic = dynamic or has_expansion(value_word) or has_env_expansion(value_word.text)
                     split = split_env_string(value_word.text)
                     if split is None:
                         return None
                     remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                     continue
                 if candidate.startswith("--split-string="):
-                    dynamic = dynamic or has_expansion(remaining[0])
+                    dynamic = dynamic or has_expansion(remaining[0]) or has_env_expansion(candidate)
                     split = split_env_string(candidate.split("=", 1)[1])
                     if split is None:
                         return None
@@ -322,7 +346,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     remaining.pop(0)
                     continue
                 if candidate.startswith("-") and len(candidate) > 1:
-                    dynamic = dynamic or has_expansion(remaining[0])
+                    dynamic = dynamic or has_expansion(remaining[0]) or has_env_expansion(candidate)
                     grouped = candidate[1:]
                     for index, character in enumerate(grouped):
                         if character == "S":
@@ -331,7 +355,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                                 if not remaining:
                                     return None
                                 value_word = remaining.pop(0)
-                                dynamic = dynamic or has_expansion(value_word)
+                                dynamic = dynamic or has_expansion(value_word) or has_env_expansion(value_word.text)
                                 value = value_word.text
                             else:
                                 value = grouped[index + 1 :]
