@@ -236,8 +236,9 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
     while remaining:
         first = remaining[0].text
         if re.match(r"[A-Za-z_][A-Za-z_0-9]*\+?=", first):
-            name, value = first.split("+=", 1) if "+=" in first else first.split("=", 1)
-            environment.append((name, value))
+            assignment = re.match(r"([A-Za-z_][A-Za-z_0-9]*)(\+=|=)", first)
+            assert assignment is not None
+            environment.append((assignment.group(1), first[assignment.end() :]))
             remaining.pop(0)
             continue
         if first in {"command", "builtin"}:
@@ -355,8 +356,9 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             while remaining:
                 candidate = remaining[0].text
                 if re.match(r"[A-Za-z_][A-Za-z_0-9]*\+?=", candidate):
-                    name, value = candidate.split("+=", 1) if "+=" in candidate else candidate.split("=", 1)
-                    environment.append((name, value))
+                    assignment = re.match(r"([A-Za-z_][A-Za-z_0-9]*)(\+=|=)", candidate)
+                    assert assignment is not None
+                    environment.append((assignment.group(1), candidate[assignment.end() :]))
                     remaining.pop(0)
                     continue
                 if candidate == "--":
