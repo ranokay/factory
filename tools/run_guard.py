@@ -12,7 +12,7 @@ from run_guard_admin import GH_MERGE_VALUE_OPTIONS, admin_rule
 from run_guard_fallback import fallback_reason, fallback_rule
 from run_guard_push import git_subcommand_word, push_rule
 from run_guard_stop import stop_rule
-from shell_parser import Invocation, Word, has_expansion, invocations
+from shell_parser import Invocation, Word, has_expansion, invocations, shell_words
 
 
 def gh_pr_index(arguments: list[str]) -> int | None:
@@ -147,6 +147,23 @@ def gh_admin_risk(invocation: Invocation, pr_index: int | None) -> bool:
     return explicit_admin and selector_dynamic
 
 
+def nested_shell_commands(command: str) -> list[str]:
+    words = shell_words(command)
+    commands: list[str] = []
+    for index, word in enumerate(words):
+        if Path(word.text).name not in {"sh", "bash", "zsh", "dash", "ksh"}:
+            continue
+        for option_index in range(index + 1, len(words)):
+            option = words[option_index].text
+            if not option.startswith("-") or option == "-":
+                break
+            if not option.startswith("--") and "c" in option[1:]:
+                if option_index + 1 < len(words):
+                    commands.append(words[option_index + 1].text)
+                break
+    return commands
+
+
 def value_may_guard(value: str) -> bool:
     return command_value_guarded(value) or re.search(r"\b(?:push|pr\s+merge|--admin|block-issue)\b", value) is not None
 
@@ -160,6 +177,13 @@ def dynamic_rule(command: str) -> str | None:
     ]
     if any(invocation.executable == "eval" for invocation in parsed):
         return "Factory Run guard: cannot verify a dynamic command run through eval. Use a literal command."
+    nested_guarded = any(
+        command_value_guarded(nested)
+        or ("$" in nested and any(command_value_guarded(value) for value in environment_values))
+        for nested in nested_shell_commands(command)
+    )
+    if nested_guarded:
+        return "Factory Run guard: cannot verify a dynamic command inside a nested shell. Use a literal command."
     command_expansion_guarded = any(
         command_value_guarded(item) for item in command_substitutions(command)
     )

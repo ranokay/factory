@@ -7,6 +7,8 @@ import re
 import subprocess  # nosec B404  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local gh with an argument list
 from pathlib import Path
 
+CHECK_BUCKETS = {"pass", "fail", "pending", "skipping", "cancel"}
+
 
 def gh(arguments: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     try:
@@ -52,7 +54,7 @@ def current_pr(cwd: Path, repeat: bool) -> tuple[int | None, tuple[str, str] | N
 
 def required_checks(cwd: Path, number: int, repeat: bool) -> tuple[list[dict] | None, tuple[str, str] | None]:
     checks = gh(["pr", "checks", str(number), "--required", "--json", "name,state,link,bucket"], cwd)
-    if checks.returncode not in {0, 8}:
+    if checks.returncode not in {0, 1, 8}:
         diagnostic = checks.stderr.strip() or checks.stdout.strip()
         return None, unavailable(f"Factory Run guard: cannot read required checks: {diagnostic}", repeat)
     try:
@@ -64,7 +66,7 @@ def required_checks(cwd: Path, number: int, repeat: bool) -> tuple[list[dict] | 
     if any(
         not isinstance(check, dict)
         or not isinstance(check.get("name"), str)
-        or not isinstance(check.get("bucket"), str)
+        or check.get("bucket") not in CHECK_BUCKETS
         or (check.get("link") is not None and not isinstance(check.get("link"), str))
         for check in rollup
     ):

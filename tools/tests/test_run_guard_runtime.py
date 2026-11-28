@@ -53,12 +53,23 @@ class RunGuardRuntimeTests(RunGuardFixture):
                 self.assertEqual(output["decision"], "block")
                 self.assertIn("positive integer", output["reason"])
 
+    def test_terminal_failed_checks_allow_stop(self):
+        self.gh_stub()
+        self.env["GH_CHECKS"] = json.dumps([{"name": "Tests", "state": "FAILURE", "bucket": "fail", "link": None}])
+        self.env["GH_CHECKS_CODE"] = "1"
+        self.assertEqual(self.output(self.invoke_mode("stop", {"cwd": str(self.repo)})), {})
+
     def test_malformed_required_checks_block(self):
         self.gh_stub()
-        self.env["GH_CHECKS"] = "[null]"
-        output = self.output(self.invoke_mode("stop", {"cwd": str(self.repo)}))
-        self.assertEqual(output["decision"], "block")
-        self.assertIn("malformed", output["reason"])
+        for rollup in (
+            "[null]",
+            '[{"name":"Lint","bucket":"mystery","link":null}]',
+        ):
+            with self.subTest(rollup=rollup):
+                self.env["GH_CHECKS"] = rollup
+                output = self.output(self.invoke_mode("stop", {"cwd": str(self.repo)}))
+                self.assertEqual(output["decision"], "block")
+                self.assertIn("malformed", output["reason"])
 
     def test_pending_checks_keep_blocking_on_a_repeat_stop(self):
         self.gh_stub()

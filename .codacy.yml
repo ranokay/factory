@@ -6,10 +6,6 @@ exclude_paths:
   - "skills/periphery-scan/**"
   - "skills/periphery-scan-setup/**"
   - "CLAUDE.md"
-# The asset driver is one self-contained file so the hk Gate can inline it and
-# a repository that amends the Profile by URL needs no scripts checkout. It is
-# deliberately long and branchy. ESLint still scans it; opengrep and lizard only
-# report false positives for a CLI that reads repository-controlled paths.
 engines:
   opengrep:
     exclude_paths:

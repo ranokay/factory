@@ -9,7 +9,15 @@ from run_guard_fixture import RunGuardFixture
 class RunGuardTests(RunGuardFixture):
     def test_push_outside_a_recorder_repo_is_allowed(self):
         self.write_mise("echo no recorder")
-        for command in ("git push", f"git -C {self.repo} push", "echo ready && git push"):
+        for command in (
+            "git push",
+            f"git -C {self.repo} push",
+            "echo ready && git push",
+            "cd; pwd",
+            "popd; echo ok",
+            "cd /tmp | pwd",
+            "(cd /tmp); echo ok",
+        ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
 
@@ -79,6 +87,8 @@ class RunGuardTests(RunGuardFixture):
             "CMD='git push'; eval '$CMD'",
             "CMD='pr merge 42 --admin'; gh $CMD",
             "eval 'cd /other'; git push",
+            'sh -c "echo ok && /usr/bin/git push"',
+            'sh -c "echo ok && /usr/bin/gh -R ranokay/factory pr merge 42 --admin"',
             "CMD='gh pr merge 42 --admin'; $CMD",
             "gh pr \"$SUB\" --admin",
             "gh pr merge sync/x \"--admin=$T\"",
