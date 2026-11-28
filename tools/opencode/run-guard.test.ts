@@ -325,7 +325,7 @@ test("V2 setup registers the tool hook and consumes idle session.status", async 
 })
 
 test("V2 busy session.status does not re-prompt", async () => {
-  await withGuard("printf '%s\\n' '{\"block\":false}'\n", async () => {
+  await withGuard("printf '%s\\n' '{\"block\":false}'\n", async (_hooks, home) => {
     let resolveConsumed: (() => void) | undefined
     const consumed = new Promise<void>((resolve) => {
       resolveConsumed = resolve
@@ -355,6 +355,7 @@ test("V2 busy session.status does not re-prompt", async () => {
     })
     await consumed
     assert.equal(prompts, 0)
+    assert.equal(existsSync(join(home, "guard-input.json")), false)
   })
 })
 
