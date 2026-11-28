@@ -160,14 +160,16 @@ def git_push(invocation: Invocation, cwd: Path) -> tuple[Path, list[str]] | None
             continue
         refspec = text[1:] if text.startswith("+") else text
         source = refspec.split(":", 1)[0]
-        if not source or delete_option:
+        if not source:
             deleted_refs += 1
         else:
             sources.append(source)
         index += 1
-    if delete_option and not deleted_refs:
-        raise ValueError("--delete requires an explicit ref")
-    if sources and (deleted_refs or delete_option):
+    if delete_option:
+        if not sources and not deleted_refs:
+            raise ValueError("--delete requires an explicit ref")
+        return directory, []
+    if sources and deleted_refs:
         raise ValueError("mixed deletion and update pushes are unsupported")
     if deleted_refs:
         return directory, []
@@ -372,7 +374,9 @@ def admin_rule(command: str, cwd: Path) -> str | None:
     directory_changed = False
     exported_repo = False
     for invocation in invocations(command):
-        if invocation.executable == "export" and any(
+        if any(name == "GH_REPO" for name, _ in invocation.environment):
+            exported_repo = True
+        if invocation.executable in {"export", "declare", "typeset", "readonly"} and any(
             argument.text == "GH_REPO" or argument.text.startswith("GH_REPO=")
             for argument in invocation.arguments
         ):

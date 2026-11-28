@@ -321,6 +321,8 @@ class RunGuardTests(unittest.TestCase):
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("unchecked", output["hookSpecificOutput"]["permissionDecisionReason"])
         self.assertEqual(self.output(self.invoke("git push origin HEAD")), {})
+        self.assertEqual(self.output(self.invoke("git push origin x --delete")), {})
+        self.assertEqual(self.output(self.invoke("git push --delete origin x")), {})
 
     def test_head_changing_command_before_push_requires_a_fresh_check(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
@@ -401,6 +403,10 @@ class RunGuardTests(unittest.TestCase):
             ("GH_REPO=victim/repo gh pr merge 42 --admin", "GH_REPO"),
             ("env GH_REPO=victim/repo gh pr merge 42 --admin", "GH_REPO"),
             ("export GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
+            ("declare -x GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
+            ("typeset -x GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
+            ("set -a; GH_REPO=victim/repo; set +a; gh pr merge 42 --admin", "GH_REPO"),
+            ("GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
             ("cd /tmp && gh pr merge 42 --admin", "directory change"),
             ("cd; gh pr merge 42 --admin", "bare"),
             ("cd -; gh pr merge 42 --admin", "previous-directory"),

@@ -443,6 +443,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             continue
         break
     if not remaining:
+        if environment:
+            return Invocation("", (), False, tuple(environment), directory)
         return None
     return Invocation(
         Path(remaining[0].text).name,
