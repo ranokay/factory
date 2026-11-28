@@ -391,9 +391,11 @@ class RunGuardTests(RunGuardFixture):
 
     def test_admin_merge_is_denied_for_a_feature_branch(self):
         self.gh_stub(head="feature/example")
-        selectorless = self.output(self.invoke("gh pr merge --admin"))
-        self.assertEqual(selectorless["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("sync/upstream-", selectorless["hookSpecificOutput"]["permissionDecisionReason"])
+        for command in ("gh pr merge --admin", "gh pr -R o/one merge 42 --admin"):
+            with self.subTest(command=command):
+                output = self.output(self.invoke(command))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("sync/upstream-", output["hookSpecificOutput"]["permissionDecisionReason"])
         for flag in ("--admin", "--admin=true", "--admin=1", "--admin=t", "--admin=TRUE"):
             with self.subTest(flag=flag):
                 output = self.output(self.invoke(f"gh pr merge 42 {flag}"))
@@ -424,6 +426,7 @@ class RunGuardTests(RunGuardFixture):
             ("(cd /tmp); gh pr merge 42 --admin", "subshell"),
             ("cd /tmp & gh pr merge 42 --admin", "background or pipeline"),
             ("cd /tmp | gh pr merge 42 --admin", "background or pipeline"),
+            ("cd /ineligible && false && cd /eligible; gh pr merge 42 --admin", "multiple directory changes"),
             ("cd; gh pr merge 42 --admin", "bare"),
             ("cd -; gh pr merge 42 --admin", "previous-directory"),
         ):
@@ -459,6 +462,7 @@ class RunGuardTests(RunGuardFixture):
             'gh pr merge 42 --merge --body "$BODY"',
             'gh pr merge 42 --merge --body="$BODY"',
             'gh pr merge "$PR" --merge',
+            "gh pr merge $PR --merge",
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})

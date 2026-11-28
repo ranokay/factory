@@ -172,8 +172,10 @@ def verify_admin(invocation: Invocation, selector: str | None, repository: str |
 
 
 def admin_rule(command: str, cwd: Path) -> str | None:
-    if re.search(r"\bgh\b.*\bpr\s+merge\b.*--admin", command, re.DOTALL) is None:
+    if not any(gh_merge(invocation) is not None for invocation in invocations(command)):
         return None
+    if len(re.findall(r"\b(?:cd|pushd)\b", command)) > 1:
+        return "Factory Run guard: cannot verify an admin merge after multiple directory changes. Run the merge from an explicit checkout."
     if re.search(r"\b(?:cd|pushd)\b", command) and re.search(r"(?<!&)&(?!&)|\|", command):
         return "Factory Run guard: cannot verify an admin merge after a background or pipeline directory change. Run the merge from an explicit checkout."
     if re.search(r"\([^)]*\b(?:cd|pushd)\b", command):

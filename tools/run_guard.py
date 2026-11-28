@@ -137,8 +137,6 @@ def gh_admin_risk(invocation: Invocation, pr_index: int | None) -> bool:
             selector_seen = True
             if has_expansion(invocation.arguments[index]):
                 selector_dynamic = True
-                if has_unquoted_expansion(invocation.arguments[index]):
-                    return True
             index += 1
             continue
         if has_expansion(invocation.arguments[index]):

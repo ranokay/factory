@@ -19,7 +19,8 @@ def main() -> int:
     for line in text.splitlines():
         if not line.lower().startswith("unblock:"):
             continue
-        if normalize(line.split(":", 1)[1]) == "resume after checks finish":
+        value = normalize(line.split(":", 1)[1])
+        if value.startswith("resume") and "check" in value and "finish" in value:
             print("stopped-notice: a pending-check unblock step cannot defer the wait to a later resume", file=sys.stderr)
             return 2
     return 0

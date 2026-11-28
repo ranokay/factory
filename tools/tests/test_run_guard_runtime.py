@@ -64,6 +64,8 @@ class RunGuardRuntimeTests(RunGuardFixture):
         for rollup in (
             "[null]",
             '[{"name":"Lint","bucket":"mystery","link":null}]',
+            '[{"name":"Lint","bucket":[],"link":null}]',
+            '[{"name":"Lint","bucket":{},"link":null}]',
         ):
             with self.subTest(rollup=rollup):
                 self.env["GH_CHECKS"] = rollup

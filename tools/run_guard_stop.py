@@ -66,7 +66,8 @@ def required_checks(cwd: Path, number: int, repeat: bool) -> tuple[list[dict] | 
     if any(
         not isinstance(check, dict)
         or not isinstance(check.get("name"), str)
-        or check.get("bucket") not in CHECK_BUCKETS
+        or not isinstance(check.get("bucket"), str)
+        or check["bucket"] not in CHECK_BUCKETS
         or (check.get("link") is not None and not isinstance(check.get("link"), str))
         for check in rollup
     ):
