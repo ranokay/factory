@@ -84,6 +84,8 @@ case_waiting() {
 		expect_file "$messages" "$line"
 	done
 	printf '%s\n' 'supervise · notice · task · stopped thread · human decision' 'unblock: ranokay approves' | "$stopped_notice"
+	printf '%s\n' 'supervise · notice · task · stopped thread · CI pending is not the blocker; credentials are missing' | "$stopped_notice"
+	printf '%s\n' 'supervise · notice · task · stopped thread · no checks pending' | "$stopped_notice"
 	if printf '%s\n' 'supervise · notice · task · stopped thread · checks pending' | "$stopped_notice"; then
 		printf 'stopped-notice accepted pending checks\n' >&2
 		return 1
@@ -118,6 +120,14 @@ case_waiting() {
 	fi
 	if printf '%s\n' 'supervise · notice · task · stopped thread · checks still pending' | "$stopped_notice"; then
 		printf 'stopped-notice accepted still-pending checks\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · workflow pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a pending workflow\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after the pipeline finishes' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a deferred pipeline wait\n' >&2
 		return 1
 	fi
 	printf 'ok: PR forks wait for checks and stopped notices reject deferred waits\n'

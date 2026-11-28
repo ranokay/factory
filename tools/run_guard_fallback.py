@@ -22,14 +22,15 @@ UNAVAILABLE_TERMS = (
     "usage limit",
     "usage_limit",
 )
-MODEL_ROLE_TERMS = (
-    "agent",
+NON_FALLBACK_ROLE_TERMS = (
     "dispatcher",
+    "orchestrator",
+    "supervisor",
+)
+MODEL_ROLE_TERMS = (
     "model",
     "models",
-    "orchestrator",
     "reviewer",
-    "supervisor",
     "worker",
 )
 OTHER_CAUSE_TERMS = (
@@ -96,7 +97,11 @@ def fallback_reason(repository: str, issue: str, reason: str, unblock: str, find
         return None
     cause = "\n".join((reason, findings))
     named_target = any(model_named(cause, target["model"]) for target in targets)
-    role_unavailability = contains_term(cause, MODEL_ROLE_TERMS) and contains_term(cause, UNAVAILABLE_TERMS)
+    role_unavailability = (
+        not contains_term(cause, NON_FALLBACK_ROLE_TERMS)
+        and contains_term(cause, MODEL_ROLE_TERMS)
+        and contains_term(cause, UNAVAILABLE_TERMS)
+    )
     unavailable_cause = (named_target and contains_term(cause, UNAVAILABLE_TERMS)) or role_unavailability
     if not unavailable_cause or contains_term(cause, OTHER_CAUSE_TERMS):
         return None

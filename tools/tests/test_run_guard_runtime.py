@@ -100,6 +100,22 @@ class RunGuardRuntimeTests(RunGuardFixture):
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
                 self.assertIn("opencode-go/hy4-flash-free", output["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_orchestrator_outage_is_not_a_worker_fallback(self):
+        primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})
+        fallback = json.dumps(
+            {"providerInstanceId": "opencode", "model": "opencode-go/hy4-flash-free", "options": {"variant": "high"}}
+        )
+        self.target_command("set", primary, fallback)
+        self.target_command("mark", primary)
+        for reason in (
+            "Orchestrator quota exhausted",
+            "Orchestrator model unavailable",
+            "Supervisor model unavailable",
+            "Dispatcher refused",
+        ):
+            with self.subTest(reason=reason):
+                self.assertEqual(self.output(self.invoke(self.fallback_command(reason))), {})
+
     def test_unblock_remediation_wording_does_not_create_a_model_only_cause(self):
         primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})
         fallback = json.dumps(
