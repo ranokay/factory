@@ -77,6 +77,8 @@ async function withRealGuard(run: (fixture: { home: string; repo: string; bin: s
   const previousHome = process.env.HOME
   const previousPath = process.env.PATH
   const previousCache = process.env.XDG_CACHE_HOME
+  const ghVariables = ["GH_HEAD", "GH_TOPICS", "GH_CHECKS"]
+  const previousGh = Object.fromEntries(ghVariables.map((name) => [name, process.env[name]]))
   process.env.HOME = home
   process.env.PATH = bin + (previousPath ? ":" + previousPath : "")
   process.env.XDG_CACHE_HOME = join(home, "cache")
@@ -89,6 +91,10 @@ async function withRealGuard(run: (fixture: { home: string; repo: string; bin: s
     else process.env.PATH = previousPath
     if (previousCache === undefined) delete process.env.XDG_CACHE_HOME
     else process.env.XDG_CACHE_HOME = previousCache
+    for (const name of ghVariables) {
+      if (previousGh[name] === undefined) delete process.env[name]
+      else process.env[name] = previousGh[name]
+    }
     rmSync(home, { recursive: true, force: true })
   }
 }

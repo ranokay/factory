@@ -66,15 +66,13 @@ def git_push_root(invocation: Invocation, cwd: Path) -> Path | None:
             index += 1
             if index >= len(arguments):
                 return None
-            directory = Path(arguments[index].text).expanduser()
-            if not directory.is_absolute():
-                directory = cwd / directory
+            target = Path(os.path.expandvars(arguments[index].text)).expanduser()
+            directory = target if target.is_absolute() else directory / target
             index += 1
             continue
         if text.startswith("-C") and len(text) > 2:
-            directory = Path(text[2:]).expanduser()
-            if not directory.is_absolute():
-                directory = cwd / directory
+            target = Path(os.path.expandvars(text[2:])).expanduser()
+            directory = target if target.is_absolute() else directory / target
             index += 1
             continue
         if text in {"-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}:
@@ -112,27 +110,48 @@ def records_checks(root: Path) -> bool:
     task = tasks.get("check")
     if task is None:
         return False
-    if not isinstance(task, dict):
-        raise ValueError(f"{path} check task must be a table")
-    return "check_result" in json.dumps(task.get("run"))
+    if isinstance(task, str):
+        run = task
+    elif isinstance(task, dict):
+        run = task.get("run")
+        if run is None:
+            return False
+    else:
+        raise ValueError(f"{path} check task must be a string or table")
+    if not isinstance(run, (str, list)):
+        raise ValueError(f"{path} check task run must be a string or array")
+    return "check_result" in json.dumps(run)
 
 
 def push_rule(command: str, cwd: Path) -> str | None:
-    previous_cd: bool | None = None
+    pending_cd: Path | None = None
     for invocation in invocations(command):
-        if previous_cd is not None:
-            skip = (invocation.operator == "&&" and not previous_cd) or (
-                invocation.operator == "||" and previous_cd
-            )
-            previous_cd = None
-            if skip:
-                continue
+        if pending_cd is not None:
+            if invocation.operator in {"|", "&"}:
+                pending_cd = None
+            else:
+                succeeded = pending_cd.is_dir()
+                skip = (invocation.operator == "&&" and not succeeded) or (
+                    invocation.operator == "||" and succeeded
+                )
+                if succeeded:
+                    cwd = pending_cd
+                pending_cd = None
+                if skip:
+                    continue
         if invocation.executable == "cd" and invocation.arguments:
-            target = Path(invocation.arguments[0].text).expanduser()
-            target = target if target.is_absolute() else cwd / target
-            previous_cd = target.is_dir()
-            if previous_cd:
-                cwd = target
+            if invocation.operator == "(":
+                continue
+            index = 0
+            while (
+                index < len(invocation.arguments)
+                and invocation.arguments[index].text in {"-P", "-L", "-e", "-@", "--"}
+            ):
+                index += 1
+            if index >= len(invocation.arguments):
+                continue
+            target = Path(os.path.expandvars(invocation.arguments[index].text)).expanduser()
+            pending_cd = target if target.is_absolute() else cwd / target
             continue
         directory = git_push_root(invocation, cwd)
         if directory is None:
@@ -184,7 +203,12 @@ def gh_merge(invocation: Invocation) -> tuple[str | None, str | None] | None:
         merge = texts.index("merge", pr + 1)
     except ValueError:
         return None
-    if "--admin" not in texts[merge + 1 :] and "--admin=true" not in texts[merge + 1 :]:
+    admin = any(
+        text == "--admin"
+        or (text.startswith("--admin=") and text.split("=", 1)[1].lower() in {"1", "t", "true"})
+        for text in texts[merge + 1 :]
+    )
+    if not admin:
         return None
     selector = None
     index = merge + 1

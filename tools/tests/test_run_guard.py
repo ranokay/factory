@@ -77,6 +77,17 @@ class RunGuardTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
 
+    def test_shorthand_check_task_scope_is_respected(self):
+        (self.repo / "mise.toml").write_text('[tasks]\ncheck = "echo no recorder"\n')
+        self.git("add", "mise.toml")
+        self.git("commit", "-qm", "shorthand check")
+        self.assertEqual(self.output(self.invoke("git push")), {})
+        (self.repo / "mise.toml").write_text('[tasks]\ncheck = "~/.agents/tools/run check_result -- true"\n')
+        self.git("add", "mise.toml")
+        self.git("commit", "-qm", "shorthand recorder")
+        output = self.output(self.invoke("git push"))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+
     def test_push_inside_a_recorder_repo_requires_a_pass_record(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
         result = self.invoke("git push")
@@ -87,7 +98,11 @@ class RunGuardTests(unittest.TestCase):
 
     def test_unreadable_recorder_configuration_blocks_push(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
-        for text in ("not toml", 'tasks = "invalid"\n'):
+        for text in (
+            "not toml",
+            'tasks = "invalid"\n',
+            "[tasks.check]\nrun = 1979-05-27\n",
+        ):
             with self.subTest(text=text):
                 (self.repo / "mise.toml").write_text(text)
                 output = self.output(self.invoke("git push"))
@@ -114,9 +129,23 @@ class RunGuardTests(unittest.TestCase):
 
     def test_git_c_and_compound_pushes_require_a_pass_record(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
-        for command in (f"git -C {self.repo} push", "echo ready && git push", "cd /missing || git push"):
+        self.env["RUN_GUARD_REPO"] = str(self.repo)
+        other = self.root / "other"
+        other.mkdir()
+        for command in (
+            f"git -C {self.repo} push",
+            "echo ready && git push",
+            "cd /missing || git push",
+            "cd /tmp | git push",
+            "(cd /tmp); git push",
+            f"git -C {self.repo} -C . push",
+            f"cd -P {self.repo} && git push",
+            f"cd -- {self.repo} && git push",
+            'cd "$RUN_GUARD_REPO" && git push',
+            'git -C "$RUN_GUARD_REPO" push',
+        ):
             with self.subTest(command=command):
-                output = self.output(self.invoke(command))
+                output = self.output(self.invoke(command, cwd=other if "-C ." in command else self.repo))
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_recorded_red_check_blocks_push(self):
@@ -155,6 +184,7 @@ class RunGuardTests(unittest.TestCase):
         for command in (
             "gh pr merge --admin",
             "gh pr merge 42 --admin",
+            "gh pr merge 42 --admin=1",
             "gh pr merge https://github.com/o/one/pull/42 --admin",
             "gh pr merge sync/upstream-2026-11-28 --admin",
             "gh -R o/one pr merge 42 --admin",
@@ -165,10 +195,12 @@ class RunGuardTests(unittest.TestCase):
 
     def test_admin_merge_is_denied_for_a_feature_branch(self):
         self.gh_stub(head="feature/example")
-        output = self.output(self.invoke("gh pr merge 42 --admin"))
-        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("sync/upstream-", output["hookSpecificOutput"]["permissionDecisionReason"])
-        self.assertIn("without --admin", output["hookSpecificOutput"]["permissionDecisionReason"])
+        for flag in ("--admin", "--admin=true", "--admin=1", "--admin=t", "--admin=TRUE"):
+            with self.subTest(flag=flag):
+                output = self.output(self.invoke(f"gh pr merge 42 {flag}"))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("sync/upstream-", output["hookSpecificOutput"]["permissionDecisionReason"])
+                self.assertIn("without --admin", output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_admin_merge_is_denied_without_the_personal_fork_topic(self):
         self.gh_stub(topics="")
