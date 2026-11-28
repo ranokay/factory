@@ -97,24 +97,54 @@ def repository_root(directory: Path) -> Path | None:
 def records_checks(root: Path) -> bool:
     path = root / "mise.toml"
     try:
-        data = tomllib.loads(path.read_text())
-    except (OSError, tomllib.TOMLDecodeError):
+        text = path.read_text()
+    except FileNotFoundError:
         return False
-    task = data.get("tasks", {}).get("check")
-    return isinstance(task, dict) and "check_result" in json.dumps(task.get("run"))
+    except OSError as error:
+        raise ValueError(f"cannot read {path}: {error}") from error
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        raise ValueError(f"cannot parse {path}: {error}") from error
+    tasks = data.get("tasks", {})
+    if not isinstance(tasks, dict):
+        raise ValueError(f"{path} tasks must be a table")
+    task = tasks.get("check")
+    if task is None:
+        return False
+    if not isinstance(task, dict):
+        raise ValueError(f"{path} check task must be a table")
+    return "check_result" in json.dumps(task.get("run"))
 
 
 def push_rule(command: str, cwd: Path) -> str | None:
+    previous_cd: bool | None = None
     for invocation in invocations(command):
+        if previous_cd is not None:
+            skip = (invocation.operator == "&&" and not previous_cd) or (
+                invocation.operator == "||" and previous_cd
+            )
+            previous_cd = None
+            if skip:
+                continue
         if invocation.executable == "cd" and invocation.arguments:
             target = Path(invocation.arguments[0].text).expanduser()
-            cwd = target if target.is_absolute() else cwd / target
+            target = target if target.is_absolute() else cwd / target
+            previous_cd = target.is_dir()
+            if previous_cd:
+                cwd = target
             continue
         directory = git_push_root(invocation, cwd)
         if directory is None:
             continue
         root = repository_root(directory)
-        if root is None or not records_checks(root):
+        if root is None:
+            continue
+        try:
+            recorder_repo = records_checks(root)
+        except ValueError as error:
+            return f"Factory Run guard: cannot determine push-check scope: {error}"
+        if not recorder_repo:
             continue
         head = git(root, "rev-parse", "HEAD")
         if head.returncode:
@@ -205,22 +235,34 @@ def admin_rule(command: str, cwd: Path) -> str | None:
         view.extend(["--json", "number,headRefName,url", *repository_arguments(repository)])
         pull = gh(view, cwd)
         if pull.returncode:
-            return f"Factory Run guard: cannot verify admin-merge eligibility: {pull.stderr.strip() or pull.stdout.strip()}"
+            return (
+                "Factory Run guard: cannot verify admin-merge eligibility: "
+                f"{pull.stderr.strip() or pull.stdout.strip()}. Restore GitHub access and retry without --admin."
+            )
         try:
             head = json.loads(pull.stdout)["headRefName"]
         except (json.JSONDecodeError, KeyError, TypeError) as error:
-            return f"Factory Run guard: cannot verify admin-merge eligibility: {error}"
+            return f"Factory Run guard: cannot verify admin-merge eligibility: {error}. Retry without --admin."
         topics = gh(["repo", "view", *([repository] if repository else []), "--json", "repositoryTopics"], cwd)
         if topics.returncode:
-            return f"Factory Run guard: cannot verify the base repository topics: {topics.stderr.strip() or topics.stdout.strip()}"
+            return (
+                "Factory Run guard: cannot verify the base repository topics: "
+                f"{topics.stderr.strip() or topics.stdout.strip()}. Restore GitHub access and retry without --admin."
+            )
         try:
             names = json.loads(topics.stdout)["repositoryTopics"]
         except (json.JSONDecodeError, KeyError, TypeError) as error:
-            return f"Factory Run guard: cannot verify the base repository topics: {error}"
+            return f"Factory Run guard: cannot verify the base repository topics: {error}. Retry without --admin."
         if not isinstance(head, str) or not head.startswith("sync/upstream-"):
-            return "Factory Run guard: --admin is reserved for Sync PRs with a sync/upstream-* head ref."
+            return (
+                "Factory Run guard: --admin is reserved for Sync PRs with a sync/upstream-* head ref. "
+                "Run the merge without --admin or use the eligible Sync PR."
+            )
         if not isinstance(names, list) or "factory-personal-fork" not in names:
-            return "Factory Run guard: --admin requires the base repository topic factory-personal-fork."
+            return (
+                "Factory Run guard: --admin requires the base repository topic factory-personal-fork. "
+                "Restore that topic or run the merge without --admin."
+            )
     return None
 
 
@@ -275,7 +317,9 @@ def fallback_rule(command: str) -> str | None:
     for invocation in invocations(command):
         arguments = block_issue_arguments(invocation)
         if arguments is not None:
-            return fallback_reason(*arguments)
+            reason = fallback_reason(*arguments)
+            if reason:
+                return reason
     return None
 
 

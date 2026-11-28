@@ -116,34 +116,40 @@ function directory(context: PluginContext): string {
   return context.directory || context.worktree || context.location?.directory || process.cwd()
 }
 
-async function sessionDirectory(context: PluginContext, sessionID: string): Promise<string> {
-  if (!context.session?.get) return directory(context)
+async function sessionDirectory(context: PluginContext, sessionID: string): Promise<string | undefined> {
+  if (!sessionID || !context.session?.get) return directory(context)
   try {
     const session = (await context.session.get({ sessionID })) as {
-      directory?: string
-      data?: { directory?: string }
+      location?: { directory?: string }
     } | null
-    return session?.directory || session?.data?.directory || directory(context)
+    const resolved = session?.location?.directory
+    if (!resolved) console.warn("Factory Run guard warning: session has no directory")
+    return resolved
   } catch (error) {
     console.warn(`Factory Run guard warning: cannot resolve session directory: ${String(error)}`)
-    return directory(context)
+    return undefined
   }
 }
 
 function hooks(context: PluginContext) {
   const blockedIdles = new Set<string>()
   const beforeTool = async (input: ToolInput, output: ToolOutput) => {
+    blockedIdles.delete(input.sessionID || "")
+    const cwd = await sessionDirectory(context, input.sessionID || "")
+    if (!cwd) return
     const result = await runGuard("opencode", {
       tool: input.tool,
       input: output.args,
-      cwd: await sessionDirectory(context, input.sessionID || ""),
+      cwd,
     })
     if (result.block) throw new Error(result.message)
     if (result.warning) console.warn(result.warning)
   }
   const idle = async (sessionID: string) => {
+    const cwd = await sessionDirectory(context, sessionID)
+    if (!cwd) return
     const repeat = blockedIdles.has(sessionID)
-    const result = await runGuard("opencode-idle", { cwd: await sessionDirectory(context, sessionID), repeat })
+    const result = await runGuard("opencode-idle", { cwd, repeat })
     if (!result.block) {
       blockedIdles.delete(sessionID)
       if (result.warning) console.warn(result.warning)

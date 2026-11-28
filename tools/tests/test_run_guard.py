@@ -85,6 +85,15 @@ class RunGuardTests(unittest.TestCase):
         self.assertIn("mise run check", output["hookSpecificOutput"]["permissionDecisionReason"])
         self.assertIn(self.git("rev-parse", "HEAD"), output["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_unreadable_recorder_configuration_blocks_push(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        for text in ("not toml", 'tasks = "invalid"\n'):
+            with self.subTest(text=text):
+                (self.repo / "mise.toml").write_text(text)
+                output = self.output(self.invoke("git push"))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("mise.toml", output["hookSpecificOutput"]["permissionDecisionReason"])
+
     def record_check(self, *command: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(TOOLS / "check_result.py"), "--", *command],
@@ -102,6 +111,13 @@ class RunGuardTests(unittest.TestCase):
         for command in ("git push", f"git -C {self.repo} push", "echo ready && git push"):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
+
+    def test_git_c_and_compound_pushes_require_a_pass_record(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        for command in (f"git -C {self.repo} push", "echo ready && git push", "cd /missing || git push"):
+            with self.subTest(command=command):
+                output = self.output(self.invoke(command))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_recorded_red_check_blocks_push(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
@@ -152,6 +168,7 @@ class RunGuardTests(unittest.TestCase):
         output = self.output(self.invoke("gh pr merge 42 --admin"))
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("sync/upstream-", output["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("without --admin", output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_admin_merge_is_denied_without_the_personal_fork_topic(self):
         self.gh_stub(topics="")
@@ -236,6 +253,18 @@ class RunGuardTests(unittest.TestCase):
         self.target_command("mark", primary)
         self.target_command("mark", fallback)
         self.assertEqual(self.output(self.invoke(self.fallback_command("opencode-go/hungerg-free unavailable quota"))), {})
+
+    def test_later_block_issue_violation_in_a_compound_command_is_checked(self):
+        primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})
+        fallback = json.dumps(
+            {"providerInstanceId": "opencode", "model": "opencode-go/hy4-flash-free", "options": {"variant": "high"}}
+        )
+        self.target_command("set", primary, fallback)
+        self.target_command("mark", primary)
+        allowed = "skills/supervise/scripts/block-issue o/one 65 --reason 'ordinary failure' --unblock 'Fix it'"
+        command = allowed + "; " + self.fallback_command("opencode-go/hungerg-free unavailable quota")
+        output = self.output(self.invoke(command))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_mixed_cause_blocker_is_allowed(self):
         primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})
