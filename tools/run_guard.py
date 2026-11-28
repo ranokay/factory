@@ -52,7 +52,7 @@ def dynamic_rule(command: str) -> str | None:
         if not invocation.dynamic:
             continue
         arguments = [word.text for word in invocation.arguments]
-        executable = Path(invocation.executable).name
+        executable = invocation.executable
         nested_words = [word.text for word in invocation.arguments if not word.data]
         nested_guarded = any(word.operator for word in invocation.arguments) and (
             ("git" in nested_words and "push" in nested_words)
@@ -91,12 +91,11 @@ def dynamic_rule(command: str) -> str | None:
                 gh_guarded = (
                     subcommand == "merge"
                     or has_expansion(invocation.arguments[index])
-                    or (subcommand == "merge" and any(has_expansion(word) for word in invocation.arguments[index + 1 :]))
+                    or admin_expansion
                 )
         dynamic_executable = "$" in invocation.executable or "`" in invocation.executable
         if (
             executable == "block-issue"
-            or "block-issue" in invocation.executable
             or block_issue_shape
             or admin_expansion
             or git_guarded
@@ -137,11 +136,6 @@ def git_subcommand_word(invocation: Invocation) -> Word | None:
             continue
         return invocation.arguments[index]
     return None
-
-
-def git_subcommand(invocation: Invocation) -> str | None:
-    word = git_subcommand_word(invocation)
-    return word.text if word is not None else None
 
 
 def git_push(invocation: Invocation, cwd: Path) -> tuple[Path, list[str]] | None:

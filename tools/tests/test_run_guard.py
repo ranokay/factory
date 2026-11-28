@@ -135,6 +135,8 @@ class RunGuardTests(unittest.TestCase):
             "gh pr merge sync/x \"--admin=$T\"",
             "A=--admin; gh pr merge \"$A\"",
             "git \"pu\"\"sh\" \"$REF\"",
+            "git -c \"$CFG\" push",
+            "git \"$OPT\" commit",
             "export REF=\"$X\" && git push origin \"$REF\"",
             "GH=gh; ${GH} pr merge 42 --admin",
             'env -S "${GH} pr merge 42 --admin"',
@@ -381,6 +383,7 @@ class RunGuardTests(unittest.TestCase):
         for command in (
             "git commit --allow-empty -m next && git push",
             "nohup git commit --allow-empty -m next && git push",
+            "git --$OPT commit && git push",
         ):
             with self.subTest(command=command):
                 output = self.output(self.invoke(command))
