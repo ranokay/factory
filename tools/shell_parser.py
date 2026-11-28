@@ -21,6 +21,7 @@ class Word:
 class Invocation:
     executable: str
     arguments: tuple[Word, ...]
+    dynamic: bool = False
 
 
 def heredoc_word(body: str) -> Word:
@@ -166,6 +167,7 @@ def split_env_string(value: str) -> list[str] | None:
 
 def invocation_from_words(words: list[Word]) -> Invocation | None:
     remaining = list(words)
+    dynamic = False
     while remaining:
         first = remaining[0].text
         if re.match(r"[A-Za-z_][A-Za-z_0-9]*=", first):
@@ -177,6 +179,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 option = remaining.pop(0).text
                 if option == "--":
                     break
+                if option == "--help":
+                    return None
                 if "v" in option[1:] or "V" in option[1:]:
                     return None
             continue
@@ -193,6 +197,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             short_value_options = {
                 option[1] for option in value_options if option.startswith("-") and not option.startswith("--")
             }
+            shell_mode = False
             while remaining:
                 option = remaining[0].text
                 if option == "--":
@@ -200,6 +205,10 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     break
                 if option in {"-l", "--list", "-v", "--validate", "-V", "--version", "--help"}:
                     return None
+                if option in {"-s", "--shell", "-i", "--login"}:
+                    shell_mode = True
+                    remaining.pop(0)
+                    continue
                 if option in value_options:
                     remaining.pop(0)
                     if remaining:
@@ -219,6 +228,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     for index, character in enumerate(grouped):
                         if character in "lvV":
                             return None
+                        if character in "si":
+                            shell_mode = True
                         if character in short_value_options:
                             remaining.pop(0)
                             if index == len(grouped) - 1 and remaining:
@@ -228,6 +239,14 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                         remaining.pop(0)
                     continue
                 break
+            if shell_mode and remaining:
+                command_word = remaining.pop(0)
+                command_words = shell_words(command_word.text)
+                if "$" in command_word.text or "`" in command_word.text or any(
+                    word.operator for word in command_words
+                ):
+                    dynamic = True
+                remaining[0:0] = command_words
             continue
         if first == "env":
             remaining.pop(0)
@@ -245,12 +264,15 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     remaining.pop(0)
                     if not remaining:
                         return None
-                    split = split_env_string(remaining.pop(0).text)
+                    value_word = remaining.pop(0)
+                    dynamic = dynamic or has_expansion(value_word)
+                    split = split_env_string(value_word.text)
                     if split is None:
                         return None
                     remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                     continue
                 if candidate.startswith("--split-string="):
+                    dynamic = dynamic or has_expansion(remaining[0])
                     split = split_env_string(candidate.split("=", 1)[1])
                     if split is None:
                         return None
@@ -272,6 +294,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     remaining.pop(0)
                     continue
                 if candidate.startswith("-") and len(candidate) > 1:
+                    dynamic = dynamic or has_expansion(remaining[0])
                     grouped = candidate[1:]
                     for index, character in enumerate(grouped):
                         if character == "S":
@@ -279,7 +302,9 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                             if index == len(grouped) - 1:
                                 if not remaining:
                                     return None
-                                value = remaining.pop(0).text
+                                value_word = remaining.pop(0)
+                                dynamic = dynamic or has_expansion(value_word)
+                                value = value_word.text
                             else:
                                 value = grouped[index + 1 :]
                             split = split_env_string(value)
@@ -304,7 +329,14 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
         break
     if not remaining:
         return None
-    return Invocation(Path(remaining[0].text).name, tuple(remaining[1:]))
+    return Invocation(Path(remaining[0].text).name, tuple(remaining[1:]), dynamic or has_expansion(remaining[0]))
+
+
+def has_expansion(word: Word) -> bool:
+    return any(
+        active and char in "$`"
+        for char, active in zip(word.text, word.expansions, strict=True)
+    )
 
 
 def has_unquoted_glob(word: Word, start: int = 0) -> bool:

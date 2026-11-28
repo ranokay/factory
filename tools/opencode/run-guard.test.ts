@@ -376,6 +376,21 @@ test("real shared guard blocks a git -C push without a check record", async () =
   })
 })
 
+test("real shared guard blocks dynamic command executables", async () => {
+  await withRealGuard(async ({ repo }) => {
+    writeFileSync(join(repo, "mise.toml"), '[tasks.check]\nrun = "~/.agents/tools/run check_result -- true"\n')
+    fixtureGit(repo, "add", "mise.toml")
+    fixtureGit(repo, "commit", "-qm", "check task")
+    const plugin = await FactoryRunGuardPlugin({ directory: repo })
+    for (const command of ["$CMD", "env -S $'git push'", 'env -S "$CMD"', "sudo -s 'git push'"]) {
+      await assert.rejects(
+        () => plugin["tool.execute.before"]({ tool: "bash" }, { args: { command } }),
+        /dynamic command executable|mise run check/,
+      )
+    }
+  })
+})
+
 test("real shared guard blocks an ineligible admin merge", async () => {
   await withRealGuard(async ({ repo, bin }) => {
     fixtureGh(bin)

@@ -45,6 +45,12 @@ OTHER_CAUSE_TERMS = (
 )
 
 
+def dynamic_rule(command: str) -> str | None:
+    if any(invocation.dynamic for invocation in invocations(command)):
+        return "Factory Run guard: cannot verify a dynamic command executable. Use a literal command."
+    return None
+
+
 def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(root), *args],
@@ -429,7 +435,7 @@ def opencode(payload: dict) -> None:
         guard_result("allow")
         return
     cwd = Path(payload.get("cwd") or os.getcwd())
-    reason = push_rule(command, cwd) or admin_rule(command, cwd) or fallback_rule(command)
+    reason = dynamic_rule(command) or push_rule(command, cwd) or admin_rule(command, cwd) or fallback_rule(command)
     guard_result("block" if reason else "allow", reason or "")
 
 
@@ -463,7 +469,7 @@ def tool(payload: dict) -> None:
     if not isinstance(command, str):
         return
     cwd = Path(payload.get("cwd") or os.getcwd())
-    reason = push_rule(command, cwd) or admin_rule(command, cwd) or fallback_rule(command)
+    reason = dynamic_rule(command) or push_rule(command, cwd) or admin_rule(command, cwd) or fallback_rule(command)
     if reason:
         deny(reason)
 

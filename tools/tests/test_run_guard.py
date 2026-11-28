@@ -84,6 +84,8 @@ class RunGuardTests(unittest.TestCase):
             "command -V git push",
             "command -pv git push",
             "command -p -v git push",
+            "command --help git push",
+            "command -p --help git push",
             "sudo -l git push",
             "sudo -v git push",
             "sudo -nl git push",
@@ -94,6 +96,20 @@ class RunGuardTests(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
+
+    def test_dynamic_command_executables_are_denied(self):
+        for command in (
+            "$CMD",
+            "env -S $'git push'",
+            'env -S "$CMD"',
+            "sudo $CMD",
+            "sudo -s '$CMD'",
+            "sudo -s 'echo hi; git push'",
+        ):
+            with self.subTest(command=command):
+                output = self.output(self.invoke(command))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("dynamic command executable", output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_shorthand_check_task_scope_is_respected(self):
         (self.repo / "mise.toml").write_text('[tasks]\ncheck = "echo no recorder"\n')
@@ -176,6 +192,9 @@ class RunGuardTests(unittest.TestCase):
             "sudo --us root git push",
             "sudo --chd /tmp git push",
             "sudo -n -- git push",
+            "sudo -s 'git push'",
+            "sudo -i 'git push'",
+            "sudo -s -- 'git push'",
             "env -S 'git push'",
             "env -S'git push'",
             "env --split-string='git push'",
