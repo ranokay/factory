@@ -120,62 +120,65 @@ def records_checks(root: Path) -> bool:
         raise ValueError(f"{path} check task must be a string or table")
     if not isinstance(run, (str, list)):
         raise ValueError(f"{path} check task run must be a string or array")
+    if isinstance(run, list) and not all(isinstance(item, str) for item in run):
+        raise ValueError(f"{path} check task run array must contain only strings")
     return "check_result" in json.dumps(run)
 
 
+def push_record_reason(directory: Path) -> str | None:
+    root = repository_root(directory)
+    if root is None:
+        return None
+    try:
+        recorder_repo = records_checks(root)
+    except ValueError as error:
+        return f"Factory Run guard: cannot determine push-check scope: {error}"
+    if not recorder_repo:
+        return None
+    head = git(root, "rev-parse", "HEAD")
+    if head.returncode:
+        return "Factory Run guard: cannot resolve HEAD. Commit your work and run `mise run check` before push."
+    sha = head.stdout.strip()
+    record = load_result(root, sha)
+    if record and record.get("passed") is True and record.get("head") == sha:
+        return None
+    return (
+        f"Factory Run guard: no passing mise run check record for {sha}. "
+        f"Run `mise run check` on a clean tree at {sha}, then push."
+    )
+
+
 def push_rule(command: str, cwd: Path) -> str | None:
-    pending_cd: Path | None = None
+    possible_cwds = {cwd}
     for invocation in invocations(command):
-        if pending_cd is not None:
-            if invocation.operator in {"|", "&"}:
-                pending_cd = None
-            else:
-                succeeded = pending_cd.is_dir()
-                skip = (invocation.operator == "&&" and not succeeded) or (
-                    invocation.operator == "||" and succeeded
-                )
-                if succeeded:
-                    cwd = pending_cd
-                pending_cd = None
-                if skip:
-                    continue
         if invocation.executable == "cd" and invocation.arguments:
-            if invocation.operator == "(":
-                continue
             index = 0
-            while (
-                index < len(invocation.arguments)
-                and invocation.arguments[index].text in {"-P", "-L", "-e", "-@", "--"}
-            ):
-                index += 1
+            while index < len(invocation.arguments):
+                option = invocation.arguments[index].text
+                if option == "--":
+                    index += 1
+                    break
+                if option.startswith("-") and len(option) > 1:
+                    index += 1
+                    continue
+                break
             if index >= len(invocation.arguments):
                 continue
             target = Path(os.path.expandvars(invocation.arguments[index].text)).expanduser()
-            pending_cd = target if target.is_absolute() else cwd / target
+            possible_cwds |= {
+                target if target.is_absolute() else directory / target
+                for directory in possible_cwds
+            }
             continue
-        directory = git_push_root(invocation, cwd)
-        if directory is None:
-            continue
-        root = repository_root(directory)
-        if root is None:
-            continue
-        try:
-            recorder_repo = records_checks(root)
-        except ValueError as error:
-            return f"Factory Run guard: cannot determine push-check scope: {error}"
-        if not recorder_repo:
-            continue
-        head = git(root, "rev-parse", "HEAD")
-        if head.returncode:
-            return "Factory Run guard: cannot resolve HEAD. Commit your work and run `mise run check` before push."
-        sha = head.stdout.strip()
-        record = load_result(root, sha)
-        if record and record.get("passed") is True and record.get("head") == sha:
-            continue
-        return (
-            f"Factory Run guard: no passing mise run check record for {sha}. "
-            f"Run `mise run check` on a clean tree at {sha}, then push."
-        )
+        directories = {
+            directory
+            for directory in (git_push_root(invocation, possible_cwd) for possible_cwd in possible_cwds)
+            if directory is not None
+        }
+        for directory in sorted(directories):
+            reason = push_record_reason(directory)
+            if reason:
+                return reason
     return None
 
 

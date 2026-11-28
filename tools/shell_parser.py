@@ -20,7 +20,6 @@ class Word:
 class Invocation:
     executable: str
     arguments: tuple[Word, ...]
-    operator: str | None = None
 
 
 def heredoc_word(body: str) -> Word:
@@ -129,9 +128,8 @@ def shell_words(command: str) -> list[Word]:
 
 
 def invocations(command: str) -> list[Invocation]:
-    segments: list[tuple[str | None, list[Word]]] = []
+    segments: list[list[Word]] = []
     segment: list[Word] = []
-    preceding: str | None = None
     redirect = False
     for word in shell_words(command):
         if word.data:
@@ -139,9 +137,8 @@ def invocations(command: str) -> list[Invocation]:
         if word.operator:
             if word.text in {"\n", ";", ";;", "&&", "||", "|", "&", "(", ")"}:
                 if segment:
-                    segments.append((preceding, segment))
+                    segments.append(segment)
                 segment = []
-                preceding = word.text
             elif word.text in {"<", ">", "<<", "<<-", "<<<", ">>"}:
                 redirect = True
             continue
@@ -150,12 +147,12 @@ def invocations(command: str) -> list[Invocation]:
             continue
         segment.append(word)
     if segment:
-        segments.append((preceding, segment))
+        segments.append(segment)
     result = []
-    for preceding, words in segments:
+    for words in segments:
         invocation = invocation_from_words(words)
         if invocation is not None:
-            result.append(Invocation(invocation.executable, invocation.arguments, preceding))
+            result.append(invocation)
     return result
 
 

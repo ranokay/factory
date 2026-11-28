@@ -102,6 +102,7 @@ class RunGuardTests(unittest.TestCase):
             "not toml",
             'tasks = "invalid"\n',
             "[tasks.check]\nrun = 1979-05-27\n",
+            "[tasks.check]\nrun = [1979-05-27]\n",
         ):
             with self.subTest(text=text):
                 (self.repo / "mise.toml").write_text(text)
@@ -138,14 +139,24 @@ class RunGuardTests(unittest.TestCase):
             "cd /missing || git push",
             "cd /tmp | git push",
             "(cd /tmp); git push",
+            '(cd "$RUN_GUARD_REPO"; git push)',
+            "echo x | cd /tmp && git push",
             f"git -C {self.repo} -C . push",
             f"cd -P {self.repo} && git push",
+            f"cd -LP {self.repo} && git push",
             f"cd -- {self.repo} && git push",
             'cd "$RUN_GUARD_REPO" && git push',
             'git -C "$RUN_GUARD_REPO" push',
         ):
             with self.subTest(command=command):
-                output = self.output(self.invoke(command, cwd=other if "-C ." in command else self.repo))
+                output = self.output(
+                    self.invoke(
+                        command,
+                        cwd=other
+                        if "-C ." in command or '(cd "$RUN_GUARD_REPO";' in command or "cd -LP" in command
+                        else self.repo,
+                    )
+                )
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_recorded_red_check_blocks_push(self):
