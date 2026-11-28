@@ -43,11 +43,14 @@ Install tools declared in `mise.toml` without asking. For a new dev tool availab
 
 ## Session guards
 
-`mise run bootstrap` installs the Factory's Claude Code hooks and OpenCode plugin while preserving unrelated entries:
+`mise run bootstrap` installs the Factory's Claude Code hooks and OpenCode plugins while preserving unrelated entries:
 
-- Claude Code keeps its existing `command_guard` and `environment_check` entries; bootstrap adds `~/.agents/tools/run secret_guard` to `~/.claude/settings.json`.
+- Claude Code keeps its existing `command_guard` and `environment_check` entries; bootstrap adds the Factory secret and Run guards to `~/.claude/settings.json`.
 - `secret_guard prompt` checks `UserPromptSubmit`; `secret_guard tool` checks every `PreToolUse` tool input.
-- OpenCode loads `~/.config/opencode/plugins/factory-secret-guard.ts`, which calls the same guard before every tool execution.
+- Claude Code also runs `run_guard tool` before Bash calls and `run_guard stop` before a turn ends. The tool hook reads the cached `mise run check` result before a push, reserves `gh pr merge --admin` for eligible Sync PRs, and refuses model-unavailability Blockers while a fallback is untried. The Stop hook waits on pending required checks with `gh run watch <id> --exit-status`.
+- OpenCode loads `~/.config/opencode/plugins/factory-secret-guard.ts`, which calls the same secret guard before every tool execution, and `factory-run-guard.ts`, which enforces the Run rules before shell tools and re-prompts an idle session while required checks are pending.
+- `tools/check_result.py` records a pass only when `mise run check` succeeds on a clean, unchanged HEAD. The push hook applies only to repositories whose `check` task invokes that recorder.
+- `skills/supervise/scripts/run-targets` records the ordered Worker/Reviewer targets in `~/.cache/factory/runs/<owner>/<repo>/<issue>/targets.json`; the fallback hook and `block-issue` read the same list.
 - `tools/secret_guard.py` skips `gitleaks stdin` when its version-checked rule catalog shows no rule can match the input or its decoded segments. Other inputs, and any input above 4 KiB, run gitleaks from the Factory root, and a clean exit is final. Block messages name rule IDs, not values. Without a working gitleaks, built-in and catalog patterns block, and a clean fallback scan warns.
 
 The old `sonar-secrets` entries remain until the separately approved cutover.

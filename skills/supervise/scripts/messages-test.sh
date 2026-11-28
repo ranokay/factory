@@ -5,6 +5,7 @@ script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 skill_dir=$(dirname "$script_dir")
 messages=$skill_dir/references/messages.md
 supervise=$skill_dir/SKILL.md
+stopped_notice=$script_dir/stopped-notice
 
 expect_file() {
 	if ! grep -Fq -e "$2" "$1"; then
@@ -61,14 +62,93 @@ case_skill() {
 	printf 'ok: the Supervisor rules objections and does not count them as attempts\n'
 }
 
+case_targets() {
+	for line in \
+		'run-targets set' \
+		'run-targets mark' \
+		'GLM alone when DeepSeek is absent' \
+		'targets.json'; do
+		expect_file "$supervise" "$line"
+	done
+	printf 'ok: the Supervisor records ordered targets for the fallback guard\n'
+}
+
+case_waiting() {
+	for line in \
+		'gh run watch <id> --exit-status' \
+		'gh event listen' \
+		'scripts/stopped-notice' \
+		'checks pending' \
+		'resume after checks finish'; do
+		expect_file "$supervise" "$line"
+		expect_file "$messages" "$line"
+	done
+	printf '%s\n' 'supervise · notice · task · stopped thread · human decision' 'unblock: ranokay approves' | "$stopped_notice"
+	printf '%s\n' 'supervise · notice · task · stopped thread · CI pending is not the blocker; credentials are missing' | "$stopped_notice"
+	printf '%s\n' 'supervise · notice · task · stopped thread · no checks pending' | "$stopped_notice"
+	if printf '%s\n' 'supervise · notice · task · stopped thread · checks pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted pending checks\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after checks finish' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a deferred check wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · required checks are pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted reordered pending-check wording\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after checks finish;' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a punctuated deferred wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume once checks finish' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a reordered deferred wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · CI pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted pending CI wording\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after checks complete' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a completed-check deferred wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: continue once CI is green' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a green-CI deferred wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · checks still pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted still-pending checks\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · workflow pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a pending workflow\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after the pipeline finishes' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a deferred pipeline wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: wait for checks to finish' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a deferred check wait\n' >&2
+		return 1
+	fi
+	printf 'ok: PR forks wait for checks and stopped notices reject deferred waits\n'
+}
+
 case ${MESSAGES_CASE:-all} in
 headers) case_headers ;;
 objection) case_objection ;;
 skill) case_skill ;;
+targets) case_targets ;;
+waiting) case_waiting ;;
 all)
 	case_headers
 	case_objection
 	case_skill
+	case_targets
+	case_waiting
 	;;
 *)
 	printf 'unknown case: %s\n' "$MESSAGES_CASE" >&2

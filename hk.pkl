@@ -876,6 +876,11 @@ steps {
             env { ["BOOTSTRAP_CASE"] = "secret-guard-version" }
             expect { code = 0 }
           }
+          ["bootstrap installs Run hooks and both plugins and reports their drift"] {
+            run = "check"
+            env { ["BOOTSTRAP_CASE"] = "run-guard" }
+            expect { code = 0 }
+          }
           ["bootstrap refuses a drifted vendored skill"] {
             run = "check"
             env { ["BOOTSTRAP_CASE"] = "repair" }
@@ -1243,6 +1248,36 @@ steps {
             env { ["BLOCK_ISSUE_CASE"] = "failure" }
             expect { code = 0 }
           }
+          ["refuses a model-only Blocker while a fallback is untried"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "model_fallback" }
+            expect { code = 0 }
+          }
+          ["allows a model-only Blocker after every fallback is tried"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "model_fallbacks_tried" }
+            expect { code = 0 }
+          }
+          ["allows a mixed-cause Blocker"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "mixed_fallback" }
+            expect { code = 0 }
+          }
+          ["allows a Blocker without a targets file"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "no_targets" }
+            expect { code = 0 }
+          }
+          ["runner exit 1 warns and still posts the Blocker"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "runner_exit_1" }
+            expect { code = 0 }
+          }
+          ["runner exit 2 warns and still posts the Blocker"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "runner_exit_2" }
+            expect { code = 0 }
+          }
         }
       }
       ["messages"] = new Step {
@@ -1261,6 +1296,11 @@ steps {
           ["the Supervisor does not count an objection as an attempt"] {
             run = "check"
             env { ["MESSAGES_CASE"] = "skill" }
+            expect { code = 0 }
+          }
+          ["the Supervisor records ordered fallback targets"] {
+            run = "check"
+            env { ["MESSAGES_CASE"] = "targets" }
             expect { code = 0 }
           }
         }

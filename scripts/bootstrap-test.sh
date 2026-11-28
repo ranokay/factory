@@ -1458,6 +1458,88 @@ case_plist_interpreter() {
 	printf 'ok: an unresolvable interpreter names the plist\n'
 }
 
+case_run_guard() {
+	setup_case run-guard
+	mkdir -p "$home/.config/opencode/plugins"
+	printf 'keep rtk\n' >"$home/.config/opencode/plugins/rtk.ts"
+	run_python - "$home" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+home = Path(sys.argv[1])
+settings = {
+	"hooks": {
+		"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "keep-pre"}]}],
+		"Stop": [{"hooks": [{"type": "command", "command": "keep-stop"}]}],
+	}
+}
+path = home / ".claude" / "settings.json"
+path.parent.mkdir(parents=True)
+path.write_text(json.dumps(settings))
+PY
+	[ "$code" -eq 0 ] || fail "cannot seed Claude settings: $output"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap failed: $output"
+	settings=$home/.claude/settings.json
+	secret_plugin=$home/.config/opencode/plugins/factory-secret-guard.ts
+	run_plugin=$home/.config/opencode/plugins/factory-run-guard.ts
+	[ -L "$secret_plugin" ] || fail "secret guard plugin link missing"
+	[ -L "$run_plugin" ] || fail "Run guard plugin link missing"
+	[ "$(readlink "$run_plugin")" = "$home/.agents/tools/opencode/run-guard.ts" ] || fail "Run guard plugin link is wrong"
+	[ "$(cat "$home/.config/opencode/plugins/rtk.ts")" = 'keep rtk' ] || fail "unrelated OpenCode plugin changed"
+	run_python - "$settings" "$home" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+home = Path(sys.argv[2])
+runner = f"{home}/.agents/tools/run"
+settings = json.loads(Path(sys.argv[1]).read_text())
+pre = settings["hooks"]["PreToolUse"]
+assert pre[0] == {"matcher": "Bash", "hooks": [{"type": "command", "command": "keep-pre"}]}
+managed = [group for group in pre if any(hook.get("command") == f"{runner} run_guard tool" for hook in group.get("hooks", []))]
+assert managed == [{"matcher": "Bash", "hooks": [{"type": "command", "command": f"{runner} run_guard tool", "timeout": 35, "onFailure": "continue"}]}]
+stop = settings["hooks"]["Stop"]
+assert stop[0] == {"hooks": [{"type": "command", "command": "keep-stop"}]}
+managed = [group for group in stop if any(hook.get("command") == f"{runner} run_guard stop" for hook in group.get("hooks", []))]
+assert managed == [{"hooks": [{"type": "command", "command": f"{runner} run_guard stop", "timeout": 35, "onFailure": "continue"}]}]
+PY
+	[ "$code" -eq 0 ] || fail "Run hooks were not merged correctly: $output"
+	before=$(snapshot)
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "second bootstrap failed: $output"
+	expect_contains "$output" "Already bootstrapped: no changes."
+	[ "$(snapshot)" = "$before" ] || fail "the second bootstrap changed the tree"
+	[ "$(readlink "$run_plugin")" = "$home/.agents/tools/opencode/run-guard.ts" ] || fail "the second bootstrap changed the Run guard plugin link"
+	run_python - "$settings" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+settings = json.loads(path.read_text())
+settings["hooks"]["Stop"] = [group for group in settings["hooks"]["Stop"] if not any("run_guard stop" in hook.get("command", "") for hook in group.get("hooks", []))]
+path.write_text(json.dumps(settings))
+PY
+	[ "$code" -eq 0 ] || fail "cannot remove the Stop hook fixture: $output"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "discovery passed without the Stop hook"
+	expect_contains "$output" "Factory Run guard"
+	run_bootstrap
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair the Stop hook: $output"
+	rm "$run_plugin"
+	ln -s "$home/.config/opencode/plugins/rtk.ts" "$run_plugin"
+	run_discovery
+	[ "$code" -ne 0 ] || fail "discovery passed with a stale Run guard plugin"
+	expect_contains "$output" "factory-run-guard.ts"
+	run_bootstrap --adopt-existing
+	[ "$code" -eq 0 ] || fail "bootstrap did not repair the Run guard plugin: $output"
+	run_discovery
+	[ "$code" -eq 0 ] || fail "discovery failed after Run guard repair: $output"
+	printf 'ok: bootstrap installs both plugins and Run hooks once and reports their drift\n'
+}
+
 case_all() {
 	case_unreadable_references
 	case_push_history
@@ -1478,6 +1560,7 @@ case_all() {
 	case_secret_guard_refusal
 	case_secret_guard_disabled
 	case_secret_guard_version
+	case_run_guard
 	case_repair
 	case_tracked
 	case_synced_tracked
@@ -1518,6 +1601,7 @@ secret-guard) case_secret_guard ;;
 secret-guard-refusal) case_secret_guard_refusal ;;
 secret-guard-disabled) case_secret_guard_disabled ;;
 secret-guard-version) case_secret_guard_version ;;
+run-guard) case_run_guard ;;
 repair) case_repair ;;
 tracked) case_tracked ;;
 synced-tracked) case_synced_tracked ;;

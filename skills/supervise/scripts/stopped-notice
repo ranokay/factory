@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import re
+import sys
+
+
+CHECK_TERM = r"(?:required\s+)?(?:checks?|ci|pipelines?|workflows?)"
+PENDING_CHECKS = re.compile(
+    rf"\b{CHECK_TERM}\s+(?:(?:are|is|remain|remains|still)\s+)*(?:pending|running)\b"
+    rf"|\b(?:pending|waiting for)\s+{CHECK_TERM}\b"
+)
+NEGATED_PENDING_CHECKS = re.compile(
+    rf"\bno\s+{CHECK_TERM}\s+pending\b"
+    rf"|\bnot\s+waiting\s+for\s+{CHECK_TERM}\b"
+    rf"|\b{CHECK_TERM}\s+(?:(?:are|is|remain|remains|still)\s+)*pending\s+"
+    rf"(?:(?:is|was)\s+not\s+(?:the\s+)?(?:blocker|reason)|(?:does|did)\s+not\s+(?:block|prevent))\b"
+)
+
+
+def normalize(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def main() -> int:
+    text = sys.stdin.read().strip()
+    for clause in re.split(r"[;.\n]+", text):
+        normalized = NEGATED_PENDING_CHECKS.sub("", normalize(clause))
+        if PENDING_CHECKS.search(normalized):
+            print("stopped-notice: pending checks cannot be a stopped notice; wait with gh run watch <id> --exit-status", file=sys.stderr)
+            return 2
+    for line in text.splitlines():
+        if not line.lower().startswith("unblock:"):
+            continue
+        value = normalize(line.split(":", 1)[1])
+        if (
+            re.search(r"\b(?:resume|continue|proceed|retry|wait)\b", value)
+            and re.search(rf"\b{CHECK_TERM}\b", value)
+            and re.search(r"\b(?:finish|finishes|finished|complete|completes|completed|pass|passes|passed|green|done)\b", value)
+        ):
+            print("stopped-notice: a pending-check unblock step cannot defer the wait to a later resume", file=sys.stderr)
+            return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
