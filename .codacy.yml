@@ -12,27 +12,15 @@ exclude_paths:
 # deliberately long and branchy. ESLint still scans it; opengrep and lizard only
 # report false positives for a CLI that reads repository-controlled paths.
 engines:
-  agentlinter:
-    exclude_paths:
-      - "AGENTS.md"
-      - "CLAUDE.md"
   opengrep:
     exclude_paths:
       - "profiles/universal/scripts/assets.js"
       - "profiles/apple/scripts/assets.js"
       - "profiles/web/scripts/assets.js"
       - "profiles/universal/tests/assets-test.js"
-  # The shell lexer and Stop handler are protocol state machines; branch count is intentional.
-  prospector:
-    exclude_paths:
-      - "tools/shell_parser.py"
-      - "tools/run_guard.py"
   lizard:
     exclude_paths:
       - "profiles/universal/scripts/assets.js"
       - "profiles/apple/scripts/assets.js"
       - "profiles/web/scripts/assets.js"
       - "profiles/universal/tests/assets-test.js"
-      # The Run guard and its integration suite stay cohesive; NLOC is only a size metric.
-      - "tools/run_guard.py"
-      - "tools/tests/test_run_guard.py"

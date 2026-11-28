@@ -1,5 +1,6 @@
 ---
 name: supervise
+author: ranokay
 description: "Hand a task to a cheaper Worker model in T3 Code, review its plan and its work from Reviewer findings and evidence, then let it ship the PR."
 argument-hint: "[--worker <model>] [--plan|--no-plan] [--notify <thread>] [--resume <Worker thread>] <task>"
 disable-model-invocation: true

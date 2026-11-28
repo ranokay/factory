@@ -88,34 +88,8 @@ class CheckResultTests(unittest.TestCase):
         factory = tomllib.loads((root / "mise.toml").read_text())["tasks"]["check"]
         template = tomllib.loads((root / "project" / "mise.toml").read_text())["tasks"]["check"]
         self.assertIn("tools/check_result.py", json.dumps(factory))
-        self.assertIn("https://raw.githubusercontent.com/ranokay/factory/d5c1f4032ac37a2347b56f8b61aabf7f0a574a14/tools/check_result.py", json.dumps(template))
-        self.assertNotIn(".agents/tools/run", json.dumps(template))
-
-    def test_project_template_uses_the_pinned_recorder_without_bootstrap(self):
-        root = TOOLS.parent
-        run = tomllib.loads((root / "project" / "mise.toml").read_text())["tasks"]["check"]["run"]
-        binary = self.root / "bin"
-        binary.mkdir()
-        log = self.root / "uv.log"
-        uv = binary / "uv"
-        uv.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >>{log}\n")
-        uv.chmod(0o755)
-        home = self.root / "home"
-        home.mkdir()
-        env = dict(self.env, HOME=str(home), PATH=str(binary) + os.pathsep + self.env["PATH"])
-        result = subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- the fixture runs the template check with a fake uv
-            ["sh", "-c", run],
-            cwd=self.repo,
-            text=True,
-            capture_output=True,
-            check=False,
-            env=env,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            log.read_text().splitlines(),
-            ["run --script https://raw.githubusercontent.com/ranokay/factory/d5c1f4032ac37a2347b56f8b61aabf7f0a574a14/tools/check_result.py -- sh -c mise run check:lint && mise run check:security && mise run check:test"],
-        )
+        self.assertIn("~/.agents/tools/run", json.dumps(template))
+        self.assertIn("check_result", json.dumps(template))
 
     def test_failed_recorder_start_cannot_leave_a_stale_pass(self):
         self.assertEqual(self.record("true")[0].returncode, 0)
