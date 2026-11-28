@@ -66,6 +66,7 @@ case_targets() {
 	for line in \
 		'run-targets set' \
 		'run-targets mark' \
+		'GLM alone when DeepSeek is absent' \
 		'targets.json'; do
 		expect_file "$supervise" "$line"
 	done
@@ -89,6 +90,14 @@ case_waiting() {
 	fi
 	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after checks finish' | "$stopped_notice"; then
 		printf 'stopped-notice accepted a deferred check wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · required checks are pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted reordered pending-check wording\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after checks finish;' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a punctuated deferred wait\n' >&2
 		return 1
 	fi
 	printf 'ok: PR forks wait for checks and stopped notices reject deferred waits\n'

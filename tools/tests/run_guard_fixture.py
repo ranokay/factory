@@ -87,6 +87,7 @@ class RunGuardFixture(unittest.TestCase):
         head: str = "sync/upstream-2026-11-28",
         topics: str = "factory-personal-fork",
         topics_json: str | None = None,
+        pr_json: str | None = None,
     ):
         binary = self.root / "bin"
         binary.mkdir(exist_ok=True)
@@ -95,7 +96,7 @@ class RunGuardFixture(unittest.TestCase):
             "#!/bin/sh\n"
             "printf 'cwd=%s %s\\n' \"$PWD\" \"$*\" >>\"$GH_LOG\"\n"
             "case \"$1 $2\" in\n"
-            "  'pr view') [ -z \"${GH_PR_FAIL:-}\" ] || { printf '%s\\n' \"${GH_PR_ERROR:-no pull requests found for branch}\" >&2; exit 1; }; printf '{\"number\":42,\"headRefName\":\"%s\",\"url\":\"https://github.com/o/one/pull/42\"}\\n' \"$GH_HEAD\" ;;\n"
+            "  'pr view') [ -z \"${GH_PR_FAIL:-}\" ] || { printf '%s\\n' \"${GH_PR_ERROR:-no pull requests found for branch}\" >&2; exit 1; }; if [ -n \"${GH_PR_JSON:-}\" ]; then printf '%s\\n' \"$GH_PR_JSON\"; else printf '{\"number\":42,\"headRefName\":\"%s\",\"url\":\"https://github.com/o/one/pull/42\"}\\n' \"$GH_HEAD\"; fi ;;\n"
             "  'pr checks') printf '%s\\n' \"$GH_CHECKS\"; exit \"$GH_CHECKS_CODE\" ;;\n"
             "  'repo view') if [ -n \"${GH_TOPICS_JSON:-}\" ]; then printf '%s\\n' \"$GH_TOPICS_JSON\"; else printf '{\"repositoryTopics\":[{\"name\":\"%s\"}]}\\n' \"$GH_TOPICS\"; fi ;;\n"
             "  *) exit 1 ;;\n"
@@ -109,6 +110,7 @@ class RunGuardFixture(unittest.TestCase):
         self.env["GH_LOG"] = str(self.root / "gh.log")
         self.env["GH_PR_FAIL"] = ""
         self.env["GH_PR_ERROR"] = "no pull requests found for branch"
+        self.env["GH_PR_JSON"] = pr_json or ""
         self.env["GH_CHECKS"] = "[]"
         self.env["GH_CHECKS_CODE"] = "0"
 

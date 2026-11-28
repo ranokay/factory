@@ -147,13 +147,18 @@ def gh_admin_risk(invocation: Invocation, pr_index: int | None) -> bool:
     return explicit_admin and selector_dynamic
 
 
+def value_may_guard(value: str) -> bool:
+    return command_value_guarded(value) or re.search(r"\b(?:push|pr\s+merge|--admin|block-issue)\b", value) is not None
+
+
 def dynamic_rule(command: str) -> str | None:
     parsed = invocations(command)
-    if any(
-        invocation.executable == "eval"
-        and command_value_guarded(" ".join(word.text for word in invocation.arguments))
+    environment_values = [
+        value
         for invocation in parsed
-    ):
+        for _, value in invocation.environment
+    ]
+    if any(invocation.executable == "eval" for invocation in parsed):
         return "Factory Run guard: cannot verify a dynamic command run through eval. Use a literal command."
     command_expansion_guarded = any(
         command_value_guarded(item) for item in command_substitutions(command)
@@ -192,11 +197,6 @@ def dynamic_rule(command: str) -> str | None:
             and {"--reason", "--unblock"}.issubset(arguments)
         )
         dynamic_executable = "$" in invocation.executable or "`" in invocation.executable
-        environment_values = [
-            value
-            for previous in parsed[: position + 1]
-            for _, value in previous.environment
-        ]
         pr_index = gh_pr_index(arguments) if invocation.executable == "gh" else None
         explicit_admin = any(text == "--admin" or text.startswith("--admin=") for text in arguments)
         assigned_admin = invocation.executable == "gh" and any(
@@ -209,6 +209,11 @@ def dynamic_rule(command: str) -> str | None:
         )
         assigned_guarded = dynamic_executable and any(
             command_value_guarded(value) for value in environment_values
+        )
+        unquoted_guarded = (
+            invocation.executable in {"git", "gh", "block-issue"} or dynamic_executable
+        ) and any(has_unquoted_expansion(word) for word in invocation.arguments) and any(
+            value_may_guard(value) for value in environment_values
         )
         subcommand_word = git_subcommand_word(invocation)
         git_guarded = invocation.executable == "git" and subcommand_word is not None and (
@@ -227,6 +232,7 @@ def dynamic_rule(command: str) -> str | None:
             or gh_guarded
             or (dynamic_executable and "push" in arguments)
             or assigned_guarded
+            or unquoted_guarded
             or command_expansion_guarded
             or nested_guarded
             or substitution_guarded

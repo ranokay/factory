@@ -25,3 +25,10 @@ class ParseState:
     environment: list[tuple[str, str]] = field(default_factory=list)
     directory: str | None = None
     invalid: bool = False
+
+
+def has_expansion(word: Word) -> bool:
+    return any(
+        active and char in "$`"
+        for char, active in zip(word.text, word.expansions, strict=True)
+    )

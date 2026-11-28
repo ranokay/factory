@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+import re
 import sys
+
+
+def normalize(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
 def main() -> int:
     text = sys.stdin.read().strip()
-    if "checks pending" in text.lower():
+    normalized = normalize(text)
+    if re.search(r"\b(?:checks?|required checks?)\s+(?:are\s+)?pending\b|\bpending\s+(?:required\s+)?checks?\b", normalized):
         print("stopped-notice: pending checks cannot be a stopped notice; wait with gh run watch <id> --exit-status", file=sys.stderr)
         return 2
     for line in text.splitlines():
         if not line.lower().startswith("unblock:"):
             continue
-        value = line.split(":", 1)[1].strip().strip("`'\" .").lower()
-        if value == "resume after checks finish":
+        if normalize(line.split(":", 1)[1]) == "resume after checks finish":
             print("stopped-notice: a pending-check unblock step cannot defer the wait to a later resume", file=sys.stderr)
             return 2
     return 0

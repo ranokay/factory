@@ -41,7 +41,10 @@ def current_pr(cwd: Path, repeat: bool) -> tuple[int | None, tuple[str, str] | N
             repeat,
         )
     try:
-        return int(json.loads(pull.stdout)["number"]), None
+        number = json.loads(pull.stdout)["number"]
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            raise ValueError("PR number must be a positive integer")
+        return number, None
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         message = f"Factory Run guard: cannot read the current PR: {error}"
         return None, unavailable(message, repeat)

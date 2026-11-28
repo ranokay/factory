@@ -44,6 +44,15 @@ class RunGuardRuntimeTests(RunGuardFixture):
         self.assertEqual(repeat["decision"], "block")
         self.assertIn("warning", repeat["reason"].lower())
 
+    def test_malformed_pr_number_blocks(self):
+        self.gh_stub()
+        for value in ("true", "42.9", '"42"', "0", "-1"):
+            with self.subTest(value=value):
+                self.env["GH_PR_JSON"] = json.dumps({"number": json.loads(value), "headRefName": "feature/example"})
+                output = self.output(self.invoke_mode("stop", {"cwd": str(self.repo)}))
+                self.assertEqual(output["decision"], "block")
+                self.assertIn("positive integer", output["reason"])
+
     def test_malformed_required_checks_block(self):
         self.gh_stub()
         self.env["GH_CHECKS"] = "[null]"

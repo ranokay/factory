@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass
-from pathlib import Path
 
-from shell_parser_types import Invocation, ParseState
+from shell_parser_finish import finish_invocation
+from shell_parser_types import Invocation, ParseState, has_expansion
 
 
 @dataclass
@@ -279,6 +279,31 @@ def consume_shell(state: ParseState) -> bool:
     return True
 
 
+def consume_exec(state: ParseState) -> bool:
+    if state.remaining[0].text != "exec":
+        return False
+    state.remaining.pop(0)
+    while state.remaining and state.remaining[0].text.startswith("-") and state.remaining[0].text != "-":
+        option = state.remaining.pop(0).text
+        if option == "--":
+            break
+        if option in {"--help", "--version"}:
+            state.invalid = True
+            return True
+        if option.startswith("--"):
+            state.dynamic = True
+            continue
+        grouped = option[1:]
+        for index, character in enumerate(grouped):
+            if character == "a":
+                if index == len(grouped) - 1 and state.remaining:
+                    state.remaining.pop(0)
+                break
+            if character not in "cl":
+                state.dynamic = True
+    return True
+
+
 def consume_nohup(state: ParseState) -> bool:
     if state.remaining[0].text != "nohup":
         return False
@@ -502,25 +527,9 @@ def consume_rtk(state: ParseState) -> bool:
     return True
 
 
-def finish_invocation(state: ParseState) -> Invocation | None:
-    if state.invalid:
-        return None
-    if not state.remaining:
-        if state.environment:
-            return Invocation("", (), False, tuple(state.environment), state.directory)
-        return None
-    return Invocation(
-        Path(state.remaining[0].text).name,
-        tuple(state.remaining[1:]),
-        state.dynamic or any(has_expansion(word) for word in state.remaining),
-        tuple(state.environment),
-        state.directory,
-    )
-
-
 def invocation_from_words(words: list[Word]) -> Invocation | None:
     state = ParseState(list(words))
-    handlers = (consume_assignment, consume_command, consume_shell, consume_nohup, consume_sudo, consume_env, consume_rtk)
+    handlers = (consume_assignment, consume_command, consume_shell, consume_exec, consume_nohup, consume_sudo, consume_env, consume_rtk)
     while state.remaining and not state.invalid:
         for handler in handlers:
             if handler(state):
@@ -528,13 +537,6 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
         else:
             break
     return finish_invocation(state)
-
-
-def has_expansion(word: Word) -> bool:
-    return any(
-        active and char in "$`"
-        for char, active in zip(word.text, word.expansions, strict=True)
-    )
 
 
 def has_unquoted_glob(word: Word, start: int = 0) -> bool:
