@@ -1268,6 +1268,16 @@ steps {
             env { ["BLOCK_ISSUE_CASE"] = "no_targets" }
             expect { code = 0 }
           }
+          ["runner exit 1 warns and still posts the Blocker"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "runner_exit_1" }
+            expect { code = 0 }
+          }
+          ["runner exit 2 warns and still posts the Blocker"] {
+            run = "check"
+            env { ["BLOCK_ISSUE_CASE"] = "runner_exit_2" }
+            expect { code = 0 }
+          }
         }
       }
       ["messages"] = new Step {

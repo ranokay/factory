@@ -127,8 +127,16 @@ set -- --reason "$reason" --unblock "$unblock"
 if [ -n "$findings" ]; then
   set -- "$@" --finding "$findings"
 fi
-if ! "$factory/tools/run" run_guard block-issue "$repo" "$issue" "$@"; then
-  exit 2
+if "$factory/tools/run" run_guard block-issue "$repo" "$issue" "$@"; then
+  :
+else
+  status=$?
+  case $status in
+  3) exit 3 ;;
+  *)
+    printf 'Factory Run guard warning: run_guard exited %s; posting the Blocker\n' "$status" >&2
+    ;;
+  esac
 fi
 
 labels=$(gh issue view "$issue" -R "$repo" --json labels --jq '.labels[].name')

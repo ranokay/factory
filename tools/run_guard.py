@@ -495,7 +495,7 @@ def block_issue(arguments: list[str]) -> int:
     message = fallback_reason(repository, issue, reason, unblock, "\n".join(findings))
     if message:
         print(message, file=sys.stderr)
-        return 2
+        return 3
     return 0
 
 

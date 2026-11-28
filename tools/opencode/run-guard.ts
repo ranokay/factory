@@ -5,7 +5,11 @@ import { join } from "node:path"
 type GuardResult = { block: boolean; message?: string; warning?: string }
 type ToolInput = { tool: string; sessionID?: string }
 type ToolOutput = { args: Record<string, unknown> }
-type IdleEvent = { type: string; data: { sessionID: string } }
+type IdleEvent = {
+  type: string
+  data?: { sessionID?: string; status?: { type?: string } }
+  properties?: { sessionID?: string; status?: { type?: string } }
+}
 type PluginContext = {
   directory?: string
   worktree?: string
@@ -17,7 +21,7 @@ type PluginContext = {
     ) => Promise<unknown>
   }
   event?: {
-    subscribe: (options: { signal: AbortSignal }) => AsyncIterable<IdleEvent>
+    subscribe: (options: { types?: string[]; signal: AbortSignal }) => AsyncIterable<IdleEvent>
   }
   session?: {
     get: (input: { sessionID: string }) => Promise<unknown>
@@ -170,8 +174,11 @@ function hooks(context: PluginContext) {
   }
   return {
     "tool.execute.before": beforeTool,
+    sessionIdle: idle,
     event: async ({ event }: { event: IdleEvent }) => {
-      if (event.type === "session.idle") await idle(event.data.sessionID)
+      if (event.type === "session.idle" && event.properties?.sessionID) {
+        await idle(event.properties.sessionID)
+      }
     },
   }
 }
@@ -191,14 +198,16 @@ const plugin = {
       console.warn("Factory Run guard warning: tool.execute.before is unavailable")
     }
     if (!context.event?.subscribe) {
-      console.warn("Factory Run guard warning: session.idle subscription is unavailable")
+      console.warn("Factory Run guard warning: session.status subscription is unavailable")
       return
     }
     const controller = new AbortController()
     void (async () => {
       try {
-        for await (const event of context.event!.subscribe({ signal: controller.signal })) {
-          if (event.type === "session.idle") await registered.event({ event })
+        for await (const event of context.event!.subscribe({ types: ["session.status"], signal: controller.signal })) {
+          if (event.type === "session.status" && event.data?.status?.type === "idle" && event.data.sessionID) {
+            await registered.sessionIdle(event.data.sessionID)
+          }
         }
       } catch (error) {
         if (!controller.signal.aborted) console.warn(`Factory Run guard warning: idle subscription failed: ${String(error)}`)

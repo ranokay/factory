@@ -13,8 +13,22 @@ trap 'rm -rf "$test_root"' EXIT
 . "$script_dir/test-lib.sh"
 init_gh_stub "$test_root"
 
+fail() {
+	printf 'block-issue-test: %s\n' "$*" >&2
+	exit 1
+}
+
 first_content() {
 	awk '/^## Blocker$/ { heading = 1; next } heading && NF { print; exit }' "$GH_BODY"
+}
+
+block_fixture() {
+	fixture_root=$test_root/runner-$1
+	mkdir -p "$fixture_root/factory/skills/supervise/scripts" "$fixture_root/factory/tools"
+	cp "$block" "$script_dir/valid-repo.sh" "$fixture_root/factory/skills/supervise/scripts/"
+	printf '#!/bin/sh\nexit %s\n' "$1" >"$fixture_root/factory/tools/run"
+	chmod +x "$fixture_root/factory/tools/run"
+	fixture_block=$fixture_root/factory/skills/supervise/scripts/block-issue
 }
 
 case_post() {
@@ -291,7 +305,10 @@ case_model_fallback() {
 	if XDG_CACHE_HOME="$cache" "$block" o/one 61 --reason 'opencode-go/hungerg-free unavailable quota' --unblock 'Launch the next target' >"$test_root/out" 2>"$test_root/err"; then
 		printf 'expected an untried fallback to refuse the Blocker\n' >&2
 		return 1
+	else
+		status=$?
 	fi
+	[ "$status" -eq 3 ] || fail "expected refusal exit 3, got $status"
 	expect_contains "$(cat "$test_root/err")" 'opencode-go/hy4-flash-free'
 	[ ! -s "$GH_LOG" ] || fail 'a refused fallback called gh'
 	printf 'ok: a model-only Blocker is refused while a fallback is untried\n'
@@ -330,6 +347,19 @@ case_no_targets() {
 	printf 'ok: a Blocker without a targets file is allowed\n'
 }
 
+case_runner_failure() {
+	reset_gh_fixtures
+	block_fixture "$1"
+	"$fixture_block" o/one 66 --reason 'Worker failed the Gate' --unblock 'Raise the timeout' >"$test_root/out" 2>"$test_root/err"
+	expect_contains "$(cat "$test_root/err")" 'Factory Run guard warning'
+	expect_body '@ranokay Worker failed the Gate'
+	if ! grep -Fq 'issue edit 66 -R o/one --add-label blocked' "$GH_LOG"; then
+		printf 'expected the Blocker label after runner exit %s\n' "$1" >&2
+		return 1
+	fi
+	printf 'ok: runner exit %s warns and still posts the Blocker\n' "$1"
+}
+
 case ${BLOCK_ISSUE_CASE:-all} in
 post) case_post ;;
 order) case_order ;;
@@ -357,6 +387,8 @@ model_fallback) case_model_fallback ;;
 model_fallbacks_tried) case_model_fallbacks_tried ;;
 mixed_fallback) case_mixed_fallback ;;
 no_targets) case_no_targets ;;
+runner_exit_1) case_runner_failure 1 ;;
+runner_exit_2) case_runner_failure 2 ;;
 all)
 	case_post
 	case_order
@@ -384,6 +416,8 @@ all)
 	case_model_fallbacks_tried
 	case_mixed_fallback
 	case_no_targets
+	case_runner_failure 1
+	case_runner_failure 2
 	;;
 *)
 	printf 'unknown case: %s\n' "$BLOCK_ISSUE_CASE" >&2

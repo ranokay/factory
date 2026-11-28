@@ -15,7 +15,7 @@ import { test } from "bun:test"
 import runGuardPlugin, { FactoryRunGuardPlugin } from "./run-guard.ts"
 
 type ToolOutput = { args: Record<string, unknown> }
-type EventHook = (input: { event: { type: string; data: { sessionID: string } } }) => Promise<void>
+type EventHook = (input: { event: { type: string; properties?: { sessionID?: string } } }) => Promise<void>
 const originalRunGuardOutput = process.env.RUN_GUARD_OUTPUT
 
 async function withGuard(
@@ -154,7 +154,7 @@ test("re-prompts an idle session when required checks are pending", async () => 
         },
       },
     })
-    await plugin.event({ event: { type: "session.idle", data: { sessionID: "ses_fixture" } } })
+    await plugin.event({ event: { type: "session.idle", properties: { sessionID: "ses_fixture" } } })
     assert.deepEqual(prompt, { sessionID: "ses_fixture", text: "gh run watch 11 --exit-status" })
     assert.equal(existsSync(join(home, "guard-input.json")), true)
   })
@@ -175,7 +175,7 @@ test("passes repeat only for a consecutive blocked idle", async () => {
           },
         },
       })
-      const event = { event: { type: "session.idle", data: { sessionID: "ses_fixture" } } }
+      const event = { event: { type: "session.idle", properties: { sessionID: "ses_fixture" } } }
       await plugin.event(event)
       assert.equal(JSON.parse(readFileSync(join(home, "guard-input.json"), "utf8")).repeat, false)
       await plugin.event(event)
@@ -200,7 +200,7 @@ test("tool activity resets consecutive idle tracking", async () => {
           },
         },
       })
-      const event = { event: { type: "session.idle", data: { sessionID: "ses_fixture" } } }
+      const event = { event: { type: "session.idle", properties: { sessionID: "ses_fixture" } } }
       await plugin.event(event)
       await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_fixture" }, { args: { command: "gh run watch 11 --exit-status" } })
       await plugin.event(event)
@@ -279,7 +279,7 @@ test("non-serializable tool input warns and fails open", async () => {
   })
 })
 
-test("V2 setup registers the tool hook and consumes session.idle", async () => {
+test("V2 setup registers the tool hook and consumes idle session.status", async () => {
   process.env.RUN_GUARD_OUTPUT = JSON.stringify({ block: true, message: "gh run watch 11 --exit-status" })
   await withGuard(`printf '%s\\n' "$RUN_GUARD_OUTPUT"\n`, async () => {
     let registered: ((event: { tool: string; input: Record<string, unknown>; sessionID?: string }) => Promise<void>) | undefined
@@ -287,7 +287,8 @@ test("V2 setup registers the tool hook and consumes session.idle", async () => {
     const prompted = new Promise<void>((resolve) => {
       resolvePrompt = resolve
     })
-    let subscription: AsyncIterable<{ type: string; data: { sessionID: string } }> | undefined
+    let subscription: AsyncIterable<{ type: string; data: { sessionID: string; status: { type: string } } }> | undefined
+    let subscriptionTypes: string[] | undefined
     const cleanup = await runGuardPlugin.setup({
       directory: "/repo",
       tool: {
@@ -297,10 +298,11 @@ test("V2 setup registers the tool hook and consumes session.idle", async () => {
         },
       },
       event: {
-        subscribe: () => {
+        subscribe: (options: { types?: string[] }) => {
+          subscriptionTypes = options.types
           subscription = {
             async *[Symbol.asyncIterator]() {
-              yield { type: "session.idle", data: { sessionID: "ses_fixture" } }
+              yield { type: "session.status", data: { sessionID: "ses_fixture", status: { type: "idle" } } }
             },
           }
           return subscription
@@ -316,8 +318,43 @@ test("V2 setup registers the tool hook and consumes session.idle", async () => {
     })
     assert.ok(registered)
     assert.ok(subscription)
+    assert.deepEqual(subscriptionTypes, ["session.status"])
     await prompted
     if (typeof cleanup === "function") cleanup()
+  })
+})
+
+test("V2 busy session.status does not re-prompt", async () => {
+  await withGuard("printf '%s\\n' '{\"block\":false}'\n", async () => {
+    let resolveConsumed: (() => void) | undefined
+    const consumed = new Promise<void>((resolve) => {
+      resolveConsumed = resolve
+    })
+    let prompts = 0
+    await runGuardPlugin.setup({
+      directory: "/repo",
+      tool: { hook: async () => ({}) },
+      event: {
+        subscribe: () => ({
+          async *[Symbol.asyncIterator]() {
+            try {
+              yield { type: "session.status", data: { sessionID: "ses_fixture", status: { type: "busy" } } }
+            } finally {
+              resolveConsumed?.()
+            }
+          },
+        }),
+      },
+      session: {
+        get: async () => ({ location: { directory: "/repo" } }),
+        prompt: async () => {
+          prompts += 1
+          return {}
+        },
+      },
+    })
+    await consumed
+    assert.equal(prompts, 0)
   })
 })
 
@@ -383,7 +420,7 @@ test("real shared guard re-prompts pending required checks from session.idle", a
         },
       },
     })
-    await plugin.event({ event: { type: "session.idle", data: { sessionID: "ses_fixture" } } })
+    await plugin.event({ event: { type: "session.idle", properties: { sessionID: "ses_fixture" } } })
     assert.match(prompt?.text || "", /gh run watch 11 --exit-status/)
   })
 })
