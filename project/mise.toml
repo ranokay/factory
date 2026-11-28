@@ -7,3 +7,9 @@ experimental = true
 
 [task_config]
 includes = ["git::https://github.com/ranokay/factory.git//profiles/universal/tasks.toml?ref=v0.5.0"]
+
+[tasks.check]
+description = "Run every Gate and record the clean HEAD result"
+run = '''
+~/.agents/tools/run check_result -- sh -c 'mise run check:lint && mise run check:security && mise run check:test'
+'''

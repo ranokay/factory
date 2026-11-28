@@ -18,6 +18,12 @@ includes = ["profiles/universal/tasks.toml"]
 [env]
 FACTORY_CHECKOUT = "{{ config_root }}"
 
+[tasks.check]
+description = "Run every Gate and record the clean HEAD result"
+run = '''
+uv run --offline --no-project --no-config --python "$(mise which python)" python tools/check_result.py -- sh -c 'mise run check:lint && mise run check:security && mise run check:test'
+'''
+
 [tasks."skills:sync"]
 description = "Sync Vendored Skills at their pins; --check, --check --fetch or --update"
 run = "uv run scripts/skills-sync.py"
@@ -48,7 +54,7 @@ run = "hk test --step trivy-test"
 
 [tasks."tools:test"]
 description = "Run the agent hook helper tests"
-run = ["./tools/run tests", "bun test ./tools/opencode/secret-guard.test.ts"]
+run = ["./tools/run tests", "bun test ./tools/opencode/*.test.ts"]
 
 [tasks.evidence]
 description = "Record Verification Evidence and post the single PR evidence comment"

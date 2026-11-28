@@ -56,6 +56,8 @@ Call `orchestrator_capabilities` once, searching for `opencode-go/deepseek-v4.1-
 
 A task that starts with `/<skill>` becomes, in the brief, an instruction to read that skill's `SKILL.md` by absolute path. Look in this repository's `skills/<skill>/SKILL.md`, then `~/.claude/skills/<skill>/`, then `~/.agents/skills/<skill>/`. Some skills block model invocation, and a path works in every harness.
 
+Before delegating, record the ordered Worker/Reviewer targets with `<this skill's directory>/scripts/run-targets set <owner>/<repo> <issue> '<target JSON>'...`. The list lives at `~/.cache/factory/runs/<owner>/<repo>/<issue>/targets.json`, where the hooks and `block-issue` can read it. After each launch attempt, run `run-targets mark <owner>/<repo> <issue> '<target JSON>'`; an untried entry is the fallback the Run must try before a model-unavailability Blocker.
+
 The launch brief's `/implement` paragraph carries the receipt requirement and the Reviewers' model; keep it verbatim.
 
 Done when the Worker's thread is running on a named model and variant, with the brief and the acceptance conditions.

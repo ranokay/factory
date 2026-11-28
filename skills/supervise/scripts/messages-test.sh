@@ -61,14 +61,26 @@ case_skill() {
 	printf 'ok: the Supervisor rules objections and does not count them as attempts\n'
 }
 
+case_targets() {
+	for line in \
+		'run-targets set' \
+		'run-targets mark' \
+		'targets.json'; do
+		expect_file "$supervise" "$line"
+	done
+	printf 'ok: the Supervisor records ordered targets for the fallback guard\n'
+}
+
 case ${MESSAGES_CASE:-all} in
 headers) case_headers ;;
 objection) case_objection ;;
 skill) case_skill ;;
+targets) case_targets ;;
 all)
 	case_headers
 	case_objection
 	case_skill
+	case_targets
 	;;
 *)
 	printf 'unknown case: %s\n' "$MESSAGES_CASE" >&2

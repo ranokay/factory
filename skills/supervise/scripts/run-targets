@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+factory=$(CDPATH='' cd "$script_dir/../../.." && pwd)
+exec "$factory/tools/run" run_targets "$@"

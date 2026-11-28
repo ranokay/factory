@@ -53,6 +53,7 @@ PROMOTION_LABEL = "dev.factory.promotion-consolidate"
 PROMOTION_LOG = Path("Library") / "Logs" / "factory-promotion-consolidate.log"
 PROMOTION_ERROR_LOG = Path("Library") / "Logs" / "factory-promotion-consolidate-error.log"
 SECRET_GUARD_TIMEOUT = 15
+RUN_GUARD_TIMEOUT = 35
 MIN_CLAUDE_CODE_VERSION = (2, 1, 295)
 AGENT_SOCKET = Path("Library") / "Group Containers" / "2BUA8C4S2C.com.1password" / "t" / "agent.sock"
 SSH_MARKER = "# Factory: github.com through the 1Password SSH agent"
@@ -100,6 +101,7 @@ def desired_links(home: Path) -> list[Link]:
         Link(codex_home(home) / "AGENTS.md", agents / "AGENTS.md"),
         Link(opencode / "AGENTS.md", agents / "AGENTS.md"),
         Link(opencode / "plugins" / "factory-secret-guard.ts", agents / "tools" / "opencode" / "secret-guard.ts"),
+        Link(opencode / "plugins" / "factory-run-guard.ts", agents / "tools" / "opencode" / "run-guard.ts"),
     ]
 
 
@@ -360,19 +362,31 @@ def secret_guard_command(home: Path, mode: str) -> str:
     return f"{shlex.quote(str(home / '.agents' / 'tools' / 'run'))} secret_guard {mode}"
 
 
-def managed_secret_guard_command(home: Path, command: object, mode: str) -> bool:
+def run_guard_command(home: Path, mode: str) -> str:
+    return f"{shlex.quote(str(home / '.agents' / 'tools' / 'run'))} run_guard {mode}"
+
+
+def managed_guard_command(home: Path, command: object, guard: str, mode: str) -> bool:
     if not isinstance(command, str):
         return False
     try:
         words = shlex.split(command)
     except ValueError:
         return False
-    if len(words) != 3 or words[1:] != ["secret_guard", mode]:
+    if len(words) != 3 or words[1:] != [guard, mode]:
         return False
     runner = Path(words[0])
     if words[0].startswith("~/"):
         runner = home / words[0][2:]
     return runner.resolve(strict=False) == (home / ".agents" / "tools" / "run").resolve(strict=False)
+
+
+def managed_secret_guard_command(home: Path, command: object, mode: str) -> bool:
+    return managed_guard_command(home, command, "secret_guard", mode)
+
+
+def managed_run_guard_command(home: Path, command: object, mode: str) -> bool:
+    return managed_guard_command(home, command, "run_guard", mode)
 
 
 def secret_guard_settings_current(home: Path, settings: object) -> bool:
@@ -406,6 +420,39 @@ def secret_guard_settings_current(home: Path, settings: object) -> bool:
         if len(managed) != 1:
             return False
         if managed[0].get("matcher") != "*" or managed[0].get("hooks") != [wanted]:
+            return False
+    return True
+
+
+def run_guard_settings_current(home: Path, settings: object) -> bool:
+    if not isinstance(settings, dict):
+        return False
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    for event, mode, matcher in (("PreToolUse", "tool", "Bash"), ("Stop", "stop", None)):
+        groups = hooks.get(event)
+        if not isinstance(groups, list):
+            return False
+        wanted = {
+            "type": "command",
+            "command": run_guard_command(home, mode),
+            "timeout": RUN_GUARD_TIMEOUT,
+            "onFailure": "continue",
+        }
+        managed = []
+        for group in groups:
+            if not isinstance(group, dict):
+                return False
+            commands = group.get("hooks", [])
+            if not isinstance(commands, list):
+                return False
+            if any(
+                isinstance(command, dict) and managed_run_guard_command(home, command.get("command"), mode)
+                for command in commands
+            ):
+                managed.append(group)
+        if len(managed) != 1 or managed[0].get("matcher") != matcher or managed[0].get("hooks") != [wanted]:
             return False
     return True
 
@@ -459,6 +506,45 @@ def render_secret_guard_settings(home: Path) -> str:
         if not found:
             rendered.append({"matcher": "*", "hooks": [wanted]})
         hooks[event] = rendered
+    for event, mode, matcher in (("PreToolUse", "tool", "Bash"), ("Stop", "stop", None)):
+        groups = hooks.setdefault(event, [])
+        if not isinstance(groups, list):
+            raise ValueError(f"Claude settings {event} hooks must be a JSON array")
+        wanted = {
+            "type": "command",
+            "command": run_guard_command(home, mode),
+            "timeout": RUN_GUARD_TIMEOUT,
+            "onFailure": "continue",
+        }
+        wanted_group = {"hooks": [wanted]} if matcher is None else {"matcher": matcher, "hooks": [wanted]}
+        rendered = []
+        found = False
+        for group in groups:
+            if not isinstance(group, dict):
+                raise ValueError(f"Claude settings {event} contains a non-object hook group")
+            commands = group.get("hooks", [])
+            if not isinstance(commands, list):
+                raise ValueError(f"Claude settings {event} contains a non-array hooks group")
+            remaining = [
+                command
+                for command in commands
+                if not (isinstance(command, dict) and managed_run_guard_command(home, command.get("command"), mode))
+            ]
+            managed = len(remaining) != len(commands)
+            if managed and not found:
+                if remaining:
+                    rendered.append({**group, "hooks": remaining})
+                    rendered.append(wanted_group)
+                elif group.get("matcher") == matcher:
+                    rendered.append({**group, "hooks": [wanted]})
+                else:
+                    rendered.append(wanted_group)
+                found = True
+            elif remaining or not managed:
+                rendered.append(group if not managed else {**group, "hooks": remaining})
+        if not found:
+            rendered.append(wanted_group)
+        hooks[event] = rendered
     return json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -470,7 +556,7 @@ def install_secret_guard(home: Path) -> bool:
     current = path.read_text() if path.is_file() else ""
     if current.strip():
         settings = json.loads(current)
-        if secret_guard_settings_current(home, settings):
+        if secret_guard_settings_current(home, settings) and run_guard_settings_current(home, settings):
             print(f"bootstrap: {display(path, home)} is current")
             return False
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1070,11 +1156,21 @@ def secret_guard_errors(home: Path) -> list[str]:
             errors.append(
                 f"Factory secret guard: {display(settings, home)} is missing or stale; run mise run bootstrap"
             )
+        if not run_guard_settings_current(home, parsed):
+            errors.append(
+                f"Factory Run guard: {display(settings, home)} is missing or stale; run mise run bootstrap"
+            )
     plugin = config_home(home) / "opencode" / "plugins" / "factory-secret-guard.ts"
     target = home / ".agents" / "tools" / "opencode" / "secret-guard.ts"
     if resolved_link(plugin) != target.resolve(strict=False) or not target.is_file():
         errors.append(
             f"Factory secret guard: {display(plugin, home)} is missing or stale; run mise run bootstrap"
+        )
+    run_plugin = config_home(home) / "opencode" / "plugins" / "factory-run-guard.ts"
+    run_target = home / ".agents" / "tools" / "opencode" / "run-guard.ts"
+    if resolved_link(run_plugin) != run_target.resolve(strict=False) or not run_target.is_file():
+        errors.append(
+            f"Factory Run guard: {display(run_plugin, home)} is missing or stale; run mise run bootstrap"
         )
     return errors
 
