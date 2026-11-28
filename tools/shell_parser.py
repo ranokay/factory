@@ -157,6 +157,13 @@ def invocations(command: str) -> list[Invocation]:
     return result
 
 
+def split_env_string(value: str) -> list[str] | None:
+    try:
+        return shlex.split(value)
+    except ValueError:
+        return None
+
+
 def invocation_from_words(words: list[Word]) -> Invocation | None:
     remaining = list(words)
     while remaining:
@@ -180,6 +187,9 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 "-C", "--close-from", "-T", "--command-timeout", "-D", "--chdir",
                 "-R", "--chroot", "-r", "--role", "-t", "--type", "-U", "--other-user",
             }
+            long_value_options = {
+                option for option in value_options if option.startswith("--")
+            }
             short_value_options = {
                 option[1] for option in value_options if option.startswith("-") and not option.startswith("--")
             }
@@ -188,7 +198,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 if option == "--":
                     remaining.pop(0)
                     break
-                if option in {"-l", "--list", "-v", "--validate", "-V", "--version"}:
+                if option in {"-l", "--list", "-v", "--validate", "-V", "--version", "--help"}:
                     return None
                 if option in value_options:
                     remaining.pop(0)
@@ -196,7 +206,13 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                         remaining.pop(0)
                     continue
                 if option.startswith("--"):
+                    name = option.split("=", 1)[0]
+                    takes_value = "=" not in option and any(
+                        candidate.startswith(name) for candidate in long_value_options
+                    )
                     remaining.pop(0)
+                    if takes_value and remaining:
+                        remaining.pop(0)
                     continue
                 if option.startswith("-") and len(option) > 1:
                     grouped = option[1:]
@@ -223,17 +239,21 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 if candidate == "--":
                     remaining.pop(0)
                     break
-                if candidate in {"--help", "--version", "--list-signal-handling"}:
+                if candidate in {"--help", "--version"}:
                     return None
                 if candidate in {"-S", "--split-string"}:
                     remaining.pop(0)
                     if not remaining:
                         return None
-                    split = shlex.split(remaining.pop(0).text)
+                    split = split_env_string(remaining.pop(0).text)
+                    if split is None:
+                        return None
                     remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                     continue
                 if candidate.startswith("--split-string="):
-                    split = shlex.split(candidate.split("=", 1)[1])
+                    split = split_env_string(candidate.split("=", 1)[1])
+                    if split is None:
+                        return None
                     remaining.pop(0)
                     remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                     continue
@@ -247,7 +267,7 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     continue
                 if candidate in {
                     "-i", "-0", "-v", "-", "--ignore-environment", "--null", "--debug",
-                    "--block-signal", "--default-signal", "--ignore-signal",
+                    "--list-signal-handling", "--block-signal", "--default-signal", "--ignore-signal",
                 } or candidate.startswith(("--block-signal=", "--default-signal=", "--ignore-signal=")):
                     remaining.pop(0)
                     continue
@@ -262,7 +282,9 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                                 value = remaining.pop(0).text
                             else:
                                 value = grouped[index + 1 :]
-                            split = shlex.split(value)
+                            split = split_env_string(value)
+                            if split is None:
+                                return None
                             remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                             break
                         if character in "uCP":

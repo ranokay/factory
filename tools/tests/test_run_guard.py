@@ -88,9 +88,9 @@ class RunGuardTests(unittest.TestCase):
             "sudo -v git push",
             "sudo -nl git push",
             "sudo -nv git push",
+            "sudo --help git push",
             "env --help git push",
             "env --version git push",
-            "env --list-signal-handling git push",
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
@@ -173,12 +173,18 @@ class RunGuardTests(unittest.TestCase):
             "sudo -nuroot git push",
             "sudo --user root git push",
             "sudo --user=root git push",
+            "sudo --us root git push",
+            "sudo --chd /tmp git push",
             "sudo -n -- git push",
             "env -S 'git push'",
             "env -S'git push'",
             "env --split-string='git push'",
             "env -vS'git push'",
             "env -ivS'git push'",
+            "echo ok; env -S 'x\\'; git push",
+            "echo ok; env -S'x\\'; git push",
+            "echo ok; env --split-string='x\\'; git push",
+            "echo ok; env -vS 'x\\'; git push",
             "env -i git push",
             "env -v git push",
             "env -iv git push",
@@ -197,6 +203,7 @@ class RunGuardTests(unittest.TestCase):
             "env --chdir /tmp git push",
             "env --chdir=/tmp git push",
             "env --block-signal=TERM git push",
+            "env --list-signal-handling git push",
             "env -- git push",
             "env FOO=bar git push",
         ):
