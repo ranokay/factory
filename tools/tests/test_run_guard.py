@@ -73,6 +73,7 @@ class RunGuardTests(RunGuardFixture):
             "FLAGS='git push'; env -S \"$FLAGS\"",
             "echo `git push`",
             'echo "$(git push)"',
+            "eval 'git push'",
             "CMD='gh pr merge 42 --admin'; $CMD",
             "gh pr \"$SUB\" --admin",
             "gh pr merge sync/x \"--admin=$T\"",
@@ -285,6 +286,7 @@ class RunGuardTests(RunGuardFixture):
             f"git --work-tree {self.repo} push",
             f"GIT_DIR={self.repo}/.git git push",
             f"GIT_DIR={self.repo}/.git+=x git push",
+            f"export GIT_DIR={self.repo}/.git; git push",
             "git push --all",
             "git push origin --tags",
             "git push origin main :refs/heads/other",
@@ -394,6 +396,7 @@ class RunGuardTests(RunGuardFixture):
             ("set -a; GH_REPO=victim/repo; set +a; gh pr merge 42 --admin", "GH_REPO"),
             ("GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
             ("GH_REPO=o/r+=x gh pr merge 42 --admin", "GH_REPO"),
+            ("(cd /tmp); gh pr merge 42 --admin", "subshell"),
             ("cd; gh pr merge 42 --admin", "bare"),
             ("cd -; gh pr merge 42 --admin", "previous-directory"),
         ):

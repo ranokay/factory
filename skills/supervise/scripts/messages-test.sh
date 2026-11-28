@@ -5,6 +5,7 @@ script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 skill_dir=$(dirname "$script_dir")
 messages=$skill_dir/references/messages.md
 supervise=$skill_dir/SKILL.md
+stopped_notice=$script_dir/stopped-notice
 
 expect_file() {
 	if ! grep -Fq -e "$2" "$1"; then
@@ -71,16 +72,40 @@ case_targets() {
 	printf 'ok: the Supervisor records ordered targets for the fallback guard\n'
 }
 
+case_waiting() {
+	for line in \
+		'gh run watch <id> --exit-status' \
+		'gh event listen' \
+		'scripts/stopped-notice' \
+		'checks pending' \
+		'resume after checks finish'; do
+		expect_file "$supervise" "$line"
+		expect_file "$messages" "$line"
+	done
+	printf '%s\n' 'supervise · notice · task · stopped thread · human decision' 'unblock: ranokay approves' | "$stopped_notice"
+	if printf '%s\n' 'supervise · notice · task · stopped thread · checks pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted pending checks\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after checks finish' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a deferred check wait\n' >&2
+		return 1
+	fi
+	printf 'ok: PR forks wait for checks and stopped notices reject deferred waits\n'
+}
+
 case ${MESSAGES_CASE:-all} in
 headers) case_headers ;;
 objection) case_objection ;;
 skill) case_skill ;;
 targets) case_targets ;;
+waiting) case_waiting ;;
 all)
 	case_headers
 	case_objection
 	case_skill
 	case_targets
+	case_waiting
 	;;
 *)
 	printf 'unknown case: %s\n' "$MESSAGES_CASE" >&2

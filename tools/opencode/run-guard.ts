@@ -130,9 +130,11 @@ async function sessionDirectory(context: PluginContext, sessionID: string): Prom
   if (!sessionID || !context.session?.get) return directory(context)
   try {
     const session = (await context.session.get({ sessionID })) as {
+      data?: { directory?: string; location?: { directory?: string } }
+      directory?: string
       location?: { directory?: string }
     } | null
-    const resolved = session?.location?.directory
+    const resolved = session?.data?.location?.directory || session?.data?.directory || session?.location?.directory || session?.directory
     if (!resolved) console.warn("Factory Run guard warning: session has no directory")
     return resolved
   } catch (error) {

@@ -213,10 +213,21 @@ def verify_push(invocation: Invocation, directory: Path, head_may_change: bool) 
     return None
 
 
+def exports_git_dir(invocation: Invocation) -> bool:
+    if any(name == "GIT_DIR" for name, _ in invocation.environment):
+        return True
+    return invocation.executable in {"export", "declare", "typeset", "readonly"} and any(
+        argument.text == "GIT_DIR" or argument.text.startswith(("GIT_DIR=", "GIT_DIR+="))
+        for argument in invocation.arguments
+    )
+
+
 def push_rule(command: str, cwd: Path) -> str | None:
     possible_cwds = {cwd}
     head_may_change = False
+    exported_git_dir = False
     for invocation in invocations(command):
+        exported_git_dir = exported_git_dir or exports_git_dir(invocation)
         if invocation.executable == "popd":
             return "Factory Run guard: cannot verify a push after popd. Run the push from an explicit repository directory."
         possible_cwds, error = directory_change(invocation, possible_cwds)
@@ -231,6 +242,8 @@ def push_rule(command: str, cwd: Path) -> str | None:
             head_may_change = True
         if subcommand_word is None or subcommand_word.text != "push":
             continue
+        if exported_git_dir:
+            return "Factory Run guard: exported GIT_DIR pushes are unsupported; use git -C <repository> push."
         base_cwds = (
             {resolve_directory(directory, invocation.directory) for directory in possible_cwds}
             if invocation.directory

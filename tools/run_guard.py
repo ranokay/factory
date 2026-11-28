@@ -149,6 +149,12 @@ def gh_admin_risk(invocation: Invocation, pr_index: int | None) -> bool:
 
 def dynamic_rule(command: str) -> str | None:
     parsed = invocations(command)
+    if any(
+        invocation.executable == "eval"
+        and any(command_value_guarded(word.text) for word in invocation.arguments)
+        for invocation in parsed
+    ):
+        return "Factory Run guard: cannot verify a dynamic command run through eval. Use a literal command."
     command_expansion_guarded = any(
         command_value_guarded(item) for item in command_substitutions(command)
     )

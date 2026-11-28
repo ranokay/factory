@@ -318,7 +318,7 @@ test("V1 client session methods resolve the directory and re-prompt idle", async
       directory: "/wrong-repo",
       client: {
         session: {
-          get: async () => ({ location: { directory: "/repo" } }),
+          get: async () => ({ data: { directory: "/repo" } }),
           prompt: async (input) => {
             prompt = input
             return {}

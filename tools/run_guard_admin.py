@@ -179,6 +179,8 @@ def verify_admin(invocation: Invocation, selector: str | None, repository: str |
 
 
 def admin_rule(command: str, cwd: Path) -> str | None:
+    if re.search(r"\([^)]*\b(?:cd|pushd)\b", command):
+        return "Factory Run guard: cannot verify an admin merge after a subshell directory change. Run the merge from an explicit checkout."
     for context in admin_contexts(command, cwd):
         if context.error:
             return context.error

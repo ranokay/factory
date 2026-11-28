@@ -33,7 +33,7 @@ class RunGuardRuntimeTests(RunGuardFixture):
         self.env["GH_PR_FAIL"] = "1"
         self.assertEqual(self.output(self.invoke_mode("stop", {"cwd": str(self.repo)})), {})
 
-    def test_unavailable_stop_facts_block_once_then_warn_and_allow(self):
+    def test_unavailable_stop_facts_keep_blocking(self):
         self.gh_stub()
         self.env["GH_PR_FAIL"] = "1"
         self.env["GH_PR_ERROR"] = "network unavailable"
@@ -41,8 +41,8 @@ class RunGuardRuntimeTests(RunGuardFixture):
         first = self.output(self.invoke_mode("stop", {"cwd": str(self.repo), "stop_hook_active": False}))
         self.assertEqual(first["decision"], "block")
         repeat = self.output(self.invoke_mode("stop", {"cwd": str(self.repo), "stop_hook_active": True}))
-        self.assertNotIn("decision", repeat)
-        self.assertIn("warning", repeat["systemMessage"].lower())
+        self.assertEqual(repeat["decision"], "block")
+        self.assertIn("warning", repeat["reason"].lower())
 
     def test_pending_checks_keep_blocking_on_a_repeat_stop(self):
         self.gh_stub()
@@ -154,8 +154,8 @@ class RunGuardRuntimeTests(RunGuardFixture):
         first = self.output(self.invoke_mode("opencode-idle", {"cwd": str(self.repo), "repeat": False}))
         self.assertTrue(first["block"])
         repeat = self.output(self.invoke_mode("opencode-idle", {"cwd": str(self.repo), "repeat": True}))
-        self.assertFalse(repeat["block"])
-        self.assertIn("warning", repeat["warning"].lower())
+        self.assertTrue(repeat["block"])
+        self.assertIn("warning", repeat["message"].lower())
 
     def test_internal_crash_warns_and_fails_open(self):
         result = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- this checkout's guard

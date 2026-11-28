@@ -24,7 +24,7 @@ def gh(arguments: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 
 def unavailable(message: str, repeat: bool) -> tuple[str, str]:
     if repeat:
-        return "warning", f"Factory Run guard warning: {message}"
+        return "block", f"Factory Run guard warning: {message}"
     return "block", message
 
 
