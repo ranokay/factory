@@ -13,7 +13,7 @@ from run_guard_fixture import RunGuardFixture
 GUARD = Path(__file__).resolve().parents[1] / "run_guard.py"
 
 
-class RunGuardStopTests(RunGuardFixture):
+class RunGuardRuntimeTests(RunGuardFixture):
     def test_stop_blocks_each_pending_required_run(self):
         self.gh_stub()
         self.env["GH_CHECKS"] = json.dumps(

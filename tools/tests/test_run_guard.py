@@ -69,7 +69,10 @@ class RunGuardTests(RunGuardFixture):
             "$(which gh) pr merge 42 --admin",
             "CMD=push && git \"$CMD\"",
             "CMD='git push'; $CMD",
+            "CMD='git push' bash -c '$CMD'",
             "FLAGS='git push'; env -S \"$FLAGS\"",
+            "echo `git push`",
+            'echo "$(git push)"',
             "CMD='gh pr merge 42 --admin'; $CMD",
             "gh pr \"$SUB\" --admin",
             "gh pr merge sync/x \"--admin=$T\"",
@@ -293,6 +296,17 @@ class RunGuardTests(RunGuardFixture):
                 output = self.output(self.invoke(command, cwd=other))
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
 
+    def test_deletion_push_requires_a_pass_record(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        for command in ("git push --delete origin x", "git push origin :refs/heads/other"):
+            with self.subTest(command=command):
+                output = self.output(self.invoke(command))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("no passing mise run check record", output["hookSpecificOutput"]["permissionDecisionReason"])
+        recorded = self.record_check("true")
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        self.assertEqual(self.output(self.invoke("git push --delete origin x")), {})
+
     def test_push_refspec_requires_a_record_for_the_pushed_commit(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
         recorded = self.record_check("true")
@@ -343,6 +357,7 @@ class RunGuardTests(RunGuardFixture):
             "gh pr merge -b body 42 --admin",
             "gh pr merge -F body.md 42 --admin",
             "gh pr merge -A author@example.invalid 42 --admin",
+            'gh pr merge 42 --admin --body "$BODY"',
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
@@ -379,7 +394,6 @@ class RunGuardTests(RunGuardFixture):
             ("set -a; GH_REPO=victim/repo; set +a; gh pr merge 42 --admin", "GH_REPO"),
             ("GH_REPO=victim/repo; gh pr merge 42 --admin", "GH_REPO"),
             ("GH_REPO=o/r+=x gh pr merge 42 --admin", "GH_REPO"),
-            ("cd /tmp && gh pr merge 42 --admin", "directory change"),
             ("cd; gh pr merge 42 --admin", "bare"),
             ("cd -; gh pr merge 42 --admin", "previous-directory"),
         ):
@@ -401,12 +415,19 @@ class RunGuardTests(RunGuardFixture):
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("repositoryTopics", output["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_admin_merge_uses_the_changed_checkout(self):
+        self.gh_stub()
+        fork = self.root / "fork"
+        fork.mkdir()
+        self.assertEqual(self.output(self.invoke(f"cd {fork} && gh pr merge 42 --admin")), {})
+
     def test_plain_merge_does_not_query_github(self):
         self.gh_stub(head="feature/example", topics="")
         for command in (
             "gh pr merge 42 --merge",
             'gh pr merge 42 --merge --body "$BODY"',
             'gh pr merge 42 --merge --body="$BODY"',
+            'gh pr merge "$PR" --merge',
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})

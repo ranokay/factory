@@ -293,7 +293,7 @@ def consume_nohup(state: ParseState) -> bool:
     return True
 
 
-def consume_sudo_long(state: ParseState, value_options: set[str]) -> tuple[bool, bool]:
+def consume_sudo_long(state: ParseState, value_options: set[str]) -> bool:
     option = state.remaining[0].text
     name = option.split("=", 1)[0]
     shell_mode = "=" not in option and ("--shell".startswith(name) or "--login".startswith(name))
@@ -305,16 +305,16 @@ def consume_sudo_long(state: ParseState, value_options: set[str]) -> tuple[bool,
             state.directory = value
     elif "=" in option and "--chdir".startswith(name) and not "--chroot".startswith(name):
         state.directory = option.split("=", 1)[1]
-    return True, shell_mode
+    return shell_mode
 
 
-def consume_sudo_short(state: ParseState, value_options: set[str]) -> tuple[bool, bool]:
+def consume_sudo_short(state: ParseState, value_options: set[str]) -> bool:
     grouped = state.remaining[0].text[1:]
     shell_mode = False
     for index, character in enumerate(grouped):
         if character in "lvV":
             state.invalid = True
-            return True, shell_mode
+            return shell_mode
         if character in "si":
             shell_mode = True
         if character in value_options:
@@ -328,7 +328,7 @@ def consume_sudo_short(state: ParseState, value_options: set[str]) -> tuple[bool
             break
     else:
         state.remaining.pop(0)
-    return True, shell_mode
+    return shell_mode
 
 
 def consume_sudo(state: ParseState) -> bool:
@@ -363,12 +363,10 @@ def consume_sudo(state: ParseState) -> bool:
                     state.directory = value
             continue
         if option.startswith("--"):
-            _, option_shell = consume_sudo_long(state, long_values)
-            shell_mode = shell_mode or option_shell
+            shell_mode = consume_sudo_long(state, long_values) or shell_mode
             continue
         if option.startswith("-") and len(option) > 1:
-            _, option_shell = consume_sudo_short(state, short_values)
-            shell_mode = shell_mode or option_shell
+            shell_mode = consume_sudo_short(state, short_values) or shell_mode
             continue
         break
     if shell_mode and state.remaining:

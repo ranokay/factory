@@ -11,6 +11,11 @@ from run_guard_paths import directory_target, resolve_directory
 from run_guard_stop import gh
 from shell_parser import Invocation, invocations
 
+GH_MERGE_VALUE_OPTIONS = {
+    "-A", "--author-email", "-b", "--body", "-F", "--body-file",
+    "-R", "--repo", "-t", "--subject", "--match-head-commit",
+}
+
 
 def gh_merge(invocation: Invocation) -> tuple[str | None, str | None] | None:
     if invocation.executable != "gh":
@@ -45,13 +50,9 @@ def gh_merge(invocation: Invocation) -> tuple[str | None, str | None] | None:
         return None
     selector = None
     index = merge + 1
-    options_with_values = {
-        "-A", "--author-email", "-b", "--body", "-F", "--body-file",
-        "-R", "--repo", "-t", "--subject", "--match-head-commit",
-    }
     while index < len(texts):
         text = texts[index]
-        if text in options_with_values:
+        if text in GH_MERGE_VALUE_OPTIONS:
             index += 2
             continue
         if not text.startswith("-"):
@@ -86,28 +87,16 @@ def exported_repo(invocation: Invocation) -> bool:
     )
 
 
-def directory_changed(invocation: Invocation) -> tuple[bool, str | None]:
-    if invocation.executable not in {"cd", "pushd"}:
-        return False, None
-    _, error = directory_target(invocation.arguments)
-    if error == "bare":
-        return False, "Factory Run guard: cannot verify an admin merge after a bare directory change. Use an explicit repository directory."
-    if error == "previous":
-        return False, "Factory Run guard: cannot verify an admin merge after a bare or previous-directory change. Use an explicit repository directory."
-    return True, None
-
-
 @dataclass
 class AdminContext:
     invocation: Invocation | None
     merge: tuple[str | None, str | None] | None
-    changed: bool
+    cwd: Path
     exported: bool
     error: str | None
 
 
-def admin_contexts(command: str) -> list[AdminContext]:
-    changed = False
+def admin_contexts(command: str, cwd: Path) -> list[AdminContext]:
     exported = False
     contexts: list[AdminContext] = []
     for invocation in invocations(command):
@@ -115,17 +104,22 @@ def admin_contexts(command: str) -> list[AdminContext]:
         if invocation.executable in {"export", "declare", "typeset", "readonly"}:
             continue
         if invocation.executable in {"cd", "pushd"}:
-            changed, error = directory_changed(invocation)
+            target, error = directory_target(invocation.arguments)
+            if error == "bare":
+                error = "Factory Run guard: cannot verify an admin merge after a bare directory change. Use an explicit repository directory."
+            elif error == "previous":
+                error = "Factory Run guard: cannot verify an admin merge after a bare or previous-directory change. Use an explicit repository directory."
             if error:
-                contexts.append(AdminContext(invocation, None, changed, exported, error))
+                contexts.append(AdminContext(invocation, None, cwd, exported, error))
                 return contexts
+            cwd = resolve_directory(cwd, target)
             continue
         if invocation.executable == "popd":
             contexts.append(
                 AdminContext(
                     invocation,
                     None,
-                    changed,
+                    cwd,
                     exported,
                     "Factory Run guard: cannot verify an admin merge after popd. Run the merge from an explicit repository directory.",
                 )
@@ -133,7 +127,7 @@ def admin_contexts(command: str) -> list[AdminContext]:
             return contexts
         merge = gh_merge(invocation)
         if merge is not None:
-            contexts.append(AdminContext(invocation, merge, changed, exported, None))
+            contexts.append(AdminContext(invocation, merge, cwd, exported, None))
     return contexts
 
 
@@ -185,17 +179,15 @@ def verify_admin(invocation: Invocation, selector: str | None, repository: str |
 
 
 def admin_rule(command: str, cwd: Path) -> str | None:
-    for context in admin_contexts(command):
+    for context in admin_contexts(command, cwd):
         if context.error:
             return context.error
         if context.merge is None or context.invocation is None:
             continue
         if context.exported or any(name == "GH_REPO" for name, _ in context.invocation.environment):
             return "Factory Run guard: GH_REPO admin merges are unsupported; use gh -R <repository> pr merge."
-        if context.changed:
-            return "Factory Run guard: cannot verify an admin merge after a directory change. Run the merge from the target checkout."
         selector, repository = context.merge
-        reason = verify_admin(context.invocation, selector, repository, cwd)
+        reason = verify_admin(context.invocation, selector, repository, context.cwd)
         if reason:
             return reason
     return None

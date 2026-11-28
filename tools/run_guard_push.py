@@ -74,7 +74,7 @@ def git_push_options(invocation: Invocation, cwd: Path) -> tuple[Path, int] | No
     return None
 
 
-def push_sources(arguments: tuple[Word, ...], index: int) -> list[str] | None:
+def push_sources(arguments: tuple[Word, ...], index: int) -> list[str]:
     sources: list[str] = []
     deleted_refs = 0
     repository_seen = False
@@ -109,7 +109,7 @@ def push_sources(arguments: tuple[Word, ...], index: int) -> list[str] | None:
     if sources and deleted_refs:
         raise ValueError("mixed deletion and update pushes are unsupported")
     if delete_option or deleted_refs:
-        return None
+        return ["HEAD"]
     return sources
 
 
@@ -118,8 +118,7 @@ def git_push(invocation: Invocation, cwd: Path) -> tuple[Path, list[str]] | None
     if options is None:
         return None
     directory, index = options
-    sources = push_sources(invocation.arguments, index)
-    return directory, [] if sources is None else sources or ["HEAD"]
+    return directory, push_sources(invocation.arguments, index) or ["HEAD"]
 
 
 def repository_root(directory: Path) -> Path | None:
