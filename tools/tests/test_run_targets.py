@@ -52,6 +52,15 @@ class RunTargetsTests(unittest.TestCase):
         self.assertEqual(following.returncode, 0, following.stderr)
         self.assertEqual(json.loads(following.stdout)["model"], "opencode-go/hy4-flash-free")
 
+    def test_mark_marks_every_duplicate_target_identity(self):
+        self.assertEqual(self.invoke("set", "o/one", "6", self.primary, self.primary, self.fallback).returncode, 0)
+        marked = self.invoke("mark", "o/one", "6", self.primary)
+        self.assertEqual(marked.returncode, 0, marked.stderr)
+        targets = json.loads(self.path().read_text())["targets"]
+        self.assertEqual([target["tried"] for target in targets], [True, True, False])
+        following = self.invoke("next", "o/one", "6")
+        self.assertEqual(json.loads(following.stdout)["model"], "opencode-go/hy4-flash-free")
+
     def test_invalid_repository_cannot_write_targets(self):
         result = self.invoke("set", "../evil", "6", self.primary)
         self.assertNotEqual(result.returncode, 0)

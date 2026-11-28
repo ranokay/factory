@@ -11,5 +11,9 @@ includes = ["git::https://github.com/ranokay/factory.git//profiles/universal/tas
 [tasks.check]
 description = "Run every Gate and record the clean HEAD result"
 run = '''
-~/.agents/tools/run check_result -- sh -c 'mise run check:lint && mise run check:security && mise run check:test'
+if [ -x "$HOME/.agents/tools/run" ]; then
+  "$HOME/.agents/tools/run" check_result -- sh -c 'mise run check:lint && mise run check:security && mise run check:test'
+else
+  sh -c 'mise run check:lint && mise run check:security && mise run check:test'
+fi
 '''
