@@ -325,16 +325,6 @@ def apply_profiles(clone, chain, tag, agents_absent, hk_absent):
         problem("the Project Template did not install mise.toml")
     original = mise_path.read_text()
     text = original
-    template_data = tomllib.loads(original)
-    template_tag = next(
-        (ref for entry in template_data.get("include", []) if (ref := factory_ref(entry))),
-        None,
-    )
-    if template_tag:
-        text = text.replace(
-            f"https://raw.githubusercontent.com/ranokay/factory/{template_tag}/",
-            f"https://raw.githubusercontent.com/ranokay/factory/{tag}/",
-        )
     for profile in chain:
         mise_url, tasks_url = include_urls(profile, tag)
         text, _ = ensure_include(text, "include", None, mise_url, profile)

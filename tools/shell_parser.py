@@ -235,8 +235,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
     directory: str | None = None
     while remaining:
         first = remaining[0].text
-        if re.match(r"[A-Za-z_][A-Za-z_0-9]*=", first):
-            name, value = first.split("=", 1)
+        if re.match(r"[A-Za-z_][A-Za-z_0-9]*\+?=", first):
+            name, value = first.split("+=", 1) if "+=" in first else first.split("=", 1)
             environment.append((name, value))
             remaining.pop(0)
             continue
@@ -354,8 +354,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             remaining.pop(0)
             while remaining:
                 candidate = remaining[0].text
-                if re.match(r"[A-Za-z_][A-Za-z_0-9]*=", candidate):
-                    name, value = candidate.split("=", 1)
+                if re.match(r"[A-Za-z_][A-Za-z_0-9]*\+?=", candidate):
+                    name, value = candidate.split("+=", 1) if "+=" in candidate else candidate.split("=", 1)
                     environment.append((name, value))
                     remaining.pop(0)
                     continue

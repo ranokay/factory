@@ -377,7 +377,7 @@ def admin_rule(command: str, cwd: Path) -> str | None:
         if any(name == "GH_REPO" for name, _ in invocation.environment):
             exported_repo = True
         if invocation.executable in {"export", "declare", "typeset", "readonly"} and any(
-            argument.text == "GH_REPO" or argument.text.startswith("GH_REPO=")
+            argument.text == "GH_REPO" or argument.text.startswith(("GH_REPO=", "GH_REPO+="))
             for argument in invocation.arguments
         ):
             exported_repo = True

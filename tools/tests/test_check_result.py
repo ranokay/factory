@@ -88,7 +88,7 @@ class CheckResultTests(unittest.TestCase):
         factory = tomllib.loads((root / "mise.toml").read_text())["tasks"]["check"]
         template = tomllib.loads((root / "project" / "mise.toml").read_text())["tasks"]["check"]
         self.assertIn("tools/check_result.py", json.dumps(factory))
-        self.assertIn("https://raw.githubusercontent.com/ranokay/factory/v0.5.0/tools/check_result.py", json.dumps(template))
+        self.assertIn("https://raw.githubusercontent.com/ranokay/factory/d5c1f4032ac37a2347b56f8b61aabf7f0a574a14/tools/check_result.py", json.dumps(template))
         self.assertNotIn(".agents/tools/run", json.dumps(template))
 
     def test_project_template_uses_the_pinned_recorder_without_bootstrap(self):
@@ -114,7 +114,7 @@ class CheckResultTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             log.read_text().splitlines(),
-            ["run --script https://raw.githubusercontent.com/ranokay/factory/v0.5.0/tools/check_result.py -- sh -c mise run check:lint && mise run check:security && mise run check:test"],
+            ["run --script https://raw.githubusercontent.com/ranokay/factory/d5c1f4032ac37a2347b56f8b61aabf7f0a574a14/tools/check_result.py -- sh -c mise run check:lint && mise run check:security && mise run check:test"],
         )
 
     def test_failed_recorder_start_cannot_leave_a_stale_pass(self):
