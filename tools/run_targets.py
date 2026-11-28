@@ -90,6 +90,35 @@ def parse_target(text: str) -> dict:
         raise ValueError(f"target is not JSON: {error}") from error
 
 
+def set_targets(repository: str, issue: str, values: list[str]) -> None:
+    targets = []
+    seen = set()
+    for text in values:
+        target = parse_target(text)
+        identity = target_identity(target)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        target["tried"] = False
+        targets.append(target)
+    write_targets(repository, issue, targets)
+
+
+def mark_target(repository: str, issue: str, value: str) -> None:
+    targets = load_targets(repository, issue)
+    if targets is None:
+        raise ValueError("targets file is missing or invalid")
+    identity = target_identity(parse_target(value))
+    matched = False
+    for target in targets:
+        if target_identity(target) == identity:
+            target["tried"] = True
+            matched = True
+    if not matched:
+        raise ValueError("target is not in the ordered list")
+    write_targets(repository, issue, targets)
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else argv
     try:
@@ -106,33 +135,12 @@ def main(argv: list[str] | None = None) -> int:
         if command == "set":
             if len(arguments) == 3:
                 raise ValueError("set requires at least one target")
-            targets = []
-            seen = set()
-            for text in arguments[3:]:
-                target = parse_target(text)
-                identity = target_identity(target)
-                if identity in seen:
-                    continue
-                seen.add(identity)
-                target["tried"] = False
-                targets.append(target)
-            write_targets(repository, issue, targets)
+            set_targets(repository, issue, arguments[3:])
             return 0
         if len(arguments) != 4:
             raise ValueError("mark requires one target")
-        targets = load_targets(repository, issue)
-        if targets is None:
-            raise ValueError("targets file is missing or invalid")
-        identity = target_identity(parse_target(arguments[3]))
-        matched = False
-        for target in targets:
-            if target_identity(target) == identity:
-                target["tried"] = True
-                matched = True
-        if matched:
-            write_targets(repository, issue, targets)
-            return 0
-        raise ValueError("target is not in the ordered list")
+        mark_target(repository, issue, arguments[3])
+        return 0
     except (OSError, ValueError) as error:
         print(f"run-targets: {error}", file=sys.stderr)
         return 2
