@@ -159,6 +159,7 @@ def invocations(command: str) -> list[Invocation]:
 
 
 def split_env_string(value: str) -> list[str] | None:
+    value = value.split("\\c", 1)[0]
     try:
         return shlex.split(value)
     except ValueError:
@@ -216,6 +217,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     continue
                 if option.startswith("--"):
                     name = option.split("=", 1)[0]
+                    if "=" not in option:
+                        shell_mode = shell_mode or "--shell".startswith(name) or "--login".startswith(name)
                     takes_value = "=" not in option and any(
                         candidate.startswith(name) for candidate in long_value_options
                     )
