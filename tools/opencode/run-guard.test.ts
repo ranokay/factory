@@ -319,6 +319,10 @@ test("V2 setup registers the tool hook and consumes idle session.status", async 
     assert.ok(registered)
     assert.ok(subscription)
     assert.deepEqual(subscriptionTypes, ["session.status"])
+    await assert.rejects(
+      () => registered!({ tool: "bash", input: { command: "git push" } }),
+      { message: "gh run watch 11 --exit-status" },
+    )
     await prompted
     if (typeof cleanup === "function") cleanup()
   })

@@ -147,6 +147,11 @@ class RunGuardTests(unittest.TestCase):
             f"cd -- {self.repo} && git push",
             'cd "$RUN_GUARD_REPO" && git push',
             'git -C "$RUN_GUARD_REPO" push',
+            "command -p git push",
+            "command -- git push",
+            "sudo -u root git push",
+            "sudo --user root git push",
+            "env -S 'git push'",
         ):
             with self.subTest(command=command):
                 output = self.output(

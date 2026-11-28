@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -163,8 +164,32 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
         if re.match(r"[A-Za-z_][A-Za-z_0-9]*=", first):
             remaining.pop(0)
             continue
-        if first in {"command", "builtin", "sudo"}:
+        if first in {"command", "builtin"}:
             remaining.pop(0)
+            while remaining and remaining[0].text in {"-p", "-v", "-V", "--"}:
+                remaining.pop(0)
+            continue
+        if first == "sudo":
+            remaining.pop(0)
+            value_options = {
+                "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
+                "-C", "--close-from", "-T", "--command-timeout", "-D", "--chdir",
+                "-R", "--chroot", "-t", "--type", "-U", "--other-user",
+            }
+            while remaining:
+                option = remaining[0].text
+                if option == "--":
+                    remaining.pop(0)
+                    break
+                if option in value_options:
+                    remaining.pop(0)
+                    if remaining:
+                        remaining.pop(0)
+                    continue
+                if option.startswith("-"):
+                    remaining.pop(0)
+                    continue
+                break
             continue
         if first == "env":
             remaining.pop(0)
@@ -172,6 +197,12 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 candidate = remaining[0].text
                 if re.match(r"[A-Za-z_][A-Za-z_0-9]*=", candidate):
                     remaining.pop(0)
+                    continue
+                if candidate in {"-S", "--split-string"}:
+                    remaining.pop(0)
+                    if remaining:
+                        split = shlex.split(remaining.pop(0).text)
+                        remaining = [Word(text, [False] * len(text), [False] * len(text)) for text in split] + remaining
                     continue
                 if candidate in {"-u", "--unset", "-C", "--chdir"}:
                     remaining.pop(0)
