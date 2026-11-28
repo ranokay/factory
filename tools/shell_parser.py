@@ -22,6 +22,8 @@ class Invocation:
     executable: str
     arguments: tuple[Word, ...]
     dynamic: bool = False
+    environment: tuple[tuple[str, str], ...] = ()
+    directory: str | None = None
 
 
 def heredoc_word(body: str) -> Word:
@@ -122,7 +124,14 @@ def shell_words(command: str) -> list[Word]:
             expansions.append(quote != "'")
             position += 1
         word = Word("".join(text), unquoted, expansions, start=start, end=position)
-        words.append(word)
+        is_fd_prefix = (
+            word.text.isdigit()
+            and bool(word.unquoted)
+            and all(word.unquoted)
+            and command[position : position + 1] in {"<", ">"}
+        )
+        if not is_fd_prefix:
+            words.append(word)
         if heredoc_operator is not None:
             heredocs.append((word.text, heredoc_operator == "<<-", not quoted))
             heredoc_operator = None
@@ -152,6 +161,10 @@ def invocations(command: str) -> list[Invocation]:
         segments.append(segment)
     result = []
     for words in segments:
+        while words and words[0].text in {"!", "{", "}", "then", "do", "else", "elif", "fi", "done", "in", "case", "esac", "time"}:
+            words.pop(0)
+        if not words:
+            continue
         invocation = invocation_from_words(words)
         if invocation is not None:
             result.append(invocation)
@@ -218,9 +231,13 @@ def split_env_string(value: str) -> list[str] | None:
 def invocation_from_words(words: list[Word]) -> Invocation | None:
     remaining = list(words)
     dynamic = False
+    environment: list[tuple[str, str]] = []
+    directory: str | None = None
     while remaining:
         first = remaining[0].text
         if re.match(r"[A-Za-z_][A-Za-z_0-9]*=", first):
+            name, value = first.split("=", 1)
+            environment.append((name, value))
             remaining.pop(0)
             continue
         if first in {"command", "builtin"}:
@@ -233,6 +250,26 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     return None
                 if "v" in option[1:] or "V" in option[1:]:
                     return None
+            continue
+        if first in {"sh", "bash", "zsh", "dash", "ksh"}:
+            remaining.pop(0)
+            command_index = next(
+                (
+                    index + 1
+                    for index, word in enumerate(remaining)
+                    if word.text.startswith("-") and not word.text.startswith("--") and "c" in word.text[1:]
+                ),
+                None,
+            )
+            if command_index is None:
+                return None
+            if command_index >= len(remaining):
+                return None
+            command_word = remaining.pop(command_index)
+            command_words = shell_words(command_word.text)
+            if "$" in command_word.text or "`" in command_word.text or any(word.operator for word in command_words):
+                dynamic = True
+            remaining = command_words
             continue
         if first == "sudo":
             remaining.pop(0)
@@ -262,7 +299,9 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                 if option in value_options:
                     remaining.pop(0)
                     if remaining:
-                        remaining.pop(0)
+                        value = remaining.pop(0).text
+                        if option in {"-D", "--chdir"}:
+                            directory = value
                     continue
                 if option.startswith("--"):
                     name = option.split("=", 1)[0]
@@ -273,7 +312,11 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     )
                     remaining.pop(0)
                     if takes_value and remaining:
-                        remaining.pop(0)
+                        value = remaining.pop(0).text
+                        if "--chdir".startswith(name) and not "--chroot".startswith(name):
+                            directory = value
+                    elif "=" in option and "--chdir".startswith(name) and not "--chroot".startswith(name):
+                        directory = option.split("=", 1)[1]
                     continue
                 if option.startswith("-") and len(option) > 1:
                     grouped = option[1:]
@@ -284,8 +327,15 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                             shell_mode = True
                         if character in short_value_options:
                             remaining.pop(0)
-                            if index == len(grouped) - 1 and remaining:
-                                remaining.pop(0)
+                            if index == len(grouped) - 1:
+                                if remaining:
+                                    value = remaining.pop(0).text
+                                else:
+                                    value = ""
+                            else:
+                                value = grouped[index + 1 :]
+                            if character == "D":
+                                directory = value
                             break
                     else:
                         remaining.pop(0)
@@ -305,6 +355,8 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
             while remaining:
                 candidate = remaining[0].text
                 if re.match(r"[A-Za-z_][A-Za-z_0-9]*=", candidate):
+                    name, value = candidate.split("=", 1)
+                    environment.append((name, value))
                     remaining.pop(0)
                     continue
                 if candidate == "--":
@@ -332,11 +384,15 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                     remaining[0:0] = [Word(text, [False] * len(text), [False] * len(text)) for text in split]
                     continue
                 if candidate in {"-u", "--unset", "-C", "--chdir"}:
-                    remaining.pop(0)
+                    option = remaining.pop(0).text
                     if remaining:
-                        remaining.pop(0)
+                        value = remaining.pop(0).text
+                        if option in {"-C", "--chdir"}:
+                            directory = value
                     continue
                 if candidate.startswith(("--unset=", "--chdir=")):
+                    if candidate.startswith("--chdir="):
+                        directory = candidate.split("=", 1)[1]
                     remaining.pop(0)
                     continue
                 if candidate in {
@@ -366,8 +422,15 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
                             break
                         if character in "uCP":
                             remaining.pop(0)
-                            if index == len(grouped) - 1 and remaining:
-                                remaining.pop(0)
+                            if index == len(grouped) - 1:
+                                if remaining:
+                                    value = remaining.pop(0).text
+                                else:
+                                    value = ""
+                            else:
+                                value = grouped[index + 1 :]
+                            if character == "C":
+                                directory = value
                             break
                     else:
                         remaining.pop(0)
@@ -381,7 +444,13 @@ def invocation_from_words(words: list[Word]) -> Invocation | None:
         break
     if not remaining:
         return None
-    return Invocation(Path(remaining[0].text).name, tuple(remaining[1:]), dynamic or has_expansion(remaining[0]))
+    return Invocation(
+        Path(remaining[0].text).name,
+        tuple(remaining[1:]),
+        dynamic or has_expansion(remaining[0]),
+        tuple(environment),
+        directory,
+    )
 
 
 def has_expansion(word: Word) -> bool:

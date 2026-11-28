@@ -43,6 +43,7 @@ OTHER_CAUSE_TERMS = (
     "merge",
     "secret",
 )
+HEAD_CHANGING_COMMANDS = {"am", "checkout", "cherry-pick", "commit", "merge", "pull", "rebase", "reset", "revert", "switch", "update-ref"}
 
 
 def dynamic_rule(command: str) -> str | None:
@@ -79,35 +80,95 @@ def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def git_push_root(invocation: Invocation, cwd: Path) -> Path | None:
+def resolve_directory(base: Path, target: str) -> Path:
+    path = Path(os.path.expandvars(target)).expanduser()
+    return path if path.is_absolute() else base / path
+
+
+def git_subcommand(invocation: Invocation) -> str | None:
     if invocation.executable != "git":
         return None
-    directory = cwd
     index = 0
+    while index < len(invocation.arguments):
+        text = invocation.arguments[index].text
+        if text in {"-C", "-c", "--namespace", "--config-env", "--git-dir", "--work-tree"}:
+            index += 2
+            continue
+        if text.startswith("-"):
+            index += 1
+            continue
+        return text
+    return None
+
+
+def git_push(invocation: Invocation, cwd: Path) -> tuple[Path, list[str]] | None:
+    if invocation.executable != "git":
+        return None
+    if any(name == "GIT_DIR" for name, _ in invocation.environment):
+        raise ValueError("GIT_DIR pushes are unsupported; use git -C <repository> push")
+    directory = cwd
     arguments = invocation.arguments
+    index = 0
     while index < len(arguments):
         text = arguments[index].text
         if text == "-C":
             index += 1
             if index >= len(arguments):
                 return None
-            target = Path(os.path.expandvars(arguments[index].text)).expanduser()
-            directory = target if target.is_absolute() else directory / target
+            directory = resolve_directory(directory, arguments[index].text)
             index += 1
             continue
         if text.startswith("-C") and len(text) > 2:
-            target = Path(os.path.expandvars(text[2:])).expanduser()
-            directory = target if target.is_absolute() else directory / target
+            directory = resolve_directory(directory, text[2:])
             index += 1
             continue
-        if text in {"-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}:
+        if text in {"--git-dir", "--work-tree"} or text.startswith(("--git-dir=", "--work-tree=")):
+            raise ValueError("--git-dir and --work-tree pushes are unsupported; use git -C <repository> push")
+        if text in {"-c", "--namespace", "--config-env"}:
             index += 2
             continue
         if text.startswith("-"):
             index += 1
             continue
-        return directory if text == "push" else None
-    return None
+        if text != "push":
+            return None
+        index += 1
+        break
+    else:
+        return None
+    sources: list[str] = []
+    repository_seen = False
+    delete = False
+    while index < len(arguments):
+        text = arguments[index].text
+        if text in {"--all", "--mirror", "--tags"}:
+            raise ValueError("multi-ref pushes are unsupported; push an explicit ref with a passing check record")
+        if text == "--delete":
+            delete = True
+            index += 1
+            continue
+        if text in {"--repo", "--receive-pack", "--exec", "--push-option", "-o"}:
+            index += 2
+            continue
+        if text.startswith("-"):
+            index += 1
+            continue
+        if not repository_seen:
+            repository_seen = True
+            index += 1
+            continue
+        refspec = text[1:] if text.startswith("+") else text
+        source = refspec.split(":", 1)[0]
+        if not source:
+            delete = True
+        elif delete:
+            raise ValueError("mixed deletion and update pushes are unsupported")
+        else:
+            sources.append(source)
+        index += 1
+    if delete:
+        return directory, []
+    return directory, sources or ["HEAD"]
 
 
 def repository_root(directory: Path) -> Path | None:
@@ -150,7 +211,7 @@ def records_checks(root: Path) -> bool:
     return "check_result" in json.dumps(run)
 
 
-def push_record_reason(directory: Path) -> str | None:
+def push_record_reason(directory: Path, source: str = "HEAD") -> str | None:
     root = repository_root(directory)
     if root is None:
         return None
@@ -160,23 +221,25 @@ def push_record_reason(directory: Path) -> str | None:
         return f"Factory Run guard: cannot determine push-check scope: {error}"
     if not recorder_repo:
         return None
-    head = git(root, "rev-parse", "HEAD")
+    revision = "HEAD" if source == "HEAD" else f"{source}^{{commit}}"
+    head = git(root, "rev-parse", "--verify", revision)
     if head.returncode:
-        return "Factory Run guard: cannot resolve HEAD. Commit your work and run `mise run check` before push."
+        return f"Factory Run guard: cannot resolve pushed ref {source}. Run `mise run check` on the commit you intend to push."
     sha = head.stdout.strip()
     record = load_result(root, sha)
     if record and record.get("passed") is True and record.get("head") == sha:
         return None
     return (
-        f"Factory Run guard: no passing mise run check record for {sha}. "
+        f"Factory Run guard: no passing mise run check record for {source} ({sha}). "
         f"Run `mise run check` on a clean tree at {sha}, then push."
     )
 
 
 def push_rule(command: str, cwd: Path) -> str | None:
     possible_cwds = {cwd}
+    head_may_change = False
     for invocation in invocations(command):
-        if invocation.executable == "cd" and invocation.arguments:
+        if invocation.executable in {"cd", "pushd"} and invocation.arguments:
             index = 0
             while index < len(invocation.arguments):
                 option = invocation.arguments[index].text
@@ -189,21 +252,37 @@ def push_rule(command: str, cwd: Path) -> str | None:
                 break
             if index >= len(invocation.arguments):
                 continue
-            target = Path(os.path.expandvars(invocation.arguments[index].text)).expanduser()
+            target = invocation.arguments[index].text
             possible_cwds |= {
-                target if target.is_absolute() else directory / target
+                resolve_directory(directory, target)
                 for directory in possible_cwds
             }
             continue
-        directories = {
-            directory
-            for directory in (git_push_root(invocation, possible_cwd) for possible_cwd in possible_cwds)
-            if directory is not None
-        }
-        for directory in sorted(directories):
-            reason = push_record_reason(directory)
-            if reason:
-                return reason
+        if invocation.executable == "popd":
+            return "Factory Run guard: cannot verify a push after popd. Run the push from an explicit repository directory."
+        subcommand = git_subcommand(invocation)
+        if subcommand in HEAD_CHANGING_COMMANDS:
+            head_may_change = True
+        if subcommand != "push":
+            continue
+        base_cwds = {
+            resolve_directory(directory, invocation.directory)
+            for directory in possible_cwds
+        } if invocation.directory else possible_cwds
+        for directory in sorted(base_cwds):
+            try:
+                push = git_push(invocation, directory)
+            except ValueError as error:
+                return f"Factory Run guard: {error}."
+            if push is None:
+                continue
+            if head_may_change:
+                return "Factory Run guard: a HEAD-changing command precedes this push. Run `mise run check` after it, then push in a separate call."
+            root, sources = push
+            for source in sources:
+                reason = push_record_reason(root, source)
+                if reason:
+                    return reason
     return None
 
 
@@ -240,7 +319,10 @@ def gh_merge(invocation: Invocation) -> tuple[str | None, str | None] | None:
         return None
     selector = None
     index = merge + 1
-    options_with_values = {"--body", "--subject", "--match-head-commit"}
+    options_with_values = {
+        "-A", "--author-email", "-b", "--body", "-F", "--body-file",
+        "-R", "--repo", "-t", "--subject", "--match-head-commit",
+    }
     while index < len(texts):
         text = texts[index]
         if text in options_with_values:
@@ -271,11 +353,42 @@ def repository_arguments(repository: str | None) -> list[str]:
     return ["-R", repository] if repository else []
 
 
+def topic_names(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        item if isinstance(item, str) else item.get("name")
+        for item in value
+        if isinstance(item, str) or isinstance(item, dict)
+    ]
+
+
 def admin_rule(command: str, cwd: Path) -> str | None:
+    directory_changed = False
     for invocation in invocations(command):
+        if invocation.executable in {"cd", "pushd"} and invocation.arguments:
+            index = 0
+            while index < len(invocation.arguments):
+                option = invocation.arguments[index].text
+                if option == "--":
+                    index += 1
+                    break
+                if option.startswith("-") and len(option) > 1:
+                    index += 1
+                    continue
+                break
+            if index < len(invocation.arguments):
+                directory_changed = True
+            continue
+        if invocation.executable == "popd":
+            return "Factory Run guard: cannot verify an admin merge after popd. Run the merge from an explicit repository directory."
         merge = gh_merge(invocation)
         if merge is None:
             continue
+        if any(name == "GH_REPO" for name, _ in invocation.environment):
+            return "Factory Run guard: GH_REPO admin merges are unsupported; use gh -R <repository> pr merge."
+        if directory_changed:
+            return "Factory Run guard: cannot verify an admin merge after a directory change. Run the merge from the target checkout."
         selector, repository = merge
         if repository is None and selector:
             match = re.fullmatch(r"https?://github\.com/([^/]+/[^/]+)/pull/\d+", selector)
@@ -285,7 +398,8 @@ def admin_rule(command: str, cwd: Path) -> str | None:
         if selector:
             view.append(selector)
         view.extend(["--json", "number,headRefName,url", *repository_arguments(repository)])
-        pull = gh(view, cwd)
+        check_cwd = resolve_directory(cwd, invocation.directory) if invocation.directory else cwd
+        pull = gh(view, check_cwd)
         if pull.returncode:
             return (
                 "Factory Run guard: cannot verify admin-merge eligibility: "
@@ -295,14 +409,14 @@ def admin_rule(command: str, cwd: Path) -> str | None:
             head = json.loads(pull.stdout)["headRefName"]
         except (json.JSONDecodeError, KeyError, TypeError) as error:
             return f"Factory Run guard: cannot verify admin-merge eligibility: {error}. Retry without --admin."
-        topics = gh(["repo", "view", *([repository] if repository else []), "--json", "repositoryTopics"], cwd)
+        topics = gh(["repo", "view", *([repository] if repository else []), "--json", "repositoryTopics"], check_cwd)
         if topics.returncode:
             return (
                 "Factory Run guard: cannot verify the base repository topics: "
                 f"{topics.stderr.strip() or topics.stdout.strip()}. Restore GitHub access and retry without --admin."
             )
         try:
-            names = json.loads(topics.stdout)["repositoryTopics"]
+            names = topic_names(json.loads(topics.stdout)["repositoryTopics"])
         except (json.JSONDecodeError, KeyError, TypeError) as error:
             return f"Factory Run guard: cannot verify the base repository topics: {error}. Retry without --admin."
         if not isinstance(head, str) or not head.startswith("sync/upstream-"):
@@ -310,7 +424,7 @@ def admin_rule(command: str, cwd: Path) -> str | None:
                 "Factory Run guard: --admin is reserved for Sync PRs with a sync/upstream-* head ref. "
                 "Run the merge without --admin or use the eligible Sync PR."
             )
-        if not isinstance(names, list) or "factory-personal-fork" not in names:
+        if "factory-personal-fork" not in names:
             return (
                 "Factory Run guard: --admin requires the base repository topic factory-personal-fork. "
                 "Restore that topic or run the merge without --admin."
@@ -353,7 +467,7 @@ def fallback_reason(repository: str, issue: str, reason: str, unblock: str, find
     targets = load_targets(repository, issue)
     if not targets:
         return None
-    text = "\n".join((reason, unblock, findings))
+    text = "\n".join((reason, findings))
     named_target = any(target["model"].lower() in text.lower() for target in targets)
     if not named_target or not contains_term(text, UNAVAILABLE_TERMS) or contains_term(text, OTHER_CAUSE_TERMS):
         return None

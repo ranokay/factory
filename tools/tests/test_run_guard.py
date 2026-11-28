@@ -200,7 +200,9 @@ class RunGuardTests(unittest.TestCase):
             "sudo --user root git push",
             "sudo --user=root git push",
             "sudo --us root git push",
-            "sudo --chd /tmp git push",
+            f"sudo --chd {self.repo} git push",
+            f"sudo -D {self.repo} git push",
+            f"sudo --chdir={self.repo} git push",
             "sudo -n -- git push",
             "sudo -s 'git push'",
             "sudo -i 'git push'",
@@ -233,18 +235,23 @@ class RunGuardTests(unittest.TestCase):
             "env -uS git push",
             "env -iu FOO git push",
             "env -iuFOO git push",
-            "env -C /tmp git push",
-            "env -C/tmp git push",
+            f"env -C {self.repo} git push",
+            f"env -C{self.repo} git push",
             "env -P /usr/bin git push",
             "env -P/usr/bin git push",
             "env --unset FOO git push",
             "env --unset=FOO git push",
-            "env --chdir /tmp git push",
-            "env --chdir=/tmp git push",
+            f"env --chdir {self.repo} git push",
+            f"env --chdir={self.repo} git push",
             "env --block-signal=TERM git push",
             "env --list-signal-handling git push",
             "env -- git push",
             "env FOO=bar git push",
+            "2>/tmp/push.log git push",
+            "1>push.log git push",
+            "if true; then git push; fi",
+            "for item in one; do git push; done",
+            "bash -lc 'git push'",
         ):
             with self.subTest(command=command):
                 output = self.output(
@@ -256,6 +263,68 @@ class RunGuardTests(unittest.TestCase):
                     )
                 )
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_wrapper_directory_push_checks_the_destination_record(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        other = self.root / "other"
+        other.mkdir()
+        subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
+            ["git", "init", "-q", str(other)],
+            check=True,
+        )
+        subprocess.run(["git", "-C", str(other), "config", "user.name", "Run guard test"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
+        subprocess.run(["git", "-C", str(other), "config", "user.email", "run-guard@example.invalid"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
+        (other / "README").write_text("fixture\n")
+        subprocess.run(["git", "-C", str(other), "add", "README"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
+        subprocess.run(["git", "-C", str(other), "commit", "-qm", "baseline"], check=True)  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
+        (other / "mise.toml").write_text('[tasks.check]\nrun = "~/.agents/tools/run check_result -- true"\n')
+        for command in (
+            f"env -C {other} git push",
+            f"env --chdir={other} git push",
+            f"sudo -D {other} git push",
+            f"sudo --chdir={other} git push",
+            f"pushd {other}; git push",
+        ):
+            with self.subTest(command=command):
+                output = self.output(self.invoke(command))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("no passing mise run check record", output["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_push_rejects_unresolved_repository_and_ref_forms(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        other = self.root / "other"
+        other.mkdir()
+        for command in (
+            f"git --git-dir {self.repo}/.git push",
+            f"git --git-dir={self.repo}/.git push",
+            f"git --work-tree {self.repo} push",
+            f"GIT_DIR={self.repo}/.git git push",
+            "git push --all",
+            "git push origin --tags",
+        ):
+            with self.subTest(command=command):
+                output = self.output(self.invoke(command, cwd=other))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_push_refspec_requires_a_record_for_the_pushed_commit(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        recorded = self.record_check("true")
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        self.git("checkout", "-qb", "unchecked")
+        self.git("commit", "--allow-empty", "-m", "unchecked")
+        self.git("checkout", "-")
+        output = self.output(self.invoke("git push origin unchecked"))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("unchecked", output["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertEqual(self.output(self.invoke("git push origin HEAD")), {})
+
+    def test_head_changing_command_before_push_requires_a_fresh_check(self):
+        self.write_mise("~/.agents/tools/run check_result -- true")
+        recorded = self.record_check("true")
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        output = self.output(self.invoke("git commit --allow-empty -m next && git push"))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("HEAD-changing", output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_recorded_red_check_blocks_push(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
@@ -274,7 +343,7 @@ class RunGuardTests(unittest.TestCase):
             "case \"$1 $2\" in\n"
             "  'pr view') [ -z \"${GH_PR_FAIL:-}\" ] || { printf '%s\\n' \"${GH_PR_ERROR:-no pull requests found for branch}\" >&2; exit 1; }; printf '{\"number\":42,\"headRefName\":\"%s\",\"url\":\"https://github.com/o/one/pull/42\"}\\n' \"$GH_HEAD\" ;;\n"
             "  'pr checks') printf '%s\\n' \"$GH_CHECKS\"; exit \"$GH_CHECKS_CODE\" ;;\n"
-            "  'repo view') printf '{\"repositoryTopics\":[\"%s\"]}\\n' \"$GH_TOPICS\" ;;\n"
+            "  'repo view') printf '{\"repositoryTopics\":[{\"name\":\"%s\"}]}\\n' \"$GH_TOPICS\" ;;\n"
             "  *) exit 1 ;;\n"
             "esac\n"
         )
@@ -298,6 +367,11 @@ class RunGuardTests(unittest.TestCase):
             "gh pr merge sync/upstream-2026-11-28 --admin",
             "gh -R o/one pr merge 42 --admin",
             "gh pr merge 42 -R o/one --admin",
+            "gh pr merge -R o/one 42 --admin",
+            "gh pr merge -t subject 42 --admin",
+            "gh pr merge -b body 42 --admin",
+            "gh pr merge -F body.md 42 --admin",
+            "gh pr merge -A author@example.invalid 42 --admin",
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
@@ -316,6 +390,18 @@ class RunGuardTests(unittest.TestCase):
         output = self.output(self.invoke("gh pr merge 42 --admin"))
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("factory-personal-fork", output["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_admin_merge_rejects_environment_repository_and_directory_changes(self):
+        self.gh_stub()
+        for command, message in (
+            ("GH_REPO=victim/repo gh pr merge 42 --admin", "GH_REPO"),
+            ("env GH_REPO=victim/repo gh pr merge 42 --admin", "GH_REPO"),
+            ("cd /tmp && gh pr merge 42 --admin", "directory change"),
+        ):
+            with self.subTest(command=command):
+                output = self.output(self.invoke(command))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn(message, output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_plain_merge_does_not_query_github(self):
         self.gh_stub(head="feature/example", topics="")
@@ -371,8 +457,8 @@ class RunGuardTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def fallback_command(self, reason: str) -> str:
-        return f"skills/supervise/scripts/block-issue o/one 6 --reason '{reason}' --unblock 'Launch the next target'"
+    def fallback_command(self, reason: str, unblock: str = "Launch the next target") -> str:
+        return f"skills/supervise/scripts/block-issue o/one 6 --reason '{reason}' --unblock '{unblock}'"
 
     def test_model_only_blocker_with_untried_fallback_is_refused(self):
         primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})
@@ -382,6 +468,19 @@ class RunGuardTests(unittest.TestCase):
         self.target_command("set", primary, fallback)
         self.target_command("mark", primary)
         output = self.output(self.invoke(self.fallback_command("opencode-go/hungerg-free unavailable quota")))
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("opencode-go/hy4-flash-free", output["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_unblock_remediation_wording_does_not_hide_an_untried_fallback(self):
+        primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})
+        fallback = json.dumps(
+            {"providerInstanceId": "opencode", "model": "opencode-go/hy4-flash-free", "options": {"variant": "high"}}
+        )
+        self.target_command("set", primary, fallback)
+        self.target_command("mark", primary)
+        output = self.output(
+            self.invoke(self.fallback_command("opencode-go/hungerg-free unavailable quota", "Check the provider quota"))
+        )
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("opencode-go/hy4-flash-free", output["hookSpecificOutput"]["permissionDecisionReason"])
 
