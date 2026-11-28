@@ -8,9 +8,9 @@ import re
 import sys
 from pathlib import Path
 
-from run_guard_admin import GH_MERGE_VALUE_OPTIONS, admin_rule
+from run_guard_admin import GH_MERGE_VALUE_OPTIONS, admin_rule, gh_merge
 from run_guard_fallback import fallback_reason, fallback_rule
-from run_guard_push import git_subcommand_word, push_rule
+from run_guard_push import HEAD_CHANGING_COMMANDS, git_subcommand_word, push_rule
 from run_guard_stop import stop_rule
 from shell_parser import Invocation, Word, has_expansion, invocations, shell_words
 
@@ -98,6 +98,31 @@ def command_value_guarded(value: str, depth: int = 0) -> bool:
     return False
 
 
+def eval_value_guarded(value: str, state_sensitive: bool, depth: int = 0) -> bool:
+    if depth > 3 or command_value_guarded(value):
+        return True
+    if any(eval_value_guarded(item, False, depth + 1) for item in command_substitutions(value)):
+        return True
+    for invocation in invocations(value):
+        if invocation.executable == "eval":
+            nested = " ".join(word.text for word in invocation.arguments)
+            if invocation.dynamic or eval_value_guarded(nested, state_sensitive, depth + 1):
+                return True
+        if invocation.dynamic and invocation.executable in {"git", "gh", "block-issue"}:
+            return True
+        if "$" in invocation.executable or "`" in invocation.executable:
+            return True
+        if state_sensitive and invocation.executable in {"cd", "pushd", "popd"}:
+            return True
+        subcommand = git_subcommand_word(invocation)
+        if subcommand is not None and (
+            has_expansion(subcommand)
+            or (state_sensitive and subcommand.text in HEAD_CHANGING_COMMANDS)
+        ):
+            return True
+    return False
+
+
 def has_unquoted_expansion(word: Word) -> bool:
     return any(
         active and unquoted
@@ -173,7 +198,23 @@ def dynamic_rule(command: str) -> str | None:
         for invocation in parsed
         for _, value in invocation.environment
     ]
-    if any(invocation.executable == "eval" for invocation in parsed):
+    state_sensitive = any(
+        (
+            invocation.executable == "git"
+            and (subcommand := git_subcommand_word(invocation)) is not None
+            and (subcommand.text == "push" or has_expansion(subcommand))
+        )
+        or gh_merge(invocation) is not None
+        for invocation in parsed
+    )
+    if any(
+        invocation.executable == "eval"
+        and (
+            invocation.dynamic
+            or eval_value_guarded(" ".join(word.text for word in invocation.arguments), state_sensitive)
+        )
+        for invocation in parsed
+    ):
         return "Factory Run guard: cannot verify a dynamic command run through eval. Use a literal command."
     nested_guarded = any(
         command_value_guarded(nested)

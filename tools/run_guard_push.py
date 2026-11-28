@@ -8,10 +8,10 @@ import tomllib
 from pathlib import Path
 
 from check_result import load_result
-from run_guard_paths import directory_target, exports_variable, resolve_directory
+from run_guard_paths import directory_target, exports_variable, pushd_no_change, resolve_directory
 from shell_parser import Invocation, Word, has_expansion, invocations
 
-HEAD_CHANGING_COMMANDS = {"am", "checkout", "cherry-pick", "commit", "merge", "pull", "rebase", "reset", "revert", "switch", "update-ref"}
+HEAD_CHANGING_COMMANDS = {"am", "checkout", "cherry-pick", "commit", "merge", "pull", "rebase", "reset", "revert", "switch", "symbolic-ref", "update-ref"}
 
 
 def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -187,6 +187,8 @@ def push_record_reason(directory: Path, source: str = "HEAD") -> str | None:
 
 def directory_change(invocation: Invocation, possible_cwds: set[Path]) -> tuple[set[Path], str | None]:
     if invocation.executable not in {"cd", "pushd"}:
+        return possible_cwds, None
+    if invocation.executable == "pushd" and pushd_no_change(invocation.arguments):
         return possible_cwds, None
     target, error = directory_target(invocation.arguments)
     if error == "bare":

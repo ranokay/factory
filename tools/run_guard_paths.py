@@ -22,6 +22,19 @@ def exports_variable(invocation: Invocation, name: str) -> bool:
     )
 
 
+def pushd_no_change(arguments: tuple[Word, ...]) -> bool:
+    for argument in arguments:
+        if argument.text == "--":
+            break
+        if (
+            argument.text.startswith("-")
+            and not argument.text.startswith("--")
+            and "n" in argument.text[1:]
+        ):
+            return True
+    return False
+
+
 def directory_target(arguments: tuple[Word, ...]) -> tuple[str | None, str | None]:
     if not arguments:
         return None, "bare"

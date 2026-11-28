@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from run_guard_paths import directory_target, exports_variable, resolve_directory
+from run_guard_paths import directory_target, exports_variable, pushd_no_change, resolve_directory
 from run_guard_stop import gh
 from shell_parser import Invocation, invocations
 
@@ -95,6 +95,8 @@ def admin_contexts(command: str, cwd: Path) -> list[AdminContext]:
         if invocation.executable in {"export", "declare", "typeset", "readonly"}:
             continue
         if invocation.executable in {"cd", "pushd"}:
+            if invocation.executable == "pushd" and pushd_no_change(invocation.arguments):
+                continue
             target, error = directory_target(invocation.arguments)
             if error == "bare":
                 error = "Factory Run guard: cannot verify an admin merge after a bare directory change. Use an explicit repository directory."

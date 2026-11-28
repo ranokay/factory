@@ -104,6 +104,22 @@ case_waiting() {
 		printf 'stopped-notice accepted a reordered deferred wait\n' >&2
 		return 1
 	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · CI pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted pending CI wording\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: resume after checks complete' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a completed-check deferred wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · waiting' 'unblock: continue once CI is green' | "$stopped_notice"; then
+		printf 'stopped-notice accepted a green-CI deferred wait\n' >&2
+		return 1
+	fi
+	if printf '%s\n' 'supervise · notice · task · stopped thread · checks still pending' | "$stopped_notice"; then
+		printf 'stopped-notice accepted still-pending checks\n' >&2
+		return 1
+	fi
 	printf 'ok: PR forks wait for checks and stopped notices reject deferred waits\n'
 }
 

@@ -64,6 +64,11 @@ class RunGuardTests(RunGuardFixture):
             'git commit -m "gh pr merge --admin" "$X"',
             'gh pr view "$NUMBER"',
             'gh label pr --admin "$X"',
+            "eval 'echo ok'",
+            "eval echo ok",
+            "eval 'git status'",
+            "eval 'cd /tmp'",
+            "eval 'git commit --allow-empty -m next'",
         ):
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
@@ -87,6 +92,8 @@ class RunGuardTests(RunGuardFixture):
             "CMD='git push'; eval '$CMD'",
             "CMD='pr merge 42 --admin'; gh $CMD",
             "eval 'cd /other'; git push",
+            "eval 'git symbolic-ref HEAD refs/heads/unchecked'; git push",
+            "eval 'eval \"git push\"'",
             'sh -c "echo ok && /usr/bin/git push"',
             'sh -c "echo ok && /usr/bin/gh -R ranokay/factory pr merge 42 --admin"',
             "CMD='gh pr merge 42 --admin'; $CMD",
@@ -295,6 +302,7 @@ class RunGuardTests(RunGuardFixture):
                 output = self.output(self.invoke(command))
                 self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
                 self.assertIn("no passing mise run check record", output["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertEqual(self.output(self.invoke(f"pushd -n {other}; git push")), {})
 
     def test_push_rejects_unresolved_repository_and_ref_forms(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
@@ -350,6 +358,7 @@ class RunGuardTests(RunGuardFixture):
         self.assertEqual(recorded.returncode, 0, recorded.stderr)
         for command in (
             "git commit --allow-empty -m next && git push",
+            "git symbolic-ref HEAD refs/heads/unchecked && git push",
             "nohup git commit --allow-empty -m next && git push",
             "git --$OPT commit && git push",
         ):
@@ -454,6 +463,15 @@ class RunGuardTests(RunGuardFixture):
         fork.mkdir()
         self.assertEqual(self.output(self.invoke(f"cd {fork} && gh pr merge 42 --admin")), {})
         self.assertIn(f"cwd={fork.resolve()} ", (self.root / "gh.log").read_text())
+
+    def test_pushd_without_change_verifies_the_current_admin_checkout(self):
+        self.gh_stub()
+        other = self.root / "other"
+        other.mkdir()
+        self.assertEqual(self.output(self.invoke(f"pushd -n {other}; gh pr merge 42 --admin")), {})
+        logged = [line for line in (self.root / "gh.log").read_text().splitlines() if " pr view " in line][-1]
+        self.assertIn(f"cwd={self.repo.resolve()} ", logged)
+        self.assertNotIn(f"cwd={other.resolve()} ", logged)
 
     def test_plain_merge_does_not_query_github(self):
         self.gh_stub(head="feature/example", topics="")

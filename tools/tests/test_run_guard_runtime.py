@@ -92,6 +92,8 @@ class RunGuardRuntimeTests(RunGuardFixture):
         for reason in (
             "opencode-go/hungerg-free unavailable quota",
             "Reviewer models exhausted their usage limit",
+            "Reviewer quota exhausted",
+            "DeepSeek reviewer unavailable",
         ):
             with self.subTest(reason=reason):
                 output = self.output(self.invoke(self.fallback_command(reason)))
