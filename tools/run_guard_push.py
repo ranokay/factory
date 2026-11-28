@@ -8,7 +8,7 @@ import tomllib
 from pathlib import Path
 
 from check_result import load_result
-from run_guard_paths import directory_target, resolve_directory
+from run_guard_paths import directory_target, exports_variable, resolve_directory
 from shell_parser import Invocation, Word, has_expansion, invocations
 
 HEAD_CHANGING_COMMANDS = {"am", "checkout", "cherry-pick", "commit", "merge", "pull", "rebase", "reset", "revert", "switch", "update-ref"}
@@ -193,6 +193,8 @@ def directory_change(invocation: Invocation, possible_cwds: set[Path]) -> tuple[
         return possible_cwds, "Factory Run guard: cannot verify a push after a bare directory change. Use an explicit repository directory."
     if error == "previous":
         return possible_cwds, "Factory Run guard: cannot verify a push after a bare or previous-directory change. Use an explicit repository directory."
+    if error == "dynamic":
+        return possible_cwds, "Factory Run guard: cannot verify a push after a shell-local directory expansion. Use an explicit repository directory."
     return possible_cwds | {resolve_directory(directory, target) for directory in possible_cwds}, None
 
 
@@ -213,21 +215,12 @@ def verify_push(invocation: Invocation, directory: Path, head_may_change: bool) 
     return None
 
 
-def exports_git_dir(invocation: Invocation) -> bool:
-    if any(name == "GIT_DIR" for name, _ in invocation.environment):
-        return True
-    return invocation.executable in {"export", "declare", "typeset", "readonly"} and any(
-        argument.text == "GIT_DIR" or argument.text.startswith(("GIT_DIR=", "GIT_DIR+="))
-        for argument in invocation.arguments
-    )
-
-
 def push_rule(command: str, cwd: Path) -> str | None:
     possible_cwds = {cwd}
     head_may_change = False
     exported_git_dir = False
     for invocation in invocations(command):
-        exported_git_dir = exported_git_dir or exports_git_dir(invocation)
+        exported_git_dir = exported_git_dir or exports_variable(invocation, "GIT_DIR")
         if invocation.executable == "popd":
             return "Factory Run guard: cannot verify a push after popd. Run the push from an explicit repository directory."
         possible_cwds, error = directory_change(invocation, possible_cwds)

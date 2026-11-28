@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from run_guard_paths import directory_target, resolve_directory
+from run_guard_paths import directory_target, exports_variable, resolve_directory
 from run_guard_stop import gh
 from shell_parser import Invocation, invocations
 
@@ -78,15 +78,6 @@ def topic_names(value: object) -> list[str]:
     return names
 
 
-def exported_repo(invocation: Invocation) -> bool:
-    if any(name == "GH_REPO" for name, _ in invocation.environment):
-        return True
-    return invocation.executable in {"export", "declare", "typeset", "readonly"} and any(
-        argument.text == "GH_REPO" or argument.text.startswith(("GH_REPO=", "GH_REPO+="))
-        for argument in invocation.arguments
-    )
-
-
 @dataclass
 class AdminContext:
     invocation: Invocation | None
@@ -100,7 +91,7 @@ def admin_contexts(command: str, cwd: Path) -> list[AdminContext]:
     exported = False
     contexts: list[AdminContext] = []
     for invocation in invocations(command):
-        exported = exported or exported_repo(invocation)
+        exported = exported or exports_variable(invocation, "GH_REPO")
         if invocation.executable in {"export", "declare", "typeset", "readonly"}:
             continue
         if invocation.executable in {"cd", "pushd"}:
@@ -109,6 +100,8 @@ def admin_contexts(command: str, cwd: Path) -> list[AdminContext]:
                 error = "Factory Run guard: cannot verify an admin merge after a bare directory change. Use an explicit repository directory."
             elif error == "previous":
                 error = "Factory Run guard: cannot verify an admin merge after a bare or previous-directory change. Use an explicit repository directory."
+            elif error == "dynamic":
+                error = "Factory Run guard: cannot verify an admin merge after a shell-local directory expansion. Use an explicit repository directory."
             if error:
                 contexts.append(AdminContext(invocation, None, cwd, exported, error))
                 return contexts

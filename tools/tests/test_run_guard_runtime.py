@@ -44,6 +44,13 @@ class RunGuardRuntimeTests(RunGuardFixture):
         self.assertEqual(repeat["decision"], "block")
         self.assertIn("warning", repeat["reason"].lower())
 
+    def test_malformed_required_checks_block(self):
+        self.gh_stub()
+        self.env["GH_CHECKS"] = "[null]"
+        output = self.output(self.invoke_mode("stop", {"cwd": str(self.repo)}))
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("malformed", output["reason"])
+
     def test_pending_checks_keep_blocking_on_a_repeat_stop(self):
         self.gh_stub()
         self.env["GH_CHECKS"] = json.dumps(
@@ -60,9 +67,14 @@ class RunGuardRuntimeTests(RunGuardFixture):
         )
         self.target_command("set", primary, fallback)
         self.target_command("mark", primary)
-        output = self.output(self.invoke(self.fallback_command("opencode-go/hungerg-free unavailable quota")))
-        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("opencode-go/hy4-flash-free", output["hookSpecificOutput"]["permissionDecisionReason"])
+        for reason in (
+            "opencode-go/hungerg-free unavailable quota",
+            "Reviewer models exhausted their usage limit",
+        ):
+            with self.subTest(reason=reason):
+                output = self.output(self.invoke(self.fallback_command(reason)))
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("opencode-go/hy4-flash-free", output["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_unblock_remediation_wording_does_not_create_a_model_only_cause(self):
         primary = json.dumps({"providerInstanceId": "opencode", "model": "opencode-go/hungerg-free", "options": {}})

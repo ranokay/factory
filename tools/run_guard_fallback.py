@@ -18,6 +18,9 @@ UNAVAILABLE_TERMS = (
     "refused",
     "refusal",
     "capacity",
+    "exhausted",
+    "usage limit",
+    "usage_limit",
 )
 OTHER_CAUSE_TERMS = (
     "gate",
@@ -83,7 +86,9 @@ def fallback_reason(repository: str, issue: str, reason: str, unblock: str, find
         return None
     cause = "\n".join((reason, findings))
     named_target = any(model_named(cause, target["model"]) for target in targets)
-    if not named_target or not contains_term(cause, UNAVAILABLE_TERMS) or contains_term(cause, OTHER_CAUSE_TERMS):
+    model_unavailability = "model" in cause.lower() and contains_term(cause, UNAVAILABLE_TERMS)
+    unavailable_cause = (named_target and contains_term(cause, UNAVAILABLE_TERMS)) or model_unavailability
+    if not unavailable_cause or contains_term(cause, OTHER_CAUSE_TERMS):
         return None
     fallback = next_target(repository, issue)
     if fallback is None:

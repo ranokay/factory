@@ -93,7 +93,7 @@ class RunGuardFixture(unittest.TestCase):
         script = binary / "gh"
         script.write_text(
             "#!/bin/sh\n"
-            "printf '%s\\n' \"$*\" >>\"$GH_LOG\"\n"
+            "printf 'cwd=%s %s\\n' \"$PWD\" \"$*\" >>\"$GH_LOG\"\n"
             "case \"$1 $2\" in\n"
             "  'pr view') [ -z \"${GH_PR_FAIL:-}\" ] || { printf '%s\\n' \"${GH_PR_ERROR:-no pull requests found for branch}\" >&2; exit 1; }; printf '{\"number\":42,\"headRefName\":\"%s\",\"url\":\"https://github.com/o/one/pull/42\"}\\n' \"$GH_HEAD\" ;;\n"
             "  'pr checks') printf '%s\\n' \"$GH_CHECKS\"; exit \"$GH_CHECKS_CODE\" ;;\n"

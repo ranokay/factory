@@ -58,7 +58,15 @@ def required_checks(cwd: Path, number: int, repeat: bool) -> tuple[list[dict] | 
         return None, unavailable(f"Factory Run guard: cannot read required checks: {error}", repeat)
     if not isinstance(rollup, list):
         return None, unavailable("Factory Run guard: required-check response is not a list", repeat)
-    return [check for check in rollup if isinstance(check, dict) and check.get("bucket") == "pending"], None
+    if any(
+        not isinstance(check, dict)
+        or not isinstance(check.get("name"), str)
+        or not isinstance(check.get("bucket"), str)
+        or (check.get("link") is not None and not isinstance(check.get("link"), str))
+        for check in rollup
+    ):
+        return None, unavailable("Factory Run guard: required-check response contains malformed entries", repeat)
+    return [check for check in rollup if check["bucket"] == "pending"], None
 
 
 def pending_reason(number: int, pending: list[dict]) -> str:

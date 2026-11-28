@@ -151,7 +151,7 @@ def dynamic_rule(command: str) -> str | None:
     parsed = invocations(command)
     if any(
         invocation.executable == "eval"
-        and any(command_value_guarded(word.text) for word in invocation.arguments)
+        and command_value_guarded(" ".join(word.text for word in invocation.arguments))
         for invocation in parsed
     ):
         return "Factory Run guard: cannot verify a dynamic command run through eval. Use a literal command."

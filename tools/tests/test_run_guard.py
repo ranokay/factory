@@ -74,6 +74,8 @@ class RunGuardTests(RunGuardFixture):
             "echo `git push`",
             'echo "$(git push)"',
             "eval 'git push'",
+            "eval git push",
+            "eval gh pr merge 42 --admin",
             "CMD='gh pr merge 42 --admin'; $CMD",
             "gh pr \"$SUB\" --admin",
             "gh pr merge sync/x \"--admin=$T\"",
@@ -252,6 +254,8 @@ class RunGuardTests(RunGuardFixture):
 
     def test_wrapper_directory_push_checks_the_destination_record(self):
         self.write_mise("~/.agents/tools/run check_result -- true")
+        recorded = self.record_check("true")
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
         other = self.root / "other"
         other.mkdir()
         subprocess.run(  # nosec B603 B607  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit -- local git fixture
@@ -287,6 +291,7 @@ class RunGuardTests(RunGuardFixture):
             f"GIT_DIR={self.repo}/.git git push",
             f"GIT_DIR={self.repo}/.git+=x git push",
             f"export GIT_DIR={self.repo}/.git; git push",
+            f'DEST={self.repo}; cd "$DEST"; git push',
             "git push --all",
             "git push origin --tags",
             "git push origin main :refs/heads/other",
@@ -346,23 +351,27 @@ class RunGuardTests(RunGuardFixture):
 
     def test_admin_merge_all_selector_forms_pass_for_a_sync_pr_on_a_personal_fork(self):
         self.gh_stub()
-        for command in (
-            "gh pr merge --admin",
-            "gh pr merge 42 --admin",
-            "gh pr merge 42 --admin=1",
-            "gh pr merge https://github.com/o/one/pull/42 --admin",
-            "gh pr merge sync/upstream-2026-11-28 --admin",
-            "gh -R o/one pr merge 42 --admin",
-            "gh pr merge 42 -R o/one --admin",
-            "gh pr merge -R o/one 42 --admin",
-            "gh pr merge -t subject 42 --admin",
-            "gh pr merge -b body 42 --admin",
-            "gh pr merge -F body.md 42 --admin",
-            "gh pr merge -A author@example.invalid 42 --admin",
-            'gh pr merge 42 --admin --body "$BODY"',
-        ):
+        cases = (
+            ("gh pr merge --admin", None),
+            ("gh pr merge 42 --admin", "42"),
+            ("gh pr merge 42 --admin=1", "42"),
+            ("gh pr merge https://github.com/o/one/pull/42 --admin", "https://github.com/o/one/pull/42"),
+            ("gh pr merge sync/upstream-2026-11-28 --admin", "sync/upstream-2026-11-28"),
+            ("gh -R o/one pr merge 42 --admin", "42"),
+            ("gh pr merge 42 -R o/one --admin", "42"),
+            ("gh pr merge -R o/one 42 --admin", "42"),
+            ("gh pr merge -t subject 42 --admin", "42"),
+            ("gh pr merge -b body 42 --admin", "42"),
+            ("gh pr merge -F body.md 42 --admin", "42"),
+            ("gh pr merge -A author@example.invalid 42 --admin", "42"),
+            ('gh pr merge 42 --admin --body "$BODY"', "42"),
+        )
+        for command, selector in cases:
             with self.subTest(command=command):
                 self.assertEqual(self.output(self.invoke(command)), {})
+                logged = [line for line in (self.root / "gh.log").read_text().splitlines() if " pr view " in line][-1]
+                expected = f"pr view {selector} " if selector else "pr view --json"
+                self.assertIn(expected, logged)
 
     def test_admin_merge_is_denied_for_a_feature_branch(self):
         self.gh_stub(head="feature/example")
@@ -423,6 +432,7 @@ class RunGuardTests(RunGuardFixture):
         fork = self.root / "fork"
         fork.mkdir()
         self.assertEqual(self.output(self.invoke(f"cd {fork} && gh pr merge 42 --admin")), {})
+        self.assertIn(f"cwd={fork.resolve()} ", (self.root / "gh.log").read_text())
 
     def test_plain_merge_does_not_query_github(self):
         self.gh_stub(head="feature/example", topics="")
