@@ -349,7 +349,7 @@ test("V2 setup registers the tool hook and consumes idle session.status", async 
     const prompted = new Promise<void>((resolve) => {
       resolvePrompt = resolve
     })
-    let subscription: AsyncIterable<{ type: string; data: { sessionID: string; status: { type: string } } }> | undefined
+    let subscription: AsyncIterable<{ type: string; properties: { sessionID: string; status: { type: string } } }> | undefined
     let subscriptionTypes: string[] | undefined
     const cleanup = await runGuardPlugin.setup({
       directory: "/repo",
@@ -364,7 +364,7 @@ test("V2 setup registers the tool hook and consumes idle session.status", async 
           subscriptionTypes = options.types
           subscription = {
             async *[Symbol.asyncIterator]() {
-              yield { type: "session.status", data: { sessionID: "ses_fixture", status: { type: "idle" } } }
+              yield { type: "session.status", properties: { sessionID: "ses_fixture", status: { type: "idle" } } }
             },
           }
           return subscription
@@ -404,7 +404,7 @@ test("V2 busy session.status does not re-prompt", async () => {
         subscribe: () => ({
           async *[Symbol.asyncIterator]() {
             try {
-              yield { type: "session.status", data: { sessionID: "ses_fixture", status: { type: "busy" } } }
+              yield { type: "session.status", properties: { sessionID: "ses_fixture", status: { type: "busy" } } }
             } finally {
               resolveConsumed?.()
             }

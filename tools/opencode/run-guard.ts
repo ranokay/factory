@@ -220,8 +220,9 @@ const plugin = {
     void (async () => {
       try {
         for await (const event of context.event!.subscribe({ types: ["session.status"], signal: controller.signal })) {
-          if (event.type === "session.status" && event.data?.status?.type === "idle" && event.data.sessionID) {
-            await registered.sessionIdle(event.data.sessionID)
+          const sessionID = event.properties?.sessionID
+          if (event.type === "session.status" && event.properties?.status?.type === "idle" && sessionID) {
+            await registered.sessionIdle(sessionID)
           }
         }
       } catch (error) {

@@ -18,7 +18,7 @@ def gh(arguments: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
             text=True,
             capture_output=True,
             check=False,
-            timeout=15,
+            timeout=10,  # two calls per Stop must finish well inside RUN_GUARD_TIMEOUT (35s)
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return subprocess.CompletedProcess(["gh", *arguments], 124, "", str(error))
